@@ -27,7 +27,10 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
       <form onSubmit={submit} style={card}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
           <div style={logo}>D</div>
-          <h1 style={{ fontSize: 20, margin: 0 }}>Dashbord</h1>
+          <div>
+            <h1 style={{ fontSize: 20, margin: 0 }}>Dashboard</h1>
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>ГБУ «МФЦ ДНР»</div>
+          </div>
         </div>
         <label style={label}>Логин</label>
         <input

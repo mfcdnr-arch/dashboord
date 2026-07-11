@@ -62,7 +62,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         <div style={{ width: 32, height: 32, borderRadius: 8, background: '#2f5496', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
           D
         </div>
-        <h1 style={{ fontSize: 20, margin: 0 }}>Dashbord</h1>
+        <h1 style={{ fontSize: 20, margin: 0 }}>Dashboard</h1>
         <span style={{ marginLeft: 'auto', fontSize: 13, padding: '4px 10px', borderRadius: 12, background: ok ? '#e1f5ee' : '#fcebeb', color: ok ? '#0f6e56' : '#a32d2d' }}>
           API: {health ? `${health.status} · БД ${health.db}` : '…'}
         </span>

@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     postgres_user: str = "dashbord"
     postgres_password: str = "dashbord"
 
-    app_name: str = "Dashbord API"
+    app_name: str = "Dashboard API"
     app_env: str = "dev"
 
     # Авторизация

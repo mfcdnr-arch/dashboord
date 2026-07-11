@@ -1,4 +1,4 @@
-// Клиент к Dashbord API (в dev проксируется через Vite на порт 8080).
+// Клиент к Dashboard API (в dev проксируется через Vite на порт 8080).
 
 const TOKEN_KEY = 'dashbord_token'
 

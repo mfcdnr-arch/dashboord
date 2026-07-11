@@ -1,4 +1,4 @@
-# Dashbord API (FastAPI)
+# Dashboard API (FastAPI)
 
 Модульная архитектура: каждый домен — отдельный пакет `app/modules/<name>/` со своим `router`.
 

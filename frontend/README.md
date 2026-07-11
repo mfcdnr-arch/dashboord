@@ -1,4 +1,4 @@
-# Dashbord Frontend (React + TypeScript + Vite)
+# Dashboard Frontend (React + TypeScript + Vite)
 
 Каркас интерфейса: две зоны (Панель управления + Viewer). Пока — заглушки + индикатор
 состояния API (`/health`).
