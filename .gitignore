@@ -1,0 +1,33 @@
+# Секреты и локальное окружение
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.vite/
+npm-debug.log*
+
+# ОС / редакторы
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Логи и данные
+*.log
+data/
+tmp/
+
+# Временные офисные файлы
+~$*.docx

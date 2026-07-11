@@ -1,0 +1,87 @@
+erDiagram
+    DOCUMENTS ||--o{ DOCUMENT_VERSIONS : has
+    DOCUMENT_VERSIONS ||--o{ EXTRACTION_JOBS : triggers
+    EXTRACTION_JOBS ||--o{ EXTRACTED_TABLES : produces
+    EXTRACTED_TABLES ||--o{ EXTRACTED_COLUMNS : contains
+
+    DOCUMENT_VERSIONS ||--o{ DATASET_RELEASES : sources
+    EXTRACTED_COLUMNS ||--o{ DATASET_RELEASE_FIELDS : mapped_to
+    DATASET_RELEASES ||--o{ DATASET_RELEASE_FIELDS : defines
+    DATASET_RELEASES ||--o{ DATASET_RELEASES : superseded_by
+
+    METRICS ||--o{ METRIC_VERSIONS : has
+    METRIC_VERSIONS ||--o{ METRIC_DEPENDENCIES : depends_on_metric
+    DATASET_RELEASES ||--o{ METRIC_DEPENDENCIES : depends_on_dataset
+
+    WIDGETS ||--o{ WIDGET_VERSIONS : has
+    METRIC_VERSIONS }o--o{ WIDGET_VERSIONS : used_in
+
+    DASHBOARDS ||--o{ DASHBOARD_VERSIONS : has
+    DASHBOARD_VERSIONS ||--o{ PUBLICATION_REQUESTS : submitted_as
+    PUBLICATION_REQUESTS ||--o{ PUBLICATION_REVIEWS : reviewed_by
+    PUBLICATION_REQUESTS ||--o| DASHBOARD_PUBLICATIONS : results_in
+    DASHBOARDS ||--o{ DASHBOARD_PUBLICATIONS : published_as
+
+    DOCUMENTS {
+        uuid id PK
+        uuid folder_id FK
+        text status
+        date reporting_period_start
+        date reporting_period_end
+    }
+    DOCUMENT_VERSIONS {
+        uuid id PK
+        uuid document_id FK
+        int version_no
+        text checksum
+    }
+    EXTRACTION_JOBS {
+        uuid id PK
+        uuid document_version_id FK
+        text status
+        numeric confidence_score
+    }
+    DATASET_RELEASES {
+        uuid id PK
+        text code
+        text status
+        uuid source_document_version_id FK
+        uuid superseded_by_release_id FK
+    }
+    METRICS {
+        uuid id PK
+        text code
+        uuid owner_id FK
+    }
+    METRIC_VERSIONS {
+        uuid id PK
+        uuid metric_id FK
+        int version_no
+        text status
+        text formula_expression
+    }
+    WIDGET_VERSIONS {
+        uuid id PK
+        uuid widget_id FK
+        int version_no
+        text status
+        uuid_array metric_version_ids
+    }
+    PUBLICATION_REQUESTS {
+        uuid id PK
+        uuid dashboard_id FK
+        uuid dashboard_version_id FK
+        text status
+    }
+    PUBLICATION_REVIEWS {
+        uuid id PK
+        uuid publication_request_id FK
+        uuid reviewer_id FK
+        text decision
+    }
+    DASHBOARD_PUBLICATIONS {
+        uuid id PK
+        uuid dashboard_id FK
+        uuid dashboard_version_id FK
+        text status
+    }

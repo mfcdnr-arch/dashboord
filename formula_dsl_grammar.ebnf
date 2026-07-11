@@ -1,0 +1,52 @@
+(* ==========================================================
+   Formula DSL Grammar — Metric Formula Engine
+   Semantics: metric_versions.formula_expression parses into this grammar,
+   formula_ast (jsonb) stores the resulting AST.
+   ========================================================== *)
+
+formula          = expression ;
+
+expression       = term , { ( "+" | "-" ) , term } ;
+term             = factor , { ( "*" | "/" ) , factor } ;
+factor           = unary | power ;
+unary            = "-" , factor | "(" , expression , ")" ;
+power            = primary , [ "^" , factor ] ;
+
+primary          = number
+                  | metric_ref
+                  | field_ref
+                  | function_call
+                  | "(" , expression , ")" ;
+
+number           = digit , { digit } , [ "." , digit , { digit } ] ;
+
+metric_ref       = "metric" , "(" , string_literal , [ "," , version_spec ] , ")" ;
+version_spec     = "version" , "=" , ( "latest" | "approved" | integer ) ;
+
+field_ref        = "field" , "(" , string_literal , "," , string_literal , ")" ;
+                  (* field(dataset_release_code, canonical_field_code) *)
+
+function_call    = agg_function | window_function | comparison_function ;
+
+agg_function     = ( "SUM" | "AVG" | "COUNT" | "MIN" | "MAX" ) ,
+                    "(" , expression , [ "," , filter_clause ] , ")" ;
+
+window_function  = running_total | period_compare | share_of_total ;
+
+running_total    = "RUNNING_TOTAL" , "(" , expression , "," , grain_spec , ")" ;
+grain_spec       = "grain" , "=" , string_literal ;
+
+period_compare   = "PERIOD_COMPARE" , "(" , expression , "," , period_unit ,
+                    [ "," , compare_mode ] , ")" ;
+period_unit      = "'day'" | "'week'" | "'month'" | "'quarter'" | "'year'" ;
+compare_mode     = "mode" , "=" , ( "'delta'" | "'pct'" | "'ratio'" ) ;
+
+share_of_total   = "SHARE_OF_TOTAL" , "(" , expression , "," , "over" , "=" , string_literal , ")" ;
+
+comparison_function = ( "PLAN_FACT_DELTA" | "PLAN_FACT_PCT" ) ,
+                       "(" , expression , "," , expression , ")" ;
+
+filter_clause    = "filter" , "=" , "{" , { filter_condition } , "}" ;
+filter_condition = string_literal , "=" , string_literal ;
+
+string_literal   = "'" , { character } , "'" ;

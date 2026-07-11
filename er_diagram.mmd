@@ -1,0 +1,113 @@
+erDiagram
+    ORGANIZATIONS ||--o{ USERS : has
+    ORGANIZATIONS ||--o{ ROLES : has
+    ORGANIZATIONS ||--o{ FOLDERS : has
+    ORGANIZATIONS ||--o{ DASHBOARDS : has
+
+    USERS }o--o{ ROLES : user_roles
+    ROLES ||--o{ ROLE_PERMISSIONS : grants
+    PERMISSIONS ||--o{ ROLE_PERMISSIONS : grants
+
+    FOLDERS ||--o{ FOLDERS : parent_folder
+    FOLDERS ||--o{ DASHBOARDS : contains
+    DASHBOARDS ||--o{ WIDGETS : contains
+    DASHBOARDS ||--o{ DASHBOARD_VERSIONS : has_versions
+
+    FOLDERS ||--|| SECURABLE_OBJECTS : maps_to
+    DASHBOARDS ||--|| SECURABLE_OBJECTS : maps_to
+    WIDGETS ||--|| SECURABLE_OBJECTS : maps_to
+
+    SECURABLE_OBJECTS ||--o{ SECURABLE_OBJECTS : parent_securable
+    SECURABLE_OBJECTS ||--o{ OBJECT_ACL : has_acl
+    PERMISSIONS ||--o{ OBJECT_ACL : referenced_by
+    USERS ||--o{ OBJECT_ACL : subject_user
+    ROLES ||--o{ OBJECT_ACL : subject_role
+
+    SECURABLE_OBJECTS ||--o{ ACCESS_RESOLUTION_CACHE : cached_for
+    USERS ||--o{ ACCESS_RESOLUTION_CACHE : cached_for
+
+    ORGANIZATIONS ||--o{ NOTIFICATION_EVENTS : has
+    WIDGETS ||--o{ NOTIFICATION_EVENTS : triggers
+
+    ORGANIZATIONS ||--o{ AUDIT_LOG : has
+    USERS ||--o{ AUDIT_LOG : performs
+
+    USERS {
+        uuid id PK
+        uuid organization_id FK
+        text login
+        text full_name
+        boolean is_active
+    }
+    ROLES {
+        uuid id PK
+        uuid organization_id FK
+        text code
+        text name
+    }
+    FOLDERS {
+        uuid id PK
+        uuid organization_id FK
+        uuid parent_folder_id FK
+        text name
+    }
+    DASHBOARDS {
+        uuid id PK
+        uuid organization_id FK
+        uuid folder_id FK
+        text name
+        text publication_status
+    }
+    WIDGETS {
+        uuid id PK
+        uuid dashboard_id FK
+        text name
+        text widget_type
+        jsonb config
+    }
+    SECURABLE_OBJECTS {
+        uuid id PK
+        text object_type
+        uuid object_id
+        uuid parent_securable_id FK
+        boolean inherit_permissions
+    }
+    PERMISSIONS {
+        uuid id PK
+        text code
+        text name
+    }
+    OBJECT_ACL {
+        uuid id PK
+        uuid securable_id FK
+        text subject_type
+        uuid subject_id
+        uuid permission_id FK
+        text effect
+        boolean is_inherited
+    }
+    ACCESS_RESOLUTION_CACHE {
+        uuid user_id FK
+        uuid securable_id FK
+        uuid permission_id FK
+        boolean is_allowed
+    }
+    NOTIFICATION_EVENTS {
+        uuid id PK
+        text event_type
+        text entity_type
+        uuid entity_id
+        jsonb payload
+        timestamptz processed_at
+    }
+    AUDIT_LOG {
+        uuid id PK
+        uuid organization_id FK
+        uuid actor_user_id FK
+        text action
+        text entity_type
+        uuid entity_id
+        jsonb old_data
+        jsonb new_data
+        timestamptz created_at
+    }
