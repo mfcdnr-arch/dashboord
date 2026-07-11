@@ -1,4 +1,4 @@
-"""Точка входа Dashbord API (FastAPI).
+"""Точка входа Dashboard API (FastAPI).
 
 Модульная архитектура: каждый домен — отдельный пакет в app/modules/<name>/
 со своим router. Здесь только сборка приложения и подключение роутеров.
@@ -9,12 +9,15 @@ from fastapi import FastAPI
 
 from . import db
 from .config import settings
+from .modules.auth.bootstrap import ensure_seed
+from .modules.auth.router import router as auth_router
 from .modules.system.router import router as system_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.connect()
+    await ensure_seed()
     yield
     await db.disconnect()
 
@@ -25,6 +28,7 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 # auth, access, objects, ingestion, metrics, dashboards, moderation,
 # viewer, archive, reports, admin, notifications, audit.
 app.include_router(system_router)
+app.include_router(auth_router)
 
 
 @app.get("/health", tags=["system"])

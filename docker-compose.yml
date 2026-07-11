@@ -1,4 +1,4 @@
-# Dashbord — инфраструктура для локальной разработки (Docker Desktop).
+# Dashboard — инфраструктура для локальной разработки (Docker Desktop).
 # Отдельный стек, не пересекается с проектом DS (свои имена и порты).
 # Запуск:  docker compose -p dashbord up -d
 # Остановка: docker compose -p dashbord down

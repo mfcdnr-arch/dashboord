@@ -10,6 +10,7 @@ export default defineConfig({
     proxy: {
       '/health': 'http://localhost:8080',
       '/system': 'http://localhost:8080',
+      '/auth': 'http://localhost:8080',
     },
   },
 })
