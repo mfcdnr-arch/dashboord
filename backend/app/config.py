@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     app_name: str = "Dashbord API"
     app_env: str = "dev"
 
+    # Авторизация
+    jwt_secret: str = "dev-secret-change-me"
+    jwt_expire_minutes: int = 720
+    admin_login: str = "admin"
+    admin_password: str = "admin"
+
     @property
     def database_dsn(self) -> str:
         return (
