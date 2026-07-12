@@ -111,3 +111,4 @@
 | 2026-07-11 | Этап 1 (фронт+эндпоинт): /auth/change-password; экраны Login/ChangePassword, оркестрация App. Проверено ВЖИВУЮ в браузере (скриншоты): admin/admin→смена пароля→оболочка (API ok, роль admin). ЭТАП 1 ЗАВЕРШЁН |
 | 2026-07-12 | Исправлено имя бренда Dashbord→Dashboard во всех надписях (экран входа «Dashboard ГБУ «МФЦ ДНР»»). PR #2 (этап 1) смёржен в main. Ветка etap-2-objects |
 | 2026-07-12 | Этап 2.1 (бэкенд объекты): миграция 008 (objects + folders.object_id), модуль objects (CRUD объектов/папок), require_roles(admin,moderator). Проверено: создание/список/папки, 401/409. Прим.: pydantic-модели используют Optional[...] (локальный venv Python 3.9) |
+| 2026-07-12 | Этап 2.2 (бэкенд документы): модуль documents (загрузка файла в MinIO + document_versions, отчётная дата вручную, форматы xlsx/xls/csv/pdf/docx), storage.py (MinIO client + бакет). Проверено: загрузка CSV (файл в бакете), список, .txt→400. Зависимость minio |

@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     admin_login: str = "admin"
     admin_password: str = "admin"
 
+    # MinIO (хранилище документов). По умолчанию — имя сервиса Docker;
+    # для локального запуска: MINIO_ENDPOINT=localhost:9800
+    minio_endpoint: str = "minio:9000"
+    minio_user: str = "dashbord"
+    minio_password: str = "dashbord123"
+    minio_bucket: str = "documents"
+    minio_secure: bool = False
+
     @property
     def database_dsn(self) -> str:
         return (

@@ -11,6 +11,8 @@ from . import db
 from .config import settings
 from .modules.auth.bootstrap import ensure_seed
 from .modules.auth.router import router as auth_router
+from .modules.documents.router import router as documents_router
+from .modules.documents.storage import ensure_bucket
 from .modules.objects.router import router as objects_router
 from .modules.system.router import router as system_router
 
@@ -19,6 +21,7 @@ from .modules.system.router import router as system_router
 async def lifespan(app: FastAPI):
     await db.connect()
     await ensure_seed()
+    ensure_bucket()
     yield
     await db.disconnect()
 
@@ -31,6 +34,7 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.include_router(system_router)
 app.include_router(auth_router)
 app.include_router(objects_router)
+app.include_router(documents_router)
 
 
 @app.get("/health", tags=["system"])
