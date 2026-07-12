@@ -15,6 +15,7 @@ from .modules.documents.router import router as documents_router
 from .modules.documents.storage import ensure_bucket
 from .modules.ingestion import queue as ingestion_queue
 from .modules.ingestion.router import router as ingestion_router
+from .modules.metrics.router import router as metrics_router
 from .modules.objects.router import router as objects_router
 from .modules.system.router import router as system_router
 
@@ -40,6 +41,7 @@ app.include_router(auth_router)
 app.include_router(objects_router)
 app.include_router(documents_router)
 app.include_router(ingestion_router)
+app.include_router(metrics_router)
 
 
 @app.get("/health", tags=["system"])

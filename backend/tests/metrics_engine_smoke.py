@@ -136,7 +136,7 @@ def main():
     check_raises("мусор в конце", lambda: parse("2 + 3 )"))
     check_raises("незакрытая скобка", lambda: parse("SUM(field('a','b')"))
     check_raises("неизвестная функция", lambda: parse("FOO(1)"), "Неизвестная функция")
-    check_raises("оконная → 4.2", lambda: ev("RUNNING_TOTAL(SUM(field('a','b')), grain='month')"), "4.2")
+    check_raises("оконная отложена", lambda: ev("RUNNING_TOTAL(SUM(field('a','b')), grain='month')"), "ряд значений по периодам")
 
     print("=== 12. Оконные функции парсятся (AST) ===")
     check("PERIOD_COMPARE парсится", parse("PERIOD_COMPARE(metric('m'), 'month', mode='pct')")["t"], "period_compare")

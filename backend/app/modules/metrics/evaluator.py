@@ -109,7 +109,8 @@ def evaluate(ast: Dict[str, Any], resolver: Resolver) -> float:
 
     if t in ("running_total", "period_compare", "share"):
         raise FormulaError(
-            f"Оконная функция «{t}» вычисляется на этапе 4.2 (нужен ряд значений по периодам)"
+            f"Оконная функция «{t}» пока не вычисляется — нужен ряд значений по периодам "
+            f"(временной контур/архив). Формула сохраняется, но предпросмотр недоступен."
         )
 
     raise FormulaError(f"Неизвестный узел AST: {t}")

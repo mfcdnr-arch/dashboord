@@ -1,0 +1,192 @@
+"""Источник данных для формул из dataset_values (PostgreSQL) + вычисление.
+
+Вычислитель (evaluator) синхронный, asyncpg — асинхронный, поэтому применяем
+предзагрузку: обходим AST, собираем все ссылки (field/cell/metric), асинхронно
+достаём их значения в кэш, затем синхронно вычисляем формулу по кэшу.
+
+Ссылки на данные (по коду датасета — берётся АКТИВНЫЙ, не superseded, выпуск):
+- field('код','поле')        → столбец поля последнего активного выпуска датасета;
+- cell('код', date, row, col) → значение выпуска ЗА ДАТУ: строка по row_label, столбец по коду;
+- metric('код', version)      → значение другой метрики (рекурсивно, с защитой от циклов).
+"""
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Tuple
+
+from . import evaluator
+from .parser import FormulaError
+
+
+# --------------------------------------------------------------------------- #
+# Сбор ссылок из AST (для предзагрузки)
+# --------------------------------------------------------------------------- #
+def collect_refs(ast: Dict[str, Any]) -> Dict[str, list]:
+    columns: List[Tuple[str, str, Optional[Dict[str, str]]]] = []
+    cells: List[Tuple[str, str, str, str]] = []
+    metrics: List[Tuple[str, Any]] = []
+
+    def walk(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        t = node.get("t")
+        if t == "agg" and node["arg"].get("t") == "field":
+            f = node["arg"]
+            columns.append((f["dataset"], f["field"], node.get("filter")))
+        elif t == "field":
+            columns.append((node["dataset"], node["field"], None))
+        elif t == "cell":
+            cells.append((node["dataset"], node["date"], node["row"], node["col"]))
+        elif t == "metric":
+            metrics.append((node["code"], node["version"]))
+        for val in node.values():
+            if isinstance(val, dict):
+                walk(val)
+            elif isinstance(val, list):
+                for it in val:
+                    walk(it)
+
+    walk(ast)
+    return {"columns": columns, "cells": cells, "metrics": metrics}
+
+
+# --------------------------------------------------------------------------- #
+# Кэш-резолвер (реализует протокол evaluator.Resolver)
+# --------------------------------------------------------------------------- #
+class CacheResolver:
+    def __init__(self, columns: dict, cells: dict, metrics: dict):
+        self._columns = columns
+        self._cells = cells
+        self._metrics = metrics
+
+    def column(self, dataset: str, field: str, filters: Optional[Dict[str, str]]) -> List[float]:
+        key = (dataset, field, _freeze(filters))
+        if key not in self._columns:
+            raise FormulaError(f"Нет данных: field('{dataset}','{field}')")
+        return self._columns[key]
+
+    def cell(self, dataset: str, date: str, row: str, col: str) -> float:
+        key = (dataset, date, row, col)
+        if key not in self._cells:
+            raise FormulaError(f"Нет ячейки: cell('{dataset}', date='{date}', row='{row}', col='{col}')")
+        return self._cells[key]
+
+    def metric(self, code: str, version: Any) -> float:
+        if code not in self._metrics:
+            raise FormulaError(f"Нет метрики: metric('{code}')")
+        return self._metrics[code]
+
+
+def _freeze(filters: Optional[Dict[str, str]]):
+    return tuple(sorted(filters.items())) if filters else None
+
+
+# --------------------------------------------------------------------------- #
+# Доступ к БД
+# --------------------------------------------------------------------------- #
+async def _active_release(conn, org_id, code: str, date: Optional[str] = None):
+    """id активного (не superseded) выпуска датасета. Без даты — последний по периоду."""
+    if date is not None:
+        return await conn.fetchval(
+            "select id from dataset_releases where organization_id=$1 and code=$2 "
+            "and status <> 'superseded' and reporting_period_start = $3::text::date "
+            "order by created_at desc limit 1",
+            org_id, code, date,
+        )
+    return await conn.fetchval(
+        "select id from dataset_releases where organization_id=$1 and code=$2 "
+        "and status <> 'superseded' "
+        "order by reporting_period_start desc nulls last, created_at desc limit 1",
+        org_id, code,
+    )
+
+
+async def _fetch_column(conn, org_id, dataset: str, field: str, filters: Optional[Dict[str, str]]) -> List[float]:
+    rel = await _active_release(conn, org_id, dataset)
+    if rel is None:
+        raise FormulaError(f"Датасет '{dataset}' не найден или не выпущен")
+    if filters:
+        # фильтр выбирает строки по названию (row_label) — по значению условия
+        rows = await conn.fetch(
+            "select value_number from dataset_values "
+            "where dataset_release_id=$1 and canonical_field_code=$2 "
+            "and row_label = any($3::text[]) and value_number is not null order by row_index",
+            rel, field, list(filters.values()),
+        )
+    else:
+        rows = await conn.fetch(
+            "select value_number from dataset_values "
+            "where dataset_release_id=$1 and canonical_field_code=$2 "
+            "and value_number is not null order by row_index",
+            rel, field,
+        )
+    return [float(r["value_number"]) for r in rows]
+
+
+async def _fetch_cell(conn, org_id, dataset: str, date: str, row: str, col: str) -> float:
+    rel = await _active_release(conn, org_id, dataset, date)
+    if rel is None:
+        raise FormulaError(f"Нет выпуска датасета '{dataset}' за {date}")
+    val = await conn.fetchval(
+        "select value_number from dataset_values "
+        "where dataset_release_id=$1 and row_label=$2 and canonical_field_code=$3 "
+        "and value_number is not null limit 1",
+        rel, row, col,
+    )
+    if val is None:
+        raise FormulaError(f"Нет числового значения: cell('{dataset}', date='{date}', row='{row}', col='{col}')")
+    return float(val)
+
+
+# --------------------------------------------------------------------------- #
+# Публичное API: вычислить AST на реальных данных
+# --------------------------------------------------------------------------- #
+async def evaluate_ast(conn, org_id, ast: Dict[str, Any], _visiting: Optional[set] = None) -> float:
+    """Предзагрузка ссылок из БД → синхронное вычисление формулы."""
+    _visiting = _visiting or set()
+    refs = collect_refs(ast)
+
+    columns: dict = {}
+    for dataset, field, filt in refs["columns"]:
+        key = (dataset, field, _freeze(filt))
+        if key not in columns:
+            columns[key] = await _fetch_column(conn, org_id, dataset, field, filt)
+
+    cells: dict = {}
+    for dataset, date, row, col in refs["cells"]:
+        key = (dataset, date, row, col)
+        if key not in cells:
+            cells[key] = await _fetch_cell(conn, org_id, dataset, date, row, col)
+
+    metrics: dict = {}
+    for code, version in refs["metrics"]:
+        if code not in metrics:
+            metrics[code] = await _compute_metric(conn, org_id, code, version, _visiting)
+
+    resolver = CacheResolver(columns, cells, metrics)
+    return evaluator.evaluate(ast, resolver)
+
+
+async def _compute_metric(conn, org_id, code: str, version: Any, visiting: set) -> float:
+    if code in visiting:
+        raise FormulaError(f"Циклическая зависимость через metric('{code}')")
+    row = await _resolve_metric_version(conn, org_id, code, version)
+    if row is None:
+        raise FormulaError(f"Метрика '{code}' (version={version}) не найдена")
+    import json
+    ast = row["formula_ast"]
+    if isinstance(ast, str):
+        ast = json.loads(ast)
+    return await evaluate_ast(conn, org_id, ast, visiting | {code})
+
+
+async def _resolve_metric_version(conn, org_id, code: str, version: Any):
+    base = (
+        "select mv.formula_ast from metrics m "
+        "join metric_versions mv on mv.metric_id = m.id "
+        "where m.organization_id=$1 and m.code=$2 "
+    )
+    if version == "approved":
+        return await conn.fetchrow(base + "and mv.status='approved' order by mv.version_no desc limit 1", org_id, code)
+    if version == "latest":
+        return await conn.fetchrow(base + "order by mv.version_no desc limit 1", org_id, code)
+    return await conn.fetchrow(base + "and mv.version_no=$3 limit 1", org_id, code, int(version))
