@@ -15,9 +15,13 @@
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-POSTGRES_HOST=localhost POSTGRES_PORT=55432 \
+POSTGRES_HOST=localhost POSTGRES_PORT=55432 MINIO_ENDPOINT=localhost:9800 \
   uvicorn app.main:app --reload --port 8080
 ```
+
+> Важно: `MINIO_ENDPOINT=localhost:9800` обязателен при локальном запуске — на старте
+> приложение создаёт bucket в MinIO. Без переопределения оно пойдёт по Docker-имени
+> `minio:9000`, которое вне контейнера не резолвится, и старт упадёт.
 
 Проверка: `http://localhost:8080/health`, документация: `http://localhost:8080/docs`.
 

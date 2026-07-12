@@ -18,10 +18,11 @@ build/
 .vite/
 npm-debug.log*
 
-# ОС / редакторы
+# ОС / редакторы / локальные тулзы
 .DS_Store
 .idea/
 .vscode/
+.claude/
 *.swp
 
 # Логи и данные
