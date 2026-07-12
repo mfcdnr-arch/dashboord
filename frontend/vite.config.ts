@@ -16,6 +16,7 @@ export default defineConfig({
       '/document-versions': 'http://localhost:8080',
       '/extraction-jobs': 'http://localhost:8080',
       '/dataset-releases': 'http://localhost:8080',
+      '/metrics': 'http://localhost:8080',
     },
   },
 })

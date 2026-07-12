@@ -3,6 +3,7 @@ import { clearToken, getHealth, getMe, getToken, type Health, type Me } from './
 import Login from './components/Login'
 import ChangePassword from './components/ChangePassword'
 import ObjectsPage from './components/ObjectsPage'
+import MetricsPage from './components/MetricsPage'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -52,7 +53,7 @@ function Centered({ children }: { children: React.ReactNode }) {
 
 const NAV = [
   { key: 'objects', label: 'Объекты', ready: true },
-  { key: 'metrics', label: 'Метрики', ready: false },
+  { key: 'metrics', label: 'Метрики', ready: true },
   { key: 'dashboards', label: 'Дашборды', ready: false },
   { key: 'moderation', label: 'Модерация', ready: false },
   { key: 'users', label: 'Пользователи', ready: false },
@@ -66,6 +67,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     getHealth().then(setHealth).catch(() => setHealth(null))
   }, [])
   const ok = health?.status === 'ok'
+  const canManage = me.roles.includes('admin') || me.roles.includes('moderator')
 
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh' }}>
@@ -103,7 +105,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
         <main style={{ flex: 1, padding: 24, maxWidth: 900 }}>
           {section === 'objects' ? (
-            <ObjectsPage canManage={me.roles.includes('admin') || me.roles.includes('moderator')} />
+            <ObjectsPage canManage={canManage} />
+          ) : section === 'metrics' ? (
+            <MetricsPage canManage={canManage} />
           ) : (
             <div style={{ color: '#9aa4b2' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>
           )}
