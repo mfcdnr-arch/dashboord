@@ -3,13 +3,15 @@ import {
   createFolder, createObject, listDocuments, listFolders, listObjects, uploadDocument,
   type Doc, type Folder, type Obj,
 } from '../api'
+import ExtractionPage from './ExtractionPage'
 
-export default function ObjectsPage() {
+export default function ObjectsPage({ canManage }: { canManage: boolean }) {
   const [objects, setObjects] = useState<Obj[]>([])
   const [obj, setObj] = useState<Obj | null>(null)
   const [folders, setFolders] = useState<Folder[]>([])
   const [folder, setFolder] = useState<Folder | null>(null)
   const [docs, setDocs] = useState<Doc[]>([])
+  const [openDoc, setOpenDoc] = useState<Doc | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const [newObj, setNewObj] = useState('')
@@ -30,6 +32,7 @@ export default function ObjectsPage() {
     setError(null)
     setObj(o)
     setFolder(null)
+    setOpenDoc(null)
     setDocs([])
     try {
       setFolders(await listFolders(o.id))
@@ -41,8 +44,18 @@ export default function ObjectsPage() {
   async function openFolder(f: Folder) {
     setError(null)
     setFolder(f)
+    setOpenDoc(null)
     try {
       setDocs(await listDocuments(f.id))
+    } catch (e) {
+      fail(e)
+    }
+  }
+
+  async function refreshDocs() {
+    if (!folder) return
+    try {
+      setDocs(await listDocuments(folder.id))
     } catch (e) {
       fail(e)
     }
@@ -100,9 +113,10 @@ export default function ObjectsPage() {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, marginBottom: 16 }}>
-        <button style={crumb} onClick={() => { setObj(null); setFolder(null) }}>Объекты</button>
-        {obj && <><span style={{ color: '#9aa4b2' }}>/</span><button style={crumb} onClick={() => setFolder(null)}>{obj.name}</button></>}
-        {folder && <><span style={{ color: '#9aa4b2' }}>/</span><span>{folder.name}</span></>}
+        <button style={crumb} onClick={() => { setObj(null); setFolder(null); setOpenDoc(null) }}>Объекты</button>
+        {obj && <><span style={{ color: '#9aa4b2' }}>/</span><button style={crumb} onClick={() => { setFolder(null); setOpenDoc(null) }}>{obj.name}</button></>}
+        {folder && <><span style={{ color: '#9aa4b2' }}>/</span><button style={crumb} onClick={() => setOpenDoc(null)}>{folder.name}</button></>}
+        {openDoc && <><span style={{ color: '#9aa4b2' }}>/</span><span>{openDoc.original_filename}</span></>}
       </div>
 
       {error && <div style={errBox}>{error}</div>}
@@ -133,7 +147,11 @@ export default function ObjectsPage() {
         </Section>
       )}
 
-      {folder && (
+      {folder && openDoc && (
+        <ExtractionPage doc={openDoc} canManage={canManage} onBack={() => { setOpenDoc(null); refreshDocs() }} />
+      )}
+
+      {folder && !openDoc && (
         <Section title={`Документы папки «${folder.name}»`}>
           <form onSubmit={upload} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
             <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
@@ -142,7 +160,7 @@ export default function ObjectsPage() {
             <button style={btn} disabled={busy || !file || !date}>Загрузить</button>
           </form>
           <List
-            items={docs.map((d) => ({ id: d.id, title: d.original_filename, sub: `${d.source_type.toUpperCase()} · ${d.reporting_period_start} · ${fmtSize(d.size)}`, onClick: undefined }))}
+            items={docs.map((d) => ({ id: d.id, title: d.original_filename, sub: `${d.source_type.toUpperCase()} · ${d.reporting_period_start} · ${fmtSize(d.size)} · ${statusLabel(d.status)}`, onClick: () => setOpenDoc(d) }))}
             empty="В папке пока нет документов"
           />
         </Section>
@@ -186,6 +204,15 @@ function fmtSize(n: number | null): string {
   if (n < 1024) return `${n} Б`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} КБ`
   return `${(n / 1024 / 1024).toFixed(1)} МБ`
+}
+
+function statusLabel(s: string): string {
+  const m: Record<string, string> = {
+    uploaded: 'загружен', parsing: 'распознаётся', extracted: 'распознан',
+    period_pending: 'ожидает период', confirmed: 'подтверждён', mapped: 'размечен',
+    rejected: 'отклонён', released: 'опубликован',
+  }
+  return m[s] || s
 }
 
 const crumb: React.CSSProperties = { border: 'none', background: 'none', color: '#2f5496', cursor: 'pointer', fontSize: 14, padding: 0 }

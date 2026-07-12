@@ -91,9 +91,11 @@ async def list_documents(folder_id: str, user: dict = Depends(get_current_user))
         rows = await conn.fetch(
             "select d.id, d.original_filename, d.source_type, d.status, "
             "d.reporting_period_start, d.reporting_period_end, d.created_at, "
-            "(select file_size_bytes from document_versions v where v.document_id=d.id "
-            " order by version_no desc limit 1) as size "
-            "from documents d where d.folder_id=$1::uuid order by d.created_at desc",
+            "v.id as version_id, v.file_size_bytes as size "
+            "from documents d "
+            "left join lateral (select id, file_size_bytes from document_versions v "
+            "  where v.document_id=d.id order by version_no desc limit 1) v on true "
+            "where d.folder_id=$1::uuid order by d.created_at desc",
             folder_id,
         )
     return [dict(r) for r in rows]

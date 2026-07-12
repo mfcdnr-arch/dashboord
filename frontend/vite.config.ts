@@ -13,6 +13,9 @@ export default defineConfig({
       '/auth': 'http://localhost:8080',
       '/objects': 'http://localhost:8080',
       '/folders': 'http://localhost:8080',
+      '/document-versions': 'http://localhost:8080',
+      '/extraction-jobs': 'http://localhost:8080',
+      '/dataset-releases': 'http://localhost:8080',
     },
   },
 })

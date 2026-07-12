@@ -103,7 +103,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
         <main style={{ flex: 1, padding: 24, maxWidth: 900 }}>
           {section === 'objects' ? (
-            <ObjectsPage />
+            <ObjectsPage canManage={me.roles.includes('admin') || me.roles.includes('moderator')} />
           ) : (
             <div style={{ color: '#9aa4b2' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>
           )}
