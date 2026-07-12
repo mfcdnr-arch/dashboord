@@ -25,8 +25,16 @@ POSTGRES_HOST=localhost POSTGRES_PORT=55432 MINIO_ENDPOINT=localhost:9800 \
 
 Проверка: `http://localhost:8080/health`, документация: `http://localhost:8080/docs`.
 
+### Фоновый воркер извлечения (arq)
+Извлечение документов идёт в отдельном процессе-воркере на Redis. Локально:
+```bash
+POSTGRES_HOST=localhost POSTGRES_PORT=55432 MINIO_ENDPOINT=localhost:9800 \
+REDIS_HOST=localhost REDIS_PORT=6380 \
+  arq app.modules.ingestion.worker.WorkerSettings
+```
+
 ## Запуск в Docker
 ```bash
-docker compose -p dashbord up -d api
+docker compose -p dashbord up -d api worker
 ```
-Внутри сети Docker API ходит в БД по хосту `postgres:5432`.
+Внутри сети Docker API/воркер ходят в БД `postgres:5432`, Redis `redis:6379`, MinIO `minio:9000`.

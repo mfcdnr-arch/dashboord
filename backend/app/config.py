@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     app_name: str = "Dashboard API"
     app_env: str = "dev"
 
+    # Redis (кэш/очереди/фоновый воркер arq). По умолчанию — имя сервиса Docker;
+    # для локального запуска: REDIS_HOST=localhost REDIS_PORT=6380
+    redis_host: str = "redis"
+    redis_port: int = 6379
+
     # Авторизация
     jwt_secret: str = "dev-secret-change-me"
     jwt_expire_minutes: int = 720

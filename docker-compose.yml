@@ -62,25 +62,40 @@ services:
   api:
     build: ./backend
     container_name: dashbord_api
-    environment:
+    environment: &backend_env
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-dashbord}
       POSTGRES_USER: ${POSTGRES_USER:-dashbord}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dashbord}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_USER: ${MINIO_USER:-dashbord}
+      MINIO_PASSWORD: ${MINIO_PASSWORD:-dashbord123}
       APP_ENV: dev
-    depends_on:
+    depends_on: &backend_deps
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     ports:
       - "${API_PORT:-8080}:8000"
     restart: unless-stopped
 
+  # Фоновый воркер извлечения документов (arq/Redis). Тот же образ, что и api.
+  worker:
+    build: ./backend
+    container_name: dashbord_worker
+    command: arq app.modules.ingestion.worker.WorkerSettings
+    environment: *backend_env
+    depends_on: *backend_deps
+    restart: unless-stopped
+
   # --- Появятся позже ---
   # frontend:  React + TypeScript (viewer + админка) — порт 3080
-  # worker:    фоновые задачи (извлечение документов, пересчёт метрик, очистка архива)
 
 volumes:
   dashbord_pgdata:

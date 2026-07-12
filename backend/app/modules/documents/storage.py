@@ -39,3 +39,15 @@ def put_object(object_name: str, data: bytes, content_type: str) -> str:
         content_type=content_type,
     )
     return f"{settings.minio_bucket}/{object_name}"
+
+
+def get_object(storage_path: str) -> bytes:
+    """Читает объект по storage_path (bucket/object) и возвращает байты."""
+    bucket, _, object_name = storage_path.partition("/")
+    client = get_client()
+    resp = client.get_object(bucket, object_name)
+    try:
+        return resp.read()
+    finally:
+        resp.close()
+        resp.release_conn()
