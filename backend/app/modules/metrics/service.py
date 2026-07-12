@@ -175,6 +175,53 @@ async def preview(conn, org_id, formula_expression: str) -> dict:
     return {"value": value, "dependencies": deps, "ast": ast}
 
 
+async def list_data_sources(conn, org_id) -> dict:
+    """Справочник для визуального конструктора: датасеты (поля/строки/даты) + метрики."""
+    releases = await conn.fetch(
+        "select r.id, r.code, r.name, r.object_id, r.reporting_period_start, o.name as object_name "
+        "from dataset_releases r left join objects o on o.id=r.object_id "
+        "where r.organization_id=$1 and r.status <> 'superseded' "
+        "order by r.code, r.reporting_period_start desc nulls last, r.created_at desc",
+        org_id,
+    )
+    by_code: dict = {}
+    for r in releases:
+        code = r["code"]
+        grp = by_code.setdefault(code, {"code": code, "name": r["name"], "object": r["object_name"],
+                                        "object_id": r["object_id"], "latest_id": r["id"], "dates": []})
+        if r["reporting_period_start"] is not None:
+            d = r["reporting_period_start"].isoformat()
+            if d not in grp["dates"]:
+                grp["dates"].append(d)
+
+    datasets = []
+    for grp in by_code.values():
+        fields = await conn.fetch(
+            "select drf.canonical_field_code as code, "
+            "coalesce(cf.name, drf.canonical_field_code) as name, "
+            "coalesce(cf.data_type,'text') as data_type, coalesce(cf.is_row_label,false) as is_row_label "
+            "from dataset_release_fields drf "
+            "left join canonical_fields cf on cf.object_id=$2 and cf.code=drf.canonical_field_code "
+            "where drf.dataset_release_id=$1 order by drf.canonical_field_code",
+            grp["latest_id"], grp["object_id"],
+        )
+        rows = await conn.fetch(
+            "select distinct row_label from dataset_values "
+            "where dataset_release_id=$1 and row_label is not null order by row_label limit 300",
+            grp["latest_id"],
+        )
+        datasets.append({
+            "code": grp["code"], "name": grp["name"], "object": grp["object"], "dates": grp["dates"],
+            "fields": [dict(f) for f in fields],
+            "rows": [r["row_label"] for r in rows],
+        })
+
+    metrics = await conn.fetch(
+        "select code, name from metrics where organization_id=$1 order by name", org_id
+    )
+    return {"datasets": datasets, "metrics": [dict(m) for m in metrics]}
+
+
 async def evaluate_version(conn, org_id, version_id: str) -> dict:
     row = await conn.fetchrow(
         "select mv.formula_ast, mv.unit from metric_versions mv "

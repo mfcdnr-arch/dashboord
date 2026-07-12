@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import {
-  approveVersion, createMetric, createVersion, getMetric, listMetrics, previewFormula,
+  approveVersion, createMetric, createVersion, getDataSources, getMetric, listMetrics, previewFormula,
   validateVersion, versionValue,
-  type Dependencies, type Metric, type MetricVersion,
+  type DataSources, type Dependencies, type Metric, type MetricVersion,
 } from '../api'
+import FormulaBuilder from './FormulaBuilder'
 
 const FORMULA_HELP = [
   "SUM(field('план','кол'))",
@@ -104,10 +105,14 @@ function MetricDetail({ data, canManage, onError, onChanged }: {
   const { metric, versions } = data
   const [formula, setFormula] = useState('')
   const [unit, setUnit] = useState('')
+  const [mode, setMode] = useState<'visual' | 'text'>('visual')
+  const [sources, setSources] = useState<DataSources | null>(null)
   const [preview, setPreview] = useState<{ value: number; deps: Dependencies } | null>(null)
   const [previewErr, setPreviewErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [values, setValues] = useState<Record<string, string>>({})
+
+  useEffect(() => { getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] })) }, [])
 
   async function doPreview() {
     setPreview(null); setPreviewErr(null); setBusy(true)
@@ -170,15 +175,34 @@ function MetricDetail({ data, canManage, onError, onChanged }: {
       {canManage && (
         <div style={{ marginTop: 20 }}>
           <h3 style={h3}>Новая версия формулы</h3>
-          <textarea
-            style={{ ...input, width: '100%', height: 70, fontFamily: 'ui-monospace, monospace', padding: 10, resize: 'vertical' }}
-            placeholder="Например: SUM(field('план','кол'))"
-            value={formula} onChange={(e) => setFormula(e.target.value)}
-          />
-          <div style={{ fontSize: 12, color: '#9aa4b2', marginTop: 4 }}>
-            Пишите как в Excel: данные — <code>field('датасет','поле')</code>, действия — <code>+ − * /</code>,
-            свёртка — <code>SUM(…)</code>. Проверяйте кнопкой «Предпросмотр». Справочник ниже 👇
+          <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+            <button style={{ ...modeBtn, ...(mode === 'visual' ? modeBtnActive : {}) }} onClick={() => setMode('visual')}>🖱 Конструктор</button>
+            <button style={{ ...modeBtn, ...(mode === 'text' ? modeBtnActive : {}) }} onClick={() => setMode('text')}>⌨ Текст</button>
           </div>
+
+          {mode === 'visual' ? (
+            <div>
+              {sources
+                ? <FormulaBuilder sources={sources} onFormula={setFormula} />
+                : <div style={muted}>Загрузка данных для выбора…</div>}
+              <div style={{ marginTop: 10, fontSize: 12, color: '#6b7280' }}>
+                Получится формула: <code style={mono2}>{formula || '—'}</code>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <textarea
+                style={{ ...input, width: '100%', height: 70, fontFamily: 'ui-monospace, monospace', padding: 10, resize: 'vertical' }}
+                placeholder="Например: SUM(field('план','кол'))"
+                value={formula} onChange={(e) => setFormula(e.target.value)}
+              />
+              <div style={{ fontSize: 12, color: '#9aa4b2', marginTop: 4 }}>
+                Пишите как в Excel: данные — <code>field('датасет','поле')</code>, действия — <code>+ − * /</code>,
+                свёртка — <code>SUM(…)</code>. Проверяйте кнопкой «Предпросмотр». Справочник ниже 👇
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
             <input style={{ ...input, width: 120 }} placeholder="ед. (шт, ₽, %)" value={unit} onChange={(e) => setUnit(e.target.value)} />
             <button style={btnGhost} disabled={busy || !formula.trim()} onClick={doPreview}>Предпросмотр</button>
@@ -262,3 +286,6 @@ const okBox: React.CSSProperties = { background: '#f2fbf7', color: '#0f6e56', fo
 const helpBox: React.CSSProperties = { fontSize: 12.5, color: '#374151', marginTop: 8, padding: '10px 12px', background: '#f9fafb', border: '1px solid #eef0f3', borderRadius: 8, lineHeight: 1.5 }
 const helpH: React.CSSProperties = { fontWeight: 600, color: '#2f5496', marginTop: 8, marginBottom: 2 }
 const helpUl: React.CSSProperties = { margin: '2px 0 0', paddingLeft: 18 }
+const modeBtn: React.CSSProperties = { height: 32, padding: '0 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }
+const modeBtnActive: React.CSSProperties = { background: '#eef', borderColor: '#2f5496', color: '#2f5496' }
+const mono2: React.CSSProperties = { fontFamily: 'ui-monospace, monospace', background: '#f9fafb', padding: '2px 6px', borderRadius: 6, color: '#111827' }

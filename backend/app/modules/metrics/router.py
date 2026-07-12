@@ -18,7 +18,9 @@ from pydantic import BaseModel, Field
 
 from ... import db
 from ..auth.deps import get_current_user, require_roles
-from .service import MetricError, create_metric, create_version, evaluate_version, preview, set_status
+from .service import (
+    MetricError, create_metric, create_version, evaluate_version, list_data_sources, preview, set_status,
+)
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 manage = require_roles("admin", "moderator")
@@ -69,6 +71,14 @@ async def list_metrics(user: dict = Depends(get_current_user)):
             user["organization_id"],
         )
     return [dict(r) for r in rows]
+
+
+@router.get("/data-sources")
+async def data_sources(user: dict = Depends(manage)):
+    """Списки для визуального конструктора: датасеты (поля/строки/даты) + метрики.
+    Определён ДО /{metric_id}, иначе тот перехватит путь."""
+    async with db.get_pool().acquire() as conn:
+        return await list_data_sources(conn, user["organization_id"])
 
 
 @router.get("/{metric_id}")
