@@ -18,6 +18,25 @@ _DATE_FORMATS = (
 _NUM_CLEAN_RE = re.compile(r"[\s  ]")  # пробелы, неразрывные пробелы (разряды)
 
 
+# Транслитерация кириллицы для машинного кода поля (slug).
+_TRANSLIT = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
+    "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
+    "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+    "ф": "f", "х": "h", "ц": "c", "ч": "ch", "ш": "sh", "щ": "sch", "ъ": "",
+    "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+}
+_SLUG_CLEAN_RE = re.compile(r"[^a-z0-9]+")
+
+
+def slug(text: str) -> str:
+    """Заголовок → машинный код поля: транслит + нижний регистр + '_'."""
+    text = text.lower()
+    out = "".join(_TRANSLIT.get(ch, ch) for ch in text)
+    out = _SLUG_CLEAN_RE.sub("_", out).strip("_")
+    return out or "field"
+
+
 @dataclass
 class ColumnInfo:
     column_index: int
@@ -26,35 +45,42 @@ class ColumnInfo:
     confidence: float   # 0..1 — доля значений столбца, подходящих под тип
 
 
-def _is_number(s: str) -> bool:
+def parse_number(s: str) -> Optional[float]:
+    """Строка → число (учёт разрядных пробелов, десятичной запятой, %). None если не число."""
     if not s:
-        return False
-    t = _NUM_CLEAN_RE.sub("", s)
-    t = t.replace("%", "")
+        return None
+    t = _NUM_CLEAN_RE.sub("", s).replace("%", "")
     # десятичная запятая → точка (если запятая одна и точек нет)
     if t.count(",") == 1 and t.count(".") == 0:
         t = t.replace(",", ".")
     else:
         t = t.replace(",", "")  # запятая как разрядный разделитель
     if t in ("", "-", "+", ".", "-.", "+."):
-        return False
+        return None
     try:
-        float(t)
-        return True
+        return float(t)
     except ValueError:
-        return False
+        return None
+
+
+def parse_date(s: str) -> Optional[dt.date]:
+    """Строка → дата по известным форматам. None если не дата."""
+    if not s:
+        return None
+    for fmt in _DATE_FORMATS:
+        try:
+            return dt.datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _is_number(s: str) -> bool:
+    return parse_number(s) is not None
 
 
 def _is_date(s: str) -> bool:
-    if not s:
-        return False
-    for fmt in _DATE_FORMATS:
-        try:
-            dt.datetime.strptime(s, fmt)
-            return True
-        except ValueError:
-            continue
-    return False
+    return parse_date(s) is not None
 
 
 def infer_type(values: List[str]) -> tuple[str, float]:
