@@ -175,6 +175,10 @@ function MetricDetail({ data, canManage, onError, onChanged }: {
             placeholder="Например: SUM(field('план','кол'))"
             value={formula} onChange={(e) => setFormula(e.target.value)}
           />
+          <div style={{ fontSize: 12, color: '#9aa4b2', marginTop: 4 }}>
+            Пишите как в Excel: данные — <code>field('датасет','поле')</code>, действия — <code>+ − * /</code>,
+            свёртка — <code>SUM(…)</code>. Проверяйте кнопкой «Предпросмотр». Справочник ниже 👇
+          </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
             <input style={{ ...input, width: 120 }} placeholder="ед. (шт, ₽, %)" value={unit} onChange={(e) => setUnit(e.target.value)} />
             <button style={btnGhost} disabled={busy || !formula.trim()} onClick={doPreview}>Предпросмотр</button>
@@ -192,14 +196,32 @@ function MetricDetail({ data, canManage, onError, onChanged }: {
           {previewErr && <div style={{ ...errBox, marginTop: 10 }}>{previewErr}</div>}
 
           <details style={{ marginTop: 12 }}>
-            <summary style={{ fontSize: 13, color: '#2f5496', cursor: 'pointer' }}>Подсказка по формулам</summary>
-            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>
-              Функции: <code>SUM/AVG/COUNT/MIN/MAX</code>, <code>field('датасет','поле')</code>, <code>cell(...)</code>, <code>metric('код')</code>, <code>PLAN_FACT_DELTA/PLAN_FACT_PCT</code>. Примеры:
-              <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+            <summary style={{ fontSize: 13, color: '#2f5496', cursor: 'pointer' }}>📘 Справочник по формулам</summary>
+            <div style={helpBox}>
+              <div style={helpH}>Данные — откуда берутся числа</div>
+              <ul style={helpUl}>
+                <li><code>{"field('датасет','поле')"}</code> — весь столбец из выпуска датасета</li>
+                <li><code>{"cell('датасет', date='2026-07-10', row='Паспорт РФ', col='принято')"}</code> — одна ячейка за дату (строка по названию)</li>
+                <li><code>{"metric('код')"}</code> — значение другой метрики</li>
+              </ul>
+              <div style={helpH}>Действия</div>
+              <div style={{ marginBottom: 4 }}><code>+ − * / ^ ( )</code> — как в Excel (сначала <code>^</code>, потом <code>* /</code>, потом <code>+ −</code>)</div>
+              <div style={helpH}>Функции</div>
+              <ul style={helpUl}>
+                <li><code>SUM / AVG / COUNT / MIN / MAX(field(…))</code> — свернуть столбец в одно число</li>
+                <li><code>PLAN_FACT_DELTA(план, факт)</code> — отклонение; <code>PLAN_FACT_PCT(план, факт)</code> — % выполнения плана</li>
+                <li>фильтр строки: <code>{"SUM(field('план','кол'), filter={'услуга'='Паспорт'})"}</code></li>
+              </ul>
+              <div style={helpH}>Примеры — нажмите, чтобы подставить</div>
+              <ul style={helpUl}>
                 {FORMULA_HELP.map((f) => (
                   <li key={f}><code style={{ cursor: 'pointer', color: '#2f5496' }} onClick={() => setFormula(f)}>{f}</code></li>
                 ))}
               </ul>
+              <div style={{ marginTop: 6, color: '#9aa4b2' }}>
+                Совет: всегда жмите «Предпросмотр» — он посчитает результат и покажет зависимости.
+                Полная инструкция — <code>docs/Инструкция_по_формулам.md</code>.
+              </div>
             </div>
           </details>
         </div>
@@ -237,3 +259,6 @@ const mono: React.CSSProperties = { fontFamily: 'ui-monospace, monospace', fontS
 const muted: React.CSSProperties = { color: '#6b7280', fontSize: 14 }
 const errBox: React.CSSProperties = { background: '#fcebeb', color: '#a32d2d', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 const okBox: React.CSSProperties = { background: '#f2fbf7', color: '#0f6e56', fontSize: 14, padding: '10px 12px', borderRadius: 8, border: '1px solid #cfe9dd' }
+const helpBox: React.CSSProperties = { fontSize: 12.5, color: '#374151', marginTop: 8, padding: '10px 12px', background: '#f9fafb', border: '1px solid #eef0f3', borderRadius: 8, lineHeight: 1.5 }
+const helpH: React.CSSProperties = { fontWeight: 600, color: '#2f5496', marginTop: 8, marginBottom: 2 }
+const helpUl: React.CSSProperties = { margin: '2px 0 0', paddingLeft: 18 }
