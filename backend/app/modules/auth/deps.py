@@ -23,3 +23,22 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     if row is None or not row["is_active"]:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Пользователь не найден или заблокирован")
     return dict(row)
+
+
+def require_roles(*codes: str):
+    """Зависимость: пропускает только пользователей с одной из указанных ролей."""
+
+    async def dep(user: dict = Depends(get_current_user)) -> dict:
+        async with db.get_pool().acquire() as conn:
+            rows = await conn.fetch(
+                "select r.code from user_roles ur join roles r on r.id = ur.role_id "
+                "where ur.user_id = $1",
+                user["id"],
+            )
+        user_roles = {r["code"] for r in rows}
+        if not user_roles & set(codes):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Недостаточно прав")
+        user["roles"] = list(user_roles)
+        return user
+
+    return dep

@@ -11,6 +11,7 @@ from . import db
 from .config import settings
 from .modules.auth.bootstrap import ensure_seed
 from .modules.auth.router import router as auth_router
+from .modules.objects.router import router as objects_router
 from .modules.system.router import router as system_router
 
 
@@ -29,6 +30,7 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 # viewer, archive, reports, admin, notifications, audit.
 app.include_router(system_router)
 app.include_router(auth_router)
+app.include_router(objects_router)
 
 
 @app.get("/health", tags=["system"])

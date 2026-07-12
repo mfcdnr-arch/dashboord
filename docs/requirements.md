@@ -109,3 +109,5 @@
 | 2026-07-11 | PR #1 смёржен в main; создана ветка etap-1-auth |
 | 2026-07-11 | Этап 1 (бэкенд auth): модуль auth (bcrypt+JWT, bootstrap org/роли/admin, /auth/login, /auth/me), миграция 007 (must_change_password). Проверено: login/me/401/сид 7 ролей. Ветка etap-1-auth. Осталось: экран входа во фронте |
 | 2026-07-11 | Этап 1 (фронт+эндпоинт): /auth/change-password; экраны Login/ChangePassword, оркестрация App. Проверено ВЖИВУЮ в браузере (скриншоты): admin/admin→смена пароля→оболочка (API ok, роль admin). ЭТАП 1 ЗАВЕРШЁН |
+| 2026-07-12 | Исправлено имя бренда Dashbord→Dashboard во всех надписях (экран входа «Dashboard ГБУ «МФЦ ДНР»»). PR #2 (этап 1) смёржен в main. Ветка etap-2-objects |
+| 2026-07-12 | Этап 2.1 (бэкенд объекты): миграция 008 (objects + folders.object_id), модуль objects (CRUD объектов/папок), require_roles(admin,moderator). Проверено: создание/список/папки, 401/409. Прим.: pydantic-модели используют Optional[...] (локальный venv Python 3.9) |
