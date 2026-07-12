@@ -178,8 +178,13 @@ async def preview(conn, org_id, formula_expression: str) -> dict:
 async def list_data_sources(conn, org_id) -> dict:
     """Справочник для визуального конструктора: датасеты (поля/строки/даты) + метрики."""
     releases = await conn.fetch(
-        "select r.id, r.code, r.name, r.object_id, r.reporting_period_start, o.name as object_name "
-        "from dataset_releases r left join objects o on o.id=r.object_id "
+        "select r.id, r.code, r.name, r.object_id, r.reporting_period_start, o.name as object_name, "
+        "doc.original_filename as document, f.name as folder "
+        "from dataset_releases r "
+        "left join objects o on o.id=r.object_id "
+        "left join document_versions dv on dv.id = r.source_document_version_id "
+        "left join documents doc on doc.id = dv.document_id "
+        "left join folders f on f.id = doc.folder_id "
         "where r.organization_id=$1 and r.status <> 'superseded' "
         "order by r.code, r.reporting_period_start desc nulls last, r.created_at desc",
         org_id,
@@ -187,8 +192,10 @@ async def list_data_sources(conn, org_id) -> dict:
     by_code: dict = {}
     for r in releases:
         code = r["code"]
+        # первая строка по коду — самый свежий выпуск (порядок desc): берём его источник
         grp = by_code.setdefault(code, {"code": code, "name": r["name"], "object": r["object_name"],
-                                        "object_id": r["object_id"], "latest_id": r["id"], "dates": []})
+                                        "object_id": r["object_id"], "latest_id": r["id"], "dates": [],
+                                        "folder": r["folder"], "document": r["document"]})
         if r["reporting_period_start"] is not None:
             d = r["reporting_period_start"].isoformat()
             if d not in grp["dates"]:
@@ -211,7 +218,8 @@ async def list_data_sources(conn, org_id) -> dict:
             grp["latest_id"],
         )
         datasets.append({
-            "code": grp["code"], "name": grp["name"], "object": grp["object"], "dates": grp["dates"],
+            "code": grp["code"], "name": grp["name"], "object": grp["object"],
+            "folder": grp["folder"], "document": grp["document"], "dates": grp["dates"],
             "fields": [dict(f) for f in fields],
             "rows": [r["row_label"] for r in rows],
         })

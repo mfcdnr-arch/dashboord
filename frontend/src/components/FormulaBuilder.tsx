@@ -202,11 +202,28 @@ function TermCard({ term: t, sources, byCode, onPatch, onSetDataset, onRemove }:
   )
 }
 
+function pathLabel(d: DataSet): string {
+  const parts = [d.object, d.folder].filter(Boolean)
+  return parts.length ? ` — ${parts.join(' / ')}` : ''
+}
+
+function sourceLine(d: DataSet): string {
+  const bits = []
+  if (d.document) bits.push(`📄 ${d.document}`)
+  if (d.folder) bits.push(`папка «${d.folder}»`)
+  if (d.object) bits.push(`объект «${d.object}»`)
+  return bits.join(' · ') || 'источник не указан'
+}
+
 function DatasetSel({ sources, value, onChange }: { sources: DataSources; value: string; onChange: (c: string) => void }) {
+  const cur = sources.datasets.find((d) => d.code === value)
   return (
-    <select style={sel} value={value} onChange={(e) => onChange(e.target.value)}>
-      {sources.datasets.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code}{d.object ? ' · ' + d.object : ''})</option>)}
-    </select>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <select style={sel} value={value} onChange={(e) => onChange(e.target.value)}>
+        {sources.datasets.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code}){pathLabel(d)}</option>)}
+      </select>
+      {cur && <div style={srcHint}>{sourceLine(cur)}</div>}
+    </div>
   )
 }
 
@@ -225,3 +242,4 @@ const addBtn: React.CSSProperties = { marginTop: 10, height: 34, padding: '0 14p
 const rmBtn: React.CSSProperties = { marginLeft: 'auto', width: 26, height: 26, border: '1px solid #e5e7eb', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#a32d2d' }
 const pctLbl: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#2f5496' }
 const muted: React.CSSProperties = { color: '#6b7280', fontSize: 13, padding: '8px 0' }
+const srcHint: React.CSSProperties = { fontSize: 11, color: '#9aa4b2', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }

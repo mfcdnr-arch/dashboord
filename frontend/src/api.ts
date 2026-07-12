@@ -344,7 +344,7 @@ export async function versionValue(versionId: string): Promise<{ value: number; 
 
 // Справочник для визуального конструктора формул
 export interface DsField { code: string; name: string; data_type: string; is_row_label: boolean }
-export interface DataSet { code: string; name: string; object: string | null; dates: string[]; fields: DsField[]; rows: string[] }
+export interface DataSet { code: string; name: string; object: string | null; folder: string | null; document: string | null; dates: string[]; fields: DsField[]; rows: string[] }
 export interface DataSources { datasets: DataSet[]; metrics: { code: string; name: string }[] }
 
 export async function getDataSources(): Promise<DataSources> {
