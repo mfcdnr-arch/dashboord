@@ -111,6 +111,9 @@ def main():
     rp = Mem(columns={("plan", "k"): [100.0], ("fakt", "k"): [90.0]})
     check("PLAN_FACT_DELTA", ev("PLAN_FACT_DELTA(SUM(field('plan','k')), SUM(field('fakt','k')))", rp), -10.0)
     check("PLAN_FACT_PCT", ev("PLAN_FACT_PCT(SUM(field('plan','k')), SUM(field('fakt','k')))", rp), 90.0)
+    check("PERCENT_OF(база=200,знач=50)=25", ev("PERCENT_OF(200, 50)"), 25.0)
+    check("PERCENT_OF(поля)", ev("PERCENT_OF(SUM(field('plan','k')), SUM(field('fakt','k')))", rp), 90.0)
+    check_raises("PERCENT_OF база=0", lambda: ev("PERCENT_OF(0, 50)"), "база")
 
     print("=== 8. Межфайловый расчёт ===")
     rx = Mem(columns={("a", "x"): [8.0], ("b", "y"): [2.0]})

@@ -107,6 +107,14 @@ def evaluate(ast: Dict[str, Any], resolver: Resolver) -> float:
             raise FormulaError("PLAN_FACT_PCT: плановое значение равно нулю")
         return fact / plan * 100.0
 
+    if t == "percent_of":
+        # PERCENT_OF(база, значение): база = 100%, ищем % значения от базы
+        base = evaluate(ast["base"], resolver)
+        value = evaluate(ast["value"], resolver)
+        if base == 0:
+            raise FormulaError("Процент: база (100%) равна нулю")
+        return value / base * 100.0
+
     if t in ("running_total", "period_compare", "share"):
         raise FormulaError(
             f"Оконная функция «{t}» пока не вычисляется — нужен ряд значений по периодам "

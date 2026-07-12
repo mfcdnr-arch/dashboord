@@ -8,6 +8,7 @@ import FormulaBuilder from './FormulaBuilder'
 
 const FORMULA_HELP = [
   "SUM(field('план','кол'))",
+  "PERCENT_OF(SUM(field('всего','кол')), SUM(field('часть','кол')))",
   "PLAN_FACT_PCT(SUM(field('план','кол')), SUM(field('факт','кол')))",
   "cell('нагрузка', date='2026-07-10', row='Паспорт РФ', col='Принято')",
   "metric('итого_план') / metric('план_год') * 100",
@@ -234,6 +235,7 @@ function MetricDetail({ data, canManage, onError, onChanged }: {
               <ul style={helpUl}>
                 <li><code>SUM / AVG / COUNT / MIN / MAX(field(…))</code> — свернуть столбец в одно число</li>
                 <li><code>PLAN_FACT_DELTA(план, факт)</code> — отклонение; <code>PLAN_FACT_PCT(план, факт)</code> — % выполнения плана</li>
+                <li><code>PERCENT_OF(база, значение)</code> — процент: база = 100%, ищем % значения от базы (значение ÷ база × 100)</li>
                 <li>фильтр строки: <code>{"SUM(field('план','кол'), filter={'услуга'='Паспорт'})"}</code></li>
               </ul>
               <div style={helpH}>Примеры — нажмите, чтобы подставить</div>
@@ -287,5 +289,5 @@ const helpBox: React.CSSProperties = { fontSize: 12.5, color: '#374151', marginT
 const helpH: React.CSSProperties = { fontWeight: 600, color: '#2f5496', marginTop: 8, marginBottom: 2 }
 const helpUl: React.CSSProperties = { margin: '2px 0 0', paddingLeft: 18 }
 const modeBtn: React.CSSProperties = { height: 32, padding: '0 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }
-const modeBtnActive: React.CSSProperties = { background: '#eef', borderColor: '#2f5496', color: '#2f5496' }
+const modeBtnActive: React.CSSProperties = { background: '#eef', border: '1px solid #2f5496', color: '#2f5496' }
 const mono2: React.CSSProperties = { fontFamily: 'ui-monospace, monospace', background: '#f9fafb', padding: '2px 6px', borderRadius: 6, color: '#111827' }

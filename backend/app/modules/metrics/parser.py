@@ -11,7 +11,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 AGG_FUNCS = {"SUM", "AVG", "COUNT", "MIN", "MAX"}
-WINDOW_FUNCS = {"RUNNING_TOTAL", "PERIOD_COMPARE", "SHARE_OF_TOTAL", "PLAN_FACT_DELTA", "PLAN_FACT_PCT"}
+WINDOW_FUNCS = {"RUNNING_TOTAL", "PERIOD_COMPARE", "SHARE_OF_TOTAL", "PLAN_FACT_DELTA", "PLAN_FACT_PCT", "PERCENT_OF"}
 DATA_REFS = {"field", "cell", "metric"}
 PERIOD_UNITS = {"day", "week", "month", "quarter", "year"}
 COMPARE_MODES = {"delta", "pct", "ratio"}
@@ -257,6 +257,12 @@ class Parser:
             self.expect_op(",")
             over = self._named_str("over")
             return {"t": "share", "arg": arg, "over": over}
+        if fn == "PERCENT_OF":
+            # PERCENT_OF(база, значение) → значение/база*100 (база = 100%)
+            base = self.expression()
+            self.expect_op(",")
+            value = self.expression()
+            return {"t": "percent_of", "base": base, "value": value}
         # PLAN_FACT_DELTA / PLAN_FACT_PCT
         plan = self.expression()
         self.expect_op(",")
