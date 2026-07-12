@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { clearToken, getHealth, getMe, getToken, type Health, type Me } from './api'
 import Login from './components/Login'
 import ChangePassword from './components/ChangePassword'
+import ObjectsPage from './components/ObjectsPage'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -49,49 +50,64 @@ function Centered({ children }: { children: React.ReactNode }) {
   )
 }
 
+const NAV = [
+  { key: 'objects', label: 'Объекты', ready: true },
+  { key: 'metrics', label: 'Метрики', ready: false },
+  { key: 'dashboards', label: 'Дашборды', ready: false },
+  { key: 'moderation', label: 'Модерация', ready: false },
+  { key: 'users', label: 'Пользователи', ready: false },
+  { key: 'reports', label: 'Отчёты', ready: false },
+]
+
 function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [health, setHealth] = useState<Health | null>(null)
+  const [section, setSection] = useState('objects')
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null))
   }, [])
   const ok = health?.status === 'ok'
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 900, margin: '0 auto', padding: 24 }}>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-        <div style={{ width: 32, height: 32, borderRadius: 8, background: '#2f5496', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
-          D
+    <div style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh' }}>
+      <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', borderBottom: '1px solid #e5e7eb' }}>
+        <div style={{ width: 30, height: 30, borderRadius: 8, background: '#2f5496', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>D</div>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 600, lineHeight: 1 }}>Dashboard</div>
+          <div style={{ fontSize: 11, color: '#6b7280' }}>ГБУ «МФЦ ДНР»</div>
         </div>
-        <h1 style={{ fontSize: 20, margin: 0 }}>Dashboard</h1>
         <span style={{ marginLeft: 'auto', fontSize: 13, padding: '4px 10px', borderRadius: 12, background: ok ? '#e1f5ee' : '#fcebeb', color: ok ? '#0f6e56' : '#a32d2d' }}>
           API: {health ? `${health.status} · БД ${health.db}` : '…'}
         </span>
+        <span style={{ fontSize: 13 }}><strong>{me.full_name || me.login}</strong></span>
+        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: '#eef', color: '#2f5496' }}>{me.roles.join(', ')}</span>
+        <button onClick={onLogout} style={{ height: 32, padding: '0 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }}>Выйти</button>
       </header>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, fontSize: 14 }}>
-        <span style={{ color: '#6b7280' }}>Вы вошли как</span>
-        <strong>{me.full_name || me.login}</strong>
-        <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 10, background: '#eef' , color: '#2f5496' }}>
-          {me.roles.join(', ')}
-        </span>
-        <button onClick={onLogout} style={{ marginLeft: 'auto', height: 32, padding: '0 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }}>
-          Выйти
-        </button>
-      </div>
+      <div style={{ display: 'flex', minHeight: 'calc(100vh - 55px)' }}>
+        <nav style={{ width: 200, borderRight: '1px solid #e5e7eb', padding: 12 }}>
+          {NAV.map((n) => (
+            <button
+              key={n.key}
+              onClick={() => setSection(n.key)}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', marginBottom: 4,
+                border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 14,
+                background: section === n.key ? '#eef' : 'transparent',
+                color: section === n.key ? '#2f5496' : n.ready ? '#111827' : '#9aa4b2',
+              }}
+            >
+              {n.label}{!n.ready && <span style={{ fontSize: 11 }}> · в разработке</span>}
+            </button>
+          ))}
+        </nav>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <section style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
-          <h2 style={{ fontSize: 16, marginTop: 0 }}>Панель управления</h2>
-          <p style={{ color: '#6b7280', fontSize: 14 }}>
-            Объекты, документы, метрики, конструктор, модерация, пользователи, отчёты.
-          </p>
-        </section>
-        <section style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
-          <h2 style={{ fontSize: 16, marginTop: 0 }}>Viewer</h2>
-          <p style={{ color: '#6b7280', fontSize: 14 }}>
-            Просмотр разрешённых дашбордов, фильтры, раскрытие значений.
-          </p>
-        </section>
+        <main style={{ flex: 1, padding: 24, maxWidth: 900 }}>
+          {section === 'objects' ? (
+            <ObjectsPage />
+          ) : (
+            <div style={{ color: '#9aa4b2' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>
+          )}
+        </main>
       </div>
     </div>
   )

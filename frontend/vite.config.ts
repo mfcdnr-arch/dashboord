@@ -11,6 +11,8 @@ export default defineConfig({
       '/health': 'http://localhost:8080',
       '/system': 'http://localhost:8080',
       '/auth': 'http://localhost:8080',
+      '/objects': 'http://localhost:8080',
+      '/folders': 'http://localhost:8080',
     },
   },
 })
