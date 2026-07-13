@@ -12,7 +12,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from ..metrics import resolver as mr
-from ..metrics.parser import FormulaError
+from ..metrics.parser import FormulaError, extract_dependencies
 
 
 class DashboardError(Exception):
@@ -180,15 +180,20 @@ async def delete_widget(conn, org_id, widget_id: str) -> None:
 # --------------------------------------------------------------------------- #
 # Вычисление данных виджета
 # --------------------------------------------------------------------------- #
-async def _metric_value(conn, org_id, code: str):
+async def _best_metric_version(conn, org_id, code: str):
     # приоритет версии: одобренная → проверенная → любая (черновик не берётся вперёд проверенной)
-    row = await conn.fetchrow(
-        "select mv.formula_ast, mv.unit from metrics m join metric_versions mv on mv.metric_id=m.id "
+    return await conn.fetchrow(
+        "select m.name, mv.formula_expression, mv.formula_ast, mv.unit, mv.version_no, mv.status "
+        "from metrics m join metric_versions mv on mv.metric_id=m.id "
         "where m.organization_id=$1 and m.code=$2 "
         "order by (case mv.status when 'approved' then 0 when 'validated' then 1 else 2 end), "
         "mv.version_no desc limit 1",
         org_id, code,
     )
+
+
+async def _metric_value(conn, org_id, code: str):
+    row = await _best_metric_version(conn, org_id, code)
     if row is None:
         raise DashboardError(f"Метрика '{code}' не найдена")
     ast = row["formula_ast"]
@@ -277,3 +282,43 @@ async def compute_widget_data(conn, org_id, widget_id: str) -> dict:
     return {"type": t, "title": w["name"],
             "categories": [s["category"] for s in series],
             "values": [s["value"] for s in series]}
+
+
+async def widget_drill(conn, org_id, widget_id: str) -> dict:
+    """Прозрачность показателя: из чего собран виджет — формулы метрик (уровень 1)
+    и первичные строки датасетов (уровень 2)."""
+    w = await _widget_org(conn, org_id, widget_id)
+    if w is None:
+        raise DashboardError("Виджет не найден")
+    cfg = _cfg(w)
+    metric_codes = [cfg[k] for k in ("metric_code", "plan_metric", "fact_metric") if cfg.get(k)]
+    dataset_codes = [cfg["dataset_code"]] if cfg.get("dataset_code") else []
+
+    metrics_info: List[dict] = []
+    for code in metric_codes:
+        row = await _best_metric_version(conn, org_id, code)
+        if row is None:
+            continue
+        ast = row["formula_ast"]
+        if isinstance(ast, str):
+            ast = json.loads(ast)
+        deps = extract_dependencies(ast)
+        metrics_info.append({
+            "code": code, "name": row["name"], "formula": row["formula_expression"],
+            "status": row["status"], "version_no": row["version_no"], "datasets": deps["datasets"],
+        })
+        dataset_codes += deps["datasets"]
+
+    seen: List[str] = []
+    for dc in dataset_codes:
+        if dc not in seen:
+            seen.append(dc)
+    tables: Dict[str, Any] = {}
+    for dc in seen:
+        try:
+            tables[dc] = await _dataset_table(conn, org_id, dc)
+        except DashboardError:
+            tables[dc] = {"columns": [], "rows": []}
+
+    return {"widget": w["name"], "widget_type": w["widget_type"],
+            "metrics": metrics_info, "datasets": seen, "tables": tables}

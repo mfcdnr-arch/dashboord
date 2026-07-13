@@ -162,3 +162,12 @@ async def widget_data(widget_id: str, user: dict = Depends(get_current_user)):
             return await service.compute_widget_data(conn, user["organization_id"], widget_id)
         except DashboardError as e:
             raise _bad(e)
+
+
+@router.get("/widgets/{widget_id}/drill")
+async def widget_drill(widget_id: str, user: dict = Depends(get_current_user)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            return await service.widget_drill(conn, user["organization_id"], widget_id)
+        except DashboardError as e:
+            raise _bad(e)

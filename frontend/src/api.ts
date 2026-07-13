@@ -429,3 +429,8 @@ export async function getWidgetData(widgetId: string): Promise<any> {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+export async function getWidgetDrill(widgetId: string): Promise<any> {
+  const res = await fetch(`/widgets/${widgetId}/drill`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
