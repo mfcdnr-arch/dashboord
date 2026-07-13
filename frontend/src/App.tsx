@@ -4,6 +4,7 @@ import Login from './components/Login'
 import ChangePassword from './components/ChangePassword'
 import ObjectsPage from './components/ObjectsPage'
 import MetricsPage from './components/MetricsPage'
+import DashboardsPage from './components/DashboardsPage'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -54,7 +55,7 @@ function Centered({ children }: { children: React.ReactNode }) {
 const NAV = [
   { key: 'objects', label: 'Объекты', ready: true },
   { key: 'metrics', label: 'Метрики', ready: true },
-  { key: 'dashboards', label: 'Дашборды', ready: false },
+  { key: 'dashboards', label: 'Дашборды', ready: true },
   { key: 'moderation', label: 'Модерация', ready: false },
   { key: 'users', label: 'Пользователи', ready: false },
   { key: 'reports', label: 'Отчёты', ready: false },
@@ -108,6 +109,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <ObjectsPage canManage={canManage} />
           ) : section === 'metrics' ? (
             <MetricsPage canManage={canManage} />
+          ) : section === 'dashboards' ? (
+            <DashboardsPage canManage={canManage} />
           ) : (
             <div style={{ color: '#9aa4b2' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>
           )}

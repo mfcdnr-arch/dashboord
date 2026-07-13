@@ -17,6 +17,9 @@ export default defineConfig({
       '/extraction-jobs': 'http://localhost:8080',
       '/dataset-releases': 'http://localhost:8080',
       '/metrics': 'http://localhost:8080',
+      '/dashboards': 'http://localhost:8080',
+      '/dashboard-pages': 'http://localhost:8080',
+      '/widgets': 'http://localhost:8080',
     },
   },
 })

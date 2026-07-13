@@ -352,3 +352,80 @@ export async function getDataSources(): Promise<DataSources> {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// --- Дашборды / страницы / виджеты ---
+
+export interface Dashboard {
+  id: string
+  name: string
+  description: string | null
+  publication_status: string
+  created_at: string
+  pages?: number
+}
+export interface DashPage { id: string; name: string; description: string | null; position: number }
+export interface Widget {
+  id: string
+  name: string
+  widget_type: string
+  position_x: number
+  position_y: number
+  width: number
+  height: number
+  config: Record<string, unknown>
+}
+
+export async function listDashboards(): Promise<Dashboard[]> {
+  const res = await fetch('/dashboards', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function createDashboard(name: string, description?: string): Promise<Dashboard> {
+  const res = await fetch('/dashboards', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ name, description: description || null }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function getDashboard(id: string): Promise<{ dashboard: Dashboard; pages: DashPage[] }> {
+  const res = await fetch(`/dashboards/${id}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function createPage(dashboardId: string, name: string, description?: string): Promise<DashPage> {
+  const res = await fetch(`/dashboards/${dashboardId}/pages`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ name, description: description || null }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function deletePage(pageId: string): Promise<void> {
+  const res = await fetch(`/dashboard-pages/${pageId}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
+export async function listPageWidgets(pageId: string): Promise<{ page_id: string; widgets: Widget[] }> {
+  const res = await fetch(`/dashboard-pages/${pageId}/widgets`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function createWidget(pageId: string, body: {
+  name: string; widget_type: string; config: Record<string, unknown>
+}): Promise<{ id: string }> {
+  const res = await fetch(`/dashboard-pages/${pageId}/widgets`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function deleteWidget(widgetId: string): Promise<void> {
+  const res = await fetch(`/widgets/${widgetId}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
+export async function getWidgetData(widgetId: string): Promise<any> {
+  const res = await fetch(`/widgets/${widgetId}/data`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
