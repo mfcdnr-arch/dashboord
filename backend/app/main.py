@@ -11,6 +11,7 @@ from . import db
 from .config import settings
 from .modules.auth.bootstrap import ensure_seed
 from .modules.auth.router import router as auth_router
+from .modules.dashboards.router import router as dashboards_router
 from .modules.documents.router import router as documents_router
 from .modules.documents.storage import ensure_bucket
 from .modules.ingestion import queue as ingestion_queue
@@ -42,6 +43,7 @@ app.include_router(objects_router)
 app.include_router(documents_router)
 app.include_router(ingestion_router)
 app.include_router(metrics_router)
+app.include_router(dashboards_router)
 
 
 @app.get("/health", tags=["system"])
