@@ -20,6 +20,7 @@ export default defineConfig({
       '/dashboards': 'http://localhost:8080',
       '/dashboard-pages': 'http://localhost:8080',
       '/widgets': 'http://localhost:8080',
+      '/home': 'http://localhost:8080',
     },
   },
 })

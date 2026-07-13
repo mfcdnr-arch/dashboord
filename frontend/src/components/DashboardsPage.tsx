@@ -11,7 +11,7 @@ const WT = [
   { v: 'pie', t: 'Круговая' }, { v: 'table', t: 'Таблица' }, { v: 'plan_fact', t: 'План-факт' },
 ]
 
-export default function DashboardsPage({ canManage }: { canManage: boolean }) {
+export default function DashboardsPage({ canManage, initialDashboardId }: { canManage: boolean; initialDashboardId?: string | null }) {
   const [dashboards, setDashboards] = useState<Dashboard[]>([])
   const [sel, setSel] = useState<{ dashboard: Dashboard; pages: DashPage[] } | null>(null)
   const [page, setPage] = useState<DashPage | null>(null)
@@ -27,7 +27,10 @@ export default function DashboardsPage({ canManage }: { canManage: boolean }) {
   const fail = (e: unknown) => setError((e as Error).message)
   const refresh = () => listDashboards().then(setDashboards).catch(fail)
 
-  useEffect(() => { refresh(); getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] })) }, [])
+  useEffect(() => {
+    refresh(); getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] }))
+    if (initialDashboardId) openDashboard(initialDashboardId)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openDashboard(id: string) {
     setError(null); setPage(null); setWidgets([])

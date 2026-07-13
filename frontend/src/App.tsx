@@ -5,6 +5,7 @@ import ChangePassword from './components/ChangePassword'
 import ObjectsPage from './components/ObjectsPage'
 import MetricsPage from './components/MetricsPage'
 import DashboardsPage from './components/DashboardsPage'
+import HomePage from './components/HomePage'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -53,6 +54,7 @@ function Centered({ children }: { children: React.ReactNode }) {
 }
 
 const NAV = [
+  { key: 'home', label: 'Главная', ready: true },
   { key: 'objects', label: 'Объекты', ready: true },
   { key: 'metrics', label: 'Метрики', ready: true },
   { key: 'dashboards', label: 'Дашборды', ready: true },
@@ -63,7 +65,8 @@ const NAV = [
 
 function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [health, setHealth] = useState<Health | null>(null)
-  const [section, setSection] = useState('objects')
+  const [section, setSection] = useState('home')
+  const [openDash, setOpenDash] = useState<string | null>(null)
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null))
   }, [])
@@ -91,7 +94,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {NAV.map((n) => (
             <button
               key={n.key}
-              onClick={() => setSection(n.key)}
+              onClick={() => { setOpenDash(null); setSection(n.key) }}
               style={{
                 display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', marginBottom: 4,
                 border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 14,
@@ -105,12 +108,14 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         </nav>
 
         <main style={{ flex: 1, padding: 24, maxWidth: 900 }}>
-          {section === 'objects' ? (
+          {section === 'home' ? (
+            <HomePage me={me} canManage={canManage} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
+          ) : section === 'objects' ? (
             <ObjectsPage canManage={canManage} />
           ) : section === 'metrics' ? (
             <MetricsPage canManage={canManage} />
           ) : section === 'dashboards' ? (
-            <DashboardsPage canManage={canManage} />
+            <DashboardsPage canManage={canManage} initialDashboardId={openDash} />
           ) : (
             <div style={{ color: '#9aa4b2' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>
           )}
