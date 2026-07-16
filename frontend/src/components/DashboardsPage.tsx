@@ -1,10 +1,22 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import GridLayout, { WidthProvider, type Layout } from 'react-grid-layout'
+import 'react-grid-layout/css/styles.css'
+import 'react-resizable/css/styles.css'
 import {
   autoBuildDashboard, createDashboard, createPage, createWidget, deletePage, deleteWidget, getDashboard,
-  getDataSources, listDashboards, listObjects, listPageWidgets,
+  getDataSources, listDashboards, listObjects, listPageWidgets, updateWidget,
   type Dashboard, type DashPage, type DataSources, type Obj, type Widget,
 } from '../api'
 import WidgetView from './WidgetView'
+
+const GL = WidthProvider(GridLayout)
+
+// размеры по умолчанию для новых виджетов (сетка cols=12, rowHeight=40)
+const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
+  kpi: { w: 3, h: 3 }, plan_fact: { w: 4, h: 5 }, table: { w: 6, h: 6 },
+  bar: { w: 5, h: 6 }, line: { w: 5, h: 6 }, pie: { w: 4, h: 6 },
+  dynamics: { w: 6, h: 6 }, compare: { w: 6, h: 7 },
+}
 
 const WT = [
   { v: 'kpi', t: 'KPI (число)' }, { v: 'bar', t: 'Столбцы' }, { v: 'line', t: 'Линия' },
@@ -28,6 +40,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   const [pTo, setPTo] = useState('')
   const [objects, setObjects] = useState<Obj[]>([])
   const [autoObj, setAutoObj] = useState('')
+  const [editMode, setEditMode] = useState(false)
 
   const fail = (e: unknown) => setError((e as Error).message)
   const refresh = () => listDashboards().then(setDashboards).catch(fail)
@@ -77,12 +90,18 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
     try { await deletePage(p.id); const d = await getDashboard(sel.dashboard.id); setSel(d); setPage(null); setWidgets([]) }
     catch (e) { fail(e) }
   }
-  async function addWidget(body: { name: string; widget_type: string; config: Record<string, unknown> }) {
+  async function addWidget(body: { name: string; widget_type: string; config: Record<string, unknown>; width?: number; height?: number }) {
     if (!page) return
-    try { await createWidget(page.id, body); await reloadPage(); setReloadKey((k) => k + 1) } catch (e) { fail(e) }
+    try { await createWidget(page.id, { ...body, position_x: 0, position_y: 999 }); await reloadPage(); setReloadKey((k) => k + 1) } catch (e) { fail(e) }
   }
   async function delWidget(w: Widget) {
     try { await deleteWidget(w.id); await reloadPage() } catch (e) { fail(e) }
+  }
+  async function persistItem(l: Layout) {
+    try {
+      await updateWidget(l.i, { position_x: l.x, position_y: l.y, width: l.w, height: l.h })
+      setWidgets((ws) => ws.map((w) => (w.id === l.i ? { ...w, position_x: l.x, position_y: l.y, width: l.w, height: l.h } : w)))
+    } catch (e) { fail(e) }
   }
 
   return (
@@ -148,6 +167,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                 <h3 style={{ fontSize: 15, margin: 0 }}>Страница «{page.name}»</h3>
+                {canManage && <button style={{ ...tab, height: 30, ...(editMode ? tabActive : {}) }} onClick={() => setEditMode((v) => !v)}>{editMode ? '✓ Готово' : '✎ Раскладка'}</button>}
                 {canManage && <button style={linkDanger} onClick={() => delPage(page)}>удалить страницу</button>}
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280' }}>
                   <span>Период:</span>
@@ -158,20 +178,26 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
                 </div>
               </div>
 
-              {/* Сетка виджетов */}
+              {/* Сетка виджетов (drag-drop в режиме раскладки) */}
               {widgets.length === 0 ? <div style={muted}>На странице пока нет виджетов.</div> : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+                <GL className="layout" cols={12} rowHeight={40} margin={[12, 12]}
+                  isDraggable={canManage && editMode} isResizable={canManage && editMode}
+                  draggableHandle=".wdrag" compactType="vertical"
+                  onDragStop={(_l, _o, n) => persistItem(n)} onResizeStop={(_l, _o, n) => persistItem(n)}
+                  layout={widgets.map((w) => ({ i: w.id, x: w.position_x || 0, y: w.position_y || 0, w: w.width || 4, h: w.height || 4 }))}>
                   {widgets.map((w) => (
-                    <div key={w.id} style={widgetCard}>
-                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                    <div key={w.id} style={{ ...widgetCard, height: '100%', overflow: 'hidden', outline: editMode ? '1px dashed #9aa4b2' : 'none' }}>
+                      <div className={editMode ? 'wdrag' : ''} style={{ display: 'flex', alignItems: 'center', marginBottom: 8, cursor: editMode ? 'move' : 'default' }}>
                         <div style={{ fontSize: 13, fontWeight: 600 }}>{w.name}</div>
                         <span style={wtBadge}>{WT.find((x) => x.v === w.widget_type)?.t || w.widget_type}</span>
                         {canManage && <button style={rmBtn} onClick={() => delWidget(w)} title="Удалить">✕</button>}
                       </div>
-                      <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} />
+                      <div style={{ overflow: 'auto', maxHeight: 'calc(100% - 30px)' }}>
+                        <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} />
+                      </div>
                     </div>
                   ))}
-                </div>
+                </GL>
               )}
 
               {canManage && sources && (
@@ -188,7 +214,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   )
 }
 
-function WidgetForm({ sources, onCreate }: { sources: DataSources; onCreate: (b: { name: string; widget_type: string; config: Record<string, unknown> }) => void }) {
+function WidgetForm({ sources, onCreate }: { sources: DataSources; onCreate: (b: { name: string; widget_type: string; config: Record<string, unknown>; width?: number; height?: number }) => void }) {
   const [name, setName] = useState('')
   const [type, setType] = useState('kpi')
   const [source, setSource] = useState<'metric' | 'dataset'>('metric')
@@ -216,7 +242,8 @@ function WidgetForm({ sources, onCreate }: { sources: DataSources; onCreate: (b:
     else if (type === 'table') config = { dataset_code: dataset }
     else if (type === 'compare') { if (multiFields.length === 0) return; config = { dataset_code: dataset, value_fields: multiFields, viz } }
     else config = { dataset_code: dataset, value_field: valueField }
-    onCreate({ name: name.trim() || WT.find((x) => x.v === type)?.t || type, widget_type: type, config })
+    const sz = DEFAULT_SIZE[type] || { w: 4, h: 4 }
+    onCreate({ name: name.trim() || WT.find((x) => x.v === type)?.t || type, widget_type: type, config, width: sz.w, height: sz.h })
     setName('')
   }
 

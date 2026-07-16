@@ -420,6 +420,7 @@ export async function listPageWidgets(pageId: string): Promise<{ page_id: string
 }
 export async function createWidget(pageId: string, body: {
   name: string; widget_type: string; config: Record<string, unknown>
+  position_x?: number; position_y?: number; width?: number; height?: number
 }): Promise<{ id: string }> {
   const res = await fetch(`/dashboard-pages/${pageId}/widgets`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
@@ -427,6 +428,16 @@ export async function createWidget(pageId: string, body: {
   })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
+}
+export async function updateWidget(widgetId: string, patch: {
+  name?: string; config?: Record<string, unknown>
+  position_x?: number; position_y?: number; width?: number; height?: number
+}): Promise<void> {
+  const res = await fetch(`/widgets/${widgetId}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(await errText(res))
 }
 export async function deleteWidget(widgetId: string): Promise<void> {
   const res = await fetch(`/widgets/${widgetId}`, { method: 'DELETE', headers: authH() })

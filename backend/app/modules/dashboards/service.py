@@ -438,16 +438,16 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None) -> dict:
         f0 = fields[0]
         await create_widget(conn, org_id, user_id, pid, f"{dsname}: Σ {f0['name']}", "kpi",
                             {"dataset_code": code, "value_field": f0["code"]},
-                            {"position_x": 0, "position_y": y, "width": 3, "height": 2}); n += 1
+                            {"position_x": 0, "position_y": y, "width": 3, "height": 3}); n += 1
         await create_widget(conn, org_id, user_id, pid, f"{dsname}: {f0['name']} по строкам", "bar",
                             {"dataset_code": code, "value_field": f0["code"]},
-                            {"position_x": 3, "position_y": y, "width": 5, "height": 4}); n += 1
+                            {"position_x": 3, "position_y": y, "width": 5, "height": 6}); n += 1
         if (d["periods"] or 0) > 1:
             await create_widget(conn, org_id, user_id, pid, f"{dsname}: динамика {f0['name']}", "dynamics",
                                 {"dataset_code": code, "value_field": f0["code"]},
-                                {"position_x": 8, "position_y": y, "width": 4, "height": 4}); n += 1
+                                {"position_x": 8, "position_y": y, "width": 4, "height": 6}); n += 1
         await create_widget(conn, org_id, user_id, pid, f"{dsname}: таблица", "table",
                             {"dataset_code": code},
-                            {"position_x": 0, "position_y": y + 4, "width": 6, "height": 4}); n += 1
-        y += 8
+                            {"position_x": 0, "position_y": y + 6, "width": 6, "height": 6}); n += 1
+        y += 12
     return {"dashboard_id": did, "page_id": pid, "widgets": n}
