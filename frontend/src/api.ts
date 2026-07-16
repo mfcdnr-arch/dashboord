@@ -388,6 +388,14 @@ export async function createDashboard(name: string, description?: string): Promi
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+export async function autoBuildDashboard(objectId: string, name?: string): Promise<{ dashboard_id: string; page_id: string; widgets: number }> {
+  const res = await fetch('/dashboards/auto', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ object_id: objectId, name: name || null }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
 export async function getDashboard(id: string): Promise<{ dashboard: Dashboard; pages: DashPage[] }> {
   const res = await fetch(`/dashboards/${id}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))

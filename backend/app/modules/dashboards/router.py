@@ -30,6 +30,11 @@ class DashboardIn(BaseModel):
     folder_id: Optional[str] = None
 
 
+class AutoIn(BaseModel):
+    object_id: str
+    name: Optional[str] = None
+
+
 class PageIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: Optional[str] = None
@@ -66,6 +71,16 @@ async def create_dashboard(body: DashboardIn, user: dict = Depends(manage)):
         try:
             return await service.create_dashboard(conn, user["organization_id"], user["id"],
                                                   body.name, body.description, body.folder_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.post("/dashboards/auto", status_code=status.HTTP_201_CREATED)
+async def auto_build(body: AutoIn, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            async with conn.transaction():
+                return await service.auto_build(conn, user["organization_id"], user["id"], body.object_id, body.name)
         except DashboardError as e:
             raise _bad(e)
 

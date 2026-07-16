@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import {
-  createDashboard, createPage, createWidget, deletePage, deleteWidget, getDashboard,
-  getDataSources, listDashboards, listPageWidgets,
-  type Dashboard, type DashPage, type DataSources, type Widget,
+  autoBuildDashboard, createDashboard, createPage, createWidget, deletePage, deleteWidget, getDashboard,
+  getDataSources, listDashboards, listObjects, listPageWidgets,
+  type Dashboard, type DashPage, type DataSources, type Obj, type Widget,
 } from '../api'
 import WidgetView from './WidgetView'
 
@@ -26,12 +26,15 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   const [busy, setBusy] = useState(false)
   const [pFrom, setPFrom] = useState('')
   const [pTo, setPTo] = useState('')
+  const [objects, setObjects] = useState<Obj[]>([])
+  const [autoObj, setAutoObj] = useState('')
 
   const fail = (e: unknown) => setError((e as Error).message)
   const refresh = () => listDashboards().then(setDashboards).catch(fail)
 
   useEffect(() => {
     refresh(); getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] }))
+    listObjects().then(setObjects).catch(() => {})
     if (initialDashboardId) openDashboard(initialDashboardId)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -54,6 +57,12 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   async function addDashboard(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError(null)
     try { const d = await createDashboard(newDash.trim()); setNewDash(''); await refresh(); openDashboard(d.id) }
+    catch (e) { fail(e) } finally { setBusy(false) }
+  }
+  async function autoBuild() {
+    if (!autoObj) return
+    setBusy(true); setError(null)
+    try { const r = await autoBuildDashboard(autoObj); setAutoObj(''); await refresh(); openDashboard(r.dashboard_id) }
     catch (e) { fail(e) } finally { setBusy(false) }
   }
   async function addPage(e: FormEvent) {
@@ -92,6 +101,16 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
               <input style={{ ...input, width: 260 }} placeholder="Название дашборда" value={newDash} onChange={(e) => setNewDash(e.target.value)} />
               <button style={btn} disabled={busy || !newDash.trim()}>＋ Дашборд</button>
             </form>
+          )}
+          {canManage && objects.length > 0 && (
+            <div style={{ ...rowForm, alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: '#6b7280' }}>или собрать автоматически из объекта:</span>
+              <select style={{ ...input, height: 36 }} value={autoObj} onChange={(e) => setAutoObj(e.target.value)}>
+                <option value="">выберите объект…</option>
+                {objects.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+              <button style={btnAuto} disabled={busy || !autoObj} onClick={autoBuild}>✨ Собрать</button>
+            </div>
           )}
           {dashboards.length === 0 ? <div style={muted}>Пока нет дашбордов.</div> : (
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
@@ -236,6 +255,7 @@ const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 
 const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14 }
 const sel: React.CSSProperties = { height: 34, padding: '0 8px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff' }
 const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: '#2f5496', color: '#fff', fontSize: 14, cursor: 'pointer' }
+const btnAuto: React.CSSProperties = { height: 36, padding: '0 14px', border: '1px solid #2f5496', borderRadius: 8, background: '#eef', color: '#2f5496', fontSize: 14, cursor: 'pointer' }
 const rowForm: React.CSSProperties = { display: 'flex', gap: 8, marginBottom: 16 }
 const rowItem: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', cursor: 'pointer' }
 const tab: React.CSSProperties = { height: 34, padding: '0 14px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }

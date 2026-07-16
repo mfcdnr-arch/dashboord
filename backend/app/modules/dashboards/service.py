@@ -356,3 +356,64 @@ async def widget_drill(conn, org_id, widget_id: str) -> dict:
 
     return {"widget": w["name"], "widget_type": w["widget_type"],
             "metrics": metrics_info, "datasets": seen, "tables": tables}
+
+
+# --------------------------------------------------------------------------- #
+# Авто-сборка дашборда из объекта (rule-based, не ИИ)
+# --------------------------------------------------------------------------- #
+async def _dataset_numeric_fields(conn, org_id, dataset_code: str) -> List[dict]:
+    rel = await mr._active_release(conn, org_id, dataset_code)
+    if rel is None:
+        return []
+    rows = await conn.fetch(
+        "select drf.canonical_field_code as code, coalesce(cf.name, drf.canonical_field_code) as name "
+        "from dataset_release_fields drf "
+        "left join canonical_fields cf on cf.code=drf.canonical_field_code "
+        "  and cf.object_id=(select object_id from dataset_releases where id=$1) "
+        "where drf.dataset_release_id=$1 and coalesce(cf.data_type,'text')='number' "
+        "order by drf.canonical_field_code", rel)
+    return [dict(r) for r in rows]
+
+
+async def auto_build(conn, org_id, user_id, object_id: str, name=None) -> dict:
+    """Собирает черновик дашборда по объекту: на каждый датасет объекта — KPI,
+    столбчатый график, динамику (если >1 периода) и таблицу-первичку."""
+    obj = await conn.fetchrow(
+        "select id, name from objects where id=$1::uuid and organization_id=$2", object_id, org_id)
+    if obj is None:
+        raise DashboardError("Объект не найден")
+    ds = await conn.fetch(
+        "select code, max(name) as name, count(distinct reporting_period_start) as periods "
+        "from dataset_releases where organization_id=$1 and object_id=$2::uuid and status<>'superseded' "
+        "group by code order by max(created_at) desc", org_id, object_id)
+    if not ds:
+        raise DashboardError("У объекта нет выпущенных датасетов — сначала распознайте документ")
+
+    dash = await create_dashboard(conn, org_id, user_id, name or f"Дашборд «{obj['name']}»",
+                                  f"Авто-сборка по объекту «{obj['name']}»", None)
+    did = str(dash["id"])
+    page = await create_page(conn, org_id, user_id, did, "Обзор", None)
+    pid = str(page["id"])
+
+    n, y = 0, 0
+    for d in ds:
+        code, dsname = d["code"], (d["name"] or d["code"])
+        fields = await _dataset_numeric_fields(conn, org_id, code)
+        if not fields:
+            continue
+        f0 = fields[0]
+        await create_widget(conn, org_id, user_id, pid, f"{dsname}: Σ {f0['name']}", "kpi",
+                            {"dataset_code": code, "value_field": f0["code"]},
+                            {"position_x": 0, "position_y": y, "width": 3, "height": 2}); n += 1
+        await create_widget(conn, org_id, user_id, pid, f"{dsname}: {f0['name']} по строкам", "bar",
+                            {"dataset_code": code, "value_field": f0["code"]},
+                            {"position_x": 3, "position_y": y, "width": 5, "height": 4}); n += 1
+        if (d["periods"] or 0) > 1:
+            await create_widget(conn, org_id, user_id, pid, f"{dsname}: динамика {f0['name']}", "dynamics",
+                                {"dataset_code": code, "value_field": f0["code"]},
+                                {"position_x": 8, "position_y": y, "width": 4, "height": 4}); n += 1
+        await create_widget(conn, org_id, user_id, pid, f"{dsname}: таблица", "table",
+                            {"dataset_code": code},
+                            {"position_x": 0, "position_y": y + 4, "width": 6, "height": 4}); n += 1
+        y += 8
+    return {"dashboard_id": did, "page_id": pid, "widgets": n}
