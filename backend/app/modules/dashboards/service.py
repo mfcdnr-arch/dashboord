@@ -451,3 +451,75 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None) -> dict:
                             {"position_x": 0, "position_y": y + 6, "width": 6, "height": 6}); n += 1
         y += 12
     return {"dashboard_id": did, "page_id": pid, "widgets": n}
+
+
+# --------------------------------------------------------------------------- #
+# Версии и публикация дашборда
+# --------------------------------------------------------------------------- #
+async def _snapshot(conn, dashboard_id: str) -> dict:
+    pages = await conn.fetch(
+        "select id, name, description, position from dashboard_pages "
+        "where dashboard_id=$1::uuid order by position", dashboard_id)
+    out = []
+    for p in pages:
+        ws = await conn.fetch(
+            "select name, widget_type, position_x, position_y, width, height, config "
+            "from widgets where page_id=$1 order by position_y, position_x", p["id"])
+        out.append({"name": p["name"], "description": p["description"], "position": p["position"],
+                    "widgets": [{"name": w["name"], "widget_type": w["widget_type"],
+                                 "position_x": w["position_x"], "position_y": w["position_y"],
+                                 "width": w["width"], "height": w["height"], "config": _cfg(w)} for w in ws]})
+    return {"pages": out}
+
+
+async def publish(conn, org_id, user_id, dashboard_id: str) -> dict:
+    if not await _owns_dashboard(conn, org_id, dashboard_id):
+        raise DashboardError("Дашборд не найден")
+    snap = await _snapshot(conn, dashboard_id)
+    vno = await conn.fetchval(
+        "select coalesce(max(version_no),0)+1 from dashboard_versions where dashboard_id=$1::uuid", dashboard_id)
+    await conn.execute(
+        "insert into dashboard_versions(dashboard_id, version_no, snapshot, created_by, status_code) "
+        "values($1::uuid,$2,$3::jsonb,$4,'published')", dashboard_id, vno,
+        json.dumps(snap, ensure_ascii=False), user_id)
+    await conn.execute(
+        "update dashboards set publication_status='published', published_by=$2, published_at=now(), "
+        "version_no=$3, updated_at=now() where id=$1::uuid", dashboard_id, user_id, vno)
+    return {"publication_status": "published", "version_no": vno}
+
+
+async def unpublish(conn, org_id, dashboard_id: str) -> dict:
+    if not await _owns_dashboard(conn, org_id, dashboard_id):
+        raise DashboardError("Дашборд не найден")
+    await conn.execute(
+        "update dashboards set publication_status='draft', updated_at=now() where id=$1::uuid", dashboard_id)
+    return {"publication_status": "draft"}
+
+
+async def list_versions(conn, org_id, dashboard_id: str) -> list:
+    if not await _owns_dashboard(conn, org_id, dashboard_id):
+        raise DashboardError("Дашборд не найден")
+    rows = await conn.fetch(
+        "select version_no, status_code, created_at from dashboard_versions "
+        "where dashboard_id=$1::uuid order by version_no desc", dashboard_id)
+    return [dict(r) for r in rows]
+
+
+async def restore_version(conn, org_id, user_id, dashboard_id: str, version_no: int) -> dict:
+    if not await _owns_dashboard(conn, org_id, dashboard_id):
+        raise DashboardError("Дашборд не найден")
+    snap = await conn.fetchval(
+        "select snapshot from dashboard_versions where dashboard_id=$1::uuid and version_no=$2",
+        dashboard_id, version_no)
+    if snap is None:
+        raise DashboardError("Версия не найдена")
+    if isinstance(snap, str):
+        snap = json.loads(snap)
+    await conn.execute("delete from dashboard_pages where dashboard_id=$1::uuid", dashboard_id)
+    for page in snap.get("pages", []):
+        p = await create_page(conn, org_id, user_id, dashboard_id, page["name"], page.get("description"))
+        for w in page.get("widgets", []):
+            await create_widget(conn, org_id, user_id, str(p["id"]), w["name"], w["widget_type"], w.get("config", {}),
+                                {"position_x": w.get("position_x", 0), "position_y": w.get("position_y", 0),
+                                 "width": w.get("width", 4), "height": w.get("height", 4)})
+    return {"restored_version": version_no, "pages": len(snap.get("pages", []))}

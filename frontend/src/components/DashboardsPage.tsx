@@ -4,7 +4,8 @@ import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import {
   autoBuildDashboard, createDashboard, createPage, createWidget, deletePage, deleteWidget, getDashboard,
-  getDataSources, listDashboards, listObjects, listPageWidgets, updateWidget,
+  getDataSources, listDashboardVersions, listDashboards, listObjects, listPageWidgets,
+  publishDashboard, restoreDashboardVersion, unpublishDashboard, updateWidget,
   type Dashboard, type DashPage, type DataSources, type Obj, type Widget,
 } from '../api'
 import WidgetView from './WidgetView'
@@ -41,6 +42,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   const [objects, setObjects] = useState<Obj[]>([])
   const [autoObj, setAutoObj] = useState('')
   const [editMode, setEditMode] = useState(false)
+  const [versions, setVersions] = useState<{ version_no: number; status_code: string; created_at: string }[] | null>(null)
 
   const fail = (e: unknown) => setError((e as Error).message)
   const refresh = () => listDashboards().then(setDashboards).catch(fail)
@@ -97,6 +99,26 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   async function delWidget(w: Widget) {
     try { await deleteWidget(w.id); await reloadPage() } catch (e) { fail(e) }
   }
+  async function doPublish() {
+    if (!sel) return
+    try { await publishDashboard(sel.dashboard.id); setSel(await getDashboard(sel.dashboard.id)) } catch (e) { fail(e) }
+  }
+  async function doUnpublish() {
+    if (!sel) return
+    try { await unpublishDashboard(sel.dashboard.id); setSel(await getDashboard(sel.dashboard.id)) } catch (e) { fail(e) }
+  }
+  async function loadVersions() {
+    if (!sel) return
+    try { setVersions(await listDashboardVersions(sel.dashboard.id)) } catch (e) { fail(e) }
+  }
+  async function doRestore(v: number) {
+    if (!sel || !confirm(`Откатить к версии ${v}? Текущие страницы и виджеты будут заменены снимком.`)) return
+    try {
+      await restoreDashboardVersion(sel.dashboard.id, v)
+      const d = await getDashboard(sel.dashboard.id); setSel(d); setVersions(null)
+      if (d.pages.length) openPage(d.pages[0]); else { setPage(null); setWidgets([]) }
+    } catch (e) { fail(e) }
+  }
   async function persistItem(l: Layout) {
     try {
       await updateWidget(l.i, { position_x: l.x, position_y: l.y, width: l.w, height: l.h })
@@ -146,6 +168,28 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
 
       {sel && (
         <div>
+          {/* Публикация и версии */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+            <PubBadge status={sel.dashboard.publication_status} />
+            {canManage && sel.dashboard.publication_status !== 'published' && <button style={btn} onClick={doPublish}>Опубликовать</button>}
+            {canManage && sel.dashboard.publication_status === 'published' && <button style={btnGhost} onClick={doUnpublish}>Снять с публикации</button>}
+            {canManage && <button style={btnGhost} onClick={loadVersions}>История версий</button>}
+          </div>
+          {versions && (
+            <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
+                <b style={{ fontSize: 13 }}>История версий</b>
+                <button style={{ ...linkDanger, marginLeft: 'auto', color: '#6b7280' }} onClick={() => setVersions(null)}>закрыть</button>
+              </div>
+              {versions.length === 0 ? <div style={muted}>Пока нет опубликованных версий.</div> : versions.map((v) => (
+                <div key={v.version_no} style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, padding: '4px 0' }}>
+                  <span>v{v.version_no}</span><span style={{ color: '#6b7280' }}>{v.status_code}</span>
+                  <span style={{ color: '#9aa4b2' }}>{new Date(v.created_at).toLocaleString('ru-RU')}</span>
+                  {canManage && <button style={{ ...linkDanger, color: '#2f5496', marginLeft: 'auto' }} onClick={() => doRestore(v.version_no)}>откатить</button>}
+                </div>
+              ))}
+            </div>
+          )}
           {/* Вкладки страниц */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
             {sel.pages.map((p) => (
@@ -297,11 +341,23 @@ function F({ t, children }: { t: string; children: React.ReactNode }) {
   return <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, color: '#6b7280' }}>{t}{children}</label>
 }
 
+function PubBadge({ status }: { status: string }) {
+  const m: Record<string, { t: string; bg: string; c: string }> = {
+    draft: { t: 'черновик', bg: '#f1f2f4', c: '#6b7280' },
+    review: { t: 'на проверке', bg: '#fef6e0', c: '#8a6d1a' },
+    published: { t: 'опубликован', bg: '#e1f5ee', c: '#0f6e56' },
+    archived: { t: 'в архиве', bg: '#f1f2f4', c: '#9aa4b2' },
+  }
+  const s = m[status] || m.draft
+  return <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 12, background: s.bg, color: s.c }}>{s.t}</span>
+}
+
 const crumb: React.CSSProperties = { border: 'none', background: 'none', color: '#2f5496', cursor: 'pointer', fontSize: 14, padding: 0 }
 const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14 }
 const sel: React.CSSProperties = { height: 34, padding: '0 8px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff' }
 const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: '#2f5496', color: '#fff', fontSize: 14, cursor: 'pointer' }
 const btnAuto: React.CSSProperties = { height: 36, padding: '0 14px', border: '1px solid #2f5496', borderRadius: 8, background: '#eef', color: '#2f5496', fontSize: 14, cursor: 'pointer' }
+const btnGhost: React.CSSProperties = { height: 36, padding: '0 14px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', color: '#374151', fontSize: 14, cursor: 'pointer' }
 const rowForm: React.CSSProperties = { display: 'flex', gap: 8, marginBottom: 16 }
 const rowItem: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', cursor: 'pointer' }
 const tab: React.CSSProperties = { height: 34, padding: '0 14px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }

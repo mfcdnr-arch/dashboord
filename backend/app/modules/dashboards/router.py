@@ -100,6 +100,44 @@ async def get_dashboard(dashboard_id: str, user: dict = Depends(get_current_user
             raise _bad(e)
 
 
+@router.post("/dashboards/{dashboard_id}/publish")
+async def publish_dashboard(dashboard_id: str, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            async with conn.transaction():
+                return await service.publish(conn, user["organization_id"], user["id"], dashboard_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.post("/dashboards/{dashboard_id}/unpublish")
+async def unpublish_dashboard(dashboard_id: str, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            return await service.unpublish(conn, user["organization_id"], dashboard_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.get("/dashboards/{dashboard_id}/versions")
+async def dashboard_versions(dashboard_id: str, user: dict = Depends(get_current_user)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            return await service.list_versions(conn, user["organization_id"], dashboard_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.post("/dashboards/{dashboard_id}/versions/{version_no}/restore")
+async def restore_dashboard_version(dashboard_id: str, version_no: int, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            async with conn.transaction():
+                return await service.restore_version(conn, user["organization_id"], user["id"], dashboard_id, version_no)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.post("/dashboards/{dashboard_id}/pages", status_code=status.HTTP_201_CREATED)
 async def create_page(dashboard_id: str, body: PageIn, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:

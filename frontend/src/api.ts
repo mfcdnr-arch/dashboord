@@ -409,6 +409,24 @@ export async function createPage(dashboardId: string, name: string, description?
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+export async function publishDashboard(id: string): Promise<{ publication_status: string; version_no: number }> {
+  const res = await fetch(`/dashboards/${id}/publish`, { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function unpublishDashboard(id: string): Promise<void> {
+  const res = await fetch(`/dashboards/${id}/unpublish`, { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
+export async function listDashboardVersions(id: string): Promise<{ version_no: number; status_code: string; created_at: string }[]> {
+  const res = await fetch(`/dashboards/${id}/versions`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function restoreDashboardVersion(id: string, versionNo: number): Promise<void> {
+  const res = await fetch(`/dashboards/${id}/versions/${versionNo}/restore`, { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
 export async function deletePage(pageId: string): Promise<void> {
   const res = await fetch(`/dashboard-pages/${pageId}`, { method: 'DELETE', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
