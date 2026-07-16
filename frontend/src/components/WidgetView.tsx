@@ -128,6 +128,23 @@ function Body({ data }: { data: any }) {
     )
   }
 
+  if (data.type === 'compare') {
+    const cats: string[] = data.categories || []
+    if (cats.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
+    const opt: EChartsOption = {
+      grid: { left: 44, right: 12, top: 12, bottom: cats.some((c) => c.length > 6) ? 60 : 46 },
+      tooltip: { trigger: 'axis' },
+      legend: { bottom: 0, textStyle: { fontSize: 11 } },
+      xAxis: { type: 'category', data: cats, axisLabel: { interval: 0, rotate: cats.some((c) => c.length > 6) ? 30 : 0, fontSize: 11 } },
+      yAxis: { type: 'value' },
+      series: (data.series || []).map((s: any, i: number) => ({
+        name: s.name, type: data.viz === 'line' ? 'line' : 'bar', data: s.data,
+        smooth: data.viz === 'line', itemStyle: { color: PALETTE[i % PALETTE.length] }, barMaxWidth: 28,
+      })),
+    }
+    return <EChart option={opt} height={230} />
+  }
+
   // bar | line | pie
   if ((data.categories || []).length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
   return <EChart option={chartOption(data)} height={200} />

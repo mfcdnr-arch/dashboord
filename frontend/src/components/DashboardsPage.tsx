@@ -9,7 +9,7 @@ import WidgetView from './WidgetView'
 const WT = [
   { v: 'kpi', t: 'KPI (число)' }, { v: 'bar', t: 'Столбцы' }, { v: 'line', t: 'Линия' },
   { v: 'pie', t: 'Круговая' }, { v: 'table', t: 'Таблица' }, { v: 'plan_fact', t: 'План-факт' },
-  { v: 'dynamics', t: 'Динамика (периоды)' },
+  { v: 'dynamics', t: 'Динамика (периоды)' }, { v: 'compare', t: 'Сравнение (неск. полей)' },
 ]
 
 export default function DashboardsPage({ canManage, initialDashboardId }: { canManage: boolean; initialDashboardId?: string | null }) {
@@ -199,10 +199,14 @@ function WidgetForm({ sources, onCreate }: { sources: DataSources; onCreate: (b:
   const [valueField, setValueField] = useState(numFields(sources.datasets[0]?.code || '')[0]?.code || '')
   const [planField, setPlanField] = useState(numFields(sources.datasets[0]?.code || '')[0]?.code || '')
   const [factField, setFactField] = useState(numFields(sources.datasets[0]?.code || '')[0]?.code || '')
+  const [multiFields, setMultiFields] = useState<string[]>([])
+  const [viz, setViz] = useState('bar')
 
   const usesSource = type === 'kpi' || type === 'plan_fact'
-  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics'].includes(type)
+  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'compare'].includes(type)
   const usesValueField = ['bar', 'line', 'pie', 'dynamics'].includes(type) || (type === 'kpi' && source === 'dataset')
+  const usesMulti = type === 'compare'
+  const toggleField = (c: string) => setMultiFields((s) => s.includes(c) ? s.filter((x) => x !== c) : [...s, c])
 
   function submit(e: FormEvent) {
     e.preventDefault()
@@ -210,6 +214,7 @@ function WidgetForm({ sources, onCreate }: { sources: DataSources; onCreate: (b:
     if (type === 'kpi') config = source === 'metric' ? { metric_code: metricCode } : { dataset_code: dataset, value_field: valueField }
     else if (type === 'plan_fact') config = source === 'metric' ? { plan_metric: metricCode, fact_metric: factMetric } : { dataset_code: dataset, plan_field: planField, fact_field: factField }
     else if (type === 'table') config = { dataset_code: dataset }
+    else if (type === 'compare') { if (multiFields.length === 0) return; config = { dataset_code: dataset, value_fields: multiFields, viz } }
     else config = { dataset_code: dataset, value_field: valueField }
     onCreate({ name: name.trim() || WT.find((x) => x.v === type)?.t || type, widget_type: type, config })
     setName('')
@@ -231,10 +236,24 @@ function WidgetForm({ sources, onCreate }: { sources: DataSources; onCreate: (b:
         <F t="Метрика (факт)"><select style={sel} value={factMetric} onChange={(e) => setFactMetric(e.target.value)}>{sources.metrics.map((m) => <option key={m.code} value={m.code}>{m.name}</option>)}</select></F>
       )}
       {usesDataset && (
-        <F t="Датасет"><select style={sel} value={dataset} onChange={(e) => { setDataset(e.target.value); const nf = numFields(e.target.value); setValueField(nf[0]?.code || ''); setPlanField(nf[0]?.code || ''); setFactField(nf[0]?.code || '') }}>{sources.datasets.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}</select></F>
+        <F t="Датасет"><select style={sel} value={dataset} onChange={(e) => { setDataset(e.target.value); const nf = numFields(e.target.value); setValueField(nf[0]?.code || ''); setPlanField(nf[0]?.code || ''); setFactField(nf[0]?.code || ''); setMultiFields([]) }}>{sources.datasets.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}</select></F>
       )}
       {usesValueField && (
         <F t="Поле (значение)"><select style={sel} value={valueField} onChange={(e) => setValueField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></F>
+      )}
+      {usesMulti && (
+        <>
+          <F t="Поля (несколько)">
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', height: 34, alignItems: 'center' }}>
+              {numFields(dataset).map((f) => (
+                <label key={f.code} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 13 }}>
+                  <input type="checkbox" checked={multiFields.includes(f.code)} onChange={() => toggleField(f.code)} />{f.name}
+                </label>
+              ))}
+            </div>
+          </F>
+          <F t="Вид"><select style={sel} value={viz} onChange={(e) => setViz(e.target.value)}><option value="bar">Столбцы</option><option value="line">Линии</option></select></F>
+        </>
       )}
       {type === 'plan_fact' && source === 'dataset' && (
         <>

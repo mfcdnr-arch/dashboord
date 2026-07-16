@@ -19,7 +19,7 @@ class DashboardError(Exception):
     """Ошибка бизнес-логики дашбордов (в роутере → 400/404)."""
 
 
-WIDGET_TYPES = {"kpi", "table", "bar", "line", "pie", "plan_fact", "dynamics"}
+WIDGET_TYPES = {"kpi", "table", "bar", "line", "pie", "plan_fact", "dynamics", "compare"}
 
 
 def _cfg(row) -> Dict[str, Any]:
@@ -218,6 +218,32 @@ async def _dataset_series(conn, org_id, dataset_code: str, value_field: str):
     return [{"category": r["row_label"], "value": float(r["value_number"])} for r in rows]
 
 
+async def _dataset_multi_series(conn, org_id, dataset_code: str, value_fields: List[str]) -> dict:
+    """Несколько серий по одному датасету: категории=строки, серия=каждое поле."""
+    rel = await mr._active_release(conn, org_id, dataset_code)
+    if rel is None:
+        raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
+    names = {r["code"]: r["name"] for r in await conn.fetch(
+        "select drf.canonical_field_code as code, coalesce(cf.name, drf.canonical_field_code) as name "
+        "from dataset_release_fields drf "
+        "left join canonical_fields cf on cf.code=drf.canonical_field_code "
+        "  and cf.object_id=(select object_id from dataset_releases where id=$1) "
+        "where drf.dataset_release_id=$1", rel)}
+    rows = await conn.fetch(
+        "select row_index, row_label, canonical_field_code, value_number from dataset_values "
+        "where dataset_release_id=$1 and canonical_field_code = any($2::text[]) and value_number is not null "
+        "order by row_index", rel, value_fields)
+    categories: List[str] = []
+    per: Dict[str, Dict[str, float]] = {f: {} for f in value_fields}
+    for r in rows:
+        lbl = r["row_label"]
+        if lbl not in categories:
+            categories.append(lbl)
+        per[r["canonical_field_code"]][lbl] = float(r["value_number"])
+    series = [{"name": names.get(f, f), "data": [per[f].get(l) for l in categories]} for f in value_fields]
+    return {"categories": categories, "series": series}
+
+
 async def _dataset_period_series(conn, org_id, dataset_code: str, value_field: str,
                                 from_date=None, to_date=None):
     """Ряд по периодам: для каждого активного выпуска датасета — сумма поля (динамика)."""
@@ -268,6 +294,14 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
         raise DashboardError("Виджет не найден")
     t = w["widget_type"]
     cfg = _cfg(w)
+
+    if t == "compare":
+        fields = cfg.get("value_fields") or []
+        if not cfg.get("dataset_code") or not fields:
+            raise DashboardError("Сравнение: укажите dataset_code и value_fields")
+        res = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields)
+        res["type"], res["viz"], res["title"] = "compare", cfg.get("viz", "bar"), w["name"]
+        return res
 
     if t == "dynamics":
         if not cfg.get("dataset_code") or not cfg.get("value_field"):
