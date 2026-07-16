@@ -211,10 +211,11 @@ async def delete_widget(widget_id: str, user: dict = Depends(manage)):
 @router.get("/widgets/{widget_id}/data")
 async def widget_data(widget_id: str, user: dict = Depends(get_current_user),
                       from_: Optional[str] = Query(None, alias="from"),
-                      to: Optional[str] = Query(None)):
+                      to: Optional[str] = Query(None),
+                      row: Optional[str] = Query(None)):
     async with db.get_pool().acquire() as conn:
         try:
-            return await service.compute_widget_data(conn, user["organization_id"], widget_id, from_, to)
+            return await service.compute_widget_data(conn, user["organization_id"], widget_id, from_, to, row)
         except DashboardError as e:
             raise _bad(e)
 

@@ -461,10 +461,11 @@ export async function deleteWidget(widgetId: string): Promise<void> {
   const res = await fetch(`/widgets/${widgetId}`, { method: 'DELETE', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
 }
-export async function getWidgetData(widgetId: string, from?: string, to?: string): Promise<any> {
+export async function getWidgetData(widgetId: string, from?: string, to?: string, row?: string): Promise<any> {
   const q = new URLSearchParams()
   if (from) q.set('from', from)
   if (to) q.set('to', to)
+  if (row) q.set('row', row)
   const qs = q.toString()
   const res = await fetch(`/widgets/${widgetId}/data${qs ? `?${qs}` : ''}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))

@@ -39,6 +39,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   const [busy, setBusy] = useState(false)
   const [pFrom, setPFrom] = useState('')
   const [pTo, setPTo] = useState('')
+  const [crossRow, setCrossRow] = useState<string | null>(null)
   const [objects, setObjects] = useState<Obj[]>([])
   const [autoObj, setAutoObj] = useState('')
   const [editMode, setEditMode] = useState(false)
@@ -222,6 +223,16 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
                 </div>
               </div>
 
+              {crossRow && (
+                <div style={{ marginBottom: 10 }}>
+                  <span style={{ fontSize: 13, background: '#eef', color: '#2f5496', padding: '4px 10px', borderRadius: 12 }}>
+                    Фильтр по строке: <b>{crossRow}</b>
+                    <button style={{ border: 'none', background: 'none', color: '#2f5496', cursor: 'pointer', marginLeft: 6 }} onClick={() => setCrossRow(null)}>✕</button>
+                  </span>
+                  <span style={{ fontSize: 12, color: '#9aa4b2', marginLeft: 8 }}>клик по столбцу/сектору фильтрует остальные виджеты</span>
+                </div>
+              )}
+
               {/* Сетка виджетов (drag-drop в режиме раскладки) */}
               {widgets.length === 0 ? <div style={muted}>На странице пока нет виджетов.</div> : (
                 <GL className="layout" cols={12} rowHeight={40} margin={[12, 12]}
@@ -237,7 +248,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
                         {canManage && <button style={rmBtn} onClick={() => delWidget(w)} title="Удалить">✕</button>}
                       </div>
                       <div style={{ overflow: 'auto', maxHeight: 'calc(100% - 30px)' }}>
-                        <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} />
+                        <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} row={crossRow || undefined} onPick={setCrossRow} />
                       </div>
                     </div>
                   ))}

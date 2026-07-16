@@ -35,15 +35,15 @@ function chartOption(data: any): EChartsOption {
   }
 }
 
-export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string }) {
+export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void }) {
   const [data, setData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [drill, setDrill] = useState<any | null>(null)
 
   useEffect(() => {
     setData(null); setError(null)
-    getWidgetData(widgetId, from, to).then(setData).catch((e) => setError((e as Error).message))
-  }, [widgetId, reloadKey, from, to])
+    getWidgetData(widgetId, from, to, row).then(setData).catch((e) => setError((e as Error).message))
+  }, [widgetId, reloadKey, from, to, row])
 
   const openDrill = () => getWidgetDrill(widgetId).then(setDrill).catch((e) => setError((e as Error).message))
 
@@ -51,7 +51,7 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
     <div>
       {error && <div style={errBox}>{error}</div>}
       {!data && !error && <div style={{ color: '#9aa4b2', fontSize: 13 }}>Загрузка…</div>}
-      {data && <Body data={data} />}
+      {data && <Body data={data} onPick={onPick} />}
       {data && showDrill && (
         <button style={drillBtn} onClick={openDrill} title="Из чего собран показатель">🔍 подробнее</button>
       )}
@@ -60,7 +60,7 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
   )
 }
 
-function Body({ data }: { data: any }) {
+function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) {
   if (data.type === 'kpi') {
     return (
       <div style={{ fontSize: 30, fontWeight: 700, color: '#2f5496' }}>{fmt(data.value)}
@@ -142,12 +142,12 @@ function Body({ data }: { data: any }) {
         smooth: data.viz === 'line', itemStyle: { color: PALETTE[i % PALETTE.length] }, barMaxWidth: 28,
       })),
     }
-    return <EChart option={opt} height={230} />
+    return <EChart option={opt} height={230} onPick={onPick} />
   }
 
   // bar | line | pie
   if ((data.categories || []).length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
-  return <EChart option={chartOption(data)} height={200} />
+  return <EChart option={chartOption(data)} height={200} onPick={onPick} />
 }
 
 function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
