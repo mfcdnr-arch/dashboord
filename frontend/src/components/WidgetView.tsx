@@ -35,15 +35,15 @@ function chartOption(data: any): EChartsOption {
   }
 }
 
-export default function WidgetView({ widgetId, reloadKey, showDrill = true }: { widgetId: string; reloadKey?: number; showDrill?: boolean }) {
+export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string }) {
   const [data, setData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [drill, setDrill] = useState<any | null>(null)
 
   useEffect(() => {
     setData(null); setError(null)
-    getWidgetData(widgetId).then(setData).catch((e) => setError((e as Error).message))
-  }, [widgetId, reloadKey])
+    getWidgetData(widgetId, from, to).then(setData).catch((e) => setError((e as Error).message))
+  }, [widgetId, reloadKey, from, to])
 
   const openDrill = () => getWidgetDrill(widgetId).then(setDrill).catch((e) => setError((e as Error).message))
 
@@ -104,6 +104,30 @@ function Body({ data }: { data: any }) {
       </div>
     )
   }
+  if (data.type === 'dynamics') {
+    const periods: string[] = data.periods || []
+    if (periods.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных за период</div>
+    const opt: EChartsOption = {
+      grid: { left: 44, right: 12, top: 12, bottom: 40 },
+      tooltip: { trigger: 'axis' },
+      xAxis: { type: 'category', data: periods, axisLabel: { rotate: 30, fontSize: 11 } },
+      yAxis: { type: 'value' },
+      series: [{ type: 'line', data: data.values, smooth: true, itemStyle: { color: '#2f5496' },
+        lineStyle: { color: '#2f5496', width: 2 }, areaStyle: { opacity: 0.08 } }],
+    }
+    const ch = data.change
+    return (
+      <div>
+        <EChart option={opt} height={180} />
+        {ch != null && (
+          <div style={{ fontSize: 13, marginTop: 4 }}>
+            К пред. периоду: <b style={{ color: ch >= 0 ? '#0f6e56' : '#a32d2d' }}>{ch >= 0 ? '↑ +' : '↓ '}{fmt(ch)}{data.change_pct != null ? ` (${fmt(data.change_pct)}%)` : ''}</b>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   // bar | line | pie
   if ((data.categories || []).length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
   return <EChart option={chartOption(data)} height={200} />

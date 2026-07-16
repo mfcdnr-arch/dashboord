@@ -424,8 +424,12 @@ export async function deleteWidget(widgetId: string): Promise<void> {
   const res = await fetch(`/widgets/${widgetId}`, { method: 'DELETE', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
 }
-export async function getWidgetData(widgetId: string): Promise<any> {
-  const res = await fetch(`/widgets/${widgetId}/data`, { headers: authH() })
+export async function getWidgetData(widgetId: string, from?: string, to?: string): Promise<any> {
+  const q = new URLSearchParams()
+  if (from) q.set('from', from)
+  if (to) q.set('to', to)
+  const qs = q.toString()
+  const res = await fetch(`/widgets/${widgetId}/data${qs ? `?${qs}` : ''}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }

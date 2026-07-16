@@ -9,6 +9,7 @@ import WidgetView from './WidgetView'
 const WT = [
   { v: 'kpi', t: 'KPI (число)' }, { v: 'bar', t: 'Столбцы' }, { v: 'line', t: 'Линия' },
   { v: 'pie', t: 'Круговая' }, { v: 'table', t: 'Таблица' }, { v: 'plan_fact', t: 'План-факт' },
+  { v: 'dynamics', t: 'Динамика (периоды)' },
 ]
 
 export default function DashboardsPage({ canManage, initialDashboardId }: { canManage: boolean; initialDashboardId?: string | null }) {
@@ -23,6 +24,8 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   const [newDash, setNewDash] = useState('')
   const [newPage, setNewPage] = useState('')
   const [busy, setBusy] = useState(false)
+  const [pFrom, setPFrom] = useState('')
+  const [pTo, setPTo] = useState('')
 
   const fail = (e: unknown) => setError((e as Error).message)
   const refresh = () => listDashboards().then(setDashboards).catch(fail)
@@ -124,9 +127,16 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
             <div style={muted}>{sel.pages.length ? 'Выберите страницу.' : 'Создайте первую страницу дашборда.'}</div>
           ) : (
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                 <h3 style={{ fontSize: 15, margin: 0 }}>Страница «{page.name}»</h3>
                 {canManage && <button style={linkDanger} onClick={() => delPage(page)}>удалить страницу</button>}
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280' }}>
+                  <span>Период:</span>
+                  <input type="date" style={{ ...input, height: 30, width: 140 }} value={pFrom} onChange={(e) => setPFrom(e.target.value)} />
+                  <span>—</span>
+                  <input type="date" style={{ ...input, height: 30, width: 140 }} value={pTo} onChange={(e) => setPTo(e.target.value)} />
+                  {(pFrom || pTo) && <button style={linkDanger} onClick={() => { setPFrom(''); setPTo('') }}>сброс</button>}
+                </div>
               </div>
 
               {/* Сетка виджетов */}
@@ -139,7 +149,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
                         <span style={wtBadge}>{WT.find((x) => x.v === w.widget_type)?.t || w.widget_type}</span>
                         {canManage && <button style={rmBtn} onClick={() => delWidget(w)} title="Удалить">✕</button>}
                       </div>
-                      <WidgetView widgetId={w.id} reloadKey={reloadKey} />
+                      <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} />
                     </div>
                   ))}
                 </div>
@@ -172,8 +182,8 @@ function WidgetForm({ sources, onCreate }: { sources: DataSources; onCreate: (b:
   const [factField, setFactField] = useState(numFields(sources.datasets[0]?.code || '')[0]?.code || '')
 
   const usesSource = type === 'kpi' || type === 'plan_fact'
-  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie'].includes(type)
-  const usesValueField = ['bar', 'line', 'pie'].includes(type) || (type === 'kpi' && source === 'dataset')
+  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics'].includes(type)
+  const usesValueField = ['bar', 'line', 'pie', 'dynamics'].includes(type) || (type === 'kpi' && source === 'dataset')
 
   function submit(e: FormEvent) {
     e.preventDefault()

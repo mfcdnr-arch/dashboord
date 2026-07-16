@@ -19,7 +19,7 @@ class DashboardError(Exception):
     """Ошибка бизнес-логики дашбордов (в роутере → 400/404)."""
 
 
-WIDGET_TYPES = {"kpi", "table", "bar", "line", "pie", "plan_fact"}
+WIDGET_TYPES = {"kpi", "table", "bar", "line", "pie", "plan_fact", "dynamics"}
 
 
 def _cfg(row) -> Dict[str, Any]:
@@ -218,6 +218,29 @@ async def _dataset_series(conn, org_id, dataset_code: str, value_field: str):
     return [{"category": r["row_label"], "value": float(r["value_number"])} for r in rows]
 
 
+async def _dataset_period_series(conn, org_id, dataset_code: str, value_field: str,
+                                from_date=None, to_date=None):
+    """Ряд по периодам: для каждого активного выпуска датасета — сумма поля (динамика)."""
+    rels = await conn.fetch(
+        "select id, reporting_period_start from dataset_releases "
+        "where organization_id=$1 and code=$2 and status <> 'superseded' "
+        "and ($3::text is null or reporting_period_start >= $3::text::date) "
+        "and ($4::text is null or reporting_period_start <= $4::text::date) "
+        "order by reporting_period_start nulls last",
+        org_id, dataset_code, from_date, to_date,
+    )
+    if not rels:
+        raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
+    out = []
+    for r in rels:
+        s = await conn.fetchval(
+            "select coalesce(sum(value_number),0) from dataset_values "
+            "where dataset_release_id=$1 and canonical_field_code=$2", r["id"], value_field)
+        period = r["reporting_period_start"].isoformat() if r["reporting_period_start"] else "—"
+        out.append((period, float(s)))
+    return out
+
+
 async def _dataset_table(conn, org_id, dataset_code: str):
     rel = await mr._active_release(conn, org_id, dataset_code)
     if rel is None:
@@ -239,12 +262,23 @@ async def _dataset_table(conn, org_id, dataset_code: str):
     return {"columns": cols, "rows": rows}
 
 
-async def compute_widget_data(conn, org_id, widget_id: str) -> dict:
+async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_date=None) -> dict:
     w = await _widget_org(conn, org_id, widget_id)
     if w is None:
         raise DashboardError("Виджет не найден")
     t = w["widget_type"]
     cfg = _cfg(w)
+
+    if t == "dynamics":
+        if not cfg.get("dataset_code") or not cfg.get("value_field"):
+            raise DashboardError("Динамика: укажите dataset_code и value_field")
+        series = await _dataset_period_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], from_date, to_date)
+        periods = [p for p, _ in series]
+        values = [v for _, v in series]
+        change = values[-1] - values[-2] if len(values) >= 2 else None
+        change_pct = (change / values[-2] * 100.0) if (change is not None and values[-2]) else None
+        return {"type": "dynamics", "title": w["name"], "periods": periods, "values": values,
+                "change": change, "change_pct": change_pct}
 
     if t == "kpi":
         if cfg.get("metric_code"):
