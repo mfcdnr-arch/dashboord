@@ -1,4 +1,6 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import html2canvas from 'html2canvas'
+import { jsPDF } from 'jspdf'
 import GridLayout, { WidthProvider, type Layout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
@@ -40,6 +42,8 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   const [pFrom, setPFrom] = useState('')
   const [pTo, setPTo] = useState('')
   const [crossRow, setCrossRow] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const pageRef = useRef<HTMLDivElement>(null)
   const [objects, setObjects] = useState<Obj[]>([])
   const [autoObj, setAutoObj] = useState('')
   const [editMode, setEditMode] = useState(false)
@@ -120,6 +124,28 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
       if (d.pages.length) openPage(d.pages[0]); else { setPage(null); setWidgets([]) }
     } catch (e) { fail(e) }
   }
+  async function exportPdf() {
+    const el = pageRef.current
+    if (!el || !sel || !page) return
+    setExporting(true)
+    try {
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight()
+      const pageCanvasH = Math.floor((canvas.width * ph) / pw)
+      let rendered = 0, first = true
+      while (rendered < canvas.height) {
+        const h = Math.min(pageCanvasH, canvas.height - rendered)
+        const slice = document.createElement('canvas')
+        slice.width = canvas.width; slice.height = h
+        slice.getContext('2d')!.drawImage(canvas, 0, rendered, canvas.width, h, 0, 0, canvas.width, h)
+        if (!first) pdf.addPage()
+        pdf.addImage(slice.toDataURL('image/png'), 'PNG', 0, 0, pw, (h * pw) / canvas.width)
+        rendered += h; first = false
+      }
+      pdf.save(`${sel.dashboard.name} — ${page.name}.pdf`)
+    } catch (e) { fail(e) } finally { setExporting(false) }
+  }
   async function persistItem(l: Layout) {
     try {
       await updateWidget(l.i, { position_x: l.x, position_y: l.y, width: l.w, height: l.h })
@@ -175,6 +201,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
             {canManage && sel.dashboard.publication_status !== 'published' && <button style={btn} onClick={doPublish}>Опубликовать</button>}
             {canManage && sel.dashboard.publication_status === 'published' && <button style={btnGhost} onClick={doUnpublish}>Снять с публикации</button>}
             {canManage && <button style={btnGhost} onClick={loadVersions}>История версий</button>}
+            {page && <button style={btnGhost} disabled={exporting} onClick={exportPdf}>{exporting ? 'Экспорт…' : '⤓ Экспорт в PDF'}</button>}
           </div>
           {versions && (
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, marginBottom: 12 }}>
@@ -209,7 +236,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
           {!page ? (
             <div style={muted}>{sel.pages.length ? 'Выберите страницу.' : 'Создайте первую страницу дашборда.'}</div>
           ) : (
-            <div>
+            <div ref={pageRef} style={{ background: '#fff' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                 <h3 style={{ fontSize: 15, margin: 0 }}>Страница «{page.name}»</h3>
                 {canManage && <button style={{ ...tab, height: 30, ...(editMode ? tabActive : {}) }} onClick={() => setEditMode((v) => !v)}>{editMode ? '✓ Готово' : '✎ Раскладка'}</button>}
