@@ -409,6 +409,28 @@ export async function createPage(dashboardId: string, name: string, description?
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+export interface DashTemplate { id: string; name: string; description: string | null; created_at: string }
+export async function listTemplates(): Promise<DashTemplate[]> {
+  const res = await fetch('/dashboard-templates', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function saveAsTemplate(dashboardId: string, name: string, description?: string): Promise<{ id: string; name: string }> {
+  const res = await fetch(`/dashboards/${dashboardId}/save-template`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ name, description: description || null }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function instantiateTemplate(templateId: string, name: string): Promise<{ dashboard_id: string }> {
+  const res = await fetch(`/dashboard-templates/${templateId}/instantiate`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
 export async function publishDashboard(id: string): Promise<{ publication_status: string; version_no: number }> {
   const res = await fetch(`/dashboards/${id}/publish`, { method: 'POST', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))

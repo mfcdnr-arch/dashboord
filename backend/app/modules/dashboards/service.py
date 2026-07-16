@@ -525,3 +525,44 @@ async def restore_version(conn, org_id, user_id, dashboard_id: str, version_no: 
                                 {"position_x": w.get("position_x", 0), "position_y": w.get("position_y", 0),
                                  "width": w.get("width", 4), "height": w.get("height", 4)})
     return {"restored_version": version_no, "pages": len(snap.get("pages", []))}
+
+
+# --------------------------------------------------------------------------- #
+# Шаблоны дашбордов
+# --------------------------------------------------------------------------- #
+async def save_as_template(conn, org_id, user_id, dashboard_id: str, name: str, description=None) -> dict:
+    if not await _owns_dashboard(conn, org_id, dashboard_id):
+        raise DashboardError("Дашборд не найден")
+    if await conn.fetchval("select 1 from dashboard_templates where organization_id=$1 and name=$2", org_id, name):
+        raise DashboardError("Шаблон с таким именем уже есть")
+    spec = await _snapshot(conn, dashboard_id)
+    row = await conn.fetchrow(
+        "insert into dashboard_templates(organization_id, name, description, spec, created_by) "
+        "values($1,$2,$3,$4::jsonb,$5) returning id, name",
+        org_id, name, description, json.dumps(spec, ensure_ascii=False), user_id)
+    return {"id": str(row["id"]), "name": row["name"]}
+
+
+async def list_templates(conn, org_id) -> list:
+    rows = await conn.fetch(
+        "select id, name, description, created_at from dashboard_templates "
+        "where organization_id=$1 order by name", org_id)
+    return [dict(r) for r in rows]
+
+
+async def create_from_template(conn, org_id, user_id, template_id: str, name: str) -> dict:
+    spec = await conn.fetchval(
+        "select spec from dashboard_templates where id=$1::uuid and organization_id=$2", template_id, org_id)
+    if spec is None:
+        raise DashboardError("Шаблон не найден")
+    if isinstance(spec, str):
+        spec = json.loads(spec)
+    dash = await create_dashboard(conn, org_id, user_id, name, "Создан из шаблона", None)
+    did = str(dash["id"])
+    for page in spec.get("pages", []):
+        p = await create_page(conn, org_id, user_id, did, page["name"], page.get("description"))
+        for w in page.get("widgets", []):
+            await create_widget(conn, org_id, user_id, str(p["id"]), w["name"], w["widget_type"], w.get("config", {}),
+                                {"position_x": w.get("position_x", 0), "position_y": w.get("position_y", 0),
+                                 "width": w.get("width", 4), "height": w.get("height", 4)})
+    return {"dashboard_id": did}

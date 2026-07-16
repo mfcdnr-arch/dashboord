@@ -35,6 +35,15 @@ class AutoIn(BaseModel):
     name: Optional[str] = None
 
 
+class TemplateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: Optional[str] = None
+
+
+class InstantiateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
 class PageIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: Optional[str] = None
@@ -96,6 +105,31 @@ async def get_dashboard(dashboard_id: str, user: dict = Depends(get_current_user
     async with db.get_pool().acquire() as conn:
         try:
             return await service.get_dashboard(conn, user["organization_id"], dashboard_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.get("/dashboard-templates")
+async def list_templates(user: dict = Depends(get_current_user)):
+    async with db.get_pool().acquire() as conn:
+        return await service.list_templates(conn, user["organization_id"])
+
+
+@router.post("/dashboard-templates/{template_id}/instantiate", status_code=status.HTTP_201_CREATED)
+async def instantiate_template(template_id: str, body: InstantiateIn, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            async with conn.transaction():
+                return await service.create_from_template(conn, user["organization_id"], user["id"], template_id, body.name)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.post("/dashboards/{dashboard_id}/save-template", status_code=status.HTTP_201_CREATED)
+async def save_template(dashboard_id: str, body: TemplateIn, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            return await service.save_as_template(conn, user["organization_id"], user["id"], dashboard_id, body.name, body.description)
         except DashboardError as e:
             raise _bad(e)
 

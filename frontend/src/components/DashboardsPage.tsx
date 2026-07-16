@@ -6,9 +6,9 @@ import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import {
   autoBuildDashboard, createDashboard, createPage, createWidget, deletePage, deleteWidget, getDashboard,
-  getDataSources, listDashboardVersions, listDashboards, listObjects, listPageWidgets,
-  publishDashboard, restoreDashboardVersion, unpublishDashboard, updateWidget,
-  type Dashboard, type DashPage, type DataSources, type Obj, type Widget,
+  getDataSources, instantiateTemplate, listDashboardVersions, listDashboards, listObjects, listPageWidgets,
+  listTemplates, publishDashboard, restoreDashboardVersion, saveAsTemplate, unpublishDashboard, updateWidget,
+  type Dashboard, type DashPage, type DashTemplate, type DataSources, type Obj, type Widget,
 } from '../api'
 import WidgetView from './WidgetView'
 
@@ -46,6 +46,8 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   const pageRef = useRef<HTMLDivElement>(null)
   const [objects, setObjects] = useState<Obj[]>([])
   const [autoObj, setAutoObj] = useState('')
+  const [templates, setTemplates] = useState<DashTemplate[]>([])
+  const [tpl, setTpl] = useState('')
   const [editMode, setEditMode] = useState(false)
   const [versions, setVersions] = useState<{ version_no: number; status_code: string; created_at: string }[] | null>(null)
 
@@ -55,6 +57,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   useEffect(() => {
     refresh(); getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] }))
     listObjects().then(setObjects).catch(() => {})
+    listTemplates().then(setTemplates).catch(() => {})
     if (initialDashboardId) openDashboard(initialDashboardId)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -124,6 +127,21 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
       if (d.pages.length) openPage(d.pages[0]); else { setPage(null); setWidgets([]) }
     } catch (e) { fail(e) }
   }
+  async function saveTemplate() {
+    if (!sel) return
+    const name = prompt('Название шаблона:', sel.dashboard.name)
+    if (!name) return
+    try { await saveAsTemplate(sel.dashboard.id, name.trim()); setTemplates(await listTemplates()) } catch (e) { fail(e) }
+  }
+  async function createFromTemplate() {
+    if (!tpl) return
+    const t = templates.find((x) => x.id === tpl)
+    const name = prompt('Название нового дашборда:', t ? `${t.name} (копия)` : 'Новый дашборд')
+    if (!name) return
+    setBusy(true); setError(null)
+    try { const r = await instantiateTemplate(tpl, name.trim()); setTpl(''); await refresh(); openDashboard(r.dashboard_id) }
+    catch (e) { fail(e) } finally { setBusy(false) }
+  }
   async function exportPdf() {
     const el = pageRef.current
     if (!el || !sel || !page) return
@@ -180,6 +198,16 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
               <button style={btnAuto} disabled={busy || !autoObj} onClick={autoBuild}>✨ Собрать</button>
             </div>
           )}
+          {canManage && templates.length > 0 && (
+            <div style={{ ...rowForm, alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: '#6b7280' }}>или создать из шаблона:</span>
+              <select style={{ ...input, height: 36 }} value={tpl} onChange={(e) => setTpl(e.target.value)}>
+                <option value="">выберите шаблон…</option>
+                {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <button style={btnAuto} disabled={busy || !tpl} onClick={createFromTemplate}>📋 Создать</button>
+            </div>
+          )}
           {dashboards.length === 0 ? <div style={muted}>Пока нет дашбордов.</div> : (
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
               {dashboards.map((d, i) => (
@@ -202,6 +230,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
             {canManage && sel.dashboard.publication_status === 'published' && <button style={btnGhost} onClick={doUnpublish}>Снять с публикации</button>}
             {canManage && <button style={btnGhost} onClick={loadVersions}>История версий</button>}
             {page && <button style={btnGhost} disabled={exporting} onClick={exportPdf}>{exporting ? 'Экспорт…' : '⤓ Экспорт в PDF'}</button>}
+            {canManage && <button style={btnGhost} onClick={saveTemplate}>Сохранить как шаблон</button>}
           </div>
           {versions && (
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, marginBottom: 12 }}>
