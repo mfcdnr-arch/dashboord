@@ -38,23 +38,26 @@ async def _metric_value(conn, org_id, code: str):
         return row["name"], None, str(e)
 
 
-async def get_home(conn, org_id) -> dict:
+async def get_home(conn, org_id, user: dict) -> dict:
+    # RLS: каталог/счётчик дашбордов/алерты — только по доступным пользователю дашбордам
+    visible = list(await dash_svc.visible_dashboard_ids(conn, org_id, user))
+
     counters = await conn.fetchrow(
         "select "
-        "(select count(*) from dashboards where organization_id=$1) as dashboards, "
+        "(select count(*) from dashboards where organization_id=$1 and id = any($2::uuid[])) as dashboards, "
         "(select count(*) from objects where organization_id=$1) as objects, "
         "(select count(*) from metrics where organization_id=$1) as metrics, "
         "(select count(distinct code) from dataset_releases where organization_id=$1 and status<>'superseded') as datasets, "
         "(select count(*) from users where organization_id=$1) as users",
-        org_id,
+        org_id, visible,
     )
 
     pages = await conn.fetch(
         "select d.id as dashboard_id, d.name as dashboard_name, p.id as page_id, p.name as page_name, "
         "p.description, (select count(*) from widgets w where w.page_id=p.id) as widgets "
         "from dashboards d join dashboard_pages p on p.dashboard_id=d.id "
-        "where d.organization_id=$1 order by d.name, p.position",
-        org_id,
+        "where d.organization_id=$1 and d.id = any($2::uuid[]) order by d.name, p.position",
+        org_id, visible,
     )
 
     # «Что нового» — свежие датасеты, метрики, дашборды
@@ -93,8 +96,8 @@ async def get_home(conn, org_id) -> dict:
         "recent": recent,
         "freshness": [dict(f) for f in freshness],
         "key_kpis": key_kpis,
-        # сработавшие KPI-алерты по порогам виджетов (warn/danger)
-        "alerts": await dash_svc.list_org_alerts(conn, org_id),
+        # сработавшие KPI-алерты по порогам виджетов (warn/danger), только по доступным
+        "alerts": await dash_svc.list_org_alerts(conn, org_id, user),
     }
 
 

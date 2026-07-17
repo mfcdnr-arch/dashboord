@@ -105,6 +105,54 @@ def evaluate_alert(widget_type: str, cfg: dict, data: dict) -> Optional[dict]:
 
 
 # --------------------------------------------------------------------------- #
+# RLS: разграничение доступа к дашбордам (через существующий ACL access_grants)
+# Привилегированные роли видят все дашборды организации; остальные — только
+# созданные ими самими или те, на которые есть грант scope='dashboard'
+# (напрямую на пользователя или на одну из его ролей). Виджеты/данные/алерты
+# наследуют видимость дашборда.
+# --------------------------------------------------------------------------- #
+PRIVILEGED_ROLES = {"admin", "moderator", "senior_moderator"}
+
+
+async def _user_ctx(conn, user: dict) -> dict:
+    rows = await conn.fetch(
+        "select r.id, r.code from user_roles ur join roles r on r.id=ur.role_id where ur.user_id=$1",
+        user["id"])
+    codes = {r["code"] for r in rows}
+    return {"codes": codes, "role_ids": [r["id"] for r in rows],
+            "privileged": bool(codes & PRIVILEGED_ROLES)}
+
+
+async def visible_dashboard_ids(conn, org_id, user: dict) -> set:
+    """Множество id дашбордов, доступных пользователю на просмотр."""
+    ctx = await _user_ctx(conn, user)
+    if ctx["privileged"]:
+        rows = await conn.fetch("select id from dashboards where organization_id=$1", org_id)
+    else:
+        rows = await conn.fetch(
+            "select distinct d.id from dashboards d "
+            "left join access_grants g on g.dashboard_id=d.id and g.scope='dashboard' "
+            "  and ((g.grantee_type='user' and g.user_id=$2) "
+            "       or (g.grantee_type='role' and g.role_id = any($3::uuid[]))) "
+            "where d.organization_id=$1 and (d.created_by=$2 or g.id is not null)",
+            org_id, user["id"], ctx["role_ids"])
+    return {str(r["id"]) for r in rows}
+
+
+async def _can_view(conn, org_id, user: dict, dashboard_id: str) -> bool:
+    ctx = await _user_ctx(conn, user)
+    if ctx["privileged"]:
+        return bool(await conn.fetchval(
+            "select 1 from dashboards where id=$1::uuid and organization_id=$2", dashboard_id, org_id))
+    return bool(await conn.fetchval(
+        "select 1 from dashboards d where d.id=$1::uuid and d.organization_id=$2 and ("
+        "d.created_by=$3 or exists(select 1 from access_grants g where g.dashboard_id=d.id "
+        "and g.scope='dashboard' and ((g.grantee_type='user' and g.user_id=$3) "
+        "or (g.grantee_type='role' and g.role_id = any($4::uuid[])))))",
+        dashboard_id, org_id, user["id"], ctx["role_ids"]))
+
+
+# --------------------------------------------------------------------------- #
 # Дашборды
 # --------------------------------------------------------------------------- #
 async def create_dashboard(conn, org_id, user_id, name: str, description: Optional[str],
@@ -117,17 +165,22 @@ async def create_dashboard(conn, org_id, user_id, name: str, description: Option
     return dict(row)
 
 
-async def list_dashboards(conn, org_id) -> List[dict]:
+async def list_dashboards(conn, org_id, user: dict) -> List[dict]:
+    visible = await visible_dashboard_ids(conn, org_id, user)
+    if not visible:
+        return []
     rows = await conn.fetch(
         "select d.id, d.name, d.description, d.publication_status, d.created_at, "
         "(select count(*) from dashboard_pages p where p.dashboard_id=d.id) as pages "
-        "from dashboards d where d.organization_id=$1 order by d.name",
-        org_id,
+        "from dashboards d where d.organization_id=$1 and d.id = any($2::uuid[]) order by d.name",
+        org_id, list(visible),
     )
     return [dict(r) for r in rows]
 
 
-async def get_dashboard(conn, org_id, dashboard_id: str) -> dict:
+async def get_dashboard(conn, org_id, user: dict, dashboard_id: str) -> dict:
+    if not await _can_view(conn, org_id, user, dashboard_id):
+        raise DashboardError("Дашборд не найден")
     d = await conn.fetchrow(
         "select id, name, description, publication_status, created_at from dashboards "
         "where id=$1::uuid and organization_id=$2", dashboard_id, org_id,
@@ -190,9 +243,11 @@ async def delete_page(conn, org_id, page_id: str) -> None:
     await conn.execute("delete from dashboard_pages where id=$1::uuid", page_id)
 
 
-async def list_page_widgets(conn, org_id, page_id: str) -> dict:
+async def list_page_widgets(conn, org_id, page_id: str, user: dict) -> dict:
     p = await _page_org(conn, org_id, page_id)
     if p is None:
+        raise DashboardError("Страница не найдена")
+    if not await _can_view(conn, org_id, user, str(p["dashboard_id"])):
         raise DashboardError("Страница не найдена")
     rows = await conn.fetch(
         "select id, name, widget_type, position_x, position_y, width, height, config "
@@ -365,9 +420,11 @@ async def _dataset_table(conn, org_id, dataset_code: str, row=None):
     return {"columns": cols, "rows": rows}
 
 
-async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_date=None, row=None) -> dict:
+async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_date=None, row=None, user: dict = None) -> dict:
     w = await _widget_org(conn, org_id, widget_id)
     if w is None:
+        raise DashboardError("Виджет не найден")
+    if user is not None and not await _can_view(conn, org_id, user, str(w["dashboard_id"])):
         raise DashboardError("Виджет не найден")
     t = w["widget_type"]
     cfg = _cfg(w)
@@ -435,16 +492,20 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
             "values": [s["value"] for s in series]}
 
 
-async def list_org_alerts(conn, org_id, limit: int = 30) -> List[dict]:
-    """Сработавшие KPI-алерты по всей организации — для блока «Главной».
+async def list_org_alerts(conn, org_id, user: dict, limit: int = 30) -> List[dict]:
+    """Сработавшие KPI-алерты по доступным пользователю дашбордам — для «Главной».
     Возвращаются только уровни warn/danger (good — позитивная подсветка, не тревога)."""
+    visible = await visible_dashboard_ids(conn, org_id, user)
+    if not visible:
+        return []
     rows = await conn.fetch(
         "select w.id, w.name, w.widget_type, w.dashboard_id, "
         "d.name as dashboard_name, d.publication_status, "
         "(select p.name from dashboard_pages p where p.id=w.page_id) as page_name "
         "from widgets w join dashboards d on d.id=w.dashboard_id "
-        "where w.organization_id=$1 and (w.config ->> 'alerts') is not null "
-        "order by d.name", org_id,
+        "where w.organization_id=$1 and w.dashboard_id = any($2::uuid[]) "
+        "and (w.config ->> 'alerts') is not null "
+        "order by d.name", org_id, list(visible),
     )
     out: List[dict] = []
     for w in rows:
@@ -465,11 +526,13 @@ async def list_org_alerts(conn, org_id, limit: int = 30) -> List[dict]:
     return out[:limit]
 
 
-async def widget_drill(conn, org_id, widget_id: str) -> dict:
+async def widget_drill(conn, org_id, widget_id: str, user: dict) -> dict:
     """Прозрачность показателя: из чего собран виджет — формулы метрик (уровень 1)
     и первичные строки датасетов (уровень 2)."""
     w = await _widget_org(conn, org_id, widget_id)
     if w is None:
+        raise DashboardError("Виджет не найден")
+    if not await _can_view(conn, org_id, user, str(w["dashboard_id"])):
         raise DashboardError("Виджет не найден")
     cfg = _cfg(w)
     metric_codes = [cfg[k] for k in ("metric_code", "plan_metric", "fact_metric") if cfg.get(k)]
@@ -503,6 +566,83 @@ async def widget_drill(conn, org_id, widget_id: str) -> dict:
 
     return {"widget": w["name"], "widget_type": w["widget_type"],
             "metrics": metrics_info, "datasets": seen, "tables": tables}
+
+
+# --------------------------------------------------------------------------- #
+# Управление доступом к дашборду (гранты)
+# --------------------------------------------------------------------------- #
+async def grant_targets(conn, org_id) -> dict:
+    """Кому можно выдать доступ: пользователи и роли организации."""
+    users = await conn.fetch(
+        "select id, login, full_name from users where organization_id=$1 and is_active order by login", org_id)
+    roles = await conn.fetch(
+        "select id, code, name from roles where organization_id=$1 order by name", org_id)
+    return {
+        "users": [{"id": str(u["id"]), "login": u["login"], "full_name": u["full_name"]} for u in users],
+        "roles": [{"id": str(r["id"]), "code": r["code"], "name": r["name"]} for r in roles],
+    }
+
+
+async def list_grants(conn, org_id, dashboard_id: str) -> List[dict]:
+    if not await _owns_dashboard(conn, org_id, dashboard_id):
+        raise DashboardError("Дашборд не найден")
+    rows = await conn.fetch(
+        "select g.id, g.grantee_type, g.role_id, g.user_id, g.granted_at, "
+        "r.name as role_name, r.code as role_code, u.login, u.full_name "
+        "from access_grants g "
+        "left join roles r on r.id=g.role_id left join users u on u.id=g.user_id "
+        "where g.dashboard_id=$1::uuid and g.scope='dashboard' order by g.granted_at", dashboard_id)
+    out = []
+    for g in rows:
+        label = (g["role_name"] or g["role_code"]) if g["grantee_type"] == "role" else (g["full_name"] or g["login"])
+        out.append({"id": str(g["id"]), "grantee_type": g["grantee_type"],
+                    "role_id": str(g["role_id"]) if g["role_id"] else None,
+                    "user_id": str(g["user_id"]) if g["user_id"] else None,
+                    "label": label, "granted_at": g["granted_at"]})
+    return out
+
+
+async def add_grant(conn, org_id, granted_by, dashboard_id: str, grantee_type: str,
+                    role_id: Optional[str], user_id: Optional[str]) -> dict:
+    if not await _owns_dashboard(conn, org_id, dashboard_id):
+        raise DashboardError("Дашборд не найден")
+    if grantee_type not in ("role", "user"):
+        raise DashboardError("grantee_type должен быть 'role' или 'user'")
+    if grantee_type == "role":
+        if not role_id:
+            raise DashboardError("Укажите роль")
+        if not await conn.fetchval("select 1 from roles where id=$1::uuid and organization_id=$2", role_id, org_id):
+            raise DashboardError("Роль не найдена")
+        user_id = None
+        exists = await conn.fetchval(
+            "select 1 from access_grants where dashboard_id=$1::uuid and scope='dashboard' "
+            "and grantee_type='role' and role_id=$2::uuid", dashboard_id, role_id)
+    else:
+        if not user_id:
+            raise DashboardError("Укажите пользователя")
+        if not await conn.fetchval("select 1 from users where id=$1::uuid and organization_id=$2", user_id, org_id):
+            raise DashboardError("Пользователь не найден")
+        role_id = None
+        exists = await conn.fetchval(
+            "select 1 from access_grants where dashboard_id=$1::uuid and scope='dashboard' "
+            "and grantee_type='user' and user_id=$2::uuid", dashboard_id, user_id)
+    if exists:
+        raise DashboardError("Доступ уже выдан")
+    row = await conn.fetchrow(
+        "insert into access_grants(scope, dashboard_id, grantee_type, role_id, user_id, granted_by) "
+        "values('dashboard', $1::uuid, $2, $3::uuid, $4::uuid, $5) returning id",
+        dashboard_id, grantee_type, role_id, user_id, granted_by)
+    return {"id": str(row["id"])}
+
+
+async def remove_grant(conn, org_id, dashboard_id: str, grant_id: str) -> None:
+    if not await _owns_dashboard(conn, org_id, dashboard_id):
+        raise DashboardError("Дашборд не найден")
+    res = await conn.execute(
+        "delete from access_grants where id=$1::uuid and dashboard_id=$2::uuid and scope='dashboard'",
+        grant_id, dashboard_id)
+    if res.endswith("0"):
+        raise DashboardError("Грант не найден")
 
 
 # --------------------------------------------------------------------------- #
@@ -609,8 +749,8 @@ async def unpublish(conn, org_id, dashboard_id: str) -> dict:
     return {"publication_status": "draft"}
 
 
-async def list_versions(conn, org_id, dashboard_id: str) -> list:
-    if not await _owns_dashboard(conn, org_id, dashboard_id):
+async def list_versions(conn, org_id, user: dict, dashboard_id: str) -> list:
+    if not await _can_view(conn, org_id, user, dashboard_id):
         raise DashboardError("Дашборд не найден")
     rows = await conn.fetch(
         "select version_no, status_code, created_at from dashboard_versions "

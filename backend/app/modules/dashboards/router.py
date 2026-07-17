@@ -97,14 +97,50 @@ async def auto_build(body: AutoIn, user: dict = Depends(manage)):
 @router.get("/dashboards")
 async def list_dashboards(user: dict = Depends(get_current_user)):
     async with db.get_pool().acquire() as conn:
-        return await service.list_dashboards(conn, user["organization_id"])
+        return await service.list_dashboards(conn, user["organization_id"], user)
 
 
 @router.get("/dashboards/{dashboard_id}")
 async def get_dashboard(dashboard_id: str, user: dict = Depends(get_current_user)):
     async with db.get_pool().acquire() as conn:
         try:
-            return await service.get_dashboard(conn, user["organization_id"], dashboard_id)
+            return await service.get_dashboard(conn, user["organization_id"], user, dashboard_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+# --- Доступ к дашборду (гранты) ---
+class GrantIn(BaseModel):
+    grantee_type: str
+    role_id: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+@router.get("/dashboards/{dashboard_id}/grants")
+async def list_grants(dashboard_id: str, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            return {"grants": await service.list_grants(conn, user["organization_id"], dashboard_id),
+                    "targets": await service.grant_targets(conn, user["organization_id"])}
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.post("/dashboards/{dashboard_id}/grants", status_code=status.HTTP_201_CREATED)
+async def add_grant(dashboard_id: str, body: GrantIn, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            return await service.add_grant(conn, user["organization_id"], user["id"], dashboard_id,
+                                           body.grantee_type, body.role_id, body.user_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.delete("/dashboards/{dashboard_id}/grants/{grant_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_grant(dashboard_id: str, grant_id: str, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            await service.remove_grant(conn, user["organization_id"], dashboard_id, grant_id)
         except DashboardError as e:
             raise _bad(e)
 
@@ -157,7 +193,7 @@ async def unpublish_dashboard(dashboard_id: str, user: dict = Depends(manage)):
 async def dashboard_versions(dashboard_id: str, user: dict = Depends(get_current_user)):
     async with db.get_pool().acquire() as conn:
         try:
-            return await service.list_versions(conn, user["organization_id"], dashboard_id)
+            return await service.list_versions(conn, user["organization_id"], user, dashboard_id)
         except DashboardError as e:
             raise _bad(e)
 
@@ -205,7 +241,7 @@ async def delete_page(page_id: str, user: dict = Depends(manage)):
 async def list_widgets(page_id: str, user: dict = Depends(get_current_user)):
     async with db.get_pool().acquire() as conn:
         try:
-            return await service.list_page_widgets(conn, user["organization_id"], page_id)
+            return await service.list_page_widgets(conn, user["organization_id"], page_id, user)
         except DashboardError as e:
             raise _bad(e)
 
@@ -249,7 +285,7 @@ async def widget_data(widget_id: str, user: dict = Depends(get_current_user),
                       row: Optional[str] = Query(None)):
     async with db.get_pool().acquire() as conn:
         try:
-            return await service.compute_widget_data(conn, user["organization_id"], widget_id, from_, to, row)
+            return await service.compute_widget_data(conn, user["organization_id"], widget_id, from_, to, row, user)
         except DashboardError as e:
             raise _bad(e)
 
@@ -258,6 +294,6 @@ async def widget_data(widget_id: str, user: dict = Depends(get_current_user),
 async def widget_drill(widget_id: str, user: dict = Depends(get_current_user)):
     async with db.get_pool().acquire() as conn:
         try:
-            return await service.widget_drill(conn, user["organization_id"], widget_id)
+            return await service.widget_drill(conn, user["organization_id"], widget_id, user)
         except DashboardError as e:
             raise _bad(e)

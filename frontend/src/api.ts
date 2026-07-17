@@ -453,6 +453,26 @@ export async function deletePage(pageId: string): Promise<void> {
   const res = await fetch(`/dashboard-pages/${pageId}`, { method: 'DELETE', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
 }
+
+// --- Доступ к дашборду (RLS через ACL) ---
+export interface DashGrant { id: string; grantee_type: 'role' | 'user'; role_id: string | null; user_id: string | null; label: string; granted_at: string }
+export interface GrantTargets { users: { id: string; login: string; full_name: string | null }[]; roles: { id: string; code: string; name: string }[] }
+export async function listDashboardGrants(dashboardId: string): Promise<{ grants: DashGrant[]; targets: GrantTargets }> {
+  const res = await fetch(`/dashboards/${dashboardId}/grants`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function addDashboardGrant(dashboardId: string, body: { grantee_type: 'role' | 'user'; role_id?: string; user_id?: string }): Promise<{ id: string }> {
+  const res = await fetch(`/dashboards/${dashboardId}/grants`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function removeDashboardGrant(dashboardId: string, grantId: string): Promise<void> {
+  const res = await fetch(`/dashboards/${dashboardId}/grants/${grantId}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
 export async function listPageWidgets(pageId: string): Promise<{ page_id: string; widgets: Widget[] }> {
   const res = await fetch(`/dashboard-pages/${pageId}/widgets`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))

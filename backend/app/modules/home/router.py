@@ -20,7 +20,7 @@ class KpiIn(BaseModel):
 @router.get("/home")
 async def home(user: dict = Depends(get_current_user)):
     async with db.get_pool().acquire() as conn:
-        return await service.get_home(conn, user["organization_id"])
+        return await service.get_home(conn, user["organization_id"], user)
 
 
 @router.post("/home/kpis", status_code=status.HTTP_201_CREATED)
