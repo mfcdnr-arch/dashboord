@@ -47,10 +47,16 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
 
   const openDrill = () => getWidgetDrill(widgetId).then(setDrill).catch((e) => setError((e as Error).message))
 
+  const alert = data?.alert
   return (
-    <div>
+    <div style={alert ? { borderLeft: `4px solid ${alert.color}`, background: alert.bg, borderRadius: 6, padding: '6px 8px', margin: '-2px 0' } : undefined}>
       {error && <div style={errBox}>{error}</div>}
       {!data && !error && <div style={{ color: '#9aa4b2', fontSize: 13 }}>Загрузка…</div>}
+      {alert && (
+        <div style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, color: alert.color,
+          background: '#fff', border: `1px solid ${alert.color}`, borderRadius: 10, padding: '1px 8px', marginBottom: 6 }}
+          title="Сработал порог KPI-алерта">⚠ {alert.label}</div>
+      )}
       {data && <Body data={data} onPick={onPick} />}
       {data && showDrill && (
         <button style={drillBtn} onClick={openDrill} title="Из чего собран показатель">🔍 подробнее</button>
@@ -63,7 +69,7 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
 function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) {
   if (data.type === 'kpi') {
     return (
-      <div style={{ fontSize: 30, fontWeight: 700, color: '#2f5496' }}>{fmt(data.value)}
+      <div style={{ fontSize: 30, fontWeight: 700, color: data.alert?.color || '#2f5496' }}>{fmt(data.value)}
         {data.unit && <span style={{ fontSize: 15, color: '#6b7280', marginLeft: 6 }}>{data.unit}</span>}
       </div>
     )
@@ -80,7 +86,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
         {pct != null && (
           <div style={{ marginTop: 8 }}>
             <div style={{ height: 10, background: '#eef0f3', borderRadius: 6, overflow: 'hidden' }}>
-              <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: pct >= 100 ? '#0f6e56' : '#2f5496' }} />
+              <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: data.alert?.color || (pct >= 100 ? '#0f6e56' : '#2f5496') }} />
             </div>
             <div style={{ fontSize: 13, color: '#374151', marginTop: 2 }}>Выполнение: <b>{fmt(pct)}%</b></div>
           </div>

@@ -30,6 +30,81 @@ def _cfg(row) -> Dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
+# KPI-алерты + условное форматирование
+# Пороги задаются в config виджета: config["alerts"] = [
+#   {level: danger|warn|good, op: lt|lte|gt|gte|eq|between|outside,
+#    value: number, value2?: number, label?: str}
+# ]  — первое сработавшее правило определяет цвет/подпись.
+# Что сравнивается (config["alert_on"]):
+#   kpi        → значение (value, всегда);
+#   plan_fact  → pct (по умолч.) | fact | delta | plan;
+#   dynamics   → last (по умолч.) | change | change_pct.
+# --------------------------------------------------------------------------- #
+_ALERT_STYLES = {
+    "danger": {"color": "#a32d2d", "bg": "#fcebeb"},
+    "warn":   {"color": "#9a6a00", "bg": "#fff4e0"},
+    "good":   {"color": "#0f6e56", "bg": "#eaf5f0"},
+}
+_ALERT_OP_TXT = {"lt": "<", "lte": "≤", "gt": ">", "gte": "≥", "eq": "=",
+                 "between": "в диапазоне", "outside": "вне диапазона"}
+
+
+def _alert_measure(widget_type: str, cfg: dict, data: dict):
+    if widget_type == "kpi":
+        return data.get("value")
+    if widget_type == "plan_fact":
+        return data.get(cfg.get("alert_on") or "pct")
+    if widget_type == "dynamics":
+        key = cfg.get("alert_on") or "last"
+        if key == "last":
+            vals = data.get("values") or []
+            return vals[-1] if vals else None
+        return data.get(key)  # change | change_pct
+    return None
+
+
+def _alert_match(measure, rule: dict) -> bool:
+    if measure is None:
+        return False
+    op = rule.get("op")
+    try:
+        m = float(measure)
+        v = float(rule["value"]) if rule.get("value") is not None else None
+        v2 = float(rule["value2"]) if rule.get("value2") is not None else None
+    except (TypeError, ValueError, KeyError):
+        return False
+    if op == "lt":      return v is not None and m < v
+    if op == "lte":     return v is not None and m <= v
+    if op == "gt":      return v is not None and m > v
+    if op == "gte":     return v is not None and m >= v
+    if op == "eq":      return v is not None and m == v
+    if op == "between": return v is not None and v2 is not None and v <= m <= v2
+    if op == "outside": return v is not None and v2 is not None and (m < v or m > v2)
+    return False
+
+
+def evaluate_alert(widget_type: str, cfg: dict, data: dict) -> Optional[dict]:
+    rules = cfg.get("alerts") or []
+    if not rules:
+        return None
+    measure = _alert_measure(widget_type, cfg, data)
+    for rule in rules:
+        if _alert_match(measure, rule):
+            lvl = rule.get("level", "danger")
+            st = _ALERT_STYLES.get(lvl, _ALERT_STYLES["danger"])
+            label = rule.get("label")
+            if not label:
+                op = _ALERT_OP_TXT.get(rule.get("op"), rule.get("op"))
+                if rule.get("op") in ("between", "outside"):
+                    label = f"{op} {rule.get('value')}…{rule.get('value2')}"
+                else:
+                    label = f"{op} {rule.get('value')}"
+            return {"level": lvl, "color": st["color"], "bg": st["bg"],
+                    "label": label, "measure": measure}
+    return None
+
+
+# --------------------------------------------------------------------------- #
 # Дашборды
 # --------------------------------------------------------------------------- #
 async def create_dashboard(conn, org_id, user_id, name: str, description: Optional[str],
@@ -313,8 +388,10 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
         values = [v for _, v in series]
         change = values[-1] - values[-2] if len(values) >= 2 else None
         change_pct = (change / values[-2] * 100.0) if (change is not None and values[-2]) else None
-        return {"type": "dynamics", "title": w["name"], "periods": periods, "values": values,
-                "change": change, "change_pct": change_pct}
+        res = {"type": "dynamics", "title": w["name"], "periods": periods, "values": values,
+               "change": change, "change_pct": change_pct}
+        res["alert"] = evaluate_alert("dynamics", cfg, res)
+        return res
 
     if t == "kpi":
         if cfg.get("metric_code"):
@@ -324,7 +401,9 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
             value, unit = sum(s["value"] for s in series), cfg.get("unit")
         else:
             raise DashboardError("KPI: укажите metric_code или dataset_code+value_field")
-        return {"type": "kpi", "value": value, "unit": unit, "title": w["name"]}
+        res = {"type": "kpi", "value": value, "unit": unit, "title": w["name"]}
+        res["alert"] = evaluate_alert("kpi", cfg, res)
+        return res
 
     if t == "plan_fact":
         if cfg.get("plan_metric") and cfg.get("fact_metric"):
@@ -337,7 +416,9 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
         else:
             raise DashboardError("План-факт: укажите plan_metric+fact_metric или dataset_code+plan_field+fact_field")
         pct = (fact / plan * 100.0) if plan else None
-        return {"type": "plan_fact", "plan": plan, "fact": fact, "delta": fact - plan, "pct": pct, "unit": unit, "title": w["name"]}
+        res = {"type": "plan_fact", "plan": plan, "fact": fact, "delta": fact - plan, "pct": pct, "unit": unit, "title": w["name"]}
+        res["alert"] = evaluate_alert("plan_fact", cfg, res)
+        return res
 
     if t == "table":
         if not cfg.get("dataset_code"):
@@ -352,6 +433,36 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
     return {"type": t, "title": w["name"],
             "categories": [s["category"] for s in series],
             "values": [s["value"] for s in series]}
+
+
+async def list_org_alerts(conn, org_id, limit: int = 30) -> List[dict]:
+    """Сработавшие KPI-алерты по всей организации — для блока «Главной».
+    Возвращаются только уровни warn/danger (good — позитивная подсветка, не тревога)."""
+    rows = await conn.fetch(
+        "select w.id, w.name, w.widget_type, w.dashboard_id, "
+        "d.name as dashboard_name, d.publication_status, "
+        "(select p.name from dashboard_pages p where p.id=w.page_id) as page_name "
+        "from widgets w join dashboards d on d.id=w.dashboard_id "
+        "where w.organization_id=$1 and (w.config ->> 'alerts') is not null "
+        "order by d.name", org_id,
+    )
+    out: List[dict] = []
+    for w in rows:
+        try:
+            data = await compute_widget_data(conn, org_id, str(w["id"]))
+        except DashboardError:
+            continue
+        al = data.get("alert")
+        if not al or al["level"] not in ("warn", "danger"):
+            continue
+        out.append({
+            "widget_id": str(w["id"]), "widget_name": w["name"], "widget_type": w["widget_type"],
+            "dashboard_id": str(w["dashboard_id"]), "dashboard_name": w["dashboard_name"],
+            "page_name": w["page_name"], "published": w["publication_status"] == "published",
+            "level": al["level"], "label": al["label"], "measure": al["measure"], "unit": data.get("unit"),
+        })
+    out.sort(key=lambda x: (0 if x["level"] == "danger" else 1, x["dashboard_name"]))
+    return out[:limit]
 
 
 async def widget_drill(conn, org_id, widget_id: str) -> dict:

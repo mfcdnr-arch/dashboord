@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List
 
+from ..dashboards import service as dash_svc
 from ..metrics import resolver as mr
 from ..metrics.parser import FormulaError
 
@@ -92,8 +93,8 @@ async def get_home(conn, org_id) -> dict:
         "recent": recent,
         "freshness": [dict(f) for f in freshness],
         "key_kpis": key_kpis,
-        # алерты по порогам — появятся с движком KPI-алертов (пока пусто)
-        "alerts": [],
+        # сработавшие KPI-алерты по порогам виджетов (warn/danger)
+        "alerts": await dash_svc.list_org_alerts(conn, org_id),
     }
 
 

@@ -506,7 +506,11 @@ export interface HomeData {
   recent: { kind: string; title: string; at: string }[]
   freshness: { name: string; last_update: string | null; last_period: string | null }[]
   key_kpis: { code: string; name: string; value: number | null; unit: string | null; error: string | null }[]
-  alerts: any[]
+  alerts: {
+    widget_id: string; widget_name: string; widget_type: string
+    dashboard_id: string; dashboard_name: string; page_name: string | null; published: boolean
+    level: 'warn' | 'danger'; label: string; measure: number | null; unit: string | null
+  }[]
 }
 export async function getHome(): Promise<HomeData> {
   const res = await fetch('/home', { headers: authH() })

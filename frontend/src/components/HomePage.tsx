@@ -74,6 +74,33 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
         ))}
       </div>
 
+      {/* KPI-алерты (сработавшие пороги) */}
+      {data.alerts.length > 0 && (
+        <Section title={`⚠ Требуют внимания (${data.alerts.length})`}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
+            {data.alerts.map((a) => {
+              const st = a.level === 'danger'
+                ? { color: '#a32d2d', bg: '#fcebeb' } : { color: '#9a6a00', bg: '#fff4e0' }
+              return (
+                <button key={a.widget_id} onClick={() => onOpenDashboard(a.dashboard_id)}
+                  style={{ textAlign: 'left', cursor: 'pointer', border: `1px solid ${st.color}`, borderLeft: `4px solid ${st.color}`, borderRadius: 10, padding: '10px 12px', background: st.bg }}
+                  title="Открыть дашборд">
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: st.color }}>{a.widget_name}</span>
+                    <span style={{ fontSize: 12, color: st.color, marginLeft: 'auto' }}>{a.label}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                    {a.measure != null && <b style={{ color: '#374151' }}>{fmt(a.measure)}{a.unit ? ` ${a.unit}` : ''}</b>}
+                    <span style={{ marginLeft: a.measure != null ? 8 : 0 }}>{a.dashboard_name}{a.page_name ? ` · ${a.page_name}` : ''}</span>
+                    {!a.published && <span style={{ marginLeft: 6, color: '#9aa4b2' }}>(черновик)</span>}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </Section>
+      )}
+
       {/* Ключевые KPI */}
       <Section title="Ключевые показатели">
         {data.key_kpis.length === 0 && <div style={muted}>Показатели ещё не выбраны{canManage ? ' — добавьте ниже.' : '.'}</div>}
