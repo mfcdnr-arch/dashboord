@@ -473,6 +473,26 @@ export async function removeDashboardGrant(dashboardId: string, grantId: string)
   const res = await fetch(`/dashboards/${dashboardId}/grants/${grantId}`, { method: 'DELETE', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
 }
+
+// --- Пресеты фильтров дашборда (FR-13) ---
+export interface DashFilters { from?: string; to?: string; row?: string }
+export interface DashPreset { id: string; name: string; filters: DashFilters }
+export async function listPresets(dashboardId: string): Promise<DashPreset[]> {
+  const res = await fetch(`/dashboards/${dashboardId}/presets`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function createPreset(dashboardId: string, name: string, filters: DashFilters): Promise<DashPreset> {
+  const res = await fetch(`/dashboards/${dashboardId}/presets`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ name, filters }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function deletePreset(dashboardId: string, presetId: string): Promise<void> {
+  const res = await fetch(`/dashboards/${dashboardId}/presets/${presetId}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
 export async function listPageWidgets(pageId: string): Promise<{ page_id: string; widgets: Widget[] }> {
   const res = await fetch(`/dashboard-pages/${pageId}/widgets`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))

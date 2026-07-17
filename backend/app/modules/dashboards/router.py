@@ -145,6 +145,40 @@ async def remove_grant(dashboard_id: str, grant_id: str, user: dict = Depends(ma
             raise _bad(e)
 
 
+# --- Пресеты фильтров дашборда ---
+class PresetIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    filters: Dict[str, Any] = {}
+
+
+@router.get("/dashboards/{dashboard_id}/presets")
+async def list_presets(dashboard_id: str, user: dict = Depends(get_current_user)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            return await service.list_presets(conn, user["organization_id"], user, dashboard_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.post("/dashboards/{dashboard_id}/presets", status_code=status.HTTP_201_CREATED)
+async def create_preset(dashboard_id: str, body: PresetIn, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            return await service.create_preset(conn, user["organization_id"], user["id"],
+                                               dashboard_id, body.name, body.filters)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.delete("/dashboards/{dashboard_id}/presets/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_preset(dashboard_id: str, preset_id: str, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            await service.delete_preset(conn, user["organization_id"], dashboard_id, preset_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.get("/dashboard-templates")
 async def list_templates(user: dict = Depends(get_current_user)):
     async with db.get_pool().acquire() as conn:

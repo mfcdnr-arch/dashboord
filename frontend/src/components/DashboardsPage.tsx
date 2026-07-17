@@ -5,10 +5,10 @@ import GridLayout, { WidthProvider, type Layout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import {
-  addDashboardGrant, autoBuildDashboard, createDashboard, createPage, createWidget, deletePage, deleteWidget, getDashboard,
-  getDataSources, instantiateTemplate, listDashboardGrants, listDashboardVersions, listDashboards, listObjects, listPageWidgets,
+  addDashboardGrant, autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deletePage, deletePreset, deleteWidget, getDashboard,
+  getDataSources, instantiateTemplate, listDashboardGrants, listDashboardVersions, listDashboards, listObjects, listPageWidgets, listPresets,
   listTemplates, publishDashboard, removeDashboardGrant, restoreDashboardVersion, saveAsTemplate, unpublishDashboard, updateWidget,
-  type Dashboard, type DashGrant, type DashPage, type DashTemplate, type DataSources, type GrantTargets, type Obj, type Widget,
+  type Dashboard, type DashGrant, type DashPage, type DashPreset, type DashTemplate, type DataSources, type GrantTargets, type Obj, type Widget,
 } from '../api'
 import WidgetView from './WidgetView'
 
@@ -52,6 +52,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   const [versions, setVersions] = useState<{ version_no: number; status_code: string; created_at: string }[] | null>(null)
   const [alertWidget, setAlertWidget] = useState<Widget | null>(null)
   const [accessOpen, setAccessOpen] = useState(false)
+  const [presets, setPresets] = useState<DashPreset[]>([])
 
   const fail = (e: unknown) => setError((e as Error).message)
   const refresh = () => listDashboards().then(setDashboards).catch(fail)
@@ -64,12 +65,30 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openDashboard(id: string) {
-    setError(null); setPage(null); setWidgets([])
+    setError(null); setPage(null); setWidgets([]); setPFrom(''); setPTo(''); setCrossRow(null)
     try {
       const d = await getDashboard(id)
       setSel(d)
+      listPresets(id).then(setPresets).catch(() => setPresets([]))
       if (d.pages.length) openPage(d.pages[0])
     } catch (e) { fail(e) }
+  }
+  const reloadPresets = () => { if (sel) listPresets(sel.dashboard.id).then(setPresets).catch(() => {}) }
+  function applyPreset(p: DashPreset) {
+    setPFrom(p.filters.from || ''); setPTo(p.filters.to || ''); setCrossRow(p.filters.row || null)
+  }
+  async function savePreset() {
+    if (!sel) return
+    const name = prompt('Название пресета фильтров:')?.trim()
+    if (!name) return
+    try {
+      await createPreset(sel.dashboard.id, name, { from: pFrom || undefined, to: pTo || undefined, row: crossRow || undefined })
+      reloadPresets()
+    } catch (e) { fail(e) }
+  }
+  async function removePreset(p: DashPreset) {
+    if (!sel || !confirm(`Удалить пресет «${p.name}»?`)) return
+    try { await deletePreset(sel.dashboard.id, p.id); reloadPresets() } catch (e) { fail(e) }
   }
   async function openPage(p: DashPage) {
     setError(null); setPage(p)
@@ -173,6 +192,16 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
     } catch (e) { fail(e) }
   }
 
+  // Категории для фильтра «Строка» — строки датасетов, используемых виджетами страницы
+  const catOptions: string[] = (() => {
+    if (!sources) return []
+    const codes = new Set<string>()
+    widgets.forEach((w) => { const dc = (w.config as Record<string, unknown>)?.dataset_code as string | undefined; if (dc) codes.add(dc) })
+    const labels = new Set<string>()
+    sources.datasets.forEach((d) => { if (codes.has(d.code)) d.rows.forEach((r) => labels.add(r)) })
+    return Array.from(labels)
+  })()
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, marginBottom: 16 }}>
@@ -273,24 +302,37 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
                 <h3 style={{ fontSize: 15, margin: 0 }}>Страница «{page.name}»</h3>
                 {canManage && <button style={{ ...tab, height: 30, ...(editMode ? tabActive : {}) }} onClick={() => setEditMode((v) => !v)}>{editMode ? '✓ Готово' : '✎ Раскладка'}</button>}
                 {canManage && <button style={linkDanger} onClick={() => delPage(page)}>удалить страницу</button>}
-                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280' }}>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280', flexWrap: 'wrap' }}>
                   <span>Период:</span>
                   <input type="date" style={{ ...input, height: 30, width: 140 }} value={pFrom} onChange={(e) => setPFrom(e.target.value)} />
                   <span>—</span>
                   <input type="date" style={{ ...input, height: 30, width: 140 }} value={pTo} onChange={(e) => setPTo(e.target.value)} />
-                  {(pFrom || pTo) && <button style={linkDanger} onClick={() => { setPFrom(''); setPTo('') }}>сброс</button>}
+                  <span style={{ marginLeft: 4 }}>Строка:</span>
+                  {catOptions.length > 0 ? (
+                    <select style={{ ...input, height: 30, width: 160 }} value={crossRow || ''} onChange={(e) => setCrossRow(e.target.value || null)}>
+                      <option value="">все</option>
+                      {catOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  ) : (
+                    <input style={{ ...input, height: 30, width: 150 }} placeholder="категория" value={crossRow || ''} onChange={(e) => setCrossRow(e.target.value || null)} />
+                  )}
+                  {(pFrom || pTo || crossRow) && <button style={linkDanger} onClick={() => { setPFrom(''); setPTo(''); setCrossRow(null) }}>сброс</button>}
                 </div>
               </div>
 
-              {crossRow && (
-                <div style={{ marginBottom: 10 }}>
-                  <span style={{ fontSize: 13, background: '#eef', color: '#2f5496', padding: '4px 10px', borderRadius: 12 }}>
-                    Фильтр по строке: <b>{crossRow}</b>
-                    <button style={{ border: 'none', background: 'none', color: '#2f5496', cursor: 'pointer', marginLeft: 6 }} onClick={() => setCrossRow(null)}>✕</button>
+              {/* Пресеты фильтров (сохранённые наборы, FR-13) */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>Пресеты:</span>
+                {presets.length === 0 && <span style={{ fontSize: 12, color: '#9aa4b2' }}>нет сохранённых наборов</span>}
+                {presets.map((p) => (
+                  <span key={p.id} style={presetChip}>
+                    <button style={{ border: 'none', background: 'none', color: '#2f5496', cursor: 'pointer', padding: 0, fontSize: 13 }} onClick={() => applyPreset(p)} title="Применить набор фильтров">{p.name}</button>
+                    {canManage && <button style={{ border: 'none', background: 'none', color: '#a32d2d', cursor: 'pointer', padding: 0 }} onClick={() => removePreset(p)} title="Удалить пресет">✕</button>}
                   </span>
-                  <span style={{ fontSize: 12, color: '#9aa4b2', marginLeft: 8 }}>клик по столбцу/сектору фильтрует остальные виджеты</span>
-                </div>
-              )}
+                ))}
+                {canManage && <button style={{ ...tab, height: 28 }} onClick={savePreset}>💾 Сохранить текущие</button>}
+                <span style={{ fontSize: 12, color: '#9aa4b2', marginLeft: 4 }}>клик по столбцу/сектору тоже задаёт «Строку»</span>
+              </div>
 
               {/* Сетка виджетов (drag-drop в режиме раскладки) */}
               {widgets.length === 0 ? <div style={muted}>На странице пока нет виджетов.</div> : (
@@ -607,6 +649,7 @@ const btnGhost: React.CSSProperties = { height: 36, padding: '0 14px', border: '
 const rowForm: React.CSSProperties = { display: 'flex', gap: 8, marginBottom: 16 }
 const rowItem: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', cursor: 'pointer' }
 const tab: React.CSSProperties = { height: 34, padding: '0 14px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }
+const presetChip: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#eef', padding: '3px 10px', borderRadius: 12 }
 const tabActive: React.CSSProperties = { background: '#eef', border: '1px solid #2f5496', color: '#2f5496' }
 const widgetCard: React.CSSProperties = { border: '1px solid #e5e7eb', borderRadius: 12, padding: 14, background: '#fff' }
 const wtBadge: React.CSSProperties = { marginLeft: 8, fontSize: 11, padding: '1px 7px', borderRadius: 8, background: '#eef', color: '#2f5496' }

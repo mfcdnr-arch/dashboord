@@ -646,6 +646,56 @@ async def remove_grant(conn, org_id, dashboard_id: str, grant_id: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Пресеты фильтров дашборда (FR-13, сохранённые наборы)
+# filters = {from, to, row} — период и категория/строка глобального фильтра.
+# Список/применение — по праву просмотра; создание/удаление — manage.
+# --------------------------------------------------------------------------- #
+_PRESET_KEYS = ("from", "to", "row")
+
+
+async def list_presets(conn, org_id, user: dict, dashboard_id: str) -> List[dict]:
+    if not await _can_view(conn, org_id, user, dashboard_id):
+        raise DashboardError("Дашборд не найден")
+    rows = await conn.fetch(
+        "select id, name, filters, created_at from dashboard_filter_presets "
+        "where dashboard_id=$1::uuid order by name", dashboard_id)
+    out = []
+    for r in rows:
+        f = r["filters"]
+        if isinstance(f, str):
+            f = json.loads(f)
+        out.append({"id": str(r["id"]), "name": r["name"], "filters": f or {}})
+    return out
+
+
+async def create_preset(conn, org_id, user_id, dashboard_id: str, name: str, filters: dict) -> dict:
+    if not await _owns_dashboard(conn, org_id, dashboard_id):
+        raise DashboardError("Дашборд не найден")
+    name = (name or "").strip()
+    if not name:
+        raise DashboardError("Укажите название пресета")
+    clean = {k: filters[k] for k in _PRESET_KEYS if filters.get(k)}
+    if await conn.fetchval(
+            "select 1 from dashboard_filter_presets where dashboard_id=$1::uuid and name=$2", dashboard_id, name):
+        raise DashboardError("Пресет с таким именем уже есть")
+    row = await conn.fetchrow(
+        "insert into dashboard_filter_presets(dashboard_id, name, filters, created_by) "
+        "values($1::uuid,$2,$3::jsonb,$4) returning id, name",
+        dashboard_id, name, json.dumps(clean, ensure_ascii=False), user_id)
+    return {"id": str(row["id"]), "name": row["name"], "filters": clean}
+
+
+async def delete_preset(conn, org_id, dashboard_id: str, preset_id: str) -> None:
+    if not await _owns_dashboard(conn, org_id, dashboard_id):
+        raise DashboardError("Дашборд не найден")
+    res = await conn.execute(
+        "delete from dashboard_filter_presets where id=$1::uuid and dashboard_id=$2::uuid",
+        preset_id, dashboard_id)
+    if res.endswith("0"):
+        raise DashboardError("Пресет не найден")
+
+
+# --------------------------------------------------------------------------- #
 # Авто-сборка дашборда из объекта (rule-based, не ИИ)
 # --------------------------------------------------------------------------- #
 async def _dataset_numeric_fields(conn, org_id, dataset_code: str) -> List[dict]:
