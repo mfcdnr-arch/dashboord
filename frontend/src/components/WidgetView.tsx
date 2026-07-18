@@ -58,7 +58,7 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
           title="Сработал порог KPI-алерта">⚠ {alert.label}</div>
       )}
       {data && <Body data={data} onPick={onPick} />}
-      {data && showDrill && (
+      {data && showDrill && data.type !== 'text' && data.type !== 'image' && (
         <button style={drillBtn} onClick={openDrill} title="Из чего собран показатель">🔍 подробнее</button>
       )}
       {drill && <DrillModal drill={drill} onClose={() => setDrill(null)} />}
@@ -67,6 +67,25 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
 }
 
 function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) {
+  if (data.type === 'text') {
+    const align = data.align === 'center' ? 'center' : 'left'
+    if (!data.heading && !data.body) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Пустая аннотация</div>
+    return (
+      <div style={{ textAlign: align }}>
+        {data.heading && <div style={{ fontSize: 18, fontWeight: 700, color: '#1f2937' }}>{data.heading}</div>}
+        {data.body && <div style={{ fontSize: 14, color: '#374151', marginTop: data.heading ? 4 : 0, whiteSpace: 'pre-wrap' }}>{data.body}</div>}
+      </div>
+    )
+  }
+  if (data.type === 'image') {
+    if (!data.url) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Не указан URL картинки</div>
+    return (
+      <div style={{ textAlign: 'center' }}>
+        <img src={data.url} alt={data.caption || ''} style={{ maxWidth: '100%', maxHeight: 220, objectFit: data.fit === 'cover' ? 'cover' : 'contain' }} />
+        {data.caption && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{data.caption}</div>}
+      </div>
+    )
+  }
   if (data.type === 'kpi') {
     return (
       <div style={{ fontSize: 30, fontWeight: 700, color: data.alert?.color || '#2f5496' }}>{fmt(data.value)}

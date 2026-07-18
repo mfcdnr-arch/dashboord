@@ -19,7 +19,10 @@ class DashboardError(Exception):
     """Ошибка бизнес-логики дашбордов (в роутере → 400/404)."""
 
 
-WIDGET_TYPES = {"kpi", "table", "bar", "line", "pie", "plan_fact", "dynamics", "compare"}
+WIDGET_TYPES = {"kpi", "table", "bar", "line", "pie", "plan_fact", "dynamics", "compare",
+                "text", "image"}
+# Аннотационные виджеты (без данных) — заголовок/текст и картинка/лого.
+ANNOTATION_TYPES = {"text", "image"}
 
 
 def _cfg(row) -> Dict[str, Any]:
@@ -431,6 +434,14 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
         raise DashboardError("Виджет не найден")
     t = w["widget_type"]
     cfg = _cfg(w)
+
+    if t == "text":
+        return {"type": "text", "title": w["name"], "heading": cfg.get("heading"),
+                "body": cfg.get("body"), "align": cfg.get("align", "left")}
+
+    if t == "image":
+        return {"type": "image", "title": w["name"], "url": cfg.get("url"),
+                "caption": cfg.get("caption"), "fit": cfg.get("fit", "contain")}
 
     if t == "compare":
         fields = cfg.get("value_fields") or []

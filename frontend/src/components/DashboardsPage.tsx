@@ -18,13 +18,14 @@ const GL = WidthProvider(GridLayout)
 const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
   kpi: { w: 3, h: 3 }, plan_fact: { w: 4, h: 5 }, table: { w: 6, h: 6 },
   bar: { w: 5, h: 6 }, line: { w: 5, h: 6 }, pie: { w: 4, h: 6 },
-  dynamics: { w: 6, h: 6 }, compare: { w: 6, h: 7 },
+  dynamics: { w: 6, h: 6 }, compare: { w: 6, h: 7 }, text: { w: 6, h: 2 }, image: { w: 3, h: 3 },
 }
 
 const WT = [
   { v: 'kpi', t: 'KPI (число)' }, { v: 'bar', t: 'Столбцы' }, { v: 'line', t: 'Линия' },
   { v: 'pie', t: 'Круговая' }, { v: 'table', t: 'Таблица' }, { v: 'plan_fact', t: 'План-факт' },
   { v: 'dynamics', t: 'Динамика (периоды)' }, { v: 'compare', t: 'Сравнение (неск. полей)' },
+  { v: 'text', t: 'Текст/заголовок' }, { v: 'image', t: 'Картинка/лого' },
 ]
 
 export default function DashboardsPage({ canManage, initialDashboardId }: { canManage: boolean; initialDashboardId?: string | null }) {
@@ -589,7 +590,14 @@ function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const [factField, setFactField] = useState(cfg0.fact_field || numFields(initDataset)[0]?.code || '')
   const [multiFields, setMultiFields] = useState<string[]>(cfg0.value_fields || [])
   const [viz, setViz] = useState(cfg0.viz || 'bar')
+  const [heading, setHeading] = useState(cfg0.heading || '')
+  const [bodyText, setBodyText] = useState(cfg0.body || '')
+  const [align, setAlign] = useState(cfg0.align || 'left')
+  const [imgUrl, setImgUrl] = useState(cfg0.url || '')
+  const [caption, setCaption] = useState(cfg0.caption || '')
 
+  const isText = type === 'text'
+  const isImage = type === 'image'
   const usesSource = type === 'kpi' || type === 'plan_fact'
   const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'compare'].includes(type)
   const usesValueField = ['bar', 'line', 'pie', 'dynamics'].includes(type) || (type === 'kpi' && source === 'dataset')
@@ -599,7 +607,9 @@ function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   function submit(e: FormEvent) {
     e.preventDefault()
     let config: Record<string, unknown> = {}
-    if (type === 'kpi') config = source === 'metric' ? { metric_code: metricCode } : { dataset_code: dataset, value_field: valueField }
+    if (type === 'text') config = { heading: heading.trim() || undefined, body: bodyText.trim() || undefined, align }
+    else if (type === 'image') { if (!imgUrl.trim()) return; config = { url: imgUrl.trim(), caption: caption.trim() || undefined, fit: 'contain' } }
+    else if (type === 'kpi') config = source === 'metric' ? { metric_code: metricCode } : { dataset_code: dataset, value_field: valueField }
     else if (type === 'plan_fact') config = source === 'metric' ? { plan_metric: metricCode, fact_metric: factMetric } : { dataset_code: dataset, plan_field: planField, fact_field: factField }
     else if (type === 'table') config = { dataset_code: dataset }
     else if (type === 'compare') { if (multiFields.length === 0) return; config = { dataset_code: dataset, value_fields: multiFields, viz } }
@@ -621,6 +631,19 @@ function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     <form onSubmit={submit} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end', border: initial ? 'none' : '1px solid #e5e7eb', borderRadius: 10, padding: initial ? 0 : 12 }}>
       <F t="Название"><input style={sel} placeholder="Заголовок виджета" value={name} onChange={(e) => setName(e.target.value)} /></F>
       <F t="Тип"><select style={sel} value={type} onChange={(e) => setType(e.target.value)}>{WT.map((x) => <option key={x.v} value={x.v}>{x.t}</option>)}</select></F>
+      {isText && (
+        <>
+          <F t="Заголовок (крупно)"><input style={{ ...sel, width: 200 }} placeholder="напр. Итоги квартала" value={heading} onChange={(e) => setHeading(e.target.value)} /></F>
+          <F t="Текст"><input style={{ ...sel, width: 260 }} placeholder="пояснение к разделу" value={bodyText} onChange={(e) => setBodyText(e.target.value)} /></F>
+          <F t="Выравнивание"><select style={sel} value={align} onChange={(e) => setAlign(e.target.value)}><option value="left">Слева</option><option value="center">По центру</option></select></F>
+        </>
+      )}
+      {isImage && (
+        <>
+          <F t="URL картинки"><input style={{ ...sel, width: 300 }} placeholder="https://… или data:image/…" value={imgUrl} onChange={(e) => setImgUrl(e.target.value)} /></F>
+          <F t="Подпись (необяз.)"><input style={{ ...sel, width: 180 }} placeholder="напр. Логотип МФЦ" value={caption} onChange={(e) => setCaption(e.target.value)} /></F>
+        </>
+      )}
       {usesSource && (
         <F t="Источник"><select style={sel} value={source} onChange={(e) => setSource(e.target.value as any)}>
           <option value="metric">Метрика</option><option value="dataset">Датасет</option>
