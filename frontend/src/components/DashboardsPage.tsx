@@ -11,6 +11,7 @@ import {
   type Dashboard, type DashGrant, type DashPage, type DashPreset, type DashTemplate, type DataSources, type GrantTargets, type Obj, type Widget,
 } from '../api'
 import WidgetView from './WidgetView'
+import KioskView from './KioskView'
 
 const GL = WidthProvider(GridLayout)
 
@@ -55,6 +56,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   const [editWidget, setEditWidget] = useState<Widget | null>(null)
   const [accessOpen, setAccessOpen] = useState(false)
   const [presets, setPresets] = useState<DashPreset[]>([])
+  const [kiosk, setKiosk] = useState(false)
 
   const fail = (e: unknown) => setError((e as Error).message)
   const refresh = () => listDashboards().then(setDashboards).catch(fail)
@@ -269,6 +271,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
             {canManage && sel.dashboard.publication_status !== 'published' && <button style={btn} onClick={doPublish}>Опубликовать</button>}
             {canManage && sel.dashboard.publication_status === 'published' && <button style={btnGhost} onClick={doUnpublish}>Снять с публикации</button>}
             {canManage && <button style={btnGhost} onClick={loadVersions}>История версий</button>}
+            {sel.pages.length > 0 && <button style={btnGhost} onClick={() => setKiosk(true)} title="Полноэкранный показ с автопрокруткой (для ТВ)">📺 Витрина</button>}
             {page && <button style={btnGhost} disabled={exporting} onClick={exportPdf}>{exporting ? 'Экспорт…' : '⤓ Экспорт в PDF'}</button>}
             {canManage && <button style={btnGhost} onClick={saveTemplate}>Сохранить как шаблон</button>}
             {canManage && <button style={btnGhost} onClick={() => setAccessOpen(true)} title="Кто видит этот дашборд">🔒 Доступ</button>}
@@ -400,6 +403,9 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
       )}
       {accessOpen && sel && (
         <AccessEditor dashboard={sel.dashboard} onClose={() => setAccessOpen(false)} />
+      )}
+      {kiosk && sel && (
+        <KioskView dashboardName={sel.dashboard.name} pages={sel.pages} onClose={() => setKiosk(false)} />
       )}
     </div>
   )
