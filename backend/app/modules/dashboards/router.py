@@ -323,6 +323,15 @@ async def preview_widget(body: WidgetPreviewIn, user: dict = Depends(manage)):
             raise _bad(e)
 
 
+@router.get("/widgets/suggestions")
+async def widget_suggestions(dataset_code: str, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            return await service.suggest_widgets(conn, user["organization_id"], dataset_code)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.patch("/widgets/{widget_id}")
 async def update_widget(widget_id: str, body: WidgetPatch, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:

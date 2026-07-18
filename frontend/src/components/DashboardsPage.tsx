@@ -7,8 +7,8 @@ import 'react-resizable/css/styles.css'
 import {
   addDashboardGrant, autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deletePage, deletePreset, deleteWidget, getDashboard,
   exportPageXlsx, getDataSources, instantiateTemplate, listDashboardGrants, listDashboardVersions, listDashboards, listObjects, listPageWidgets, listPresets, previewWidget,
-  listTemplates, publishDashboard, removeDashboardGrant, restoreDashboardVersion, saveAsTemplate, unpublishDashboard, updateWidget,
-  type Dashboard, type DashGrant, type DashPage, type DashPreset, type DashTemplate, type DataSources, type GrantTargets, type Obj, type Widget,
+  listTemplates, publishDashboard, removeDashboardGrant, restoreDashboardVersion, saveAsTemplate, unpublishDashboard, updateWidget, widgetSuggestions,
+  type Dashboard, type DashGrant, type DashPage, type DashPreset, type DashTemplate, type DataSources, type GrantTargets, type Obj, type Widget, type WidgetSpec,
 } from '../api'
 import WidgetView, { WidgetPreviewBody } from './WidgetView'
 import KioskView from './KioskView'
@@ -134,6 +134,13 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
     try {
       await updateWidget(editWidget.id, { name: body.name, widget_type: body.widget_type, config: body.config })
       setEditWidget(null); await reloadPage(); setReloadKey((k) => k + 1)
+    } catch (e) { fail(e) }
+  }
+  async function addWidgetsBatch(specs: WidgetSpec[]) {
+    if (!page) return
+    try {
+      for (const s of specs) await createWidget(page.id, { ...s, position_x: 0, position_y: 999 })
+      await reloadPage(); setReloadKey((k) => k + 1)
     } catch (e) { fail(e) }
   }
   async function delWidget(w: Widget) {
@@ -399,6 +406,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
               {canManage && sources && (
                 <div style={{ marginTop: 20 }}>
                   <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>Добавить виджет</h3>
+                  {sources.datasets.length > 0 && <SuggestPanel datasets={sources.datasets} onAdd={addWidgetsBatch} />}
                   <WidgetForm sources={sources} onCreate={addWidget} />
                 </div>
               )}
@@ -594,6 +602,61 @@ function AlertEditor({ widget, onClose, onSaved }: { widget: Widget; onClose: ()
           <button style={btnGhost} onClick={add}>+ Правило</button>
           <button style={{ ...btn, marginLeft: 'auto' }} disabled={busy} onClick={save}>{busy ? 'Сохранение…' : 'Сохранить'}</button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Подсказки «что собрать»: система предлагает виджеты под выбранный датасет ──
+function SuggestPanel({ datasets, onAdd }: { datasets: DataSources['datasets']; onAdd: (specs: WidgetSpec[]) => Promise<void> }) {
+  const [dc, setDc] = useState(datasets[0]?.code || '')
+  const [specs, setSpecs] = useState<WidgetSpec[]>([])
+  const [chosen, setChosen] = useState<Set<number>>(new Set())
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(false)
+
+  function load(code: string) {
+    setErr(null); setSpecs([]); setChosen(new Set())
+    if (!code) return
+    widgetSuggestions(code).then((s) => { setSpecs(s); setChosen(new Set(s.map((_, i) => i))) }).catch((e) => setErr((e as Error).message))
+  }
+  useEffect(() => { if (open && dc) load(dc) }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  const toggle = (i: number) => setChosen((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n })
+  async function add() {
+    const picked = specs.filter((_, i) => chosen.has(i))
+    if (!picked.length) return
+    setBusy(true)
+    try { await onAdd(picked) } finally { setBusy(false) }
+  }
+
+  if (!open) {
+    return (
+      <button style={{ ...btnAuto, height: 34, marginBottom: 12 }} onClick={() => setOpen(true)}>
+        ✨ Предложить виджеты под датасет
+      </button>
+    )
+  }
+  return (
+    <div style={{ border: '1px solid #d1d5db', borderRadius: 10, padding: 12, marginBottom: 12, background: '#f8fafc' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+        <F t="Датасет"><select style={sel} value={dc} onChange={(e) => { setDc(e.target.value); load(e.target.value) }}>
+          {datasets.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}
+        </select></F>
+        <button style={{ ...btn, height: 34 }} disabled={busy || chosen.size === 0} onClick={add}>{busy ? 'Добавление…' : `＋ Добавить выбранные (${chosen.size})`}</button>
+        <button style={{ ...btnGhost, height: 34 }} onClick={() => setOpen(false)}>Скрыть</button>
+        <span style={{ fontSize: 12, color: '#6b7280' }}>отметьте нужные предложения</span>
+      </div>
+      {err && <div style={{ color: '#a32d2d', fontSize: 12, marginBottom: 6 }}>{err}</div>}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {specs.length === 0 && !err && <span style={{ fontSize: 12, color: '#9aa4b2' }}>Нет предложений.</span>}
+        {specs.map((s, i) => (
+          <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, border: '1px solid #e5e7eb', borderRadius: 8, padding: '5px 10px', background: chosen.has(i) ? '#eef' : '#fff', cursor: 'pointer' }}>
+            <input type="checkbox" checked={chosen.has(i)} onChange={() => toggle(i)} />
+            {s.name}
+            <span style={{ ...wtBadge, marginLeft: 4 }}>{WT.find((x) => x.v === s.widget_type)?.t || s.widget_type}</span>
+          </label>
+        ))}
       </div>
     </div>
   )

@@ -813,6 +813,42 @@ async def _dataset_numeric_fields(conn, org_id, dataset_code: str) -> List[dict]
     return [dict(r) for r in rows]
 
 
+async def suggest_widgets(conn, org_id, dataset_code: str) -> List[dict]:
+    """Подсказки «что собрать» под датасет: готовые спецификации виджетов
+    (KPI по каждому числовому полю, график по строкам, динамика при >1 периода,
+    сравнение/план-факт при ≥2 полях, таблица-первичка). Пользователь выбирает."""
+    fields = await _dataset_numeric_fields(conn, org_id, dataset_code)
+    if not fields:
+        raise DashboardError("У датасета нет числовых полей — сначала распознайте документ")
+    dsname = await conn.fetchval(
+        "select max(name) from dataset_releases where organization_id=$1 and code=$2 and status<>'superseded'",
+        org_id, dataset_code) or dataset_code
+    periods = await conn.fetchval(
+        "select count(distinct reporting_period_start) from dataset_releases "
+        "where organization_id=$1 and code=$2 and status<>'superseded'", org_id, dataset_code) or 0
+
+    specs: List[dict] = []
+    for f in fields:
+        specs.append({"name": f"Σ {f['name']}", "widget_type": "kpi",
+                      "config": {"dataset_code": dataset_code, "value_field": f["code"]}, "width": 3, "height": 3})
+    f0 = fields[0]
+    specs.append({"name": f"{f0['name']} по строкам", "widget_type": "bar",
+                  "config": {"dataset_code": dataset_code, "value_field": f0["code"]}, "width": 5, "height": 6})
+    if periods > 1:
+        specs.append({"name": f"Динамика: {f0['name']}", "widget_type": "dynamics",
+                      "config": {"dataset_code": dataset_code, "value_field": f0["code"]}, "width": 6, "height": 6})
+    if len(fields) >= 2:
+        specs.append({"name": "Сравнение полей", "widget_type": "compare",
+                      "config": {"dataset_code": dataset_code, "value_fields": [f["code"] for f in fields[:4]], "viz": "bar"},
+                      "width": 6, "height": 7})
+        specs.append({"name": f"План/факт: {fields[0]['name']} / {fields[1]['name']}", "widget_type": "plan_fact",
+                      "config": {"dataset_code": dataset_code, "plan_field": fields[0]["code"], "fact_field": fields[1]["code"]},
+                      "width": 4, "height": 5})
+    specs.append({"name": f"{dsname}: таблица", "widget_type": "table",
+                  "config": {"dataset_code": dataset_code}, "width": 6, "height": 6})
+    return specs
+
+
 async def auto_build(conn, org_id, user_id, object_id: str, name=None) -> dict:
     """Собирает черновик дашборда по объекту: на каждый датасет объекта — KPI,
     столбчатый график, динамику (если >1 периода) и таблицу-первичку."""
