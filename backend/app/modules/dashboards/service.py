@@ -432,15 +432,24 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
         raise DashboardError("Виджет не найден")
     if user is not None and not await _can_view(conn, org_id, user, str(w["dashboard_id"])):
         raise DashboardError("Виджет не найден")
-    t = w["widget_type"]
-    cfg = _cfg(w)
+    return await _compute_widget(conn, org_id, w["widget_type"], w["name"], _cfg(w), from_date, to_date, row)
 
+
+async def preview_widget(conn, org_id, widget_type: str, name: Optional[str], config: dict) -> dict:
+    """Предпросмотр виджета по конфигу без сохранения (для конструктора)."""
+    if widget_type not in WIDGET_TYPES:
+        raise DashboardError(f"Неизвестный тип виджета: {widget_type}")
+    return await _compute_widget(conn, org_id, widget_type, name or "Предпросмотр", config or {})
+
+
+async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
+                          from_date=None, to_date=None, row=None) -> dict:
     if t == "text":
-        return {"type": "text", "title": w["name"], "heading": cfg.get("heading"),
+        return {"type": "text", "title": name, "heading": cfg.get("heading"),
                 "body": cfg.get("body"), "align": cfg.get("align", "left")}
 
     if t == "image":
-        return {"type": "image", "title": w["name"], "url": cfg.get("url"),
+        return {"type": "image", "title": name, "url": cfg.get("url"),
                 "caption": cfg.get("caption"), "fit": cfg.get("fit", "contain")}
 
     if t == "compare":
@@ -448,7 +457,7 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
         if not cfg.get("dataset_code") or not fields:
             raise DashboardError("Сравнение: укажите dataset_code и value_fields")
         res = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row)
-        res["type"], res["viz"], res["title"] = "compare", cfg.get("viz", "bar"), w["name"]
+        res["type"], res["viz"], res["title"] = "compare", cfg.get("viz", "bar"), name
         return res
 
     if t == "dynamics":
@@ -459,7 +468,7 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
         values = [v for _, v in series]
         change = values[-1] - values[-2] if len(values) >= 2 else None
         change_pct = (change / values[-2] * 100.0) if (change is not None and values[-2]) else None
-        res = {"type": "dynamics", "title": w["name"], "periods": periods, "values": values,
+        res = {"type": "dynamics", "title": name, "periods": periods, "values": values,
                "change": change, "change_pct": change_pct}
         res["alert"] = evaluate_alert("dynamics", cfg, res)
         return res
@@ -472,7 +481,7 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
             value, unit = sum(s["value"] for s in series), cfg.get("unit")
         else:
             raise DashboardError("KPI: укажите metric_code или dataset_code+value_field")
-        res = {"type": "kpi", "value": value, "unit": unit, "title": w["name"]}
+        res = {"type": "kpi", "value": value, "unit": unit, "title": name}
         res["alert"] = evaluate_alert("kpi", cfg, res)
         return res
 
@@ -487,7 +496,7 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
         else:
             raise DashboardError("План-факт: укажите plan_metric+fact_metric или dataset_code+plan_field+fact_field")
         pct = (fact / plan * 100.0) if plan else None
-        res = {"type": "plan_fact", "plan": plan, "fact": fact, "delta": fact - plan, "pct": pct, "unit": unit, "title": w["name"]}
+        res = {"type": "plan_fact", "plan": plan, "fact": fact, "delta": fact - plan, "pct": pct, "unit": unit, "title": name}
         res["alert"] = evaluate_alert("plan_fact", cfg, res)
         return res
 
@@ -495,13 +504,13 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
         if not cfg.get("dataset_code"):
             raise DashboardError("Таблица: укажите dataset_code")
         table = await _dataset_table(conn, org_id, cfg["dataset_code"], row)
-        return {"type": "table", "title": w["name"], **table}
+        return {"type": "table", "title": name, **table}
 
     # bar | line | pie
     if not cfg.get("dataset_code") or not cfg.get("value_field"):
         raise DashboardError("График: укажите dataset_code и value_field")
     series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row)
-    return {"type": t, "title": w["name"],
+    return {"type": t, "title": name,
             "categories": [s["category"] for s in series],
             "values": [s["value"] for s in series]}
 

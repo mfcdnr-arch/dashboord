@@ -66,6 +66,11 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
   )
 }
 
+// Рендер тела виджета по готовым данным — используется в конструкторе для предпросмотра.
+export function WidgetPreviewBody({ data }: { data: any }) {
+  return <Body data={data} />
+}
+
 function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) {
   if (data.type === 'text') {
     const align = data.align === 'center' ? 'center' : 'left'

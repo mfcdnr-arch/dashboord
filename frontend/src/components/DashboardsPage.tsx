@@ -6,11 +6,11 @@ import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import {
   addDashboardGrant, autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deletePage, deletePreset, deleteWidget, getDashboard,
-  exportPageXlsx, getDataSources, instantiateTemplate, listDashboardGrants, listDashboardVersions, listDashboards, listObjects, listPageWidgets, listPresets,
+  exportPageXlsx, getDataSources, instantiateTemplate, listDashboardGrants, listDashboardVersions, listDashboards, listObjects, listPageWidgets, listPresets, previewWidget,
   listTemplates, publishDashboard, removeDashboardGrant, restoreDashboardVersion, saveAsTemplate, unpublishDashboard, updateWidget,
   type Dashboard, type DashGrant, type DashPage, type DashPreset, type DashTemplate, type DataSources, type GrantTargets, type Obj, type Widget,
 } from '../api'
-import WidgetView from './WidgetView'
+import WidgetView, { WidgetPreviewBody } from './WidgetView'
 import KioskView from './KioskView'
 
 const GL = WidthProvider(GridLayout)
@@ -633,16 +633,37 @@ function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const usesMulti = type === 'compare'
   const toggleField = (c: string) => setMultiFields((s) => s.includes(c) ? s.filter((x) => x !== c) : [...s, c])
 
+  // Собирает config по текущему выбору; null — если данных для показа ещё недостаточно.
+  function currentConfig(): Record<string, unknown> | null {
+    if (type === 'text') return { heading: heading.trim() || undefined, body: bodyText.trim() || undefined, align }
+    if (type === 'image') return imgUrl.trim() ? { url: imgUrl.trim(), caption: caption.trim() || undefined, fit: 'contain' } : null
+    if (type === 'kpi') return source === 'metric' ? (metricCode ? { metric_code: metricCode } : null) : ((dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null)
+    if (type === 'plan_fact') return source === 'metric' ? ((metricCode && factMetric) ? { plan_metric: metricCode, fact_metric: factMetric } : null) : ((dataset && planField && factField) ? { dataset_code: dataset, plan_field: planField, fact_field: factField } : null)
+    if (type === 'table') return dataset ? { dataset_code: dataset } : null
+    if (type === 'compare') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields, viz } : null
+    return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null // bar/line/pie/dynamics
+  }
+
+  // Живой предпросмотр (как в конструкторе формул): рендер по конфигу без сохранения.
+  const [preview, setPreview] = useState<any>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [previewErr, setPreviewErr] = useState<string | null>(null)
+  const cfgKey = JSON.stringify([type, currentConfig(), name])
+  useEffect(() => {
+    const config = currentConfig()
+    if (!config) { setPreview(null); setPreviewErr(null); return }
+    let cancelled = false
+    const t = setTimeout(() => {
+      previewWidget({ widget_type: type, name: name.trim() || undefined, config })
+        .then((d) => { if (!cancelled) { setPreview(d); setPreviewErr(null) } })
+        .catch((e) => { if (!cancelled) { setPreview(null); setPreviewErr((e as Error).message) } })
+    }, 350)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [cfgKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
   function submit(e: FormEvent) {
     e.preventDefault()
-    let config: Record<string, unknown> = {}
-    if (type === 'text') config = { heading: heading.trim() || undefined, body: bodyText.trim() || undefined, align }
-    else if (type === 'image') { if (!imgUrl.trim()) return; config = { url: imgUrl.trim(), caption: caption.trim() || undefined, fit: 'contain' } }
-    else if (type === 'kpi') config = source === 'metric' ? { metric_code: metricCode } : { dataset_code: dataset, value_field: valueField }
-    else if (type === 'plan_fact') config = source === 'metric' ? { plan_metric: metricCode, fact_metric: factMetric } : { dataset_code: dataset, plan_field: planField, fact_field: factField }
-    else if (type === 'table') config = { dataset_code: dataset }
-    else if (type === 'compare') { if (multiFields.length === 0) return; config = { dataset_code: dataset, value_fields: multiFields, viz } }
-    else config = { dataset_code: dataset, value_field: valueField }
+    const config = currentConfig()
+    if (!config) return
     // при редактировании сохраняем условное форматирование (алерты), если тип по-прежнему его поддерживает
     if (initial && cfg0.alerts && ['kpi', 'plan_fact', 'dynamics'].includes(type)) {
       config.alerts = cfg0.alerts
@@ -710,7 +731,15 @@ function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           <F t="Поле (факт)"><select style={sel} value={factField} onChange={(e) => setFactField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></F>
         </>
       )}
-      <button style={btn}>{submitLabel || 'Добавить'}</button>
+      <div style={{ flexBasis: '100%', marginTop: 6 }}>
+        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>Предпросмотр</div>
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 12, minHeight: 56, background: '#fff' }}>
+          {previewErr ? <div style={{ color: '#a32d2d', fontSize: 12 }}>{previewErr}</div>
+            : preview ? <WidgetPreviewBody data={preview} />
+              : <div style={{ color: '#9aa4b2', fontSize: 12 }}>Заполните поля — здесь появится живой предпросмотр виджета</div>}
+        </div>
+      </div>
+      <button style={{ ...btn, flexBasis: '100%' }}>{submitLabel || 'Добавить'}</button>
     </form>
   )
 }

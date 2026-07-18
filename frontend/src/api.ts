@@ -493,6 +493,13 @@ export async function deletePreset(dashboardId: string, presetId: string): Promi
   const res = await fetch(`/dashboards/${dashboardId}/presets/${presetId}`, { method: 'DELETE', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
 }
+export async function previewWidget(body: { widget_type: string; name?: string; config: Record<string, unknown> }): Promise<any> {
+  const res = await fetch('/widgets/preview', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
 export async function exportPageXlsx(pageId: string): Promise<Blob> {
   const res = await fetch(`/dashboard-pages/${pageId}/export.xlsx`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))

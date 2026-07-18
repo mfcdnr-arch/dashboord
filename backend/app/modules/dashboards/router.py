@@ -308,6 +308,21 @@ async def create_widget(page_id: str, body: WidgetIn, user: dict = Depends(manag
 
 
 # --- Виджеты ---
+class WidgetPreviewIn(BaseModel):
+    widget_type: str
+    name: Optional[str] = None
+    config: Dict[str, Any] = {}
+
+
+@router.post("/widgets/preview")
+async def preview_widget(body: WidgetPreviewIn, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            return await service.preview_widget(conn, user["organization_id"], body.widget_type, body.name, body.config)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.patch("/widgets/{widget_id}")
 async def update_widget(widget_id: str, body: WidgetPatch, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
