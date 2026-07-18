@@ -540,6 +540,84 @@ async def list_org_alerts(conn, org_id, user: dict, limit: int = 30) -> List[dic
     return out[:limit]
 
 
+async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
+    """Экспорт данных всех виджетов страницы в .xlsx (openpyxl).
+    KPI/план-факт — на лист «Сводка», датасетные виджеты — по листу на виджет.
+    Аннотации (text/image) пропускаются. RLS: проверяется доступ к дашборду."""
+    import io
+    import re
+    from openpyxl import Workbook
+
+    p = await _page_org(conn, org_id, page_id)
+    if p is None:
+        raise DashboardError("Страница не найдена")
+    if not await _can_view(conn, org_id, user, str(p["dashboard_id"])):
+        raise DashboardError("Страница не найдена")
+
+    rows = await conn.fetch(
+        "select id, name, widget_type from widgets where page_id=$1::uuid order by position_y, position_x", page_id)
+
+    wb = Workbook()
+    summary = wb.active
+    summary.title = "Сводка"
+    summary.append(["Виджет", "Тип", "Показатель", "Значение"])
+    has_summary = False
+
+    used: set = set()
+    def sheet_name(base: str) -> str:
+        n = re.sub(r"[\[\]:*?/\\]", " ", base or "Лист")[:28].strip() or "Лист"
+        cand, i = n, 2
+        while cand.lower() in used:
+            cand, i = f"{n[:25]} {i}", i + 1
+        used.add(cand.lower())
+        return cand
+
+    for w in rows:
+        wid, t, name = str(w["id"]), w["widget_type"], w["name"]
+        if t in ("text", "image"):
+            continue
+        try:
+            data = await compute_widget_data(conn, org_id, wid)
+        except DashboardError:
+            continue
+        if t == "kpi":
+            summary.append([name, "KPI", "значение", data.get("value")]); has_summary = True
+        elif t == "plan_fact":
+            summary.append([name, "План-факт", "план", data.get("plan")])
+            summary.append([name, "План-факт", "факт", data.get("fact")])
+            summary.append([name, "План-факт", "выполнение, %", data.get("pct")]); has_summary = True
+        elif t == "table":
+            ws = wb.create_sheet(sheet_name(name))
+            cols = list(data.get("columns", []))
+            ws.append(["Строка"] + cols)
+            for r in data.get("rows", []):
+                ws.append([r.get("row")] + [r.get(c) for c in cols])
+        elif t in ("bar", "line", "pie"):
+            ws = wb.create_sheet(sheet_name(name))
+            ws.append(["Категория", "Значение"])
+            for c, v in zip(data.get("categories", []), data.get("values", [])):
+                ws.append([c, v])
+        elif t == "dynamics":
+            ws = wb.create_sheet(sheet_name(name))
+            ws.append(["Период", "Значение"])
+            for pr, v in zip(data.get("periods", []), data.get("values", [])):
+                ws.append([pr, v])
+        elif t == "compare":
+            ws = wb.create_sheet(sheet_name(name))
+            series = data.get("series", [])
+            cats = data.get("categories", [])
+            ws.append(["Категория"] + [s.get("name") for s in series])
+            for i, c in enumerate(cats):
+                ws.append([c] + [(s.get("data") or [])[i] if i < len(s.get("data", [])) else None for s in series])
+
+    if not has_summary and len(wb.sheetnames) > 1:
+        wb.remove(summary)  # нет KPI/план-факта, но есть датасетные листы — убираем пустую сводку
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 async def widget_drill(conn, org_id, widget_id: str, user: dict) -> dict:
     """Прозрачность показателя: из чего собран виджет — формулы метрик (уровень 1)
     и первичные строки датасетов (уровень 2)."""

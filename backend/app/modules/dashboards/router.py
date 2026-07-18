@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from ... import db
@@ -270,6 +270,20 @@ async def delete_page(page_id: str, user: dict = Depends(manage)):
             await service.delete_page(conn, user["organization_id"], page_id)
         except DashboardError as e:
             raise _bad(e)
+
+
+@router.get("/dashboard-pages/{page_id}/export.xlsx")
+async def export_page_xlsx(page_id: str, user: dict = Depends(get_current_user)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            data = await service.export_page_xlsx(conn, user["organization_id"], user, page_id)
+        except DashboardError as e:
+            raise _bad(e)
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="dashboard-page.xlsx"'},
+    )
 
 
 @router.get("/dashboard-pages/{page_id}/widgets")

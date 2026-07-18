@@ -6,7 +6,7 @@ import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import {
   addDashboardGrant, autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deletePage, deletePreset, deleteWidget, getDashboard,
-  getDataSources, instantiateTemplate, listDashboardGrants, listDashboardVersions, listDashboards, listObjects, listPageWidgets, listPresets,
+  exportPageXlsx, getDataSources, instantiateTemplate, listDashboardGrants, listDashboardVersions, listDashboards, listObjects, listPageWidgets, listPresets,
   listTemplates, publishDashboard, removeDashboardGrant, restoreDashboardVersion, saveAsTemplate, unpublishDashboard, updateWidget,
   type Dashboard, type DashGrant, type DashPage, type DashPreset, type DashTemplate, type DataSources, type GrantTargets, type Obj, type Widget,
 } from '../api'
@@ -196,6 +196,27 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
       pdf.save(`${sel.dashboard.name} — ${page.name}.pdf`)
     } catch (e) { fail(e) } finally { setExporting(false) }
   }
+  async function exportPng() {
+    const el = pageRef.current
+    if (!el || !sel || !page) return
+    setExporting(true)
+    try {
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
+      const a = document.createElement('a')
+      a.href = canvas.toDataURL('image/png'); a.download = `${sel.dashboard.name} — ${page.name}.png`; a.click()
+    } catch (e) { fail(e) } finally { setExporting(false) }
+  }
+  async function exportExcel() {
+    if (!sel || !page) return
+    setExporting(true)
+    try {
+      const blob = await exportPageXlsx(page.id)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = `${sel.dashboard.name} — ${page.name}.xlsx`; a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) { fail(e) } finally { setExporting(false) }
+  }
   async function persistItem(l: Layout) {
     try {
       await updateWidget(l.i, { position_x: l.x, position_y: l.y, width: l.w, height: l.h })
@@ -272,7 +293,9 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
             {canManage && sel.dashboard.publication_status === 'published' && <button style={btnGhost} onClick={doUnpublish}>Снять с публикации</button>}
             {canManage && <button style={btnGhost} onClick={loadVersions}>История версий</button>}
             {sel.pages.length > 0 && <button style={btnGhost} onClick={() => setKiosk(true)} title="Полноэкранный показ с автопрокруткой (для ТВ)">📺 Витрина</button>}
-            {page && <button style={btnGhost} disabled={exporting} onClick={exportPdf}>{exporting ? 'Экспорт…' : '⤓ Экспорт в PDF'}</button>}
+            {page && <button style={btnGhost} disabled={exporting} onClick={exportPdf}>{exporting ? 'Экспорт…' : '⤓ PDF'}</button>}
+            {page && <button style={btnGhost} disabled={exporting} onClick={exportExcel} title="Данные страницы в Excel">⤓ Excel</button>}
+            {page && <button style={btnGhost} disabled={exporting} onClick={exportPng} title="Снимок страницы в PNG">⤓ PNG</button>}
             {canManage && <button style={btnGhost} onClick={saveTemplate}>Сохранить как шаблон</button>}
             {canManage && <button style={btnGhost} onClick={() => setAccessOpen(true)} title="Кто видит этот дашборд">🔒 Доступ</button>}
           </div>
