@@ -51,6 +51,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   const [editMode, setEditMode] = useState(false)
   const [versions, setVersions] = useState<{ version_no: number; status_code: string; created_at: string }[] | null>(null)
   const [alertWidget, setAlertWidget] = useState<Widget | null>(null)
+  const [editWidget, setEditWidget] = useState<Widget | null>(null)
   const [accessOpen, setAccessOpen] = useState(false)
   const [presets, setPresets] = useState<DashPreset[]>([])
 
@@ -124,6 +125,13 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   async function addWidget(body: { name: string; widget_type: string; config: Record<string, unknown>; width?: number; height?: number }) {
     if (!page) return
     try { await createWidget(page.id, { ...body, position_x: 0, position_y: 999 }); await reloadPage(); setReloadKey((k) => k + 1) } catch (e) { fail(e) }
+  }
+  async function saveWidgetEdit(body: { name: string; widget_type: string; config: Record<string, unknown> }) {
+    if (!editWidget) return
+    try {
+      await updateWidget(editWidget.id, { name: body.name, widget_type: body.widget_type, config: body.config })
+      setEditWidget(null); await reloadPage(); setReloadKey((k) => k + 1)
+    } catch (e) { fail(e) }
   }
   async function delWidget(w: Widget) {
     try { await deleteWidget(w.id); await reloadPage() } catch (e) { fail(e) }
@@ -346,6 +354,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
                       <div className={editMode ? 'wdrag' : ''} style={{ display: 'flex', alignItems: 'center', marginBottom: 8, cursor: editMode ? 'move' : 'default' }}>
                         <div style={{ fontSize: 13, fontWeight: 600 }}>{w.name}</div>
                         <span style={wtBadge}>{WT.find((x) => x.v === w.widget_type)?.t || w.widget_type}</span>
+                        {canManage && sources && <button style={editBtn} onClick={() => setEditWidget(w)} title="Изменить данные/тип виджета">✎</button>}
                         {canManage && ['kpi', 'plan_fact', 'dynamics'].includes(w.widget_type) && (
                           <button style={alertBtn} onClick={() => setAlertWidget(w)}
                             title="Пороги KPI-алерта (условное форматирование)">⚠</button>
@@ -373,6 +382,20 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
       {alertWidget && (
         <AlertEditor widget={alertWidget} onClose={() => setAlertWidget(null)}
           onSaved={async () => { setAlertWidget(null); await reloadPage(); setReloadKey((k) => k + 1) }} />
+      )}
+      {editWidget && sources && (
+        <div style={overlay} onClick={() => setEditWidget(null)}>
+          <div style={{ ...dialog, width: 680 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>✎ Изменить виджет: {editWidget.name}</div>
+              <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={() => setEditWidget(null)}>✕</button>
+            </div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+              Смените тип, источник, датасет или поля — размещение на странице и пороги алертов сохранятся.
+            </div>
+            <WidgetForm sources={sources} initial={editWidget} submitLabel="Сохранить" onCreate={saveWidgetEdit} />
+          </div>
+        </div>
       )}
       {accessOpen && sel && (
         <AccessEditor dashboard={sel.dashboard} onClose={() => setAccessOpen(false)} />
@@ -546,19 +569,26 @@ function AlertEditor({ widget, onClose, onSaved }: { widget: Widget; onClose: ()
   )
 }
 
-function WidgetForm({ sources, onCreate }: { sources: DataSources; onCreate: (b: { name: string; widget_type: string; config: Record<string, unknown>; width?: number; height?: number }) => void }) {
-  const [name, setName] = useState('')
-  const [type, setType] = useState('kpi')
-  const [source, setSource] = useState<'metric' | 'dataset'>('metric')
-  const [metricCode, setMetricCode] = useState(sources.metrics[0]?.code || '')
-  const [factMetric, setFactMetric] = useState(sources.metrics[1]?.code || sources.metrics[0]?.code || '')
-  const [dataset, setDataset] = useState(sources.datasets[0]?.code || '')
+function WidgetForm({ sources, onCreate, initial, submitLabel }: {
+  sources: DataSources
+  onCreate: (b: { name: string; widget_type: string; config: Record<string, unknown>; width?: number; height?: number }) => void
+  initial?: Widget
+  submitLabel?: string
+}) {
+  const cfg0 = (initial?.config || {}) as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
   const numFields = (dc: string) => (sources.datasets.find((d) => d.code === dc)?.fields.filter((f) => f.data_type === 'number') || [])
-  const [valueField, setValueField] = useState(numFields(sources.datasets[0]?.code || '')[0]?.code || '')
-  const [planField, setPlanField] = useState(numFields(sources.datasets[0]?.code || '')[0]?.code || '')
-  const [factField, setFactField] = useState(numFields(sources.datasets[0]?.code || '')[0]?.code || '')
-  const [multiFields, setMultiFields] = useState<string[]>([])
-  const [viz, setViz] = useState('bar')
+  const initDataset = cfg0.dataset_code || sources.datasets[0]?.code || ''
+  const [name, setName] = useState(initial?.name || '')
+  const [type, setType] = useState(initial?.widget_type || 'kpi')
+  const [source, setSource] = useState<'metric' | 'dataset'>((cfg0.metric_code || cfg0.plan_metric) ? 'metric' : (cfg0.dataset_code ? 'dataset' : 'metric'))
+  const [metricCode, setMetricCode] = useState(cfg0.metric_code || cfg0.plan_metric || sources.metrics[0]?.code || '')
+  const [factMetric, setFactMetric] = useState(cfg0.fact_metric || sources.metrics[1]?.code || sources.metrics[0]?.code || '')
+  const [dataset, setDataset] = useState(initDataset)
+  const [valueField, setValueField] = useState(cfg0.value_field || numFields(initDataset)[0]?.code || '')
+  const [planField, setPlanField] = useState(cfg0.plan_field || numFields(initDataset)[0]?.code || '')
+  const [factField, setFactField] = useState(cfg0.fact_field || numFields(initDataset)[0]?.code || '')
+  const [multiFields, setMultiFields] = useState<string[]>(cfg0.value_fields || [])
+  const [viz, setViz] = useState(cfg0.viz || 'bar')
 
   const usesSource = type === 'kpi' || type === 'plan_fact'
   const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'compare'].includes(type)
@@ -574,13 +604,21 @@ function WidgetForm({ sources, onCreate }: { sources: DataSources; onCreate: (b:
     else if (type === 'table') config = { dataset_code: dataset }
     else if (type === 'compare') { if (multiFields.length === 0) return; config = { dataset_code: dataset, value_fields: multiFields, viz } }
     else config = { dataset_code: dataset, value_field: valueField }
-    const sz = DEFAULT_SIZE[type] || { w: 4, h: 4 }
-    onCreate({ name: name.trim() || WT.find((x) => x.v === type)?.t || type, widget_type: type, config, width: sz.w, height: sz.h })
-    setName('')
+    // при редактировании сохраняем условное форматирование (алерты), если тип по-прежнему его поддерживает
+    if (initial && cfg0.alerts && ['kpi', 'plan_fact', 'dynamics'].includes(type)) {
+      config.alerts = cfg0.alerts
+      if (cfg0.alert_on) config.alert_on = cfg0.alert_on
+    }
+    const body: { name: string; widget_type: string; config: Record<string, unknown>; width?: number; height?: number } = {
+      name: name.trim() || WT.find((x) => x.v === type)?.t || type, widget_type: type, config,
+    }
+    if (!initial) { const sz = DEFAULT_SIZE[type] || { w: 4, h: 4 }; body.width = sz.w; body.height = sz.h } // размер только для новых
+    onCreate(body)
+    if (!initial) setName('')
   }
 
   return (
-    <form onSubmit={submit} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
+    <form onSubmit={submit} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end', border: initial ? 'none' : '1px solid #e5e7eb', borderRadius: 10, padding: initial ? 0 : 12 }}>
       <F t="Название"><input style={sel} placeholder="Заголовок виджета" value={name} onChange={(e) => setName(e.target.value)} /></F>
       <F t="Тип"><select style={sel} value={type} onChange={(e) => setType(e.target.value)}>{WT.map((x) => <option key={x.v} value={x.v}>{x.t}</option>)}</select></F>
       {usesSource && (
@@ -620,7 +658,7 @@ function WidgetForm({ sources, onCreate }: { sources: DataSources; onCreate: (b:
           <F t="Поле (факт)"><select style={sel} value={factField} onChange={(e) => setFactField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></F>
         </>
       )}
-      <button style={btn}>Добавить</button>
+      <button style={btn}>{submitLabel || 'Добавить'}</button>
     </form>
   )
 }
@@ -658,5 +696,6 @@ const muted: React.CSSProperties = { color: '#6b7280', fontSize: 14, padding: '8
 const errBox: React.CSSProperties = { background: '#fcebeb', color: '#a32d2d', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 const linkDanger: React.CSSProperties = { border: 'none', background: 'none', color: '#a32d2d', cursor: 'pointer', fontSize: 12, padding: 0 }
 const alertBtn: React.CSSProperties = { marginLeft: 8, width: 24, height: 24, border: '1px solid #e5e7eb', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#9a6a00' }
+const editBtn: React.CSSProperties = { marginLeft: 8, width: 24, height: 24, border: '1px solid #e5e7eb', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#2f5496' }
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }
 const dialog: React.CSSProperties = { background: '#fff', borderRadius: 14, padding: 22, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }

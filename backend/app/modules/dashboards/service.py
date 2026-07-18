@@ -288,14 +288,17 @@ async def update_widget(conn, org_id, widget_id: str, patch: dict) -> dict:
     w = await _widget_org(conn, org_id, widget_id)
     if w is None:
         raise DashboardError("Виджет не найден")
+    wtype = patch.get("widget_type")
+    if wtype is not None and wtype not in WIDGET_TYPES:
+        raise DashboardError(f"Неизвестный тип виджета: {wtype}")
     cfg = json.dumps(patch["config"], ensure_ascii=False) if "config" in patch else None
     row = await conn.fetchrow(
-        "update widgets set name=coalesce($2,name), "
+        "update widgets set name=coalesce($2,name), widget_type=coalesce($8,widget_type), "
         "position_x=coalesce($3,position_x), position_y=coalesce($4,position_y), "
         "width=coalesce($5,width), height=coalesce($6,height), "
         "config=coalesce($7::jsonb,config), updated_at=now() where id=$1::uuid returning id",
         widget_id, patch.get("name"), patch.get("position_x"), patch.get("position_y"),
-        patch.get("width"), patch.get("height"), cfg,
+        patch.get("width"), patch.get("height"), cfg, wtype,
     )
     return {"id": str(row["id"])}
 

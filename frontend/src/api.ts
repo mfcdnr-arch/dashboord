@@ -510,7 +510,7 @@ export async function createWidget(pageId: string, body: {
   return res.json()
 }
 export async function updateWidget(widgetId: string, patch: {
-  name?: string; config?: Record<string, unknown>
+  name?: string; widget_type?: string; config?: Record<string, unknown>
   position_x?: number; position_y?: number; width?: number; height?: number
 }): Promise<void> {
   const res = await fetch(`/widgets/${widgetId}`, {

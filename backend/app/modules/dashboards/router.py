@@ -66,6 +66,7 @@ class WidgetIn(BaseModel):
 
 class WidgetPatch(BaseModel):
     name: Optional[str] = None
+    widget_type: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
     position_x: Optional[int] = None
     position_y: Optional[int] = None
