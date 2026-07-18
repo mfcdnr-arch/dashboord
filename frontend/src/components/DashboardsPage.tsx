@@ -406,6 +406,7 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
               {canManage && sources && (
                 <div style={{ marginTop: 20 }}>
                   <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>Добавить виджет</h3>
+                  <SourceCatalog sources={sources} />
                   {sources.datasets.length > 0 && <SuggestPanel datasets={sources.datasets} onAdd={addWidgetsBatch} />}
                   <WidgetForm sources={sources} onCreate={addWidget} />
                 </div>
@@ -602,6 +603,60 @@ function AlertEditor({ widget, onClose, onSaved }: { widget: Widget; onClose: ()
           <button style={btnGhost} onClick={add}>+ Правило</button>
           <button style={{ ...btn, marginLeft: 'auto' }} disabled={busy} onClick={save}>{busy ? 'Сохранение…' : 'Сохранить'}</button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Каталог источников: что можно применить (документы→датасеты→поля/строки/периоды + метрики) ──
+function SourceCatalog({ sources }: { sources: DataSources }) {
+  const [open, setOpen] = useState(false)
+  const [exp, setExp] = useState<string | null>(null)
+  if (!open) {
+    return (
+      <button style={{ ...btnGhost, height: 34, marginBottom: 12 }} onClick={() => setOpen(true)}
+        title="Какие документы, датасеты, поля, строки, показатели можно применить">
+        📚 Каталог источников
+      </button>
+    )
+  }
+  const chip = (bg: string, color: string): React.CSSProperties => ({ display: 'inline-block', margin: '2px 4px 2px 0', padding: '1px 8px', borderRadius: 8, background: bg, color, fontSize: 12 })
+  return (
+    <div style={{ border: '1px solid #d1d5db', borderRadius: 10, padding: 12, marginBottom: 12, background: '#f8fafc' }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+        <b style={{ fontSize: 13 }}>📚 Каталог источников</b>
+        <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 8 }}>что можно применить в дашборде</span>
+        <button style={{ ...btnGhost, height: 28, marginLeft: 'auto' }} onClick={() => setOpen(false)}>Скрыть</button>
+      </div>
+
+      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Датасеты (из документов) — клик раскрывает поля/строки/периоды</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+        {sources.datasets.length === 0 && <span style={{ fontSize: 12, color: '#9aa4b2' }}>Нет датасетов — сначала распознайте документ.</span>}
+        {sources.datasets.map((d) => (
+          <div key={d.code} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 10px', background: '#fff' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setExp(exp === d.code ? null : d.code)}>
+              <span style={{ color: '#2f5496' }}>{exp === d.code ? '▾' : '▸'}</span>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{d.name}</span>
+              <span style={{ fontSize: 11, color: '#9aa4b2' }}>({d.code})</span>
+              <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 'auto' }}>📄 {[d.document, d.folder, d.object].filter(Boolean).join(' · ') || '—'}</span>
+            </div>
+            {exp === d.code && (
+              <div style={{ marginTop: 8, fontSize: 12, color: '#374151' }}>
+                <div style={{ marginBottom: 4 }}><b>Поля/столбцы:</b> {d.fields.length === 0 ? '—' : d.fields.map((f) => (
+                  <span key={f.code} style={chip('#eef', '#2f5496')}>{f.name} <span style={{ color: '#9aa4b2' }}>· {f.data_type === 'number' ? 'число' : f.data_type === 'date' ? 'дата' : 'текст'}{f.is_row_label ? ' · строка' : ''}</span></span>
+                ))}</div>
+                <div style={{ marginBottom: 4 }}><b>Строки:</b> {d.rows.length === 0 ? '—' : d.rows.map((r, i) => <span key={i} style={chip('#f1f2f4', '#374151')}>{r}</span>)}</div>
+                <div><b>Периоды:</b> {d.dates.length === 0 ? '—' : d.dates.join(', ')}</div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Показатели (метрики) — готовые формулы для KPI/план-факта</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {sources.metrics.length === 0 && <span style={{ fontSize: 12, color: '#9aa4b2' }}>Нет метрик — создайте в разделе «Метрики».</span>}
+        {sources.metrics.map((m) => <span key={m.code} style={chip('#eef', '#2f5496')}>{m.name} <span style={{ color: '#9aa4b2' }}>({m.code})</span></span>)}
       </div>
     </div>
   )
