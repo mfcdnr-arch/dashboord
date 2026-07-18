@@ -224,8 +224,16 @@ async def list_data_sources(conn, org_id) -> dict:
             "rows": [r["row_label"] for r in rows],
         })
 
+    # метрики + подсказки: единица и формула лучшей версии (approved→validated→draft)
     metrics = await conn.fetch(
-        "select code, name from metrics where organization_id=$1 order by name", org_id
+        "select m.code, m.name, "
+        "(select mv.unit from metric_versions mv where mv.metric_id=m.id "
+        " order by (case mv.status when 'approved' then 0 when 'validated' then 1 else 2 end), "
+        " mv.version_no desc limit 1) as unit, "
+        "(select mv.formula_expression from metric_versions mv where mv.metric_id=m.id "
+        " order by (case mv.status when 'approved' then 0 when 'validated' then 1 else 2 end), "
+        " mv.version_no desc limit 1) as formula "
+        "from metrics m where m.organization_id=$1 order by m.name", org_id
     )
     return {"datasets": datasets, "metrics": [dict(m) for m in metrics]}
 

@@ -8,7 +8,7 @@ import {
   addDashboardGrant, autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deletePage, deletePreset, deleteWidget, getDashboard,
   exportPageXlsx, getDataSources, instantiateTemplate, listDashboardGrants, listDashboardVersions, listDashboards, listObjects, listPageWidgets, listPresets, previewWidget,
   listTemplates, publishDashboard, removeDashboardGrant, restoreDashboardVersion, saveAsTemplate, unpublishDashboard, updateWidget, widgetSuggestions,
-  type Dashboard, type DashGrant, type DashPage, type DashPreset, type DashTemplate, type DataSources, type GrantTargets, type Obj, type Widget, type WidgetSpec,
+  type Dashboard, type DashGrant, type DashPage, type DashPreset, type DashTemplate, type DataSources, type GrantTargets, type MetricSource, type Obj, type Widget, type WidgetSpec,
 } from '../api'
 import WidgetView, { WidgetPreviewBody } from './WidgetView'
 import KioskView from './KioskView'
@@ -818,11 +818,19 @@ function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         </select></F>
       )}
       {usesSource && source === 'metric' && (
-        <F t={type === 'plan_fact' ? 'Метрика (план)' : 'Метрика'}><select style={sel} value={metricCode} onChange={(e) => setMetricCode(e.target.value)}>{sources.metrics.map((m) => <option key={m.code} value={m.code}>{m.name}</option>)}</select></F>
+        <F t={type === 'plan_fact' ? 'Метрика (план)' : 'Метрика'}><select style={sel} value={metricCode} onChange={(e) => setMetricCode(e.target.value)}>{sources.metrics.map((m) => <option key={m.code} value={m.code}>{m.name}{m.unit ? ` · ${m.unit}` : ''}</option>)}</select></F>
       )}
       {type === 'plan_fact' && source === 'metric' && (
-        <F t="Метрика (факт)"><select style={sel} value={factMetric} onChange={(e) => setFactMetric(e.target.value)}>{sources.metrics.map((m) => <option key={m.code} value={m.code}>{m.name}</option>)}</select></F>
+        <F t="Метрика (факт)"><select style={sel} value={factMetric} onChange={(e) => setFactMetric(e.target.value)}>{sources.metrics.map((m) => <option key={m.code} value={m.code}>{m.name}{m.unit ? ` · ${m.unit}` : ''}</option>)}</select></F>
       )}
+      {usesSource && source === 'metric' && (() => {
+        const line = (lbl: string, x?: MetricSource) => (x && (x.formula || x.unit)) ? (
+          <div style={{ fontSize: 11, color: '#6b7280' }}>{lbl}<b style={{ color: '#374151' }}>{x.name}</b>{x.unit ? ` · ед.: ${x.unit}` : ''}{x.formula ? <> · формула: <code style={{ fontFamily: 'ui-monospace, monospace', background: '#f1f2f4', padding: '0 4px', borderRadius: 4 }}>{x.formula}</code></> : ''}</div>
+        ) : null
+        const m = sources.metrics.find((x) => x.code === metricCode)
+        const fm = type === 'plan_fact' ? sources.metrics.find((x) => x.code === factMetric) : undefined
+        return (m || fm) ? <div style={{ flexBasis: '100%', margin: '-2px 0 2px' }}>{line(type === 'plan_fact' ? 'План: ' : '', m)}{line('Факт: ', fm)}</div> : null
+      })()}
       {usesDataset && (
         <F t="Датасет"><select style={sel} value={dataset} onChange={(e) => { setDataset(e.target.value); const nf = numFields(e.target.value); setValueField(nf[0]?.code || ''); setPlanField(nf[0]?.code || ''); setFactField(nf[0]?.code || ''); setMultiFields([]) }}>{sources.datasets.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}</select></F>
       )}
