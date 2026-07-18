@@ -12,7 +12,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from ..metrics import resolver as mr
-from ..metrics.parser import FormulaError, extract_dependencies
+from ..metrics.parser import FormulaError, extract_dependencies, parse
 
 
 class DashboardError(Exception):
@@ -328,6 +328,15 @@ async def _best_metric_version(conn, org_id, code: str):
     )
 
 
+async def _formula_value(conn, org_id, formula: str):
+    """Вычисление произвольной формулы виджета (без сохранённой метрики)."""
+    try:
+        ast = parse(formula)
+        return await mr.evaluate_ast(conn, org_id, ast)
+    except FormulaError as e:
+        raise DashboardError(str(e))
+
+
 async def _metric_value(conn, org_id, code: str):
     row = await _best_metric_version(conn, org_id, code)
     if row is None:
@@ -474,13 +483,15 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         return res
 
     if t == "kpi":
-        if cfg.get("metric_code"):
+        if cfg.get("formula"):
+            value, unit = await _formula_value(conn, org_id, cfg["formula"]), cfg.get("unit")
+        elif cfg.get("metric_code"):
             value, unit = await _metric_value(conn, org_id, cfg["metric_code"])
         elif cfg.get("dataset_code") and cfg.get("value_field"):
             series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row)
             value, unit = sum(s["value"] for s in series), cfg.get("unit")
         else:
-            raise DashboardError("KPI: укажите metric_code или dataset_code+value_field")
+            raise DashboardError("KPI: укажите формулу, metric_code или dataset_code+value_field")
         res = {"type": "kpi", "value": value, "unit": unit, "title": name}
         res["alert"] = evaluate_alert("kpi", cfg, res)
         return res
@@ -640,6 +651,20 @@ async def widget_drill(conn, org_id, widget_id: str, user: dict) -> dict:
     dataset_codes = [cfg["dataset_code"]] if cfg.get("dataset_code") else []
 
     metrics_info: List[dict] = []
+
+    # Собственная формула виджета (KPI с config.formula) — показать как показатель уровня 1
+    if cfg.get("formula"):
+        try:
+            deps = extract_dependencies(parse(cfg["formula"]))
+        except FormulaError:
+            deps = {"datasets": [], "metrics": []}
+        metrics_info.append({
+            "code": "(формула виджета)", "name": w["name"], "formula": cfg["formula"],
+            "status": "widget", "version_no": None, "datasets": deps["datasets"],
+        })
+        dataset_codes += deps["datasets"]
+        metric_codes += deps.get("metrics", [])
+
     for code in metric_codes:
         row = await _best_metric_version(conn, org_id, code)
         if row is None:

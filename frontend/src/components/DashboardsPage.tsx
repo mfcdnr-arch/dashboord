@@ -12,6 +12,7 @@ import {
 } from '../api'
 import WidgetView, { WidgetPreviewBody } from './WidgetView'
 import KioskView from './KioskView'
+import FormulaBuilder from './FormulaBuilder'
 
 const GL = WidthProvider(GridLayout)
 
@@ -728,7 +729,9 @@ function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const initDataset = cfg0.dataset_code || sources.datasets[0]?.code || ''
   const [name, setName] = useState(initial?.name || '')
   const [type, setType] = useState(initial?.widget_type || 'kpi')
-  const [source, setSource] = useState<'metric' | 'dataset'>((cfg0.metric_code || cfg0.plan_metric) ? 'metric' : (cfg0.dataset_code ? 'dataset' : 'metric'))
+  const [source, setSource] = useState<'metric' | 'dataset' | 'formula'>(cfg0.formula ? 'formula' : (cfg0.metric_code || cfg0.plan_metric) ? 'metric' : (cfg0.dataset_code ? 'dataset' : 'metric'))
+  const [formulaDsl, setFormulaDsl] = useState<string>(cfg0.formula || '')
+  const [formulaUnit, setFormulaUnit] = useState<string>(cfg0.unit || '')
   const [metricCode, setMetricCode] = useState(cfg0.metric_code || cfg0.plan_metric || sources.metrics[0]?.code || '')
   const [factMetric, setFactMetric] = useState(cfg0.fact_metric || sources.metrics[1]?.code || sources.metrics[0]?.code || '')
   const [dataset, setDataset] = useState(initDataset)
@@ -755,7 +758,8 @@ function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   function currentConfig(): Record<string, unknown> | null {
     if (type === 'text') return { heading: heading.trim() || undefined, body: bodyText.trim() || undefined, align }
     if (type === 'image') return imgUrl.trim() ? { url: imgUrl.trim(), caption: caption.trim() || undefined, fit: 'contain' } : null
-    if (type === 'kpi') return source === 'metric' ? (metricCode ? { metric_code: metricCode } : null) : ((dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null)
+    if (type === 'kpi') return source === 'formula' ? (formulaDsl.trim() ? { formula: formulaDsl.trim(), unit: formulaUnit.trim() || undefined } : null)
+      : source === 'metric' ? (metricCode ? { metric_code: metricCode } : null) : ((dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null)
     if (type === 'plan_fact') return source === 'metric' ? ((metricCode && factMetric) ? { plan_metric: metricCode, fact_metric: factMetric } : null) : ((dataset && planField && factField) ? { dataset_code: dataset, plan_field: planField, fact_field: factField } : null)
     if (type === 'table') return dataset ? { dataset_code: dataset } : null
     if (type === 'compare') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields, viz } : null
@@ -798,7 +802,7 @@ function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end', border: initial ? 'none' : '1px solid #e5e7eb', borderRadius: 10, padding: initial ? 0 : 12 }}>
       <F t="Название"><input style={sel} placeholder="Заголовок виджета" value={name} onChange={(e) => setName(e.target.value)} /></F>
-      <F t="Тип"><select style={sel} value={type} onChange={(e) => setType(e.target.value)}>{WT.map((x) => <option key={x.v} value={x.v}>{x.t}</option>)}</select></F>
+      <F t="Тип"><select style={sel} value={type} onChange={(e) => { const v = e.target.value; setType(v); if (v !== 'kpi' && source === 'formula') setSource('metric') }}>{WT.map((x) => <option key={x.v} value={x.v}>{x.t}</option>)}</select></F>
       {isText && (
         <>
           <F t="Заголовок (крупно)"><input style={{ ...sel, width: 200 }} placeholder="напр. Итоги квартала" value={heading} onChange={(e) => setHeading(e.target.value)} /></F>
@@ -813,9 +817,21 @@ function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         </>
       )}
       {usesSource && (
-        <F t="Источник"><select style={sel} value={source} onChange={(e) => setSource(e.target.value as any)}>
+        <F t="Источник"><select style={sel} value={source} onChange={(e) => setSource(e.target.value as 'metric' | 'dataset' | 'formula')}>
           <option value="metric">Метрика</option><option value="dataset">Датасет</option>
+          {type === 'kpi' && <option value="formula">Формула</option>}
         </select></F>
+      )}
+      {type === 'kpi' && source === 'formula' && (
+        <>
+          <F t="Единица (необяз.)"><input style={{ ...sel, width: 110 }} placeholder="напр. шт, %" value={formulaUnit} onChange={(e) => setFormulaUnit(e.target.value)} /></F>
+          <div style={{ flexBasis: '100%' }}>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>Формула показателя — соберите мышью ниже или введите текстом; считается на лету, без создания метрики</div>
+            <input style={{ ...sel, width: '100%', fontFamily: 'ui-monospace, monospace', marginBottom: 8 }}
+              placeholder="напр. SUM(field('plan','kol')) + 10" value={formulaDsl} onChange={(e) => setFormulaDsl(e.target.value)} />
+            <FormulaBuilder sources={sources} onFormula={setFormulaDsl} />
+          </div>
+        </>
       )}
       {usesSource && source === 'metric' && (
         <F t={type === 'plan_fact' ? 'Метрика (план)' : 'Метрика'}><select style={sel} value={metricCode} onChange={(e) => setMetricCode(e.target.value)}>{sources.metrics.map((m) => <option key={m.code} value={m.code}>{m.name}{m.unit ? ` · ${m.unit}` : ''}</option>)}</select></F>
