@@ -1,6 +1,7 @@
 """Пул подключений к PostgreSQL (asyncpg)."""
 from __future__ import annotations
 
+import contextvars
 from contextlib import asynccontextmanager
 
 import asyncpg
@@ -8,6 +9,10 @@ import asyncpg
 from .config import settings
 
 _pool: asyncpg.Pool | None = None
+
+# IP текущего запроса. Ставит ASGI-middleware (capture_client_ip в main.py),
+# читает acquire() — чтобы триггеры аудита и write_event писали ip_address.
+current_ip: contextvars.ContextVar[str | None] = contextvars.ContextVar("current_ip", default=None)
 
 
 async def connect() -> None:
@@ -40,12 +45,15 @@ async def acquire(actor_user_id: str | None = None):
     захвата соединения; пустая строка (нет актора) в триггере даёт NULL.
     asyncpg при возврате соединения в пул делает RESET ALL, но мы всё равно
     переустанавливаем значение при каждом захвате — автор не «протечёт» между
-    запросами на переиспользуемом соединении.
+    запросами на переиспользуемом соединении. Заодно проставляем app.client_ip
+    (IP текущего запроса из contextvar) — его пишут триггеры аудита и write_event.
     """
     async with get_pool().acquire() as conn:
         await conn.execute(
-            "select set_config('app.current_user_id', $1, false)",
+            "select set_config('app.current_user_id', $1, false), "
+            "set_config('app.client_ip', $2, false)",
             str(actor_user_id) if actor_user_id else "",
+            current_ip.get() or "",
         )
         yield conn
 

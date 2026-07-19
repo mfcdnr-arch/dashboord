@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from ... import db
+from ..audit import service as audit_svc
 from ..auth.deps import get_current_user, require_roles
 from . import service
 from .service import DashboardError
@@ -105,9 +106,15 @@ async def list_dashboards(user: dict = Depends(get_current_user)):
 async def get_dashboard(dashboard_id: str, user: dict = Depends(get_current_user)):
     async with db.acquire(user["id"]) as conn:
         try:
-            return await service.get_dashboard(conn, user["organization_id"], user, dashboard_id)
+            result = await service.get_dashboard(conn, user["organization_id"], user, dashboard_id)
         except DashboardError as e:
             raise _bad(e)
+        # лог просмотра (троттлинг внутри); не должен ломать открытие дашборда
+        try:
+            await audit_svc.log_view(conn, user["organization_id"], user["id"], dashboard_id)
+        except Exception:
+            pass
+        return result
 
 
 # --- Доступ к дашборду (гранты) ---

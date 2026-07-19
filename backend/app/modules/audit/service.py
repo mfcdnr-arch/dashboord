@@ -45,14 +45,37 @@ async def write_event(
         raise AuditError(f"Недопустимое действие: {action}")
     await conn.execute(
         "insert into audit_log(organization_id, actor_user_id, action, entity_type, "
-        "entity_id, old_data, new_data) "
-        "values($1, $2::uuid, $3::audit_action, $4, $5::uuid, $6::jsonb, $7::jsonb)",
+        "entity_id, old_data, new_data, ip_address) "
+        "values($1, $2::uuid, $3::audit_action, $4, $5::uuid, $6::jsonb, $7::jsonb, "
+        "nullif(current_setting('app.client_ip', true), ''))",
         org_id,
         str(actor_user_id) if actor_user_id else None,
         action, entity_type, entity_id,
         json.dumps(old_data, ensure_ascii=False, default=str) if old_data is not None else None,
         json.dumps(new_data, ensure_ascii=False, default=str) if new_data is not None else None,
     )
+
+
+# Окно антифлуда для просмотров: повторный просмотр того же дашборда тем же
+# пользователем в пределах этого интервала повторно не логируется.
+VIEW_THROTTLE_MINUTES = 30
+
+
+async def log_view(conn, org_id, user_id, dashboard_id: str) -> None:
+    """Логирует просмотр дашборда (action=view) с антифлуд-троттлингом.
+
+    Питает отчёт популярности. Троттлинг гасит повторные открытия/обновления
+    страницы, чтобы журнал не разрастался от частых просмотров.
+    """
+    if not user_id:
+        return
+    recent = await conn.fetchval(
+        "select 1 from audit_log where action='view' and entity_id=$1::uuid "
+        "and actor_user_id=$2::uuid and created_at > now() - ($3 || ' minutes')::interval limit 1",
+        dashboard_id, str(user_id), str(VIEW_THROTTLE_MINUTES))
+    if recent:
+        return
+    await write_event(conn, org_id, user_id, "view", "dashboard", dashboard_id)
 
 
 def _as_dict(v: Any) -> dict:
@@ -93,15 +116,23 @@ async def list_events(
     action: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    include_views: bool = False,
     limit: int = 50,
     offset: int = 0,
 ) -> dict:
-    """Отфильтрованный, постранично выданный журнал + total и фасеты фильтров."""
+    """Отфильтрованный, постранично выданный журнал + total и фасеты фильтров.
+
+    Просмотры (action=view) по умолчанию скрыты, чтобы журнал изменений не
+    засорялся частыми событиями; показываются при include_views=true или при
+    явном фильтре по действию «Просмотр».
+    """
     limit = max(1, min(limit, MAX_LIMIT))
     offset = max(0, offset)
 
     where = ["a.organization_id = $1"]
     params: list[Any] = [org_id]
+    if not include_views and action != "view":
+        where.append("a.action <> 'view'")
 
     def add(cond_tmpl: str, value: Any) -> None:
         params.append(value)

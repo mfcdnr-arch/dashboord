@@ -27,6 +27,7 @@ async def list_audit(
     action: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    include_views: bool = False,
     limit: int = Query(50, ge=1, le=service.MAX_LIMIT),
     offset: int = Query(0, ge=0),
 ):
@@ -35,7 +36,7 @@ async def list_audit(
             return await service.list_events(
                 conn, user["organization_id"], actor=actor, entity_type=entity_type,
                 entity_id=entity_id, action=action, date_from=date_from, date_to=date_to,
-                limit=limit, offset=offset)
+                include_views=include_views, limit=limit, offset=offset)
         except AuditError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 

@@ -38,6 +38,37 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
+
+class ClientIPMiddleware:
+    """Кладёт IP запроса в contextvar db.current_ip на время обработки.
+
+    Чистый ASGI-middleware (не BaseHTTPMiddleware) — выполняется в том же
+    контексте, что и эндпоинт, поэтому contextvar видна в acquire().
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        headers = dict(scope.get("headers") or [])
+        fwd = headers.get(b"x-forwarded-for")
+        if fwd:
+            ip = fwd.decode(errors="ignore").split(",")[0].strip() or None
+        else:
+            client = scope.get("client")
+            ip = client[0] if client else None
+        token = db.current_ip.set(ip)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            db.current_ip.reset(token)
+
+
+app.add_middleware(ClientIPMiddleware)
+
 # Роутеры модулей. По мере разработки сюда добавляются:
 # auth, access, objects, ingestion, metrics, dashboards, moderation,
 # viewer, archive, reports, admin, notifications, audit.

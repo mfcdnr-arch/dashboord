@@ -702,6 +702,7 @@ export interface AuditQuery {
   action?: string
   date_from?: string
   date_to?: string
+  include_views?: boolean
   limit?: number
   offset?: number
 }
@@ -739,6 +740,17 @@ export async function getSystemReport(): Promise<SystemReport> {
 }
 export async function getAttendanceReport(): Promise<AttendanceReport> {
   const res = await fetch('/reports/attendance', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export interface PopularityReport {
+  days: number
+  totals: { views: number; viewers: number }
+  top_dashboards: { name: string; views: number; viewers: number; last_view: string | null }[]
+}
+export async function getPopularityReport(): Promise<PopularityReport> {
+  const res = await fetch('/reports/popularity', { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }

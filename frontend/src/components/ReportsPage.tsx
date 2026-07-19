@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  getAttendanceReport, getBusinessReport, getDataQualityReport, getSystemReport,
-  type AttendanceReport, type BusinessReport, type DataQualityReport, type Gauge, type SystemReport,
+  getAttendanceReport, getBusinessReport, getDataQualityReport, getPopularityReport, getSystemReport,
+  type AttendanceReport, type BusinessReport, type DataQualityReport, type Gauge, type PopularityReport, type SystemReport,
 } from '../api'
 
 function num(n: number | null): string {
@@ -31,6 +31,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
   const [att, setAtt] = useState<AttendanceReport | null>(null)
   const [dq, setDq] = useState<DataQualityReport | null>(null)
   const [biz, setBiz] = useState<BusinessReport | null>(null)
+  const [pop, setPop] = useState<PopularityReport | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const loadSys = () => getSystemReport().then(setSys).catch((e) => setError((e as Error).message))
@@ -38,6 +39,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
     if (!me.roles.includes('admin')) return
     loadSys()
     getAttendanceReport().then(setAtt).catch((e) => setError((e as Error).message))
+    getPopularityReport().then(setPop).catch((e) => setError((e as Error).message))
     getDataQualityReport().then(setDq).catch((e) => setError((e as Error).message))
     getBusinessReport().then(setBiz).catch((e) => setError((e as Error).message))
     const t = setInterval(loadSys, 15000) // авто-обновление мониторинга
@@ -108,6 +110,36 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+      </Section>
+
+      {/* Популярность дашбордов */}
+      <Section title="Популярность дашбордов (за 30 дней)">
+        {!pop ? <span style={muted}>Загрузка…</span> : (
+          <div>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+              <Stat t="Просмотров" v={pop.totals.views} />
+              <Stat t="Зрителей" v={pop.totals.viewers} />
+            </div>
+            {pop.top_dashboards.length === 0 ? <span style={muted}>Просмотров за период пока нет.</span> : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%', maxWidth: 560 }}>
+                  <thead><tr>{['#', 'Дашборд', 'Просмотров', 'Зрителей', 'Последний'].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {pop.top_dashboards.map((d, i) => (
+                      <tr key={d.name + i}>
+                        <td style={{ ...td, color: '#9aa4b2', textAlign: 'center' }}>{i + 1}</td>
+                        <td style={{ ...td, fontWeight: 600 }}>{d.name}</td>
+                        <td style={{ ...td, textAlign: 'center' }}>{d.views}</td>
+                        <td style={{ ...td, textAlign: 'center' }}>{d.viewers}</td>
+                        <td style={td}>{d.last_view ? new Date(d.last_view).toLocaleDateString('ru-RU') : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </Section>
@@ -183,7 +215,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
       </Section>
 
       <div style={{ fontSize: 12, color: '#9aa4b2' }}>
-        Аудит действий и отчёты по модерации — в разработке (требуют журналирования действий и модуля модерации).
+        Журнал действий — в разделе «Аудит». Отчёты по модерации — в разработке (требуют модуля модерации).
       </div>
     </div>
   )

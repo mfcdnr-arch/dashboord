@@ -40,6 +40,7 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
   const [action, setAction] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [includeViews, setIncludeViews] = useState(false)
   const [offset, setOffset] = useState(0)
 
   function load() {
@@ -52,10 +53,11 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
     if (dateFrom) q.date_from = dateFrom
     // верхняя граница включительно по дню: до начала следующего дня
     if (dateTo) { const d = new Date(dateTo); d.setDate(d.getDate() + 1); q.date_to = d.toISOString().slice(0, 10) }
+    if (includeViews) q.include_views = true
     listAudit(q).then(setData).catch((e) => setError((e as Error).message)).finally(() => setLoading(false))
   }
   // перезагрузка при смене фильтров/страницы
-  useEffect(load, [actor, entityType, action, dateFrom, dateTo, offset]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(load, [actor, entityType, action, dateFrom, dateTo, includeViews, offset]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!me.roles.includes('admin')) {
     return <div style={{ color: '#a32d2d' }}>Раздел «Аудит действий» доступен только администратору.</div>
@@ -67,7 +69,7 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
   const to = Math.min(offset + PAGE, total)
 
   function resetFilters() {
-    setActor(''); setEntityType(''); setAction(''); setDateFrom(''); setDateTo(''); setOffset(0)
+    setActor(''); setEntityType(''); setAction(''); setDateFrom(''); setDateTo(''); setIncludeViews(false); setOffset(0)
   }
   function onFilterChange(setter: (v: string) => void) {
     return (v: string) => { setOffset(0); setter(v) }
@@ -77,7 +79,7 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
     getAuditEvent(id).then(setDetail).catch((e) => setError((e as Error).message))
   }
 
-  const hasFilters = !!(actor || entityType || action || dateFrom || dateTo)
+  const hasFilters = !!(actor || entityType || action || dateFrom || dateTo || includeViews)
 
   return (
     <div>
@@ -109,6 +111,10 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
         </F>
         <F t="С даты"><input type="date" style={input} value={dateFrom} onChange={(e) => onFilterChange(setDateFrom)(e.target.value)} /></F>
         <F t="По дату"><input type="date" style={input} value={dateTo} onChange={(e) => onFilterChange(setDateTo)(e.target.value)} /></F>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', height: 34, whiteSpace: 'nowrap' }} title="Просмотры дашбордов по умолчанию скрыты, чтобы журнал изменений не засорялся">
+          <input type="checkbox" checked={includeViews} onChange={(e) => { setOffset(0); setIncludeViews(e.target.checked) }} />
+          Показывать просмотры
+        </label>
         {hasFilters && <button style={ghostBtn} onClick={resetFilters}>Сбросить</button>}
       </div>
 

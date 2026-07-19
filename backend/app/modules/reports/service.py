@@ -151,3 +151,30 @@ async def attendance(conn, org_id) -> dict:
         "per_day": [{"day": r["day"].isoformat(), "logins": r["logins"], "failed": r["failed"]} for r in per_day],
         "top_users": [{"login": r["login"], "logins": r["logins"]} for r in top],
     }
+
+
+async def popularity(conn, org_id, days: int = 30) -> dict:
+    """Популярность дашбордов по просмотрам (audit_log action=view) за период.
+
+    Учитывает только существующие дашборды (join). Просмотры троттлятся на
+    уровне логирования, поэтому счётчик ≈ число сессий просмотра.
+    """
+    totals = await conn.fetchrow(
+        "select count(*) as views, count(distinct actor_user_id) as viewers "
+        "from audit_log where organization_id=$1 and action='view' "
+        "and created_at >= now() - ($2 || ' days')::interval", org_id, str(days))
+    top = await conn.fetch(
+        "select d.name, count(*) as views, count(distinct a.actor_user_id) as viewers, "
+        "max(a.created_at) as last_view "
+        "from audit_log a join dashboards d on d.id=a.entity_id "
+        "where a.organization_id=$1 and a.action='view' "
+        "and a.created_at >= now() - ($2 || ' days')::interval "
+        "group by d.id, d.name order by count(*) desc, max(a.created_at) desc limit 10", org_id, str(days))
+    return {
+        "days": days,
+        "totals": {"views": totals["views"], "viewers": totals["viewers"]},
+        "top_dashboards": [{
+            "name": r["name"], "views": r["views"], "viewers": r["viewers"],
+            "last_view": r["last_view"].isoformat() if r["last_view"] else None,
+        } for r in top],
+    }
