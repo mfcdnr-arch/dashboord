@@ -644,3 +644,13 @@ export async function resetUserPassword(id: string, password: string): Promise<v
   const res = await fetch(`/users/${id}/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ password }) })
   if (!res.ok) throw new Error(await errText(res))
 }
+
+export interface LoginEventsReport {
+  summary: { login: string; full_name: string | null; is_active: boolean; logins: number; failed: number; last_login: string | null }[]
+  recent: { login: string; full_name: string | null; ip: string | null; success: boolean; created_at: string }[]
+}
+export async function getLoginEvents(): Promise<LoginEventsReport> {
+  const res = await fetch('/login-events', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

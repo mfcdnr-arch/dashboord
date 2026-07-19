@@ -88,6 +88,13 @@ async def list_roles(user: dict = Depends(admin)):
         return await service.list_roles(conn, user["organization_id"])
 
 
+# --- Аудит входов ---
+@router.get("/login-events")
+async def login_events(user: dict = Depends(admin)):
+    async with db.get_pool().acquire() as conn:
+        return await service.login_events_report(conn, user["organization_id"])
+
+
 # --- Пользователи ---
 @router.get("/users")
 async def list_users(user: dict = Depends(admin)):

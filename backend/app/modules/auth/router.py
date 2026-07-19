@@ -1,7 +1,7 @@
 """Модуль авторизации: вход (JWT) и текущий пользователь."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 
@@ -17,15 +17,23 @@ class ChangePasswordIn(BaseModel):
 
 
 @router.post("/login")
-async def login(form: OAuth2PasswordRequestForm = Depends()):
+async def login(request: Request, form: OAuth2PasswordRequestForm = Depends()):
+    fwd = request.headers.get("x-forwarded-for")
+    ip = (fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else None)) or None
+    ua = request.headers.get("user-agent")
     async with db.get_pool().acquire() as conn:
         row = await conn.fetchrow(
-            "select id, password_hash, is_active from users where login = $1",
+            "select id, organization_id, password_hash, is_active from users where login = $1",
             form.username,
         )
-    if row is None or not row["is_active"] or not verify_password(
-        form.password, row["password_hash"]
-    ):
+        ok = bool(row) and row["is_active"] and verify_password(form.password, row["password_hash"])
+        await conn.execute(
+            "insert into login_events(organization_id, user_id, login, ip, user_agent, success) "
+            "values($1,$2,$3,$4,$5,$6)",
+            row["organization_id"] if row else None, row["id"] if row else None,
+            form.username, ip, ua, ok,
+        )
+    if not ok:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный логин или пароль")
     return {"access_token": create_token(str(row["id"])), "token_type": "bearer"}
 

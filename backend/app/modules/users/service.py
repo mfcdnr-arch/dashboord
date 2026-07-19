@@ -148,6 +148,34 @@ async def set_active(conn, org_id, user_id: str, active: bool, actor_id: str) ->
     return {"id": user_id, "is_active": active}
 
 
+async def login_events_report(conn, org_id, limit: int = 50) -> dict:
+    """Аудит входов: сводка по пользователям (входов/неудач/последний вход) +
+    последние события (кто/когда/IP/успех)."""
+    summary = await conn.fetch(
+        "select u.login, u.full_name, u.is_active, "
+        "count(*) filter (where e.success) as logins, "
+        "count(*) filter (where not e.success) as failed, "
+        "max(e.created_at) filter (where e.success) as last_login "
+        "from users u left join login_events e on e.user_id=u.id "
+        "where u.organization_id=$1 group by u.id, u.login, u.full_name, u.is_active "
+        "order by max(e.created_at) desc nulls last, u.login", org_id)
+    recent = await conn.fetch(
+        "select e.login, e.ip, e.success, e.created_at, u.full_name "
+        "from login_events e left join users u on u.id=e.user_id "
+        "where e.organization_id=$1 or e.organization_id is null "
+        "order by e.created_at desc limit $2", org_id, limit)
+    return {
+        "summary": [{
+            "login": s["login"], "full_name": s["full_name"], "is_active": s["is_active"],
+            "logins": s["logins"], "failed": s["failed"], "last_login": s["last_login"],
+        } for s in summary],
+        "recent": [{
+            "login": r["login"], "full_name": r["full_name"], "ip": r["ip"],
+            "success": r["success"], "created_at": r["created_at"],
+        } for r in recent],
+    }
+
+
 async def reset_password(conn, org_id, user_id: str, new_password: str) -> dict:
     if not new_password or len(new_password) < 4:
         raise UsersError("Пароль минимум 4 символа")

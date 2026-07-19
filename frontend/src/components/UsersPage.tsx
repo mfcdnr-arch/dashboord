@@ -1,9 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import {
-  createDepartment, createUser, deleteDepartment, listDepartments, listRoles, listUsers,
+  createDepartment, createUser, deleteDepartment, getLoginEvents, listDepartments, listRoles, listUsers,
   resetUserPassword, setUserActive, updateUser,
-  type AppUser, type Department, type Role,
+  type AppUser, type Department, type LoginEventsReport, type Role,
 } from '../api'
+
+function fmtDt(iso: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+}
 
 // Раздел «Пользователи» (только admin): справочник отделов + управление пользователями
 // (заведение с временным паролем, роли, отдел, блокировка, сброс пароля). Жёсткого
@@ -16,11 +22,13 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
   const [error, setError] = useState<string | null>(null)
   const [edit, setEdit] = useState<AppUser | null>(null)
   const [creating, setCreating] = useState(false)
+  const [audit, setAudit] = useState<LoginEventsReport | null>(null)
 
   const fail = (e: unknown) => setError((e as Error).message)
   const reload = () => {
     listUsers().then(setUsers).catch(fail)
     listDepartments().then(setDepts).catch(fail)
+    getLoginEvents().then(setAudit).catch(fail)
   }
   useEffect(() => { reload(); listRoles().then(setRoles).catch(fail) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -105,6 +113,46 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
             </tbody>
           </table>
         </div>
+      </Section>
+
+      {/* Аудит входов */}
+      <Section title="Журнал входов (аудит)">
+        {!audit ? <span style={muted}>Загрузка…</span> : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>По пользователям</div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
+                  <thead><tr>{['Логин', 'Входов', 'Неудач', 'Последний вход'].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {audit.summary.map((s) => (
+                      <tr key={s.login} style={{ opacity: s.is_active ? 1 : 0.55 }}>
+                        <td style={{ ...td, fontWeight: 600 }}>{s.login}</td>
+                        <td style={td}>{s.logins}</td>
+                        <td style={{ ...td, color: s.failed ? '#a32d2d' : undefined }}>{s.failed}</td>
+                        <td style={td}>{fmtDt(s.last_login)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Последние события</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
+                {audit.recent.length === 0 && <span style={muted}>Событий пока нет.</span>}
+                {audit.recent.map((r, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, alignItems: 'center' }}>
+                    <span style={{ color: r.success ? '#0f6e56' : '#a32d2d' }}>{r.success ? '✓' : '✕'}</span>
+                    <span style={{ flex: 1 }}><b>{r.login}</b>{r.full_name ? ` · ${r.full_name}` : ''}</span>
+                    <span style={{ color: '#9aa4b2' }}>{r.ip || '—'}</span>
+                    <span style={{ color: '#9aa4b2' }}>{fmtDt(r.created_at)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </Section>
 
       {(creating || edit) && (

@@ -25,6 +25,7 @@ export default defineConfig({
       '/users': 'http://localhost:8080',
       '/departments': 'http://localhost:8080',
       '/roles': 'http://localhost:8080',
+      '/login-events': 'http://localhost:8080',
     },
   },
 })
