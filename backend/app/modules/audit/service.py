@@ -31,6 +31,30 @@ class AuditError(Exception):
     """Доменная ошибка модуля аудита."""
 
 
+async def write_event(
+    conn, org_id, actor_user_id, action: str, entity_type: str, entity_id: str,
+    *, old_data: Optional[dict] = None, new_data: Optional[dict] = None,
+) -> None:
+    """Ручная запись события в журнал аудита.
+
+    Для действий, которые не покрывают триггеры БД (publish / grant_access /
+    revoke_access и т.п.). Вызывать внутри той же транзакции, что и само
+    действие, чтобы запись журнала была атомарна с ним.
+    """
+    if action not in ACTIONS:
+        raise AuditError(f"Недопустимое действие: {action}")
+    await conn.execute(
+        "insert into audit_log(organization_id, actor_user_id, action, entity_type, "
+        "entity_id, old_data, new_data) "
+        "values($1, $2::uuid, $3::audit_action, $4, $5::uuid, $6::jsonb, $7::jsonb)",
+        org_id,
+        str(actor_user_id) if actor_user_id else None,
+        action, entity_type, entity_id,
+        json.dumps(old_data, ensure_ascii=False, default=str) if old_data is not None else None,
+        json.dumps(new_data, ensure_ascii=False, default=str) if new_data is not None else None,
+    )
+
+
 def _as_dict(v: Any) -> dict:
     """jsonb из asyncpg приходит строкой (кодек не зарегистрирован) — нормализуем."""
     if v is None:

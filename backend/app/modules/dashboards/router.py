@@ -131,8 +131,9 @@ async def list_grants(dashboard_id: str, user: dict = Depends(manage)):
 async def add_grant(dashboard_id: str, body: GrantIn, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:
         try:
-            return await service.add_grant(conn, user["organization_id"], user["id"], dashboard_id,
-                                           body.grantee_type, body.role_id, body.user_id)
+            async with conn.transaction():
+                return await service.add_grant(conn, user["organization_id"], user["id"], dashboard_id,
+                                               body.grantee_type, body.role_id, body.user_id)
         except DashboardError as e:
             raise _bad(e)
 
@@ -141,7 +142,8 @@ async def add_grant(dashboard_id: str, body: GrantIn, user: dict = Depends(manag
 async def remove_grant(dashboard_id: str, grant_id: str, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:
         try:
-            await service.remove_grant(conn, user["organization_id"], dashboard_id, grant_id)
+            async with conn.transaction():
+                await service.remove_grant(conn, user["organization_id"], dashboard_id, grant_id, user["id"])
         except DashboardError as e:
             raise _bad(e)
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 
+from ..audit import service as audit_svc
 from ..metrics import resolver as mr
 from ..metrics.parser import FormulaError, extract_dependencies, parse
 
@@ -758,17 +759,30 @@ async def add_grant(conn, org_id, granted_by, dashboard_id: str, grantee_type: s
         "insert into access_grants(scope, dashboard_id, grantee_type, role_id, user_id, granted_by) "
         "values('dashboard', $1::uuid, $2, $3::uuid, $4::uuid, $5) returning id",
         dashboard_id, grantee_type, role_id, user_id, granted_by)
+    await audit_svc.write_event(
+        conn, org_id, granted_by, "grant_access", "dashboard", dashboard_id,
+        new_data={"grant_id": str(row["id"]), "grantee_type": grantee_type,
+                  "role_id": role_id, "user_id": user_id})
     return {"id": str(row["id"])}
 
 
-async def remove_grant(conn, org_id, dashboard_id: str, grant_id: str) -> None:
+async def remove_grant(conn, org_id, dashboard_id: str, grant_id: str, actor_user_id) -> None:
     if not await _owns_dashboard(conn, org_id, dashboard_id):
         raise DashboardError("Дашборд не найден")
-    res = await conn.execute(
+    old = await conn.fetchrow(
+        "select grantee_type, role_id, user_id from access_grants "
+        "where id=$1::uuid and dashboard_id=$2::uuid and scope='dashboard'",
+        grant_id, dashboard_id)
+    if old is None:
+        raise DashboardError("Грант не найден")
+    await conn.execute(
         "delete from access_grants where id=$1::uuid and dashboard_id=$2::uuid and scope='dashboard'",
         grant_id, dashboard_id)
-    if res.endswith("0"):
-        raise DashboardError("Грант не найден")
+    await audit_svc.write_event(
+        conn, org_id, actor_user_id, "revoke_access", "dashboard", dashboard_id,
+        old_data={"grant_id": grant_id, "grantee_type": old["grantee_type"],
+                  "role_id": str(old["role_id"]) if old["role_id"] else None,
+                  "user_id": str(old["user_id"]) if old["user_id"] else None})
 
 
 # --------------------------------------------------------------------------- #
@@ -950,6 +964,9 @@ async def publish(conn, org_id, user_id, dashboard_id: str) -> dict:
     await conn.execute(
         "update dashboards set publication_status='published', published_by=$2, published_at=now(), "
         "version_no=$3, updated_at=now() where id=$1::uuid", dashboard_id, user_id, vno)
+    await audit_svc.write_event(
+        conn, org_id, user_id, "publish", "dashboard", dashboard_id,
+        new_data={"version_no": vno, "publication_status": "published"})
     return {"publication_status": "published", "version_no": vno}
 
 

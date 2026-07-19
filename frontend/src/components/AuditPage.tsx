@@ -193,12 +193,17 @@ function DetailModal({ d, onClose }: { d: AuditDetail; onClose: () => void }) {
             </table>
           )
         ) : (
-          // create / delete: показываем итоговый снимок (new для create, old для delete)
+          // create/publish/grant — снимок new; delete/revoke — снимок old (что было снято)
+          (() => {
+            const useOld = d.action === 'delete' || d.action === 'revoke_access'
+            const colTitle = d.action === 'delete' ? 'Значение (до удаления)' : d.action === 'revoke_access' ? 'Значение (снято)' : 'Значение'
+            const rows = d.diff.filter((f) => (useOld ? f.old : f.new) !== null && (useOld ? f.old : f.new) !== undefined)
+            return (
           <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
-            <thead><tr>{['Поле', d.action === 'delete' ? 'Значение (до удаления)' : 'Значение'].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+            <thead><tr>{['Поле', colTitle].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
             <tbody>
-              {d.diff.map((f) => {
-                const v = d.action === 'delete' ? f.old : f.new
+              {rows.map((f) => {
+                const v = useOld ? f.old : f.new
                 return (
                   <tr key={f.field}>
                     <td style={{ ...td, fontWeight: 600, whiteSpace: 'nowrap' }}>{f.field}</td>
@@ -208,6 +213,8 @@ function DetailModal({ d, onClose }: { d: AuditDetail; onClose: () => void }) {
               })}
             </tbody>
           </table>
+            )
+          })()
         )}
       </div>
     </div>
