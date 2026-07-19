@@ -22,6 +22,9 @@ export default defineConfig({
       '/dashboard-templates': 'http://localhost:8080',
       '/widgets': 'http://localhost:8080',
       '/home': 'http://localhost:8080',
+      '/users': 'http://localhost:8080',
+      '/departments': 'http://localhost:8080',
+      '/roles': 'http://localhost:8080',
     },
   },
 })

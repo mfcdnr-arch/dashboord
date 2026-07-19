@@ -20,6 +20,7 @@ from .modules.ingestion.router import router as ingestion_router
 from .modules.metrics.router import router as metrics_router
 from .modules.objects.router import router as objects_router
 from .modules.system.router import router as system_router
+from .modules.users.router import router as users_router
 
 
 @asynccontextmanager
@@ -46,6 +47,7 @@ app.include_router(ingestion_router)
 app.include_router(metrics_router)
 app.include_router(dashboards_router)
 app.include_router(home_router)
+app.include_router(users_router)
 
 
 @app.get("/health", tags=["system"])
