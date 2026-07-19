@@ -1,5 +1,13 @@
 import { useEffect, useState } from 'react'
-import { getAttendanceReport, getSystemReport, type AttendanceReport, type Gauge, type SystemReport } from '../api'
+import {
+  getAttendanceReport, getBusinessReport, getDataQualityReport, getSystemReport,
+  type AttendanceReport, type BusinessReport, type DataQualityReport, type Gauge, type SystemReport,
+} from '../api'
+
+function num(n: number | null): string {
+  if (n == null || !isFinite(n)) return '—'
+  return Number.isInteger(n) ? n.toLocaleString('ru-RU') : n.toFixed(2)
+}
 
 // Раздел «Отчёты» (admin): системный мониторинг (CPU/RAM/диск через psutil +
 // статусы сервисов, с порогами) и посещаемость (по login_events).
@@ -21,12 +29,17 @@ function fmtUptime(sec: number): string {
 export default function ReportsPage({ me }: { me: { roles: string[] } }) {
   const [sys, setSys] = useState<SystemReport | null>(null)
   const [att, setAtt] = useState<AttendanceReport | null>(null)
+  const [dq, setDq] = useState<DataQualityReport | null>(null)
+  const [biz, setBiz] = useState<BusinessReport | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const loadSys = () => getSystemReport().then(setSys).catch((e) => setError((e as Error).message))
   useEffect(() => {
     if (!me.roles.includes('admin')) return
-    loadSys(); getAttendanceReport().then(setAtt).catch((e) => setError((e as Error).message))
+    loadSys()
+    getAttendanceReport().then(setAtt).catch((e) => setError((e as Error).message))
+    getDataQualityReport().then(setDq).catch((e) => setError((e as Error).message))
+    getBusinessReport().then(setBiz).catch((e) => setError((e as Error).message))
     const t = setInterval(loadSys, 15000) // авто-обновление мониторинга
     return () => clearInterval(t)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -99,8 +112,78 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
         )}
       </Section>
 
+      {/* Качество данных */}
+      <Section title="Качество данных">
+        {!dq ? <span style={muted}>Загрузка…</span> : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Свежесть по объектам</div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
+                  <thead><tr>{['Объект', 'Датасетов', 'Данные на', 'Обновлён'].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {dq.objects.map((o) => (
+                      <tr key={o.name}>
+                        <td style={{ ...td, fontWeight: 600 }}>{o.name}</td>
+                        <td style={{ ...td, textAlign: 'center', color: o.datasets ? undefined : '#a32d2d' }}>{o.datasets || '—'}</td>
+                        <td style={td}>{o.last_period || <span style={{ color: '#a32d2d' }}>нет данных</span>}</td>
+                        <td style={td}>{o.last_update ? new Date(o.last_update).toLocaleDateString('ru-RU') : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Ошибки расчёта метрик ({dq.metric_errors.length} из {dq.metrics_total})</div>
+              {dq.metric_errors.length === 0 ? <div style={{ ...muted, color: '#0f6e56' }}>✓ Все метрики считаются без ошибок.</div> : dq.metric_errors.map((m) => (
+                <div key={m.code} style={{ fontSize: 12, marginBottom: 6 }}>
+                  <b style={{ color: '#a32d2d' }}>{m.name}</b> <span style={{ color: '#9aa4b2' }}>({m.code})</span>
+                  <div style={{ color: '#6b7280' }}>{m.error}</div>
+                </div>
+              ))}
+              {dq.no_data.length > 0 && (
+                <div style={{ marginTop: 10, fontSize: 12, color: '#9a6a00' }}>⚠ Объекты без данных: {dq.no_data.join(', ')}</div>
+              )}
+            </div>
+          </div>
+        )}
+      </Section>
+
+      {/* Бизнес-сводка */}
+      <Section title="Бизнес-сводка">
+        {!biz ? <span style={muted}>Загрузка…</span> : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Показатели (текущие значения)</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {biz.metrics.length === 0 && <span style={muted}>Метрик пока нет.</span>}
+                {biz.metrics.map((m) => (
+                  <div key={m.code} style={{ display: 'flex', gap: 8, fontSize: 13, alignItems: 'baseline' }}>
+                    <span style={{ flex: 1 }}>{m.name}</span>
+                    {m.error
+                      ? <span style={{ color: '#a32d2d', fontSize: 12 }} title={m.error}>ошибка</span>
+                      : <b style={{ color: '#2f5496' }}>{num(m.value)}{m.unit ? <span style={{ color: '#9aa4b2', fontWeight: 400 }}> {m.unit}</span> : ''}</b>}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Сработавшие KPI-алерты ({biz.alerts.length})</div>
+              {biz.alerts.length === 0 ? <div style={{ ...muted, color: '#0f6e56' }}>✓ Активных тревог нет.</div> : biz.alerts.map((a, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, alignItems: 'baseline', marginBottom: 4 }}>
+                  <span style={{ color: a.level === 'danger' ? '#a32d2d' : '#9a6a00' }}>⚠</span>
+                  <span style={{ flex: 1 }}><b>{a.widget_name}</b> <span style={{ color: '#9aa4b2' }}>· {a.dashboard_name}</span></span>
+                  <span style={{ color: a.level === 'danger' ? '#a32d2d' : '#9a6a00' }}>{a.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Section>
+
       <div style={{ fontSize: 12, color: '#9aa4b2' }}>
-        Другие отчёты (аудит действий, качество данных, модерация, бизнес-сводки) — в разработке.
+        Аудит действий и отчёты по модерации — в разработке (требуют журналирования действий и модуля модерации).
       </div>
     </div>
   )
@@ -141,3 +224,5 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 
 const muted: React.CSSProperties = { color: '#9aa4b2', fontSize: 13 }
 const errBox: React.CSSProperties = { background: '#fcebeb', color: '#a32d2d', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
+const th: React.CSSProperties = { border: '1px solid #eef0f3', padding: '6px 10px', background: '#f9fafb', textAlign: 'left', color: '#6b7280', fontWeight: 600 }
+const td: React.CSSProperties = { border: '1px solid #eef0f3', padding: '6px 10px' }

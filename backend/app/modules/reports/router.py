@@ -21,3 +21,15 @@ async def system_report(user: dict = Depends(admin)):
 async def attendance_report(user: dict = Depends(admin)):
     async with db.get_pool().acquire() as conn:
         return await service.attendance(conn, user["organization_id"])
+
+
+@router.get("/data-quality")
+async def data_quality_report(user: dict = Depends(admin)):
+    async with db.get_pool().acquire() as conn:
+        return await service.data_quality(conn, user["organization_id"])
+
+
+@router.get("/business")
+async def business_report(user: dict = Depends(admin)):
+    async with db.get_pool().acquire() as conn:
+        return await service.business(conn, user["organization_id"], user)

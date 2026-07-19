@@ -677,3 +677,24 @@ export async function getAttendanceReport(): Promise<AttendanceReport> {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+export interface DataQualityReport {
+  objects: { name: string; datasets: number; last_period: string | null; last_update: string | null; status: string }[]
+  no_data: string[]
+  metric_errors: { code: string; name: string; error: string }[]
+  metrics_total: number
+}
+export interface BusinessReport {
+  metrics: { code: string; name: string; unit: string | null; value: number | null; error: string | null }[]
+  alerts: { widget_name: string; dashboard_name: string; level: 'warn' | 'danger'; label: string; measure: number | null }[]
+}
+export async function getDataQualityReport(): Promise<DataQualityReport> {
+  const res = await fetch('/reports/data-quality', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function getBusinessReport(): Promise<BusinessReport> {
+  const res = await fetch('/reports/business', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
