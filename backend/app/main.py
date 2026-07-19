@@ -19,6 +19,7 @@ from .modules.documents.storage import ensure_bucket
 from .modules.ingestion import queue as ingestion_queue
 from .modules.ingestion.router import router as ingestion_router
 from .modules.metrics.router import router as metrics_router
+from .modules.moderation.router import router as moderation_router
 from .modules.objects.router import router as objects_router
 from .modules.reports.router import router as reports_router
 from .modules.system.router import router as system_router
@@ -80,6 +81,7 @@ app.include_router(documents_router)
 app.include_router(ingestion_router)
 app.include_router(metrics_router)
 app.include_router(dashboards_router)
+app.include_router(moderation_router)
 app.include_router(home_router)
 app.include_router(users_router)
 app.include_router(reports_router)

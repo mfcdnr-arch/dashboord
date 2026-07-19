@@ -9,6 +9,7 @@ import HomePage from './components/HomePage'
 import UsersPage from './components/UsersPage'
 import ReportsPage from './components/ReportsPage'
 import AuditPage from './components/AuditPage'
+import ModerationPage from './components/ModerationPage'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -61,7 +62,7 @@ const NAV = [
   { key: 'objects', label: 'Объекты', ready: true },
   { key: 'metrics', label: 'Метрики', ready: true },
   { key: 'dashboards', label: 'Дашборды', ready: true },
-  { key: 'moderation', label: 'Модерация', ready: false },
+  { key: 'moderation', label: 'Модерация', ready: true, modOnly: true },
   { key: 'users', label: 'Пользователи', ready: true },
   { key: 'audit', label: 'Аудит', ready: true, adminOnly: true },
   { key: 'reports', label: 'Отчёты', ready: true },
@@ -77,7 +78,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const ok = health?.status === 'ok'
   const canManage = me.roles.includes('admin') || me.roles.includes('moderator')
   const isAdmin = me.roles.includes('admin')
-  const nav = NAV.filter((n) => !n.adminOnly || isAdmin)
+  const canModerate = me.roles.some((r) => ['admin', 'moderator', 'senior_moderator'].includes(r))
+  const nav = NAV.filter((n) => (!n.adminOnly || isAdmin) && (!n.modOnly || canModerate))
 
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh' }}>
@@ -121,13 +123,15 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ) : section === 'metrics' ? (
             <MetricsPage canManage={canManage} />
           ) : section === 'dashboards' ? (
-            <DashboardsPage canManage={canManage} initialDashboardId={openDash} />
+            <DashboardsPage canManage={canManage} isAdmin={isAdmin} initialDashboardId={openDash} />
           ) : section === 'users' ? (
             <UsersPage me={me} />
           ) : section === 'reports' ? (
             <ReportsPage me={me} />
           ) : section === 'audit' ? (
             <AuditPage me={me} />
+          ) : section === 'moderation' ? (
+            <ModerationPage me={me} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : (
             <div style={{ color: '#9aa4b2' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>
           )}

@@ -7,7 +7,7 @@ import 'react-resizable/css/styles.css'
 import {
   addDashboardGrant, autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deletePage, deletePreset, deleteWidget, getDashboard,
   exportPageXlsx, getDataSources, instantiateTemplate, listDashboardGrants, listDashboardVersions, listDashboards, listObjects, listPageWidgets, listPresets, previewWidget,
-  listTemplates, publishDashboard, removeDashboardGrant, restoreDashboardVersion, saveAsTemplate, unpublishDashboard, updateWidget, widgetSuggestions,
+  listTemplates, publishDashboard, removeDashboardGrant, restoreDashboardVersion, saveAsTemplate, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget, widgetSuggestions,
   type Dashboard, type DashGrant, type DashPage, type DashPreset, type DashTemplate, type DataSources, type GrantTargets, type MetricSource, type Obj, type Widget, type WidgetSpec,
 } from '../api'
 import WidgetView, { WidgetPreviewBody } from './WidgetView'
@@ -30,7 +30,7 @@ const WT = [
   { v: 'text', t: 'Текст/заголовок' }, { v: 'image', t: 'Картинка/лого' },
 ]
 
-export default function DashboardsPage({ canManage, initialDashboardId }: { canManage: boolean; initialDashboardId?: string | null }) {
+export default function DashboardsPage({ canManage, isAdmin, initialDashboardId }: { canManage: boolean; isAdmin?: boolean; initialDashboardId?: string | null }) {
   const [dashboards, setDashboards] = useState<Dashboard[]>([])
   const [sel, setSel] = useState<{ dashboard: Dashboard; pages: DashPage[] } | null>(null)
   const [page, setPage] = useState<DashPage | null>(null)
@@ -150,6 +150,14 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
   async function doPublish() {
     if (!sel) return
     try { await publishDashboard(sel.dashboard.id); setSel(await getDashboard(sel.dashboard.id)) } catch (e) { fail(e) }
+  }
+  async function doSubmitReview() {
+    if (!sel) return
+    try { await submitDashboardReview(sel.dashboard.id); setSel(await getDashboard(sel.dashboard.id)) } catch (e) { fail(e) }
+  }
+  async function doCancelReview() {
+    if (!sel) return
+    try { await cancelDashboardReview(sel.dashboard.id); setSel(await getDashboard(sel.dashboard.id)) } catch (e) { fail(e) }
   }
   async function doUnpublish() {
     if (!sel) return
@@ -297,7 +305,9 @@ export default function DashboardsPage({ canManage, initialDashboardId }: { canM
           {/* Публикация и версии */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
             <PubBadge status={sel.dashboard.publication_status} />
-            {canManage && sel.dashboard.publication_status !== 'published' && <button style={btn} onClick={doPublish}>Опубликовать</button>}
+            {canManage && sel.dashboard.publication_status === 'draft' && <button style={btn} onClick={doSubmitReview}>Отправить на проверку</button>}
+            {canManage && isAdmin && sel.dashboard.publication_status === 'draft' && <button style={btnGhost} onClick={doPublish} title="Публикация без модерации (админ)">Опубликовать без проверки</button>}
+            {canManage && sel.dashboard.publication_status === 'review' && <button style={btnGhost} onClick={doCancelReview}>Отозвать заявку</button>}
             {canManage && sel.dashboard.publication_status === 'published' && <button style={btnGhost} onClick={doUnpublish}>Снять с публикации</button>}
             {canManage && <button style={btnGhost} onClick={loadVersions}>История версий</button>}
             {sel.pages.length > 0 && <button style={btnGhost} onClick={() => setKiosk(true)} title="Полноэкранный показ с автопрокруткой (для ТВ)">📺 Витрина</button>}
