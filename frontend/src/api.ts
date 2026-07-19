@@ -654,3 +654,26 @@ export async function getLoginEvents(): Promise<LoginEventsReport> {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// --- Отчёты (волна B) ---
+export interface Gauge { percent: number; level: 'good' | 'warn' | 'danger'; used?: number; total?: number }
+export interface SystemReport {
+  cpu: Gauge; memory: Gauge; disk: Gauge
+  load: number[] | null; cores: number; uptime_sec: number; db_size: number | null
+  services: { name: string; ok: boolean }[]
+}
+export interface AttendanceReport {
+  totals: { logins: number; failed: number; active_users: number }
+  per_day: { day: string; logins: number; failed: number }[]
+  top_users: { login: string; logins: number }[]
+}
+export async function getSystemReport(): Promise<SystemReport> {
+  const res = await fetch('/reports/system', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function getAttendanceReport(): Promise<AttendanceReport> {
+  const res = await fetch('/reports/attendance', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

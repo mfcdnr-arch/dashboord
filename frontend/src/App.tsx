@@ -7,6 +7,7 @@ import MetricsPage from './components/MetricsPage'
 import DashboardsPage from './components/DashboardsPage'
 import HomePage from './components/HomePage'
 import UsersPage from './components/UsersPage'
+import ReportsPage from './components/ReportsPage'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -61,7 +62,7 @@ const NAV = [
   { key: 'dashboards', label: 'Дашборды', ready: true },
   { key: 'moderation', label: 'Модерация', ready: false },
   { key: 'users', label: 'Пользователи', ready: true },
-  { key: 'reports', label: 'Отчёты', ready: false },
+  { key: 'reports', label: 'Отчёты', ready: true },
 ]
 
 function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
@@ -119,6 +120,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <DashboardsPage canManage={canManage} initialDashboardId={openDash} />
           ) : section === 'users' ? (
             <UsersPage me={me} />
+          ) : section === 'reports' ? (
+            <ReportsPage me={me} />
           ) : (
             <div style={{ color: '#9aa4b2' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>
           )}
