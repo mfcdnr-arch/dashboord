@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from . import db
 from .config import settings
 from .modules.auth.bootstrap import ensure_seed
+from .modules.audit.router import router as audit_router
 from .modules.auth.router import router as auth_router
 from .modules.dashboards.router import router as dashboards_router
 from .modules.documents.router import router as documents_router
@@ -42,6 +43,7 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 # viewer, archive, reports, admin, notifications, audit.
 app.include_router(system_router)
 app.include_router(auth_router)
+app.include_router(audit_router)
 app.include_router(objects_router)
 app.include_router(documents_router)
 app.include_router(ingestion_router)

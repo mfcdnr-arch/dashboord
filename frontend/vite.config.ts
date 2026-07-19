@@ -27,6 +27,7 @@ export default defineConfig({
       '/roles': 'http://localhost:8080',
       '/login-events': 'http://localhost:8080',
       '/reports': 'http://localhost:8080',
+      '/audit': 'http://localhost:8080',
     },
   },
 })

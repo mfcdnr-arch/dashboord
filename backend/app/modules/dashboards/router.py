@@ -77,7 +77,7 @@ class WidgetPatch(BaseModel):
 # --- Дашборды ---
 @router.post("/dashboards", status_code=status.HTTP_201_CREATED)
 async def create_dashboard(body: DashboardIn, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.create_dashboard(conn, user["organization_id"], user["id"],
                                                   body.name, body.description, body.folder_id)
@@ -87,7 +87,7 @@ async def create_dashboard(body: DashboardIn, user: dict = Depends(manage)):
 
 @router.post("/dashboards/auto", status_code=status.HTTP_201_CREATED)
 async def auto_build(body: AutoIn, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             async with conn.transaction():
                 return await service.auto_build(conn, user["organization_id"], user["id"], body.object_id, body.name)
@@ -97,13 +97,13 @@ async def auto_build(body: AutoIn, user: dict = Depends(manage)):
 
 @router.get("/dashboards")
 async def list_dashboards(user: dict = Depends(get_current_user)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         return await service.list_dashboards(conn, user["organization_id"], user)
 
 
 @router.get("/dashboards/{dashboard_id}")
 async def get_dashboard(dashboard_id: str, user: dict = Depends(get_current_user)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.get_dashboard(conn, user["organization_id"], user, dashboard_id)
         except DashboardError as e:
@@ -119,7 +119,7 @@ class GrantIn(BaseModel):
 
 @router.get("/dashboards/{dashboard_id}/grants")
 async def list_grants(dashboard_id: str, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return {"grants": await service.list_grants(conn, user["organization_id"], dashboard_id),
                     "targets": await service.grant_targets(conn, user["organization_id"])}
@@ -129,7 +129,7 @@ async def list_grants(dashboard_id: str, user: dict = Depends(manage)):
 
 @router.post("/dashboards/{dashboard_id}/grants", status_code=status.HTTP_201_CREATED)
 async def add_grant(dashboard_id: str, body: GrantIn, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.add_grant(conn, user["organization_id"], user["id"], dashboard_id,
                                            body.grantee_type, body.role_id, body.user_id)
@@ -139,7 +139,7 @@ async def add_grant(dashboard_id: str, body: GrantIn, user: dict = Depends(manag
 
 @router.delete("/dashboards/{dashboard_id}/grants/{grant_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_grant(dashboard_id: str, grant_id: str, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             await service.remove_grant(conn, user["organization_id"], dashboard_id, grant_id)
         except DashboardError as e:
@@ -154,7 +154,7 @@ class PresetIn(BaseModel):
 
 @router.get("/dashboards/{dashboard_id}/presets")
 async def list_presets(dashboard_id: str, user: dict = Depends(get_current_user)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.list_presets(conn, user["organization_id"], user, dashboard_id)
         except DashboardError as e:
@@ -163,7 +163,7 @@ async def list_presets(dashboard_id: str, user: dict = Depends(get_current_user)
 
 @router.post("/dashboards/{dashboard_id}/presets", status_code=status.HTTP_201_CREATED)
 async def create_preset(dashboard_id: str, body: PresetIn, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.create_preset(conn, user["organization_id"], user["id"],
                                                dashboard_id, body.name, body.filters)
@@ -173,7 +173,7 @@ async def create_preset(dashboard_id: str, body: PresetIn, user: dict = Depends(
 
 @router.delete("/dashboards/{dashboard_id}/presets/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_preset(dashboard_id: str, preset_id: str, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             await service.delete_preset(conn, user["organization_id"], dashboard_id, preset_id)
         except DashboardError as e:
@@ -182,13 +182,13 @@ async def delete_preset(dashboard_id: str, preset_id: str, user: dict = Depends(
 
 @router.get("/dashboard-templates")
 async def list_templates(user: dict = Depends(get_current_user)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         return await service.list_templates(conn, user["organization_id"])
 
 
 @router.post("/dashboard-templates/{template_id}/instantiate", status_code=status.HTTP_201_CREATED)
 async def instantiate_template(template_id: str, body: InstantiateIn, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             async with conn.transaction():
                 return await service.create_from_template(conn, user["organization_id"], user["id"], template_id, body.name)
@@ -198,7 +198,7 @@ async def instantiate_template(template_id: str, body: InstantiateIn, user: dict
 
 @router.post("/dashboards/{dashboard_id}/save-template", status_code=status.HTTP_201_CREATED)
 async def save_template(dashboard_id: str, body: TemplateIn, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.save_as_template(conn, user["organization_id"], user["id"], dashboard_id, body.name, body.description)
         except DashboardError as e:
@@ -207,7 +207,7 @@ async def save_template(dashboard_id: str, body: TemplateIn, user: dict = Depend
 
 @router.post("/dashboards/{dashboard_id}/publish")
 async def publish_dashboard(dashboard_id: str, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             async with conn.transaction():
                 return await service.publish(conn, user["organization_id"], user["id"], dashboard_id)
@@ -217,7 +217,7 @@ async def publish_dashboard(dashboard_id: str, user: dict = Depends(manage)):
 
 @router.post("/dashboards/{dashboard_id}/unpublish")
 async def unpublish_dashboard(dashboard_id: str, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.unpublish(conn, user["organization_id"], dashboard_id)
         except DashboardError as e:
@@ -226,7 +226,7 @@ async def unpublish_dashboard(dashboard_id: str, user: dict = Depends(manage)):
 
 @router.get("/dashboards/{dashboard_id}/versions")
 async def dashboard_versions(dashboard_id: str, user: dict = Depends(get_current_user)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.list_versions(conn, user["organization_id"], user, dashboard_id)
         except DashboardError as e:
@@ -235,7 +235,7 @@ async def dashboard_versions(dashboard_id: str, user: dict = Depends(get_current
 
 @router.post("/dashboards/{dashboard_id}/versions/{version_no}/restore")
 async def restore_dashboard_version(dashboard_id: str, version_no: int, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             async with conn.transaction():
                 return await service.restore_version(conn, user["organization_id"], user["id"], dashboard_id, version_no)
@@ -245,7 +245,7 @@ async def restore_dashboard_version(dashboard_id: str, version_no: int, user: di
 
 @router.post("/dashboards/{dashboard_id}/pages", status_code=status.HTTP_201_CREATED)
 async def create_page(dashboard_id: str, body: PageIn, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.create_page(conn, user["organization_id"], user["id"],
                                              dashboard_id, body.name, body.description)
@@ -256,7 +256,7 @@ async def create_page(dashboard_id: str, body: PageIn, user: dict = Depends(mana
 # --- Страницы ---
 @router.patch("/dashboard-pages/{page_id}")
 async def update_page(page_id: str, body: PagePatch, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.update_page(conn, user["organization_id"], page_id, body.name, body.description)
         except DashboardError as e:
@@ -265,7 +265,7 @@ async def update_page(page_id: str, body: PagePatch, user: dict = Depends(manage
 
 @router.delete("/dashboard-pages/{page_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_page(page_id: str, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             await service.delete_page(conn, user["organization_id"], page_id)
         except DashboardError as e:
@@ -274,7 +274,7 @@ async def delete_page(page_id: str, user: dict = Depends(manage)):
 
 @router.get("/dashboard-pages/{page_id}/export.xlsx")
 async def export_page_xlsx(page_id: str, user: dict = Depends(get_current_user)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             data = await service.export_page_xlsx(conn, user["organization_id"], user, page_id)
         except DashboardError as e:
@@ -288,7 +288,7 @@ async def export_page_xlsx(page_id: str, user: dict = Depends(get_current_user))
 
 @router.get("/dashboard-pages/{page_id}/widgets")
 async def list_widgets(page_id: str, user: dict = Depends(get_current_user)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.list_page_widgets(conn, user["organization_id"], page_id, user)
         except DashboardError as e:
@@ -297,7 +297,7 @@ async def list_widgets(page_id: str, user: dict = Depends(get_current_user)):
 
 @router.post("/dashboard-pages/{page_id}/widgets", status_code=status.HTTP_201_CREATED)
 async def create_widget(page_id: str, body: WidgetIn, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.create_widget(
                 conn, user["organization_id"], user["id"], page_id, body.name, body.widget_type,
@@ -316,7 +316,7 @@ class WidgetPreviewIn(BaseModel):
 
 @router.post("/widgets/preview")
 async def preview_widget(body: WidgetPreviewIn, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.preview_widget(conn, user["organization_id"], body.widget_type, body.name, body.config)
         except DashboardError as e:
@@ -325,7 +325,7 @@ async def preview_widget(body: WidgetPreviewIn, user: dict = Depends(manage)):
 
 @router.get("/widgets/suggestions")
 async def widget_suggestions(dataset_code: str, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.suggest_widgets(conn, user["organization_id"], dataset_code)
         except DashboardError as e:
@@ -334,7 +334,7 @@ async def widget_suggestions(dataset_code: str, user: dict = Depends(manage)):
 
 @router.patch("/widgets/{widget_id}")
 async def update_widget(widget_id: str, body: WidgetPatch, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.update_widget(conn, user["organization_id"], widget_id,
                                                body.model_dump(exclude_none=True))
@@ -344,7 +344,7 @@ async def update_widget(widget_id: str, body: WidgetPatch, user: dict = Depends(
 
 @router.delete("/widgets/{widget_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_widget(widget_id: str, user: dict = Depends(manage)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             await service.delete_widget(conn, user["organization_id"], widget_id)
         except DashboardError as e:
@@ -356,7 +356,7 @@ async def widget_data(widget_id: str, user: dict = Depends(get_current_user),
                       from_: Optional[str] = Query(None, alias="from"),
                       to: Optional[str] = Query(None),
                       row: Optional[str] = Query(None)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.compute_widget_data(conn, user["organization_id"], widget_id, from_, to, row, user)
         except DashboardError as e:
@@ -365,7 +365,7 @@ async def widget_data(widget_id: str, user: dict = Depends(get_current_user),
 
 @router.get("/widgets/{widget_id}/drill")
 async def widget_drill(widget_id: str, user: dict = Depends(get_current_user)):
-    async with db.get_pool().acquire() as conn:
+    async with db.acquire(user["id"]) as conn:
         try:
             return await service.widget_drill(conn, user["organization_id"], widget_id, user)
         except DashboardError as e:

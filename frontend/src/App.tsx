@@ -8,6 +8,7 @@ import DashboardsPage from './components/DashboardsPage'
 import HomePage from './components/HomePage'
 import UsersPage from './components/UsersPage'
 import ReportsPage from './components/ReportsPage'
+import AuditPage from './components/AuditPage'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -62,6 +63,7 @@ const NAV = [
   { key: 'dashboards', label: 'Дашборды', ready: true },
   { key: 'moderation', label: 'Модерация', ready: false },
   { key: 'users', label: 'Пользователи', ready: true },
+  { key: 'audit', label: 'Аудит', ready: true, adminOnly: true },
   { key: 'reports', label: 'Отчёты', ready: true },
 ]
 
@@ -74,6 +76,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   }, [])
   const ok = health?.status === 'ok'
   const canManage = me.roles.includes('admin') || me.roles.includes('moderator')
+  const isAdmin = me.roles.includes('admin')
+  const nav = NAV.filter((n) => !n.adminOnly || isAdmin)
 
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh' }}>
@@ -93,7 +97,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
       <div style={{ display: 'flex', minHeight: 'calc(100vh - 55px)' }}>
         <nav style={{ width: 200, borderRight: '1px solid #e5e7eb', padding: 12 }}>
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <button
               key={n.key}
               onClick={() => { setOpenDash(null); setSection(n.key) }}
@@ -122,6 +126,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <UsersPage me={me} />
           ) : section === 'reports' ? (
             <ReportsPage me={me} />
+          ) : section === 'audit' ? (
+            <AuditPage me={me} />
           ) : (
             <div style={{ color: '#9aa4b2' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>
           )}
