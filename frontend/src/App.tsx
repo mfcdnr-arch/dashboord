@@ -10,6 +10,7 @@ import UsersPage from './components/UsersPage'
 import ReportsPage from './components/ReportsPage'
 import AuditPage from './components/AuditPage'
 import ModerationPage from './components/ModerationPage'
+import CatalogPage from './components/CatalogPage'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -63,6 +64,7 @@ const NAV = [
   { key: 'metrics', label: 'Метрики', ready: true },
   { key: 'dashboards', label: 'Дашборды', ready: true },
   { key: 'moderation', label: 'Модерация', ready: true, modOnly: true },
+  { key: 'catalog', label: 'Справочники', ready: true, modOnly: true },
   { key: 'users', label: 'Пользователи', ready: true, adminOnly: true },
   { key: 'audit', label: 'Аудит', ready: true, adminOnly: true },
   { key: 'reports', label: 'Отчёты', ready: true, adminOnly: true },
@@ -132,6 +134,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <AuditPage me={me} />
           ) : section === 'moderation' ? (
             <ModerationPage me={me} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
+          ) : section === 'catalog' ? (
+            <CatalogPage me={me} />
           ) : (
             <div style={{ color: '#9aa4b2' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>
           )}

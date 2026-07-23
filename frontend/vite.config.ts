@@ -29,6 +29,7 @@ export default defineConfig({
       '/reports': 'http://localhost:8080',
       '/audit': 'http://localhost:8080',
       '/moderation': 'http://localhost:8080',
+      '/catalog': 'http://localhost:8080',
     },
   },
 })

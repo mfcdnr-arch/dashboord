@@ -12,6 +12,7 @@ from .config import settings
 from .modules.auth.bootstrap import ensure_seed
 from .modules.audit.router import router as audit_router
 from .modules.auth.router import router as auth_router
+from .modules.catalog.router import router as catalog_router
 from .modules.dashboards.router import router as dashboards_router
 from .modules.documents.router import router as documents_router
 from .modules.home.router import router as home_router
@@ -85,6 +86,7 @@ app.include_router(moderation_router)
 app.include_router(home_router)
 app.include_router(users_router)
 app.include_router(reports_router)
+app.include_router(catalog_router)
 
 
 @app.get("/health", tags=["system"])
