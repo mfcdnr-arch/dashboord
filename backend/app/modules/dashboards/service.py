@@ -475,6 +475,13 @@ async def preview_widget(conn, org_id, widget_type: str, name: Optional[str], co
 
 async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
                           from_date=None, to_date=None, row=None) -> dict:
+    # Виджетный фильтр (переопределение глобального): если у виджета задан
+    # собственный фильтр (filter_scope='own'), он игнорирует фильтр страницы.
+    if cfg.get("filter_scope") == "own":
+        from_date = cfg.get("own_from") or None
+        to_date = cfg.get("own_to") or None
+        row = cfg.get("own_row") or None
+
     if t == "text":
         return {"type": "text", "title": name, "heading": cfg.get("heading"),
                 "body": cfg.get("body"), "align": cfg.get("align", "left")}

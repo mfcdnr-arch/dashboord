@@ -764,8 +764,14 @@ function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const usesMulti = type === 'compare'
   const toggleField = (c: string) => setMultiFields((s) => s.includes(c) ? s.filter((x) => x !== c) : [...s, c])
 
-  // Собирает config по текущему выбору; null — если данных для показа ещё недостаточно.
-  function currentConfig(): Record<string, unknown> | null {
+  // Свой фильтр виджета (переопределение глобального фильтра страницы).
+  const [ownFilter, setOwnFilter] = useState<boolean>(cfg0.filter_scope === 'own')
+  const [ownFrom, setOwnFrom] = useState<string>(cfg0.own_from || '')
+  const [ownTo, setOwnTo] = useState<string>(cfg0.own_to || '')
+  const [ownRow, setOwnRow] = useState<string>(cfg0.own_row || '')
+
+  // Базовый config по выбору источника; null — если данных ещё недостаточно.
+  function baseConfig(): Record<string, unknown> | null {
     if (type === 'text') return { heading: heading.trim() || undefined, body: bodyText.trim() || undefined, align }
     if (type === 'image') return imgUrl.trim() ? { url: imgUrl.trim(), caption: caption.trim() || undefined, fit: 'contain' } : null
     if (type === 'kpi') return source === 'formula' ? (formulaDsl.trim() ? { formula: formulaDsl.trim(), unit: formulaUnit.trim() || undefined } : null)
@@ -774,6 +780,16 @@ function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     if (type === 'table') return dataset ? { dataset_code: dataset } : null
     if (type === 'compare') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields, viz } : null
     return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null // bar/line/pie/dynamics
+  }
+
+  // Итоговый config = базовый + (опционально) свой фильтр (кроме text/image).
+  function currentConfig(): Record<string, unknown> | null {
+    const b = baseConfig()
+    if (!b) return null
+    if (ownFilter && !isText && !isImage) {
+      return { ...b, filter_scope: 'own', own_from: ownFrom || undefined, own_to: ownTo || undefined, own_row: ownRow || undefined }
+    }
+    return b
   }
 
   // Живой предпросмотр (как в конструкторе формул): рендер по конфигу без сохранения.
@@ -882,6 +898,21 @@ function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           <F t="Поле (план)"><select style={sel} value={planField} onChange={(e) => setPlanField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></F>
           <F t="Поле (факт)"><select style={sel} value={factField} onChange={(e) => setFactField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></F>
         </>
+      )}
+      {!isText && !isImage && (
+        <div style={{ flexBasis: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #eef0f3', borderRadius: 8, background: '#fafbfc' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151' }}>
+            <input type="checkbox" checked={ownFilter} onChange={(e) => setOwnFilter(e.target.checked)} />
+            Свой фильтр (не зависит от фильтра страницы)
+          </label>
+          {ownFilter && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+              <F t="С даты"><input type="date" style={sel} value={ownFrom} onChange={(e) => setOwnFrom(e.target.value)} /></F>
+              <F t="По дату"><input type="date" style={sel} value={ownTo} onChange={(e) => setOwnTo(e.target.value)} /></F>
+              <F t="Строка"><input style={sel} value={ownRow} onChange={(e) => setOwnRow(e.target.value)} placeholder="напр. Паспорт" /></F>
+            </div>
+          )}
+        </div>
       )}
       <div style={{ flexBasis: '100%', marginTop: 6 }}>
         <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>Предпросмотр</div>
