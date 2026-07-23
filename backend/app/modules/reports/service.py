@@ -164,7 +164,7 @@ async def popularity(conn, org_id, days: int = 30) -> dict:
         "from audit_log where organization_id=$1 and action='view' "
         "and created_at >= now() - ($2 || ' days')::interval", org_id, str(days))
     top = await conn.fetch(
-        "select d.name, count(*) as views, count(distinct a.actor_user_id) as viewers, "
+        "select d.id, d.name, count(*) as views, count(distinct a.actor_user_id) as viewers, "
         "max(a.created_at) as last_view "
         "from audit_log a join dashboards d on d.id=a.entity_id "
         "where a.organization_id=$1 and a.action='view' "
@@ -174,9 +174,31 @@ async def popularity(conn, org_id, days: int = 30) -> dict:
         "days": days,
         "totals": {"views": totals["views"], "viewers": totals["viewers"]},
         "top_dashboards": [{
-            "name": r["name"], "views": r["views"], "viewers": r["viewers"],
+            "dashboard_id": str(r["id"]), "name": r["name"], "views": r["views"], "viewers": r["viewers"],
             "last_view": r["last_view"].isoformat() if r["last_view"] else None,
         } for r in top],
+    }
+
+
+async def dashboard_viewers(conn, org_id, dashboard_id: str, days: int = 30) -> dict:
+    """Отчёт по конкретному дашборду: кто его смотрел (req #4/#5, фильтр по дашборду)."""
+    d = await conn.fetchrow(
+        "select name from dashboards where id=$1::uuid and organization_id=$2", dashboard_id, org_id)
+    rows = await conn.fetch(
+        "select coalesce(u.full_name, u.login) as who, u.login, count(*) as views, "
+        "max(a.created_at) as last_view "
+        "from audit_log a join users u on u.id=a.actor_user_id "
+        "where a.organization_id=$1 and a.action='view' and a.entity_id=$2::uuid "
+        "and a.created_at >= now() - make_interval(days => $3) "
+        "group by u.full_name, u.login order by count(*) desc", org_id, dashboard_id, days)
+    return {
+        "dashboard_id": dashboard_id,
+        "name": d["name"] if d else "(дашборд удалён)",
+        "days": days,
+        "viewers": [{
+            "who": r["who"], "login": r["login"], "views": r["views"],
+            "last_view": r["last_view"].isoformat() if r["last_view"] else None,
+        } for r in rows],
     }
 
 

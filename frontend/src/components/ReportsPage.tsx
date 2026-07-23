@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
-  getAttendanceReport, getBusinessReport, getDataQualityReport, getModerationReport, getPopularityReport, getSystemReport,
-  type AttendanceReport, type BusinessReport, type DataQualityReport, type Gauge, type ModerationReport, type PopularityReport, type SystemReport,
+  getAttendanceReport, getBusinessReport, getDashboardViewers, getDataQualityReport, getModerationReport, getPopularityReport, getSystemReport,
+  type AttendanceReport, type BusinessReport, type DashboardViewers, type DataQualityReport, type Gauge, type ModerationReport, type PopularityReport, type SystemReport,
 } from '../api'
+import EChart from './EChart'
 
 function num(n: number | null): string {
   if (n == null || !isFinite(n)) return '—'
@@ -32,6 +33,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
   const [dq, setDq] = useState<DataQualityReport | null>(null)
   const [biz, setBiz] = useState<BusinessReport | null>(null)
   const [pop, setPop] = useState<PopularityReport | null>(null)
+  const [viewers, setViewers] = useState<DashboardViewers | null>(null)
   const [mod, setMod] = useState<ModerationReport | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -125,21 +127,61 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
               <Stat t="Зрителей" v={pop.totals.viewers} />
             </div>
             {pop.top_dashboards.length === 0 ? <span style={muted}>Просмотров за период пока нет.</span> : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%', maxWidth: 560 }}>
-                  <thead><tr>{['#', 'Дашборд', 'Просмотров', 'Зрителей', 'Последний'].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {pop.top_dashboards.map((d, i) => (
-                      <tr key={d.name + i}>
-                        <td style={{ ...td, color: '#9aa4b2', textAlign: 'center' }}>{i + 1}</td>
-                        <td style={{ ...td, fontWeight: 600 }}>{d.name}</td>
-                        <td style={{ ...td, textAlign: 'center' }}>{d.views}</td>
-                        <td style={{ ...td, textAlign: 'center' }}>{d.viewers}</td>
-                        <td style={td}>{d.last_view ? new Date(d.last_view).toLocaleDateString('ru-RU') : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
+                <div>
+                  {/* Диаграмма просмотров (req #4). Клик по столбцу → «кто смотрел» */}
+                  <EChart height={Math.max(160, pop.top_dashboards.length * 34)}
+                    onPick={(name) => { const d = pop.top_dashboards.find((x) => x.name === name); if (d) getDashboardViewers(d.dashboard_id).then(setViewers).catch((e) => setError((e as Error).message)) }}
+                    option={{
+                      grid: { left: 4, right: 24, top: 6, bottom: 6, containLabel: true },
+                      xAxis: { type: 'value', splitLine: { lineStyle: { color: '#eef0f3' } } },
+                      yAxis: { type: 'category', inverse: true, data: pop.top_dashboards.map((d) => d.name), axisLabel: { fontSize: 11, width: 130, overflow: 'truncate' } },
+                      tooltip: { trigger: 'item' },
+                      series: [{ type: 'bar', data: pop.top_dashboards.map((d) => d.views), itemStyle: { color: '#2f5496', borderRadius: [0, 4, 4, 0] }, barMaxWidth: 20, label: { show: true, position: 'right', fontSize: 11 } }],
+                    }} />
+                  <div style={{ ...muted, fontSize: 11 }}>Клик по столбцу — кто смотрел дашборд.</div>
+                </div>
+                <div>
+                  {viewers ? (
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                        Кто смотрел: {viewers.name}
+                        <button style={{ border: 'none', background: 'none', color: '#2f5496', cursor: 'pointer', fontSize: 12, marginLeft: 8 }} onClick={() => setViewers(null)}>× сбросить</button>
+                      </div>
+                      {viewers.viewers.length === 0 ? <span style={muted}>Просмотров нет.</span> : (
+                        <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
+                          <thead><tr>{['Пользователь', 'Просмотров', 'Последний'].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                          <tbody>
+                            {viewers.viewers.map((v) => (
+                              <tr key={v.login}>
+                                <td style={{ ...td, fontWeight: 600 }}>{v.who}</td>
+                                <td style={{ ...td, textAlign: 'center' }}>{v.views}</td>
+                                <td style={td}>{v.last_view ? new Date(v.last_view).toLocaleDateString('ru-RU') : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
+                        <thead><tr>{['#', 'Дашборд', 'Просм.', 'Зрит.', ''].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                        <tbody>
+                          {pop.top_dashboards.map((d, i) => (
+                            <tr key={d.dashboard_id}>
+                              <td style={{ ...td, color: '#9aa4b2', textAlign: 'center' }}>{i + 1}</td>
+                              <td style={{ ...td, fontWeight: 600 }}>{d.name}</td>
+                              <td style={{ ...td, textAlign: 'center' }}>{d.views}</td>
+                              <td style={{ ...td, textAlign: 'center' }}>{d.viewers}</td>
+                              <td style={{ ...td, whiteSpace: 'nowrap' }}><button style={{ border: 'none', background: 'none', color: '#2f5496', cursor: 'pointer', fontSize: 12 }} onClick={() => getDashboardViewers(d.dashboard_id).then(setViewers).catch((e) => setError((e as Error).message))}>кто смотрел</button></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

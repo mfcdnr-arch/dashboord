@@ -854,10 +854,21 @@ export async function getAttendanceReport(): Promise<AttendanceReport> {
 export interface PopularityReport {
   days: number
   totals: { views: number; viewers: number }
-  top_dashboards: { name: string; views: number; viewers: number; last_view: string | null }[]
+  top_dashboards: { dashboard_id: string; name: string; views: number; viewers: number; last_view: string | null }[]
 }
 export async function getPopularityReport(): Promise<PopularityReport> {
   const res = await fetch('/reports/popularity', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export interface DashboardViewers {
+  dashboard_id: string
+  name: string
+  days: number
+  viewers: { who: string; login: string; views: number; last_view: string | null }[]
+}
+export async function getDashboardViewers(dashboardId: string): Promise<DashboardViewers> {
+  const res = await fetch(`/reports/popularity/viewers?dashboard_id=${encodeURIComponent(dashboardId)}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
