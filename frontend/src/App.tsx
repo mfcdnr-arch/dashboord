@@ -63,9 +63,9 @@ const NAV = [
   { key: 'metrics', label: 'Метрики', ready: true },
   { key: 'dashboards', label: 'Дашборды', ready: true },
   { key: 'moderation', label: 'Модерация', ready: true, modOnly: true },
-  { key: 'users', label: 'Пользователи', ready: true },
+  { key: 'users', label: 'Пользователи', ready: true, adminOnly: true },
   { key: 'audit', label: 'Аудит', ready: true, adminOnly: true },
-  { key: 'reports', label: 'Отчёты', ready: true },
+  { key: 'reports', label: 'Отчёты', ready: true, adminOnly: true },
 ]
 
 function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {

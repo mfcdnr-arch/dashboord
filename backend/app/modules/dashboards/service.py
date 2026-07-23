@@ -133,12 +133,15 @@ async def visible_dashboard_ids(conn, org_id, user: dict) -> set:
     if ctx["privileged"]:
         rows = await conn.fetch("select id from dashboards where organization_id=$1", org_id)
     else:
+        # Непривилегированный видит: свой дашборд (в любом статусе — как автор)
+        # ИЛИ выданный по гранту, но ТОЛЬКО опубликованный (модерационный гейт).
         rows = await conn.fetch(
             "select distinct d.id from dashboards d "
             "left join access_grants g on g.dashboard_id=d.id and g.scope='dashboard' "
             "  and ((g.grantee_type='user' and g.user_id=$2) "
             "       or (g.grantee_type='role' and g.role_id = any($3::uuid[]))) "
-            "where d.organization_id=$1 and (d.created_by=$2 or g.id is not null)",
+            "where d.organization_id=$1 and (d.created_by=$2 "
+            "  or (g.id is not null and d.publication_status='published'))",
             org_id, user["id"], ctx["role_ids"])
     return {str(r["id"]) for r in rows}
 
@@ -150,9 +153,10 @@ async def _can_view(conn, org_id, user: dict, dashboard_id: str) -> bool:
             "select 1 from dashboards where id=$1::uuid and organization_id=$2", dashboard_id, org_id))
     return bool(await conn.fetchval(
         "select 1 from dashboards d where d.id=$1::uuid and d.organization_id=$2 and ("
-        "d.created_by=$3 or exists(select 1 from access_grants g where g.dashboard_id=d.id "
+        "d.created_by=$3 or (d.publication_status='published' and "
+        "exists(select 1 from access_grants g where g.dashboard_id=d.id "
         "and g.scope='dashboard' and ((g.grantee_type='user' and g.user_id=$3) "
-        "or (g.grantee_type='role' and g.role_id = any($4::uuid[])))))",
+        "or (g.grantee_type='role' and g.role_id = any($4::uuid[]))))))",
         dashboard_id, org_id, user["id"], ctx["role_ids"]))
 
 
@@ -203,6 +207,14 @@ async def _owns_dashboard(conn, org_id, dashboard_id: str) -> bool:
         "select 1 from dashboards where id=$1::uuid and organization_id=$2", dashboard_id, org_id))
 
 
+async def _assert_editable(conn, dashboard_id) -> None:
+    """Правки контента запрещены, пока дашборд на проверке (review) — иначе
+    опубликуется не то, что проверил модератор. Отзовите заявку для изменений."""
+    st = await conn.fetchval("select publication_status from dashboards where id=$1::uuid", dashboard_id)
+    if st == "review":
+        raise DashboardError("Дашборд на проверке — правки заблокированы; отзовите заявку, чтобы изменить")
+
+
 # --------------------------------------------------------------------------- #
 # Страницы
 # --------------------------------------------------------------------------- #
@@ -210,6 +222,7 @@ async def create_page(conn, org_id, user_id, dashboard_id: str, name: str,
                       description: Optional[str]) -> dict:
     if not await _owns_dashboard(conn, org_id, dashboard_id):
         raise DashboardError("Дашборд не найден")
+    await _assert_editable(conn, dashboard_id)
     if await conn.fetchval("select 1 from dashboard_pages where dashboard_id=$1::uuid and name=$2", dashboard_id, name):
         raise DashboardError("Страница с таким именем уже есть")
     pos = await conn.fetchval(
@@ -232,6 +245,7 @@ async def update_page(conn, org_id, page_id: str, name: Optional[str], descripti
     p = await _page_org(conn, org_id, page_id)
     if p is None:
         raise DashboardError("Страница не найдена")
+    await _assert_editable(conn, p["dashboard_id"])
     row = await conn.fetchrow(
         "update dashboard_pages set name=coalesce($2,name), description=coalesce($3,description), "
         "updated_at=now() where id=$1::uuid returning id, name, description, position",
@@ -244,6 +258,7 @@ async def delete_page(conn, org_id, page_id: str) -> None:
     p = await _page_org(conn, org_id, page_id)
     if p is None:
         raise DashboardError("Страница не найдена")
+    await _assert_editable(conn, p["dashboard_id"])
     await conn.execute("delete from dashboard_pages where id=$1::uuid", page_id)
 
 
@@ -272,6 +287,7 @@ async def create_widget(conn, org_id, user_id, page_id: str, name: str, widget_t
     p = await _page_org(conn, org_id, page_id)
     if p is None:
         raise DashboardError("Страница не найдена")
+    await _assert_editable(conn, p["dashboard_id"])
     row = await conn.fetchrow(
         "insert into widgets(organization_id, dashboard_id, page_id, name, widget_type, "
         "position_x, position_y, width, height, config, created_by) "
@@ -292,6 +308,7 @@ async def update_widget(conn, org_id, widget_id: str, patch: dict) -> dict:
     w = await _widget_org(conn, org_id, widget_id)
     if w is None:
         raise DashboardError("Виджет не найден")
+    await _assert_editable(conn, w["dashboard_id"])
     wtype = patch.get("widget_type")
     if wtype is not None and wtype not in WIDGET_TYPES:
         raise DashboardError(f"Неизвестный тип виджета: {wtype}")
@@ -311,6 +328,7 @@ async def delete_widget(conn, org_id, widget_id: str) -> None:
     w = await _widget_org(conn, org_id, widget_id)
     if w is None:
         raise DashboardError("Виджет не найден")
+    await _assert_editable(conn, w["dashboard_id"])
     await conn.execute("delete from widgets where id=$1::uuid", widget_id)
 
 
@@ -436,11 +454,14 @@ async def _dataset_table(conn, org_id, dataset_code: str, row=None):
     return {"columns": cols, "rows": rows}
 
 
-async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_date=None, row=None, user: dict = None) -> dict:
+async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_date=None, row=None,
+                              user: dict = None, skip_acl: bool = False) -> dict:
     w = await _widget_org(conn, org_id, widget_id)
     if w is None:
         raise DashboardError("Виджет не найден")
-    if user is not None and not await _can_view(conn, org_id, user, str(w["dashboard_id"])):
+    # RLS: обход разрешён только явным skip_acl (внутренние агрегаты, где
+    # видимость уже проверена выше). По HTTP всегда приходит user — fail closed.
+    if not skip_acl and (user is None or not await _can_view(conn, org_id, user, str(w["dashboard_id"]))):
         raise DashboardError("Виджет не найден")
     return await _compute_widget(conn, org_id, w["widget_type"], w["name"], _cfg(w), from_date, to_date, row)
 
@@ -545,7 +566,7 @@ async def list_org_alerts(conn, org_id, user: dict, limit: int = 30) -> List[dic
     out: List[dict] = []
     for w in rows:
         try:
-            data = await compute_widget_data(conn, org_id, str(w["id"]))
+            data = await compute_widget_data(conn, org_id, str(w["id"]), skip_acl=True)
         except DashboardError:
             continue
         al = data.get("alert")
@@ -598,7 +619,7 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
         if t in ("text", "image"):
             continue
         try:
-            data = await compute_widget_data(conn, org_id, wid)
+            data = await compute_widget_data(conn, org_id, wid, skip_acl=True)
         except DashboardError:
             continue
         if t == "kpi":
