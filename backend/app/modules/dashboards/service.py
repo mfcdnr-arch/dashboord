@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 
+from ... import cache
 from ..audit import service as audit_svc
 from ..metrics import resolver as mr
 from ..metrics.parser import FormulaError, extract_dependencies, parse
@@ -321,6 +322,7 @@ async def update_widget(conn, org_id, widget_id: str, patch: dict) -> dict:
         widget_id, patch.get("name"), patch.get("position_x"), patch.get("position_y"),
         patch.get("width"), patch.get("height"), cfg, wtype,
     )
+    await cache.delete_prefix(f"wd:{widget_id}:")  # инвалидируем кэш данных виджета
     return {"id": str(row["id"])}
 
 
@@ -330,6 +332,7 @@ async def delete_widget(conn, org_id, widget_id: str) -> None:
         raise DashboardError("Виджет не найден")
     await _assert_editable(conn, w["dashboard_id"])
     await conn.execute("delete from widgets where id=$1::uuid", widget_id)
+    await cache.delete_prefix(f"wd:{widget_id}:")
 
 
 # --------------------------------------------------------------------------- #
@@ -463,7 +466,21 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
     # видимость уже проверена выше). По HTTP всегда приходит user — fail closed.
     if not skip_acl and (user is None or not await _can_view(conn, org_id, user, str(w["dashboard_id"]))):
         raise DashboardError("Виджет не найден")
-    return await _compute_widget(conn, org_id, w["widget_type"], w["name"], _cfg(w), from_date, to_date, row)
+    # TTL-кэш: данные виджета одинаковы для всех, кто его видит (доступ проверен
+    # выше). Ключ учитывает фильтры страницы. Мягкая деградация при недоступном Redis.
+    key = f"wd:{widget_id}:{from_date or ''}:{to_date or ''}:{row or ''}"
+    cached = await cache.get(key)
+    if cached is not None:
+        try:
+            return json.loads(cached)
+        except ValueError:
+            pass
+    result = await _compute_widget(conn, org_id, w["widget_type"], w["name"], _cfg(w), from_date, to_date, row)
+    try:
+        await cache.set(key, json.dumps(result, ensure_ascii=False), cache.WIDGET_DATA_TTL)
+    except (TypeError, ValueError):
+        pass  # несериализуемый результат не кэшируем
+    return result
 
 
 async def preview_widget(conn, org_id, widget_type: str, name: Optional[str], config: dict) -> dict:

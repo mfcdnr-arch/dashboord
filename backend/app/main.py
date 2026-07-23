@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from . import db
+from . import cache, db
 from .config import settings
 from .modules.auth.bootstrap import ensure_seed
 from .modules.audit.router import router as audit_router
@@ -33,7 +33,9 @@ async def lifespan(app: FastAPI):
     await ensure_seed()
     ensure_bucket()
     await ingestion_queue.connect()
+    await cache.connect()
     yield
+    await cache.disconnect()
     await ingestion_queue.disconnect()
     await db.disconnect()
 
