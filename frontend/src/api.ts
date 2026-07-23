@@ -261,6 +261,7 @@ export interface Metric {
   code: string
   name: string
   description: string | null
+  info_text?: string | null
   created_at: string
   versions?: number
   unit?: string | null
@@ -289,6 +290,16 @@ export async function listMetrics(): Promise<Metric[]> {
 
 export async function getMetric(id: string): Promise<{ metric: Metric; versions: MetricVersion[] }> {
   const res = await fetch(`/metrics/${id}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function updateMetric(id: string, patch: { name?: string; description?: string | null; info_text?: string | null; owner_id?: string | null }): Promise<Metric> {
+  const res = await fetch(`/metrics/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify(patch),
+  })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }

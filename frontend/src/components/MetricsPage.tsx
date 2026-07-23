@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import {
   approveVersion, createMetric, createVersion, getDataSources, getMetric, listMetrics, previewFormula,
-  validateVersion, versionValue,
+  updateMetric, validateVersion, versionValue,
   type DataSources, type Dependencies, type Metric, type MetricVersion,
 } from '../api'
 import FormulaBuilder from './FormulaBuilder'
@@ -112,8 +112,17 @@ function MetricDetail({ data, canManage, onError, onChanged }: {
   const [previewErr, setPreviewErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [values, setValues] = useState<Record<string, string>>({})
+  const [info, setInfo] = useState(metric.info_text || '')
+  const [infoBusy, setInfoBusy] = useState(false)
+  const [infoSaved, setInfoSaved] = useState(false)
 
   useEffect(() => { getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] })) }, [])
+
+  async function saveInfo() {
+    setInfoBusy(true); setInfoSaved(false)
+    try { await updateMetric(metric.id, { info_text: info }); setInfoSaved(true) }
+    catch (e) { onError(e) } finally { setInfoBusy(false) }
+  }
 
   async function doPreview() {
     setPreview(null); setPreviewErr(null); setBusy(true)
@@ -148,6 +157,21 @@ function MetricDetail({ data, canManage, onError, onChanged }: {
     <div>
       <h2 style={{ fontSize: 17, margin: '0 0 2px' }}>{metric.name}</h2>
       <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>{metric.code}{metric.description ? ' · ' + metric.description : ''}</div>
+
+      {/* Расширенная информация (FR-5.9): показывается пользователю при «провале» в показатель (drill) */}
+      {canManage && (
+        <div style={{ marginBottom: 18 }}>
+          <h3 style={h3}>Расширенная информация о показателе</h3>
+          <div style={{ ...muted, marginBottom: 6 }}>Необязательно. Виден пользователю в «🔍 подробнее». Если пусто — покажется «Информации нет, в разработке».</div>
+          <textarea style={{ width: '100%', minHeight: 70, padding: 8, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }}
+            value={info} onChange={(e) => { setInfo(e.target.value); setInfoSaved(false) }}
+            placeholder="Из чего складывается показатель, как читать, за что отвечает…" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+            <button style={btnSm} disabled={infoBusy} onClick={saveInfo}>{infoBusy ? 'Сохранение…' : 'Сохранить информацию'}</button>
+            {infoSaved && <span style={{ fontSize: 12, color: '#0f6e56' }}>✓ сохранено</span>}
+          </div>
+        </div>
+      )}
 
       <h3 style={h3}>Версии формулы</h3>
       {versions.length === 0 ? (

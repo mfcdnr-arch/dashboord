@@ -71,6 +71,23 @@ async def create_metric(conn, org_id, user_id, code: str, name: str,
     return dict(row)
 
 
+async def update_metric(conn, org_id, metric_id: str, name: Optional[str],
+                        description: Optional[str], info_text: Optional[str],
+                        owner_id: Optional[str]) -> dict:
+    """Правка карточки показателя (admin/moderator): имя, краткое описание,
+    расширенная информация (FR-5.9), владелец. Передавай только меняемые поля."""
+    m = await conn.fetchrow(
+        "select id from metrics where id=$1::uuid and organization_id=$2", metric_id, org_id)
+    if m is None:
+        raise MetricError("Метрика не найдена")
+    row = await conn.fetchrow(
+        "update metrics set name=coalesce($2,name), description=coalesce($3,description), "
+        "info_text=coalesce($4,info_text), owner_id=coalesce($5::uuid,owner_id) "
+        "where id=$1::uuid returning id, code, name, description, info_text",
+        metric_id, name, description, info_text, owner_id)
+    return dict(row)
+
+
 async def create_version(conn, org_id, user_id, metric_id: str, formula_expression: str,
                          unit: Optional[str], grain: Optional[str],
                          calculation_type: str) -> dict:

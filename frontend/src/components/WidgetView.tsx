@@ -193,9 +193,15 @@ function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
           <div style={{ marginBottom: 14 }}>
             <div style={secH}>Формулы метрик</div>
             {drill.metrics.map((m: any) => (
-              <div key={m.code} style={{ marginBottom: 8 }}>
+              <div key={m.code} style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>{m.name} <span style={{ color: '#9aa4b2', fontWeight: 400 }}>({m.code} · v{m.version_no} · {m.status})</span></div>
                 <div style={mono}>{m.formula}</div>
+                {/* Расширенная информация по показателю (FR-5.9): текст модератора или заглушка */}
+                {'info_text' in m && (
+                  <div style={{ fontSize: 12, marginTop: 4, padding: '6px 8px', borderRadius: 6, background: m.info_text ? '#f4f7fb' : '#fafafa', color: m.info_text ? '#374151' : '#9aa4b2', whiteSpace: 'pre-wrap' }}>
+                    {m.info_text ? m.info_text : 'Информации нет, в разработке.'}
+                  </div>
+                )}
               </div>
             ))}
           </div>

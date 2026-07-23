@@ -338,7 +338,7 @@ async def delete_widget(conn, org_id, widget_id: str) -> None:
 async def _best_metric_version(conn, org_id, code: str):
     # приоритет версии: одобренная → проверенная → любая (черновик не берётся вперёд проверенной)
     return await conn.fetchrow(
-        "select m.name, mv.formula_expression, mv.formula_ast, mv.unit, mv.version_no, mv.status "
+        "select m.name, m.info_text, m.description, mv.formula_expression, mv.formula_ast, mv.unit, mv.version_no, mv.status "
         "from metrics m join metric_versions mv on mv.metric_id=m.id "
         "where m.organization_id=$1 and m.code=$2 "
         "order by (case mv.status when 'approved' then 0 when 'validated' then 1 else 2 end), "
@@ -698,6 +698,7 @@ async def widget_drill(conn, org_id, widget_id: str, user: dict) -> dict:
         metrics_info.append({
             "code": code, "name": row["name"], "formula": row["formula_expression"],
             "status": row["status"], "version_no": row["version_no"], "datasets": deps["datasets"],
+            "info_text": row["info_text"], "description": row["description"],
         })
         dataset_codes += deps["datasets"]
 

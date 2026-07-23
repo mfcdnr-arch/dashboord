@@ -20,6 +20,7 @@ from ... import db
 from ..auth.deps import get_current_user, require_roles
 from .service import (
     MetricError, create_metric, create_version, evaluate_version, list_data_sources, preview, set_status,
+    update_metric,
 )
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
@@ -30,6 +31,13 @@ class MetricIn(BaseModel):
     code: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=200)
     description: Optional[str] = None
+    owner_id: Optional[str] = None
+
+
+class MetricPatch(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    info_text: Optional[str] = None  # расширенная информация (FR-5.9)
     owner_id: Optional[str] = None
 
 
@@ -85,7 +93,7 @@ async def data_sources(user: dict = Depends(manage)):
 async def get_metric(metric_id: str, user: dict = Depends(get_current_user)):
     async with db.get_pool().acquire() as conn:
         m = await conn.fetchrow(
-            "select id, code, name, description, created_at from metrics "
+            "select id, code, name, description, info_text, created_at from metrics "
             "where id=$1::uuid and organization_id=$2", metric_id, user["organization_id"]
         )
         if m is None:
@@ -96,6 +104,16 @@ async def get_metric(metric_id: str, user: dict = Depends(get_current_user)):
             "from metric_versions where metric_id=$1::uuid order by version_no desc", metric_id
         )
     return {"metric": dict(m), "versions": [dict(v) for v in versions]}
+
+
+@router.patch("/{metric_id}")
+async def patch_metric(metric_id: str, body: MetricPatch, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            return await update_metric(conn, user["organization_id"], metric_id,
+                                       body.name, body.description, body.info_text, body.owner_id)
+        except MetricError as e:
+            raise _bad(e)
 
 
 @router.post("/{metric_id}/versions", status_code=status.HTTP_201_CREATED)
