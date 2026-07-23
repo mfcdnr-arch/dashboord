@@ -3,6 +3,12 @@
 .env.prod
 *.env.local
 
+# Артефакты эксплуатации (бэкапы, диагностика, офлайн-бандлы образов)
+backups/
+diag-*.tgz
+dashbord-images.tar
+*.dump
+
 # Python
 __pycache__/
 *.py[cod]

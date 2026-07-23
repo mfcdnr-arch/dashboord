@@ -10,6 +10,9 @@ PGPORT="${POSTGRES_PORT:-5432}"
 PGUSER="${POSTGRES_USER:-dashbord}"
 PGDATABASE="${POSTGRES_DB:-dashbord}"
 export PGPASSWORD="${POSTGRES_PASSWORD:-dashbord}"
+# Каталог с миграциями: в контейнере смонтирован в /migrations; в CI/локально
+# можно переопределить (MIGRATIONS_DIR=db/migrations).
+MIGDIR="${MIGRATIONS_DIR:-/migrations}"
 PSQL="psql -v ON_ERROR_STOP=1 -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE"
 
 echo "[migrate] ждём готовности PostgreSQL $PGHOST:$PGPORT ..."
@@ -25,7 +28,7 @@ $PSQL -c "create table if not exists schema_migrations(
   applied_at timestamptz not null default now())" >/dev/null
 
 applied=0
-for f in /migrations/*.sql; do
+for f in "$MIGDIR"/*.sql; do
   name="$(basename "$f")"
   exists="$($PSQL -tAc "select 1 from schema_migrations where filename='$name'")"
   if [ -n "$exists" ]; then

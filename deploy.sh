@@ -25,7 +25,14 @@ err() { printf '\033[1;31m[deploy] ОШИБКА:\033[0m %s\n' "$1" >&2; }
 # 1. Предусловия ----------------------------------------------------------
 log "Проверка предусловий…"
 command -v docker >/dev/null || { err "docker не установлен"; exit 1; }
-docker compose version >/dev/null 2>&1 || { err "нужен docker compose v2"; exit 1; }
+docker compose version >/dev/null 2>&1 || { err "нужен docker compose v2 (плагин docker-compose-plugin)"; exit 1; }
+# service_completed_successfully и ожидание условий depends_on требуют Compose v2+.
+CV="$(docker compose version --short 2>/dev/null | sed 's/^v//')"
+CV_MAJOR="${CV%%.*}"
+if ! { [ -n "$CV_MAJOR" ] && [ "$CV_MAJOR" -ge 2 ] 2>/dev/null; }; then
+  err "нужен Docker Compose v2+ (найдено: ${CV:-нет}). На Astra: установить docker-compose-plugin v2."
+  exit 1
+fi
 docker info >/dev/null 2>&1 || { err "демон docker недоступен (запущен? права?)"; exit 1; }
 
 [ -f .env.prod ] || { err "нет .env.prod — скопируйте из .env.prod.example и заполните секреты"; exit 1; }
