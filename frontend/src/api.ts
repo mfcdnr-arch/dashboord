@@ -813,6 +813,19 @@ export async function getPopularityReport(): Promise<PopularityReport> {
   return res.json()
 }
 
+export interface ModerationReport {
+  days: number
+  pending: number
+  totals: { approved: number; returned: number; cancelled: number; avg_hours: number | null; return_rate: number | null }
+  top_reasons: { label: string; count: number }[]
+  top_reviewers: { login: string; approved: number; returned: number }[]
+}
+export async function getModerationReport(): Promise<ModerationReport> {
+  const res = await fetch('/reports/moderation', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 export interface DataQualityReport {
   objects: { name: string; datasets: number; last_period: string | null; last_update: string | null; status: string }[]
   no_data: string[]

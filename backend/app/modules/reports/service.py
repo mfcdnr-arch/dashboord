@@ -178,3 +178,61 @@ async def popularity(conn, org_id, days: int = 30) -> dict:
             "last_view": r["last_view"].isoformat() if r["last_view"] else None,
         } for r in top],
     }
+
+
+async def moderation_stats(conn, org_id, days: int = 30) -> dict:
+    """Отчёт по модерации: очередь сейчас + статистика заявок/решений за период.
+
+    Заявки не имеют organization_id напрямую — берём через dashboard.
+    Причина возврата хранится в publication_reviews.comment как «[CODE] …».
+    """
+    pending = await conn.fetchval(
+        "select count(*) from publication_requests pr join dashboards d on d.id=pr.dashboard_id "
+        "where d.organization_id=$1 and pr.status='pending_moderation'", org_id)
+    tot = await conn.fetchrow(
+        "select "
+        "count(*) filter (where pr.status='approved') as approved, "
+        "count(*) filter (where pr.status='returned_for_revision') as returned, "
+        "count(*) filter (where pr.status='cancelled') as cancelled, "
+        "avg(extract(epoch from (pr.resolved_at - pr.requested_at))) "
+        "  filter (where pr.resolved_at is not null) as avg_sec "
+        "from publication_requests pr join dashboards d on d.id=pr.dashboard_id "
+        "where d.organization_id=$1 and pr.requested_at >= now() - make_interval(days => $2)", org_id, days)
+    reasons = await conn.fetch(
+        "select coalesce(rc.label_ru, m.code, '(без причины)') as label, count(*) as n "
+        "from publication_reviews rv "
+        "join publication_requests pr on pr.id=rv.publication_request_id "
+        "join dashboards d on d.id=pr.dashboard_id "
+        "cross join lateral (select substring(rv.comment from '^\\[([A-Z_]+)\\]') as code) m "
+        "left join moderation_reason_code rc on rc.code = m.code "
+        "where d.organization_id=$1 and rv.decision='rejected' "
+        "and rv.created_at >= now() - make_interval(days => $2) "
+        "group by coalesce(rc.label_ru, m.code, '(без причины)') order by count(*) desc limit 5", org_id, days)
+    reviewers = await conn.fetch(
+        "select u.login, "
+        "count(*) filter (where rv.decision='approved') as approved, "
+        "count(*) filter (where rv.decision='rejected') as returned "
+        "from publication_reviews rv "
+        "join publication_requests pr on pr.id=rv.publication_request_id "
+        "join dashboards d on d.id=pr.dashboard_id "
+        "join users u on u.id=rv.reviewer_id "
+        "where d.organization_id=$1 and rv.created_at >= now() - make_interval(days => $2) "
+        "group by u.login order by count(*) desc limit 5", org_id, days)
+
+    approved = tot["approved"] or 0
+    returned = tot["returned"] or 0
+    resolved = approved + returned
+    avg_sec = tot["avg_sec"]
+    return {
+        "days": days,
+        "pending": pending,
+        "totals": {
+            "approved": approved,
+            "returned": returned,
+            "cancelled": tot["cancelled"] or 0,
+            "avg_hours": round(avg_sec / 3600, 1) if avg_sec else None,
+            "return_rate": round(returned / resolved * 100) if resolved else None,
+        },
+        "top_reasons": [{"label": r["label"], "count": r["n"]} for r in reasons],
+        "top_reviewers": [{"login": r["login"], "approved": r["approved"], "returned": r["returned"]} for r in reviewers],
+    }

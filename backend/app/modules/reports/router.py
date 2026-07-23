@@ -29,6 +29,12 @@ async def popularity_report(user: dict = Depends(admin)):
         return await service.popularity(conn, user["organization_id"])
 
 
+@router.get("/moderation")
+async def moderation_report(user: dict = Depends(admin)):
+    async with db.get_pool().acquire() as conn:
+        return await service.moderation_stats(conn, user["organization_id"])
+
+
 @router.get("/data-quality")
 async def data_quality_report(user: dict = Depends(admin)):
     async with db.get_pool().acquire() as conn:

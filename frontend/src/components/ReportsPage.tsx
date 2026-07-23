@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  getAttendanceReport, getBusinessReport, getDataQualityReport, getPopularityReport, getSystemReport,
-  type AttendanceReport, type BusinessReport, type DataQualityReport, type Gauge, type PopularityReport, type SystemReport,
+  getAttendanceReport, getBusinessReport, getDataQualityReport, getModerationReport, getPopularityReport, getSystemReport,
+  type AttendanceReport, type BusinessReport, type DataQualityReport, type Gauge, type ModerationReport, type PopularityReport, type SystemReport,
 } from '../api'
 
 function num(n: number | null): string {
@@ -32,6 +32,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
   const [dq, setDq] = useState<DataQualityReport | null>(null)
   const [biz, setBiz] = useState<BusinessReport | null>(null)
   const [pop, setPop] = useState<PopularityReport | null>(null)
+  const [mod, setMod] = useState<ModerationReport | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const loadSys = () => getSystemReport().then(setSys).catch((e) => setError((e as Error).message))
@@ -40,6 +41,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
     loadSys()
     getAttendanceReport().then(setAtt).catch((e) => setError((e as Error).message))
     getPopularityReport().then(setPop).catch((e) => setError((e as Error).message))
+    getModerationReport().then(setMod).catch((e) => setError((e as Error).message))
     getDataQualityReport().then(setDq).catch((e) => setError((e as Error).message))
     getBusinessReport().then(setBiz).catch((e) => setError((e as Error).message))
     const t = setInterval(loadSys, 15000) // авто-обновление мониторинга
@@ -144,6 +146,48 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
         )}
       </Section>
 
+      {/* Модерация */}
+      <Section title="Модерация (за 30 дней)">
+        {!mod ? <span style={muted}>Загрузка…</span> : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
+            <div>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+                <Stat t="В очереди" v={mod.pending} danger={mod.pending > 0} />
+                <Stat t="Одобрено" v={mod.totals.approved} />
+                <Stat t="Возвращено" v={mod.totals.returned} />
+              </div>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, color: '#374151' }}>
+                <span>Доля возвратов: <b>{mod.totals.return_rate == null ? '—' : `${mod.totals.return_rate}%`}</b></span>
+                <span>Ср. время проверки: <b>{mod.totals.avg_hours == null ? '—' : `${mod.totals.avg_hours} ч`}</b></span>
+                {mod.totals.cancelled > 0 && <span>Отозвано: <b>{mod.totals.cancelled}</b></span>}
+              </div>
+              {mod.top_reviewers.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Активнее всех (модераторы)</div>
+                  {mod.top_reviewers.map((r) => (
+                    <div key={r.login} style={{ display: 'flex', gap: 8, fontSize: 13, padding: '3px 0' }}>
+                      <span style={{ flex: 1, fontWeight: 600 }}>{r.login}</span>
+                      <span style={{ color: '#0f6e56' }}>✓ {r.approved}</span>
+                      <span style={{ color: '#a32d2d' }}>↩ {r.returned}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Частые причины возврата</div>
+              {mod.top_reasons.length === 0 ? <span style={muted}>Возвратов за период не было.</span> : mod.top_reasons.map((r, i) => (
+                <div key={r.label + i} style={{ display: 'flex', gap: 8, fontSize: 13, padding: '3px 0' }}>
+                  <span style={{ color: '#9aa4b2', width: 18 }}>{i + 1}.</span>
+                  <span style={{ flex: 1 }}>{r.label}</span>
+                  <span style={{ color: '#9a6a00', fontWeight: 600 }}>{r.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Section>
+
       {/* Качество данных */}
       <Section title="Качество данных">
         {!dq ? <span style={muted}>Загрузка…</span> : (
@@ -215,7 +259,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
       </Section>
 
       <div style={{ fontSize: 12, color: '#9aa4b2' }}>
-        Журнал действий — в разделе «Аудит». Отчёты по модерации — в разработке (требуют модуля модерации).
+        Журнал действий — в разделе «Аудит». Управление проверкой — в разделе «Модерация».
       </div>
     </div>
   )
