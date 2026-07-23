@@ -1,0 +1,139 @@
+# Dashboard — ПРОДАКШН-стек (Astra Linux / ВМ / LAN / офлайн).
+# Запуск: ./deploy.sh   (или вручную: docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build)
+#
+# Отличия от dev docker-compose.yml:
+#  - образы БД/MinIO ПИНУЮТСЯ (воспроизводимость, старые CPU);
+#  - миграции применяются сервисом `migrate` С ТРЕКИНГОМ (а не через initdb —
+#    тот срабатывает лишь на пустом томе и не накатывает обновления);
+#  - наружу открыт ТОЛЬКО web (nginx); БД/Redis/MinIO — только во внутренней сети;
+#  - APP_ENV=production, секреты из .env.prod.
+name: dashbord-prod
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    container_name: dashbord_prod_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dashbord}
+      POSTGRES_USER: ${POSTGRES_USER:-dashbord}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?нужно задать POSTGRES_PASSWORD в .env.prod}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dashbord} -d ${POSTGRES_DB:-dashbord}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7-alpine}
+    container_name: dashbord_prod_redis
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    # Пин под старые/generic CPU ВМ (latest требует x86-64-v2 и падает).
+    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2022-10-24T18-35-07Z}
+    container_name: dashbord_prod_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-dashbord}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:?нужно задать MINIO_PASSWORD в .env.prod}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || curl -sf http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # One-shot: применяет миграции по порядку с трекингом, затем завершается.
+  migrate:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    container_name: dashbord_prod_migrate
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-dashbord}
+      POSTGRES_USER: ${POSTGRES_USER:-dashbord}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./db/migrations:/migrations:ro
+      - ./db/run-migrations.sh:/run-migrations.sh:ro
+    entrypoint: ["sh", "/run-migrations.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: ./backend
+    image: dashbord-api:latest
+    container_name: dashbord_prod_api
+    environment: &backend_env
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-dashbord}
+      POSTGRES_USER: ${POSTGRES_USER:-dashbord}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_USER: ${MINIO_USER:-dashbord}
+      MINIO_PASSWORD: ${MINIO_PASSWORD}
+      APP_ENV: production
+      JWT_SECRET: ${JWT_SECRET:?нужно задать JWT_SECRET в .env.prod}
+      ADMIN_LOGIN: ${ADMIN_LOGIN:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?нужно задать ADMIN_PASSWORD в .env.prod}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  worker:
+    build: ./backend
+    image: dashbord-api:latest
+    container_name: dashbord_prod_worker
+    command: arq app.modules.ingestion.worker.WorkerSettings
+    environment: *backend_env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build: ./frontend
+    image: dashbord-web:latest
+    container_name: dashbord_prod_web
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8090}:80"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

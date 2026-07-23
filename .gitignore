@@ -1,5 +1,6 @@
 # Секреты и локальное окружение
 .env
+.env.prod
 *.env.local
 
 # Python
