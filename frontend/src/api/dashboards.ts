@@ -9,6 +9,11 @@ export interface Dashboard {
   publication_status: string
   created_at: string
   pages?: number
+  is_favorite?: boolean
+}
+export async function setDashboardFavorite(id: string, on: boolean): Promise<void> {
+  const res = await fetch(`/dashboards/${id}/favorite`, { method: on ? 'POST' : 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
 }
 export interface DashPage { id: string; name: string; description: string | null; position: number }
 export interface Widget {

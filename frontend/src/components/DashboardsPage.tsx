@@ -7,7 +7,7 @@ import 'react-resizable/css/styles.css'
 import {
   autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deletePage, deletePreset, deleteWidget, getDashboard,
   exportPageXlsx, getDataSources, instantiateTemplate, listDashboardVersions, listDashboards, listObjects, listPageWidgets, listPresets,
-  listTemplates, publishDashboard, restoreDashboardVersion, saveAsTemplate, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
+  listTemplates, publishDashboard, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Obj, type Widget, type WidgetSpec,
 } from '../api'
 import WidgetView from './WidgetView'
@@ -21,6 +21,8 @@ const GL = WidthProvider(GridLayout)
 
 export default function DashboardsPage({ canManage, isAdmin, initialDashboardId }: { canManage: boolean; isAdmin?: boolean; initialDashboardId?: string | null }) {
   const [dashboards, setDashboards] = useState<Dashboard[]>([])
+  const [query, setQuery] = useState('')
+  const [favOnly, setFavOnly] = useState(false)
   const [sel, setSel] = useState<{ dashboard: Dashboard; pages: DashPage[] } | null>(null)
   const [page, setPage] = useState<DashPage | null>(null)
   const [widgets, setWidgets] = useState<Widget[]>([])
@@ -50,6 +52,10 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
 
   const fail = (e: unknown) => setError((e as Error).message)
   const refresh = () => listDashboards().then(setDashboards).catch(fail)
+  async function toggleFav(e: React.MouseEvent, d: Dashboard) {
+    e.stopPropagation()
+    try { await setDashboardFavorite(d.id, !d.is_favorite); refresh() } catch (e) { fail(e) }
+  }
 
   useEffect(() => {
     refresh(); getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] }))
@@ -276,16 +282,34 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
               <button style={btnAuto} disabled={busy || !tpl} onClick={createFromTemplate}>📋 Создать</button>
             </div>
           )}
-          {dashboards.length === 0 ? <div style={muted}>Пока нет дашбордов.</div> : (
-            <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
-              {dashboards.map((d, i) => (
-                <div key={d.id} onClick={() => openDashboard(d.id)} style={{ ...rowItem, borderTop: i ? '1px solid #f0f0f0' : 'none' }}>
-                  <span style={{ fontSize: 14 }}>{d.name}</span>
-                  <span style={{ fontSize: 12, color: '#6b7280' }}>страниц: {d.pages ?? 0} · {d.publication_status}</span>
+          {dashboards.length === 0 ? <div style={muted}>Пока нет дашбордов.</div> : (() => {
+            const q = query.trim().toLowerCase()
+            const shown = dashboards.filter((d) => (!favOnly || d.is_favorite) && (!q || d.name.toLowerCase().includes(q)))
+            return (
+              <div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                  <input style={{ ...input, flex: 1 }} placeholder="🔍 Поиск дашборда по названию…" value={query} onChange={(e) => setQuery(e.target.value)} />
+                  <button style={favOnly ? { ...tab, ...tabActive } : tab} onClick={() => setFavOnly((v) => !v)} title="Показать только избранные">★ Избранное</button>
                 </div>
-              ))}
-            </div>
-          )}
+                {shown.length === 0 ? <div style={muted}>Ничего не найдено.</div> : (
+                  <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+                    {shown.map((d, i) => (
+                      <div key={d.id} onClick={() => openDashboard(d.id)} style={{ ...rowItem, borderTop: i ? '1px solid #f0f0f0' : 'none' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+                          <button onClick={(e) => toggleFav(e, d)} title={d.is_favorite ? 'Убрать из избранного' : 'В избранное'}
+                            style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: d.is_favorite ? '#e0a800' : '#c9ccd1', padding: 0, lineHeight: 1 }}>
+                            {d.is_favorite ? '★' : '☆'}
+                          </button>
+                          {d.name}
+                        </span>
+                        <span style={{ fontSize: 12, color: '#6b7280' }}>страниц: {d.pages ?? 0} · {d.publication_status}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </div>
       )}
 

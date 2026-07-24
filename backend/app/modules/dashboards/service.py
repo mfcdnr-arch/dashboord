@@ -180,11 +180,30 @@ async def list_dashboards(conn, org_id, user: dict) -> List[dict]:
         return []
     rows = await conn.fetch(
         "select d.id, d.name, d.description, d.publication_status, d.created_at, "
-        "(select count(*) from dashboard_pages p where p.dashboard_id=d.id) as pages "
-        "from dashboards d where d.organization_id=$1 and d.id = any($2::uuid[]) order by d.name",
-        org_id, list(visible),
+        "(select count(*) from dashboard_pages p where p.dashboard_id=d.id) as pages, "
+        "(f.dashboard_id is not null) as is_favorite "
+        "from dashboards d "
+        "left join dashboard_favorites f on f.dashboard_id=d.id and f.user_id=$3 "
+        "where d.organization_id=$1 and d.id = any($2::uuid[]) "
+        "order by is_favorite desc, d.name",
+        org_id, list(visible), user["id"],
     )
     return [dict(r) for r in rows]
+
+
+async def set_favorite(conn, org_id, user: dict, dashboard_id: str, on: bool) -> dict:
+    """Добавить/убрать дашборд из избранного (только видимый пользователю)."""
+    if not await _can_view(conn, org_id, user, dashboard_id):
+        raise DashboardError("Дашборд не найден")
+    if on:
+        await conn.execute(
+            "insert into dashboard_favorites(user_id, dashboard_id) values($1,$2::uuid) "
+            "on conflict do nothing", user["id"], dashboard_id)
+    else:
+        await conn.execute(
+            "delete from dashboard_favorites where user_id=$1 and dashboard_id=$2::uuid",
+            user["id"], dashboard_id)
+    return {"dashboard_id": dashboard_id, "is_favorite": on}
 
 
 async def get_dashboard(conn, org_id, user: dict, dashboard_id: str) -> dict:

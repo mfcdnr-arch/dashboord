@@ -117,6 +117,24 @@ async def get_dashboard(dashboard_id: str, user: dict = Depends(get_current_user
         return result
 
 
+@router.post("/dashboards/{dashboard_id}/favorite")
+async def add_favorite(dashboard_id: str, user: dict = Depends(get_current_user)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.set_favorite(conn, user["organization_id"], user, dashboard_id, True)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.delete("/dashboards/{dashboard_id}/favorite")
+async def remove_favorite(dashboard_id: str, user: dict = Depends(get_current_user)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.set_favorite(conn, user["organization_id"], user, dashboard_id, False)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 # --- Доступ к дашборду (гранты) ---
 class GrantIn(BaseModel):
     grantee_type: str
