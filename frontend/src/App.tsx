@@ -70,7 +70,21 @@ const NAV = [
   { key: 'reports', label: 'Отчёты', ready: true, adminOnly: true },
 ]
 
+// Узкий экран (телефон/планшет): переключает боковую навигацию на верхнюю
+// прокручиваемую полосу и убирает ограничение ширины контента.
+function useIsNarrow(maxWidth = 760): boolean {
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia(`(max-width:${maxWidth}px)`).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width:${maxWidth}px)`)
+    const on = () => setNarrow(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [maxWidth])
+  return narrow
+}
+
 function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
+  const narrow = useIsNarrow()
   const [health, setHealth] = useState<Health | null>(null)
   const [section, setSection] = useState('home')
   const [openDash, setOpenDash] = useState<string | null>(null)
@@ -85,7 +99,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh' }}>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', borderBottom: '1px solid #e5e7eb' }}>
+      <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap' }}>
         <div style={{ width: 30, height: 30, borderRadius: 8, background: '#2f5496', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>D</div>
         <div>
           <div style={{ fontSize: 16, fontWeight: 600, lineHeight: 1 }}>Dashboard</div>
@@ -95,18 +109,21 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           API: {health ? `${health.status} · БД ${health.db}` : '…'}
         </span>
         <span style={{ fontSize: 13 }}><strong>{me.full_name || me.login}</strong></span>
-        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: '#eef', color: '#2f5496' }}>{me.roles.join(', ')}</span>
+        {!narrow && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: '#eef', color: '#2f5496' }}>{me.roles.join(', ')}</span>}
         <button onClick={onLogout} style={{ height: 32, padding: '0 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }}>Выйти</button>
       </header>
 
-      <div style={{ display: 'flex', minHeight: 'calc(100vh - 55px)' }}>
-        <nav style={{ width: 200, borderRight: '1px solid #e5e7eb', padding: 12 }}>
+      <div style={{ display: 'flex', flexDirection: narrow ? 'column' : 'row', minHeight: 'calc(100vh - 55px)' }}>
+        <nav style={narrow
+          ? { display: 'flex', gap: 6, overflowX: 'auto', padding: '8px 12px', borderBottom: '1px solid #e5e7eb' }
+          : { width: 200, borderRight: '1px solid #e5e7eb', padding: 12 }}>
           {nav.map((n) => (
             <button
               key={n.key}
               onClick={() => { setOpenDash(null); setSection(n.key) }}
               style={{
-                display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', marginBottom: 4,
+                display: 'block', width: narrow ? 'auto' : '100%', whiteSpace: 'nowrap', textAlign: 'left',
+                padding: '8px 12px', marginBottom: narrow ? 0 : 4,
                 border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 14,
                 background: section === n.key ? '#eef' : 'transparent',
                 color: section === n.key ? '#2f5496' : n.ready ? '#111827' : '#9aa4b2',
@@ -117,7 +134,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ))}
         </nav>
 
-        <main style={{ flex: 1, padding: 24, maxWidth: 900 }}>
+        <main style={{ flex: 1, padding: narrow ? 12 : 24, maxWidth: narrow ? '100%' : 900, minWidth: 0 }}>
           {section === 'home' ? (
             <HomePage me={me} canManage={canManage} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'objects' ? (
