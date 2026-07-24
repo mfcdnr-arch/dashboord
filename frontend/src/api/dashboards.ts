@@ -1,0 +1,207 @@
+import { authH, errText } from './http'
+
+// --- Дашборды / страницы / виджеты ---
+
+export interface Dashboard {
+  id: string
+  name: string
+  description: string | null
+  publication_status: string
+  created_at: string
+  pages?: number
+}
+export interface DashPage { id: string; name: string; description: string | null; position: number }
+export interface Widget {
+  id: string
+  name: string
+  widget_type: string
+  position_x: number
+  position_y: number
+  width: number
+  height: number
+  config: Record<string, unknown>
+}
+
+export async function listDashboards(): Promise<Dashboard[]> {
+  const res = await fetch('/dashboards', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function createDashboard(name: string, description?: string): Promise<Dashboard> {
+  const res = await fetch('/dashboards', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ name, description: description || null }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function autoBuildDashboard(objectId: string, name?: string): Promise<{ dashboard_id: string; page_id: string; widgets: number }> {
+  const res = await fetch('/dashboards/auto', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ object_id: objectId, name: name || null }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function getDashboard(id: string): Promise<{ dashboard: Dashboard; pages: DashPage[] }> {
+  const res = await fetch(`/dashboards/${id}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function createPage(dashboardId: string, name: string, description?: string): Promise<DashPage> {
+  const res = await fetch(`/dashboards/${dashboardId}/pages`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ name, description: description || null }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export interface DashTemplate { id: string; name: string; description: string | null; created_at: string }
+export async function listTemplates(): Promise<DashTemplate[]> {
+  const res = await fetch('/dashboard-templates', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function saveAsTemplate(dashboardId: string, name: string, description?: string): Promise<{ id: string; name: string }> {
+  const res = await fetch(`/dashboards/${dashboardId}/save-template`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ name, description: description || null }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function instantiateTemplate(templateId: string, name: string): Promise<{ dashboard_id: string }> {
+  const res = await fetch(`/dashboard-templates/${templateId}/instantiate`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function publishDashboard(id: string): Promise<{ publication_status: string; version_no: number }> {
+  const res = await fetch(`/dashboards/${id}/publish`, { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function unpublishDashboard(id: string): Promise<void> {
+  const res = await fetch(`/dashboards/${id}/unpublish`, { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
+export async function listDashboardVersions(id: string): Promise<{ version_no: number; status_code: string; created_at: string }[]> {
+  const res = await fetch(`/dashboards/${id}/versions`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function restoreDashboardVersion(id: string, versionNo: number): Promise<void> {
+  const res = await fetch(`/dashboards/${id}/versions/${versionNo}/restore`, { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
+export async function deletePage(pageId: string): Promise<void> {
+  const res = await fetch(`/dashboard-pages/${pageId}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
+
+
+// --- Доступ к дашборду (RLS через ACL) ---
+export interface DashGrant { id: string; grantee_type: 'role' | 'user'; role_id: string | null; user_id: string | null; label: string; granted_at: string }
+export interface GrantTargets { users: { id: string; login: string; full_name: string | null }[]; roles: { id: string; code: string; name: string }[] }
+export async function listDashboardGrants(dashboardId: string): Promise<{ grants: DashGrant[]; targets: GrantTargets }> {
+  const res = await fetch(`/dashboards/${dashboardId}/grants`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function addDashboardGrant(dashboardId: string, body: { grantee_type: 'role' | 'user'; role_id?: string; user_id?: string }): Promise<{ id: string }> {
+  const res = await fetch(`/dashboards/${dashboardId}/grants`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function removeDashboardGrant(dashboardId: string, grantId: string): Promise<void> {
+  const res = await fetch(`/dashboards/${dashboardId}/grants/${grantId}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
+
+// --- Пресеты фильтров дашборда (FR-13) ---
+export interface DashFilters { from?: string; to?: string; row?: string }
+export interface DashPreset { id: string; name: string; filters: DashFilters }
+export async function listPresets(dashboardId: string): Promise<DashPreset[]> {
+  const res = await fetch(`/dashboards/${dashboardId}/presets`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function createPreset(dashboardId: string, name: string, filters: DashFilters): Promise<DashPreset> {
+  const res = await fetch(`/dashboards/${dashboardId}/presets`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ name, filters }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function deletePreset(dashboardId: string, presetId: string): Promise<void> {
+  const res = await fetch(`/dashboards/${dashboardId}/presets/${presetId}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
+export interface WidgetSpec { name: string; widget_type: string; config: Record<string, unknown>; width: number; height: number }
+export async function widgetSuggestions(datasetCode: string): Promise<WidgetSpec[]> {
+  const res = await fetch(`/widgets/suggestions?dataset_code=${encodeURIComponent(datasetCode)}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function previewWidget(body: { widget_type: string; name?: string; config: Record<string, unknown> }): Promise<any> {
+  const res = await fetch('/widgets/preview', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function exportPageXlsx(pageId: string): Promise<Blob> {
+  const res = await fetch(`/dashboard-pages/${pageId}/export.xlsx`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.blob()
+}
+export async function listPageWidgets(pageId: string): Promise<{ page_id: string; widgets: Widget[] }> {
+  const res = await fetch(`/dashboard-pages/${pageId}/widgets`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function createWidget(pageId: string, body: {
+  name: string; widget_type: string; config: Record<string, unknown>
+  position_x?: number; position_y?: number; width?: number; height?: number
+}): Promise<{ id: string }> {
+  const res = await fetch(`/dashboard-pages/${pageId}/widgets`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function updateWidget(widgetId: string, patch: {
+  name?: string; widget_type?: string; config?: Record<string, unknown>
+  position_x?: number; position_y?: number; width?: number; height?: number
+}): Promise<void> {
+  const res = await fetch(`/widgets/${widgetId}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+}
+export async function deleteWidget(widgetId: string): Promise<void> {
+  const res = await fetch(`/widgets/${widgetId}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
+export async function getWidgetData(widgetId: string, from?: string, to?: string, row?: string): Promise<any> {
+  const q = new URLSearchParams()
+  if (from) q.set('from', from)
+  if (to) q.set('to', to)
+  if (row) q.set('row', row)
+  const qs = q.toString()
+  const res = await fetch(`/widgets/${widgetId}/data${qs ? `?${qs}` : ''}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function getWidgetDrill(widgetId: string): Promise<any> {
+  const res = await fetch(`/widgets/${widgetId}/drill`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+

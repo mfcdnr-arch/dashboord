@@ -1,0 +1,13 @@
+// Barrel: единая точка `import { ... } from '../api'`. Реализация — по доменам.
+export * from './http'
+export * from './auth'
+export * from './objects'
+export * from './ingestion'
+export * from './metrics'
+export * from './dashboards'
+export * from './moderation'
+export * from './catalog'
+export * from './home'
+export * from './users'
+export * from './audit'
+export * from './reports'
