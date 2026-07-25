@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   checkPassword, createDepartment, createUser, deleteDepartment, exportLoginEvents, getLoginEvents, getPasswordPolicy,
   listDepartments, listRoles, listUsers, passwordHint, resetUserPassword, setUserActive, updateUser,
@@ -15,8 +15,12 @@ function fmtDt(iso: string | null): string {
 // (заведение с временным паролем, роли, отдел, блокировка, сброс пароля). Жёсткого
 // удаления нет — только блокировка, чтобы не терять историю/аудит.
 
+const USERS_PAGE = 50
+
 export default function UsersPage({ me }: { me: { id: string; roles: string[] } }) {
   const [users, setUsers] = useState<AppUser[]>([])
+  const [usersTotal, setUsersTotal] = useState(0)
+  const [uq, setUq] = useState('')
   const [depts, setDepts] = useState<Department[]>([])
   const [roles, setRoles] = useState<Role[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -25,12 +29,29 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
   const [audit, setAudit] = useState<LoginEventsReport | null>(null)
 
   const fail = (e: unknown) => setError((e as Error).message)
+  // Защита от гонки ответов: применяем только результат последнего запроса.
+  const reqSeq = useRef(0)
+  const loadUsers = (query: string) => {
+    const seq = ++reqSeq.current
+    return listUsers(query, USERS_PAGE, 0)
+      .then((p) => { if (seq === reqSeq.current) { setUsers(p.items); setUsersTotal(p.total) } }).catch(fail)
+  }
   const reload = () => {
-    listUsers().then(setUsers).catch(fail)
+    loadUsers(uq)
     listDepartments().then(setDepts).catch(fail)
     getLoginEvents().then(setAudit).catch(fail)
   }
-  useEffect(() => { reload(); listRoles().then(setRoles).catch(fail) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  async function loadMoreUsers() {
+    const seq = ++reqSeq.current
+    try { const p = await listUsers(uq, USERS_PAGE, users.length); if (seq === reqSeq.current) { setUsers((prev) => [...prev, ...p.items]); setUsersTotal(p.total) } } catch (e) { fail(e) }
+  }
+  // Список пользователей — по поиску с дебаунсом (он же начальная загрузка).
+  useEffect(() => { const t = setTimeout(() => loadUsers(uq), 250); return () => clearTimeout(t) }, [uq]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    listDepartments().then(setDepts).catch(fail)
+    listRoles().then(setRoles).catch(fail)
+    getLoginEvents().then(setAudit).catch(fail)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!me.roles.includes('admin')) {
     return <div style={{ color: '#a32d2d' }}>Раздел «Пользователи» доступен только администратору.</div>
@@ -81,8 +102,11 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
       </Section>
 
       {/* Пользователи */}
-      <Section title={`Пользователи (${users.length})`}>
-        <button style={{ ...btn, marginBottom: 10 }} onClick={() => setCreating(true)}>＋ Добавить пользователя</button>
+      <Section title={`Пользователи (${usersTotal})`}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+          <button style={btn} onClick={() => setCreating(true)}>＋ Добавить пользователя</button>
+          <input style={{ ...input, flex: 1, minWidth: 200 }} placeholder="🔍 Поиск по логину или ФИО…" value={uq} onChange={(e) => setUq(e.target.value)} />
+        </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
             <thead><tr>
@@ -113,6 +137,14 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
             </tbody>
           </table>
         </div>
+        {users.length === 0 && <div style={muted}>Ничего не найдено.</div>}
+        {users.length < usersTotal && (
+          <div style={{ textAlign: 'center', marginTop: 12 }}>
+            <button style={{ ...btn, background: '#eef2f8', color: '#2f5496' }} onClick={loadMoreUsers}>
+              Показать ещё ({usersTotal - users.length})
+            </button>
+          </div>
+        )}
       </Section>
 
       {/* Аудит входов */}

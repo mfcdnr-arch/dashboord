@@ -17,8 +17,11 @@ import { SourceCatalog, SuggestPanel, WidgetForm } from './dashboards/WidgetForm
 import { PubBadge, WT, alertBtn, btn, btnAuto, btnGhost, crumb, dialog, editBtn, errBox, input, linkDanger, muted, overlay, presetChip, rmBtn, rowForm, rowItem, tab, tabActive, widgetCard, wtBadge } from './dashboards/shared'
 const GL = WidthProvider(GridLayout)
 
+const DASH_PAGE = 50
+
 export default function DashboardsPage({ canManage, isAdmin, initialDashboardId }: { canManage: boolean; isAdmin?: boolean; initialDashboardId?: string | null }) {
   const [dashboards, setDashboards] = useState<Dashboard[]>([])
+  const [dashTotal, setDashTotal] = useState(0)
   const [query, setQuery] = useState('')
   const [favOnly, setFavOnly] = useState(false)
   const [sel, setSel] = useState<{ dashboard: Dashboard; pages: DashPage[] } | null>(null)
@@ -63,14 +66,27 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   const [kiosk, setKiosk] = useState(false)
 
   const fail = (e: unknown) => setError((e as Error).message)
-  const refresh = () => listDashboards().then(setDashboards).catch(fail)
+  // Защита от гонки ответов: применяем только результат последнего запроса.
+  const dashSeq = useRef(0)
+  const loadDashboards = (q: string, fav: boolean) => {
+    const seq = ++dashSeq.current
+    return listDashboards(q, fav, DASH_PAGE, 0)
+      .then((p) => { if (seq === dashSeq.current) { setDashboards(p.items); setDashTotal(p.total) } }).catch(fail)
+  }
+  const refresh = () => loadDashboards(query, favOnly)
+  async function loadMoreDash() {
+    const seq = ++dashSeq.current
+    try { const p = await listDashboards(query, favOnly, DASH_PAGE, dashboards.length); if (seq === dashSeq.current) { setDashboards((prev) => [...prev, ...p.items]); setDashTotal(p.total) } } catch (e) { fail(e) }
+  }
   async function toggleFav(e: React.MouseEvent, d: Dashboard) {
     e.stopPropagation()
     try { await setDashboardFavorite(d.id, !d.is_favorite); refresh() } catch (e) { fail(e) }
   }
 
+  // Список — по поиску/фильтру избранного с дебаунсом (он же начальная загрузка).
+  useEffect(() => { const t = setTimeout(() => loadDashboards(query, favOnly), 250); return () => clearTimeout(t) }, [query, favOnly]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    refresh(); getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] }))
+    getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] }))
     listObjects().then(setObjects).catch(() => {})
     listTemplates().then(setTemplates).catch(() => {})
     if (initialDashboardId) openDashboard(initialDashboardId)
@@ -297,34 +313,35 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
               <button style={btnAuto} disabled={busy || !tpl} onClick={createFromTemplate}>📋 Создать</button>
             </div>
           )}
-          {dashboards.length === 0 ? <div style={muted}>Пока нет дашбордов.</div> : (() => {
-            const q = query.trim().toLowerCase()
-            const shown = dashboards.filter((d) => (!favOnly || d.is_favorite) && (!q || d.name.toLowerCase().includes(q)))
-            return (
-              <div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                  <input style={{ ...input, flex: 1 }} placeholder="🔍 Поиск дашборда по названию…" value={query} onChange={(e) => setQuery(e.target.value)} />
-                  <button style={favOnly ? { ...tab, ...tabActive } : tab} onClick={() => setFavOnly((v) => !v)} title="Показать только избранные">★ Избранное</button>
-                </div>
-                {shown.length === 0 ? <div style={muted}>Ничего не найдено.</div> : (
-                  <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
-                    {shown.map((d, i) => (
-                      <div key={d.id} onClick={() => openDashboard(d.id)} style={{ ...rowItem, borderTop: i ? '1px solid #f0f0f0' : 'none' }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
-                          <button onClick={(e) => toggleFav(e, d)} title={d.is_favorite ? 'Убрать из избранного' : 'В избранное'}
-                            style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: d.is_favorite ? '#e0a800' : '#c9ccd1', padding: 0, lineHeight: 1 }}>
-                            {d.is_favorite ? '★' : '☆'}
-                          </button>
-                          {d.name}
-                        </span>
-                        <span style={{ fontSize: 12, color: '#6b7280' }}>страниц: {d.pages ?? 0} · {d.publication_status}</span>
-                      </div>
-                    ))}
+          <div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+              <input style={{ ...input, flex: 1 }} placeholder="🔍 Поиск дашборда по названию…" value={query} onChange={(e) => setQuery(e.target.value)} />
+              <button style={favOnly ? { ...tab, ...tabActive } : tab} onClick={() => setFavOnly((v) => !v)} title="Показать только избранные">★ Избранное</button>
+            </div>
+            {dashboards.length === 0 ? (
+              <div style={muted}>{query.trim() || favOnly ? 'Ничего не найдено.' : 'Пока нет дашбордов.'}</div>
+            ) : (
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+                {dashboards.map((d, i) => (
+                  <div key={d.id} onClick={() => openDashboard(d.id)} style={{ ...rowItem, borderTop: i ? '1px solid #f0f0f0' : 'none' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+                      <button onClick={(e) => toggleFav(e, d)} title={d.is_favorite ? 'Убрать из избранного' : 'В избранное'}
+                        style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: d.is_favorite ? '#e0a800' : '#c9ccd1', padding: 0, lineHeight: 1 }}>
+                        {d.is_favorite ? '★' : '☆'}
+                      </button>
+                      {d.name}
+                    </span>
+                    <span style={{ fontSize: 12, color: '#6b7280' }}>страниц: {d.pages ?? 0} · {d.publication_status}</span>
                   </div>
-                )}
+                ))}
               </div>
-            )
-          })()}
+            )}
+            {dashboards.length < dashTotal && (
+              <div style={{ textAlign: 'center', marginTop: 12 }}>
+                <button style={{ ...btnAuto }} onClick={loadMoreDash}>Показать ещё ({dashTotal - dashboards.length})</button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

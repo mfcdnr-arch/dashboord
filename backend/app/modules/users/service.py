@@ -61,7 +61,16 @@ async def list_roles(conn, org_id) -> List[dict]:
 # --------------------------------------------------------------------------- #
 # Пользователи
 # --------------------------------------------------------------------------- #
-async def list_users(conn, org_id) -> List[dict]:
+async def list_users(conn, org_id, q: Optional[str] = None, limit: int = 50, offset: int = 0) -> dict:
+    """Постранично: {total, limit, offset, items}. q — поиск по логину/ФИО (ilike)."""
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    where = "u.organization_id=$1"
+    params: list = [org_id]
+    if q and q.strip():
+        params.append(f"%{q.strip()}%")
+        where += f" and (u.login ilike ${len(params)} or u.full_name ilike ${len(params)})"
+    total = await conn.fetchval(f"select count(*) from users u where {where}", *params)
     rows = await conn.fetch(
         "select u.id, u.login, u.full_name, u.last_name, u.first_name, u.middle_name, u.email, "
         "u.is_active, u.must_change_password, u.created_at, u.department_id, "
@@ -69,17 +78,18 @@ async def list_users(conn, org_id) -> List[dict]:
         "coalesce((select array_agg(r.code order by r.code) from user_roles ur "
         "  join roles r on r.id=ur.role_id where ur.user_id=u.id), '{}') as roles "
         "from users u left join departments dep on dep.id=u.department_id "
-        "where u.organization_id=$1 order by u.login", org_id)
-    out = []
+        f"where {where} order by u.login limit ${len(params) + 1} offset ${len(params) + 2}",
+        *params, limit, offset)
+    items = []
     for u in rows:
-        out.append({
+        items.append({
             "id": str(u["id"]), "login": u["login"], "full_name": u["full_name"],
             "last_name": u["last_name"], "first_name": u["first_name"], "middle_name": u["middle_name"],
             "email": u["email"], "is_active": u["is_active"], "must_change_password": u["must_change_password"],
             "department_id": str(u["department_id"]) if u["department_id"] else None,
             "department": u["department"], "roles": list(u["roles"]), "created_at": u["created_at"],
         })
-    return out
+    return {"total": total, "limit": limit, "offset": offset, "items": items}
 
 
 async def _dept_ok(conn, org_id, department_id: Optional[str]) -> None:

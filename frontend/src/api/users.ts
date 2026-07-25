@@ -1,4 +1,4 @@
-import { authH, downloadFile, errText } from './http'
+import { authH, downloadFile, errText, type Page } from './http'
 
 // Выгрузка журнала входов в CSV/XLSX.
 export function exportLoginEvents(fmt: 'csv' | 'xlsx'): Promise<void> {
@@ -33,8 +33,10 @@ export async function listRoles(): Promise<Role[]> {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
-export async function listUsers(): Promise<AppUser[]> {
-  const res = await fetch('/users', { headers: authH() })
+export async function listUsers(q = '', limit = 50, offset = 0): Promise<Page<AppUser>> {
+  const p = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  if (q.trim()) p.set('q', q.trim())
+  const res = await fetch(`/users?${p}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }

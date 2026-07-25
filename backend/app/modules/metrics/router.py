@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ... import db
@@ -67,18 +67,27 @@ async def add_metric(body: MetricIn, user: dict = Depends(manage)):
 
 
 @router.get("")
-async def list_metrics(user: dict = Depends(get_current_user)):
+async def list_metrics(user: dict = Depends(get_current_user), q: Optional[str] = None,
+                       limit: int = Query(50, ge=1, le=500), offset: int = Query(0, ge=0)):
+    """Постранично: {total, limit, offset, items}. q — поиск по коду/названию (ilike).
+    Пикеры (напр. выбор KPI на «Главной») запрашивают большой limit и читают items."""
+    where = "m.organization_id=$1"
+    params: list = [user["organization_id"]]
+    if q and q.strip():
+        params.append(f"%{q.strip()}%")
+        where += f" and (m.code ilike ${len(params)} or m.name ilike ${len(params)})"
     async with db.get_pool().acquire() as conn:
+        total = await conn.fetchval(f"select count(*) from metrics m where {where}", *params)
         rows = await conn.fetch(
             "select m.id, m.code, m.name, m.description, m.created_at, "
             "(select count(*) from metric_versions v where v.metric_id=m.id) as versions, "
             "(select mv.unit from metric_versions mv where mv.metric_id=m.id and mv.status='approved' "
             " order by mv.version_no desc limit 1) as unit, "
             "exists(select 1 from metric_versions v where v.metric_id=m.id and v.status='approved') as has_approved "
-            "from metrics m where m.organization_id=$1 order by m.name",
-            user["organization_id"],
+            f"from metrics m where {where} order by m.name limit ${len(params) + 1} offset ${len(params) + 2}",
+            *params, limit, offset,
         )
-    return [dict(r) for r in rows]
+    return {"total": total, "limit": limit, "offset": offset, "items": [dict(r) for r in rows]}
 
 
 @router.get("/data-sources")

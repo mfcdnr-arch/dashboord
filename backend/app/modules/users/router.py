@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from ... import db
@@ -118,9 +118,10 @@ async def export_login_xlsx(user: dict = Depends(admin)):
 
 # --- Пользователи ---
 @router.get("/users")
-async def list_users(user: dict = Depends(admin)):
+async def list_users(user: dict = Depends(admin), q: Optional[str] = None,
+                     limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
     async with db.get_pool().acquire() as conn:
-        return await service.list_users(conn, user["organization_id"])
+        return await service.list_users(conn, user["organization_id"], q=q, limit=limit, offset=offset)
 
 
 @router.post("/users", status_code=status.HTTP_201_CREATED)

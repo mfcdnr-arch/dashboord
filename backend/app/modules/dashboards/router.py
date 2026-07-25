@@ -97,9 +97,12 @@ async def auto_build(body: AutoIn, user: dict = Depends(manage)):
 
 
 @router.get("/dashboards")
-async def list_dashboards(user: dict = Depends(get_current_user)):
+async def list_dashboards(user: dict = Depends(get_current_user), q: Optional[str] = None,
+                          fav: bool = False, limit: int = Query(50, ge=1, le=200),
+                          offset: int = Query(0, ge=0)):
     async with db.acquire(user["id"]) as conn:
-        return await service.list_dashboards(conn, user["organization_id"], user)
+        return await service.list_dashboards(conn, user["organization_id"], user,
+                                             q=q, fav_only=fav, limit=limit, offset=offset)
 
 
 @router.get("/dashboards/{dashboard_id}")

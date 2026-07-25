@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   approveVersion, createMetric, createVersion, getDataSources, getMetric, listMetrics, previewFormula,
   updateMetric, validateVersion, versionValue,
@@ -14,8 +14,12 @@ const FORMULA_HELP = [
   "metric('итого_план') / metric('план_год') * 100",
 ]
 
+const METRICS_PAGE = 50
+
 export default function MetricsPage({ canManage }: { canManage: boolean }) {
   const [metrics, setMetrics] = useState<Metric[]>([])
+  const [metricsTotal, setMetricsTotal] = useState(0)
+  const [mq, setMq] = useState('')
   const [sel, setSel] = useState<{ metric: Metric; versions: MetricVersion[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -24,9 +28,21 @@ export default function MetricsPage({ canManage }: { canManage: boolean }) {
   const [busy, setBusy] = useState(false)
 
   const fail = (e: unknown) => setError((e as Error).message)
-  const refresh = () => listMetrics().then(setMetrics).catch(fail)
+  // Защита от гонки ответов: применяем только результат последнего запроса.
+  const reqSeq = useRef(0)
+  const loadMetrics = (query: string) => {
+    const seq = ++reqSeq.current
+    return listMetrics(query, METRICS_PAGE, 0)
+      .then((p) => { if (seq === reqSeq.current) { setMetrics(p.items); setMetricsTotal(p.total) } }).catch(fail)
+  }
+  const refresh = () => loadMetrics(mq)
+  async function loadMoreMetrics() {
+    const seq = ++reqSeq.current
+    try { const p = await listMetrics(mq, METRICS_PAGE, metrics.length); if (seq === reqSeq.current) { setMetrics((prev) => [...prev, ...p.items]); setMetricsTotal(p.total) } } catch (e) { fail(e) }
+  }
 
-  useEffect(() => { refresh() }, [])
+  // Список — по поиску с дебаунсом (он же начальная загрузка).
+  useEffect(() => { const t = setTimeout(() => loadMetrics(mq), 250); return () => clearTimeout(t) }, [mq]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openMetric(id: string) {
     setError(null)
@@ -62,8 +78,9 @@ export default function MetricsPage({ canManage }: { canManage: boolean }) {
               <button style={btn} disabled={busy || !code.trim() || !name.trim()}>＋ Метрика</button>
             </form>
           )}
+          <input style={{ ...input, width: '100%', maxWidth: 420, marginBottom: 12 }} placeholder="🔍 Поиск по коду или названию…" value={mq} onChange={(e) => setMq(e.target.value)} />
           {metrics.length === 0 ? (
-            <div style={muted}>Пока нет метрик. Создайте первую и задайте ей формулу.</div>
+            <div style={muted}>{mq.trim() ? 'Ничего не найдено.' : 'Пока нет метрик. Создайте первую и задайте ей формулу.'}</div>
           ) : (
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
               {metrics.map((m, i) => (
@@ -81,6 +98,13 @@ export default function MetricsPage({ canManage }: { canManage: boolean }) {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+          {metrics.length < metricsTotal && (
+            <div style={{ textAlign: 'center', marginTop: 12 }}>
+              <button style={{ ...btn, background: '#eef2f8', color: '#2f5496' }} onClick={loadMoreMetrics}>
+                Показать ещё ({metricsTotal - metrics.length})
+              </button>
             </div>
           )}
         </div>

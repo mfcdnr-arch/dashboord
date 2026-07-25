@@ -1,4 +1,4 @@
-import { authH, errText } from './http'
+import { authH, errText, type Page } from './http'
 
 // --- Метрики и формулы ---
 
@@ -28,8 +28,10 @@ export interface MetricVersion {
 }
 export interface Dependencies { datasets: string[]; metrics: string[] }
 
-export async function listMetrics(): Promise<Metric[]> {
-  const res = await fetch('/metrics', { headers: authH() })
+export async function listMetrics(q = '', limit = 50, offset = 0): Promise<Page<Metric>> {
+  const p = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  if (q.trim()) p.set('q', q.trim())
+  const res = await fetch(`/metrics?${p}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }

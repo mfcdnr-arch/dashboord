@@ -27,7 +27,7 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
   const [now, setNow] = useState(new Date())
 
   const load = () => getHome().then(setData).catch((e) => setError((e as Error).message))
-  useEffect(() => { load(); listMetrics().then(setMetrics).catch(() => {}) }, [])
+  useEffect(() => { load(); listMetrics('', 500).then((p) => setMetrics(p.items)).catch(() => {}) }, [])
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t) }, [])
 
   async function addKpi(code: string) {

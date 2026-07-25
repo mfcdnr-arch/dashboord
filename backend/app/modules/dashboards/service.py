@@ -42,21 +42,37 @@ async def create_dashboard(conn, org_id, user_id, name: str, description: Option
     return dict(row)
 
 
-async def list_dashboards(conn, org_id, user: dict) -> List[dict]:
+async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
+                          fav_only: bool = False, limit: int = 50, offset: int = 0) -> dict:
+    """Постранично: {total, limit, offset, items}. Видимость через RLS
+    (visible_dashboard_ids). q — поиск по названию (ilike), fav_only — только избранные.
+    Избранные всегда сверху; поиск/фильтр применяются на сервере (не только к странице)."""
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
     visible = await visible_dashboard_ids(conn, org_id, user)
     if not visible:
-        return []
+        return {"total": 0, "limit": limit, "offset": offset, "items": []}
+    # $1=org, $2=visible ids, $3=user (для favorites). Далее — динамические фильтры.
+    where = "d.organization_id=$1 and d.id = any($2::uuid[])"
+    params: list = [org_id, list(visible), user["id"]]
+    if q and q.strip():
+        params.append(f"%{q.strip()}%")
+        where += f" and d.name ilike ${len(params)}"
+    fav_join = "join" if fav_only else "left join"
+    total = await conn.fetchval(
+        f"select count(*) from dashboards d "
+        f"{fav_join} dashboard_favorites f on f.dashboard_id=d.id and f.user_id=$3 "
+        f"where {where}", *params)
     rows = await conn.fetch(
         "select d.id, d.name, d.description, d.publication_status, d.created_at, "
         "(select count(*) from dashboard_pages p where p.dashboard_id=d.id) as pages, "
         "(f.dashboard_id is not null) as is_favorite "
-        "from dashboards d "
-        "left join dashboard_favorites f on f.dashboard_id=d.id and f.user_id=$3 "
-        "where d.organization_id=$1 and d.id = any($2::uuid[]) "
-        "order by is_favorite desc, d.name",
-        org_id, list(visible), user["id"],
+        f"from dashboards d {fav_join} dashboard_favorites f on f.dashboard_id=d.id and f.user_id=$3 "
+        f"where {where} order by is_favorite desc, d.name "
+        f"limit ${len(params) + 1} offset ${len(params) + 2}",
+        *params, limit, offset,
     )
-    return [dict(r) for r in rows]
+    return {"total": total, "limit": limit, "offset": offset, "items": [dict(r) for r in rows]}
 
 
 async def set_favorite(conn, org_id, user: dict, dashboard_id: str, on: bool) -> dict:

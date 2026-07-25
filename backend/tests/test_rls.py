@@ -24,7 +24,7 @@ async def test_viewer_cannot_see_ungranted(client, viewer, dashboard):
     # нет в списке
     r = await client.get("/dashboards", headers=viewer["headers"])
     assert r.status_code == 200
-    ids = [d["id"] for d in r.json()]
+    ids = [d["id"] for d in r.json()["items"]]
     assert dashboard not in ids
     # прямой доступ → 404
     r = await client.get(f"/dashboards/{dashboard}", headers=viewer["headers"])
@@ -39,12 +39,12 @@ async def test_viewer_sees_after_grant_and_publish(client, admin_headers, viewer
     # ВАЖНО: непривилегированный видит гранто­ванный дашборд только ОПУБЛИКОВАННЫМ
     # (модерационный гейт). До публикации — не виден.
     r = await client.get("/dashboards", headers=viewer["headers"])
-    assert dashboard not in [d["id"] for d in r.json()]
+    assert dashboard not in [d["id"] for d in r.json()["items"]]
     # публикуем (admin override) — теперь виден в списке и напрямую
     r = await client.post(f"/dashboards/{dashboard}/publish", headers=admin_headers)
     assert r.status_code == 200, r.text
     r = await client.get("/dashboards", headers=viewer["headers"])
-    assert dashboard in [d["id"] for d in r.json()]
+    assert dashboard in [d["id"] for d in r.json()["items"]]
     r = await client.get(f"/dashboards/{dashboard}", headers=viewer["headers"])
     assert r.status_code == 200
 

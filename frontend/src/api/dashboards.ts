@@ -1,4 +1,4 @@
-import { authH, errText } from './http'
+import { authH, errText, type Page } from './http'
 
 // --- Дашборды / страницы / виджеты ---
 
@@ -27,8 +27,11 @@ export interface Widget {
   config: Record<string, unknown>
 }
 
-export async function listDashboards(): Promise<Dashboard[]> {
-  const res = await fetch('/dashboards', { headers: authH() })
+export async function listDashboards(q = '', fav = false, limit = 50, offset = 0): Promise<Page<Dashboard>> {
+  const p = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  if (q.trim()) p.set('q', q.trim())
+  if (fav) p.set('fav', 'true')
+  const res = await fetch(`/dashboards?${p}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }

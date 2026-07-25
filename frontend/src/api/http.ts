@@ -17,6 +17,14 @@ export function authH(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t}` } : {}
 }
 
+// Единый конверт постраничной выдачи (совпадает с бэкендом: total/limit/offset/items).
+export interface Page<T> {
+  total: number
+  limit: number
+  offset: number
+  items: T[]
+}
+
 // Скачивание файла с авторизацией (blob → ссылка → клик). Для выгрузок CSV/XLSX.
 export async function downloadFile(url: string, filename: string): Promise<void> {
   const res = await fetch(url, { headers: authH() })
