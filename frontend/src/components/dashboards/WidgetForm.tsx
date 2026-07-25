@@ -142,11 +142,14 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
 
   const isText = type === 'text'
   const isImage = type === 'image'
-  const usesSource = type === 'kpi' || type === 'plan_fact'
+  const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
   const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'compare'].includes(type)
-  const usesValueField = ['bar', 'line', 'pie', 'dynamics'].includes(type) || (type === 'kpi' && source === 'dataset')
+  const usesValueField = ['bar', 'line', 'pie', 'dynamics'].includes(type) || (['kpi', 'gauge'].includes(type) && source === 'dataset')
   const usesMulti = type === 'compare'
   const toggleField = (c: string) => setMultiFields((s) => s.includes(c) ? s.filter((x) => x !== c) : [...s, c])
+
+  // Шкала спидометра (gauge): максимум; пусто — авто.
+  const [gaugeMax, setGaugeMax] = useState<string>(cfg0.gauge_max != null ? String(cfg0.gauge_max) : '')
 
   // Свой фильтр виджета (переопределение глобального фильтра страницы).
   const [ownFilter, setOwnFilter] = useState<boolean>(cfg0.filter_scope === 'own')
@@ -158,8 +161,13 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   function baseConfig(): Record<string, unknown> | null {
     if (type === 'text') return { heading: heading.trim() || undefined, body: bodyText.trim() || undefined, align }
     if (type === 'image') return imgUrl.trim() ? { url: imgUrl.trim(), caption: caption.trim() || undefined, fit: 'contain' } : null
-    if (type === 'kpi') return source === 'formula' ? (formulaDsl.trim() ? { formula: formulaDsl.trim(), unit: formulaUnit.trim() || undefined } : null)
-      : source === 'metric' ? (metricCode ? { metric_code: metricCode } : null) : ((dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null)
+    if (type === 'kpi' || type === 'gauge') {
+      const base = source === 'formula' ? (formulaDsl.trim() ? { formula: formulaDsl.trim(), unit: formulaUnit.trim() || undefined } : null)
+        : source === 'metric' ? (metricCode ? { metric_code: metricCode } : null) : ((dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null)
+      if (!base) return null
+      if (type === 'gauge' && gaugeMax.trim() && !isNaN(Number(gaugeMax))) (base as Record<string, unknown>).gauge_max = Number(gaugeMax)
+      return base
+    }
     if (type === 'plan_fact') return source === 'metric' ? ((metricCode && factMetric) ? { plan_metric: metricCode, fact_metric: factMetric } : null) : ((dataset && planField && factField) ? { dataset_code: dataset, plan_field: planField, fact_field: factField } : null)
     if (type === 'table') return dataset ? { dataset_code: dataset } : null
     if (type === 'compare') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields, viz } : null
@@ -197,7 +205,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     const config = currentConfig()
     if (!config) return
     // при редактировании сохраняем условное форматирование (алерты), если тип по-прежнему его поддерживает
-    if (initial && cfg0.alerts && ['kpi', 'plan_fact', 'dynamics'].includes(type)) {
+    if (initial && cfg0.alerts && ['kpi', 'gauge', 'plan_fact', 'dynamics'].includes(type)) {
       config.alerts = cfg0.alerts
       if (cfg0.alert_on) config.alert_on = cfg0.alert_on
     }
@@ -229,10 +237,10 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       {usesSource && (
         <F t="Источник"><select style={sel} value={source} onChange={(e) => setSource(e.target.value as 'metric' | 'dataset' | 'formula')}>
           <option value="metric">Метрика</option><option value="dataset">Датасет</option>
-          {type === 'kpi' && <option value="formula">Формула</option>}
+          {['kpi', 'gauge'].includes(type) && <option value="formula">Формула</option>}
         </select></F>
       )}
-      {type === 'kpi' && source === 'formula' && (
+      {['kpi', 'gauge'].includes(type) && source === 'formula' && (
         <>
           <F t="Единица (необяз.)"><input style={{ ...sel, width: 110 }} placeholder="напр. шт, %" value={formulaUnit} onChange={(e) => setFormulaUnit(e.target.value)} /></F>
           <div style={{ flexBasis: '100%' }}>
@@ -262,6 +270,9 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       )}
       {usesValueField && (
         <F t="Поле (значение)"><select style={sel} value={valueField} onChange={(e) => setValueField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></F>
+      )}
+      {type === 'gauge' && (
+        <F t="Шкала, max (пусто — авто)"><input style={{ ...sel, width: 130 }} type="number" placeholder="напр. 100" value={gaugeMax} onChange={(e) => setGaugeMax(e.target.value)} /></F>
       )}
       {usesMulti && (
         <>

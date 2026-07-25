@@ -2,13 +2,13 @@
 
 // размеры по умолчанию для новых виджетов (сетка cols=12, rowHeight=40)
 export const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
-  kpi: { w: 3, h: 3 }, plan_fact: { w: 4, h: 5 }, table: { w: 6, h: 6 },
+  kpi: { w: 3, h: 3 }, gauge: { w: 3, h: 5 }, plan_fact: { w: 4, h: 5 }, table: { w: 6, h: 6 },
   bar: { w: 5, h: 6 }, line: { w: 5, h: 6 }, pie: { w: 4, h: 6 },
   dynamics: { w: 6, h: 6 }, compare: { w: 6, h: 7 }, text: { w: 6, h: 2 }, image: { w: 3, h: 3 },
 }
 
 export const WT = [
-  { v: 'kpi', t: 'KPI (число)' }, { v: 'bar', t: 'Столбцы' }, { v: 'line', t: 'Линия' },
+  { v: 'kpi', t: 'KPI (число)' }, { v: 'gauge', t: 'Спидометр (gauge)' }, { v: 'bar', t: 'Столбцы' }, { v: 'line', t: 'Линия' },
   { v: 'pie', t: 'Круговая' }, { v: 'table', t: 'Таблица' }, { v: 'plan_fact', t: 'План-факт' },
   { v: 'dynamics', t: 'Динамика (периоды)' }, { v: 'compare', t: 'Сравнение (неск. полей)' },
   { v: 'text', t: 'Текст/заголовок' }, { v: 'image', t: 'Картинка/лого' },

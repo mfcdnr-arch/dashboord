@@ -98,6 +98,28 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
       </div>
     )
   }
+  if (data.type === 'gauge') {
+    const max = data.max || 100
+    const color = data.alert?.color || '#2f5496'
+    const opt: EChartsOption = {
+      series: [{
+        type: 'gauge', min: 0, max,
+        progress: { show: true, width: 12, itemStyle: { color } },
+        axisLine: { lineStyle: { width: 12, color: [[1, '#eef0f3']] } },
+        axisTick: { show: false },
+        splitLine: { length: 8, lineStyle: { color: '#c9ccd1' } },
+        axisLabel: { fontSize: 10, color: '#9aa4b2', distance: 12 },
+        pointer: { itemStyle: { color } },
+        title: { show: false },
+        detail: {
+          valueAnimation: true, fontSize: 22, fontWeight: 700, color, offsetCenter: [0, '58%'],
+          formatter: (v: number) => fmt(v) + (data.unit ? ' ' + data.unit : ''),
+        },
+        data: [{ value: data.value ?? 0 }],
+      }],
+    }
+    return <EChart option={opt} height={190} />
+  }
   if (data.type === 'plan_fact') {
     const pct = data.pct
     return (

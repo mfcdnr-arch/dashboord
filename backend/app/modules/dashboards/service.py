@@ -21,7 +21,7 @@ class DashboardError(Exception):
     """Ошибка бизнес-логики дашбордов (в роутере → 400/404)."""
 
 
-WIDGET_TYPES = {"kpi", "table", "bar", "line", "pie", "plan_fact", "dynamics", "compare",
+WIDGET_TYPES = {"kpi", "gauge", "table", "bar", "line", "pie", "plan_fact", "dynamics", "compare",
                 "text", "image"}
 # Аннотационные виджеты (без данных) — заголовок/текст и картинка/лого.
 ANNOTATION_TYPES = {"text", "image"}
@@ -561,6 +561,24 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         res["alert"] = evaluate_alert("kpi", cfg, res)
         return res
 
+    if t == "gauge":
+        # Спидометр: значение как у KPI + шкала (max). Идеален для «% выполнения».
+        if cfg.get("formula"):
+            value, unit = await _formula_value(conn, org_id, cfg["formula"]), cfg.get("unit")
+        elif cfg.get("metric_code"):
+            value, unit = await _metric_value(conn, org_id, cfg["metric_code"])
+        elif cfg.get("dataset_code") and cfg.get("value_field"):
+            series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row)
+            value, unit = sum(s["value"] for s in series), cfg.get("unit")
+        else:
+            raise DashboardError("Gauge: укажите формулу, metric_code или dataset_code+value_field")
+        gmax = cfg.get("gauge_max")
+        if gmax is None:
+            gmax = 100 if (unit and "%" in unit) else (round((value or 0) * 1.25) or 100)
+        res = {"type": "gauge", "value": value, "unit": unit, "max": gmax, "title": name}
+        res["alert"] = evaluate_alert("kpi", cfg, res)  # те же пороги, что и KPI
+        return res
+
     if t == "plan_fact":
         if cfg.get("plan_metric") and cfg.get("fact_metric"):
             plan, unit = await _metric_value(conn, org_id, cfg["plan_metric"])
@@ -667,6 +685,8 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
             continue
         if t == "kpi":
             summary.append([name, "KPI", "значение", data.get("value")]); has_summary = True
+        elif t == "gauge":
+            summary.append([name, "Спидометр", "значение", data.get("value")]); has_summary = True
         elif t == "plan_fact":
             summary.append([name, "План-факт", "план", data.get("plan")])
             summary.append([name, "План-факт", "факт", data.get("fact")])

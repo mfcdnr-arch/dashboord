@@ -413,7 +413,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                         <div style={{ fontSize: 13, fontWeight: 600 }}>{w.name}</div>
                         <span style={wtBadge}>{WT.find((x) => x.v === w.widget_type)?.t || w.widget_type}</span>
                         {canManage && sources && <button style={editBtn} onClick={() => setEditWidget(w)} title="Изменить данные/тип виджета">✎</button>}
-                        {canManage && ['kpi', 'plan_fact', 'dynamics'].includes(w.widget_type) && (
+                        {canManage && ['kpi', 'gauge', 'plan_fact', 'dynamics'].includes(w.widget_type) && (
                           <button style={alertBtn} onClick={() => setAlertWidget(w)}
                             title="Пороги KPI-алерта (условное форматирование)">⚠</button>
                         )}
