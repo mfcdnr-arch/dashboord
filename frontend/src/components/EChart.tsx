@@ -4,11 +4,13 @@ import { useEffect, useRef } from 'react'
 import * as echarts from 'echarts/core'
 import { BarChart, LineChart, PieChart, GaugeChart, HeatmapChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent, TitleComponent, VisualMapComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
+import { SVGRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts' // только тип (стирается при сборке)
 
+// SVG-рендерер (а не Canvas): графики — векторные. Причины для гос-он-прем (Astra):
+// не зависим от canvas, чётко при печати/PDF, работает в любом браузере с SVG.
 echarts.use([BarChart, LineChart, PieChart, GaugeChart, HeatmapChart,
-  GridComponent, TooltipComponent, LegendComponent, TitleComponent, VisualMapComponent, CanvasRenderer])
+  GridComponent, TooltipComponent, LegendComponent, TitleComponent, VisualMapComponent, SVGRenderer])
 
 // ECharts рисует на canvas и НЕ понимает CSS-переменные, поэтому значения тем
 // (цвет текста/осей) читаем из токенов через getComputedStyle и подставляем
@@ -31,7 +33,7 @@ export default function EChart({ option, height = 200, onPick }: { option: EChar
 
   useEffect(() => {
     if (!ref.current) return
-    const chart = echarts.init(ref.current)
+    const chart = echarts.init(ref.current, undefined, { renderer: 'svg' })
     chartRef.current = chart
     chart.on('click', (p: any) => { if (p?.name) pickRef.current?.(p.name) })
     const ro = new ResizeObserver(() => chart.resize())

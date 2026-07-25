@@ -30,6 +30,12 @@ function widgetTip(w: { widget_type: string; config: Record<string, unknown> }):
   return [typeHint, help].filter(Boolean).join('. ')
 }
 
+// html2canvas не понимает CSS-переменные в backgroundColor — резолвим токен
+// текущей темы в реальный цвет (фон выгрузки PDF/PNG совпадает с темой).
+function surfaceColor(): string {
+  return getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#ffffff'
+}
+
 export default function DashboardsPage({ canManage, isAdmin, initialDashboardId }: { canManage: boolean; isAdmin?: boolean; initialDashboardId?: string | null }) {
   const [dashboards, setDashboards] = useState<Dashboard[]>([])
   const [dashTotal, setDashTotal] = useState(0)
@@ -232,7 +238,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
     try {
       // тяжёлые библиотеки грузим по требованию (динамический импорт → отдельный чанк)
       const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
-      const canvas = await html2canvas(el, { scale: 2, backgroundColor: 'var(--surface)', useCORS: true })
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: surfaceColor(), useCORS: true })
       const pdf = new jsPDF('p', 'mm', 'a4')
       const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight()
       const pageCanvasH = Math.floor((canvas.width * ph) / pw)
@@ -255,7 +261,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
     setExporting(true)
     try {
       const { default: html2canvas } = await import('html2canvas')
-      const canvas = await html2canvas(el, { scale: 2, backgroundColor: 'var(--surface)', useCORS: true })
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: surfaceColor(), useCORS: true })
       const a = document.createElement('a')
       a.href = canvas.toDataURL('image/png'); a.download = `${sel.dashboard.name} — ${page.name}.png`; a.click()
     } catch (e) { fail(e) } finally { setExporting(false) }
