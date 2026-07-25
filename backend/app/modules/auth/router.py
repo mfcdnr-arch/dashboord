@@ -7,13 +7,13 @@ from pydantic import BaseModel, Field
 
 from ... import db
 from .deps import get_current_user
-from .security import create_token, hash_password, verify_password
+from .security import create_token, hash_password, validate_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 class ChangePasswordIn(BaseModel):
-    new_password: str = Field(min_length=6, max_length=200)
+    new_password: str = Field(min_length=1, max_length=200)
 
 
 @router.post("/login")
@@ -40,6 +40,10 @@ async def login(request: Request, form: OAuth2PasswordRequestForm = Depends()):
 
 @router.post("/change-password")
 async def change_password(data: ChangePasswordIn, user: dict = Depends(get_current_user)):
+    try:
+        validate_password(data.new_password, user.get("login"))
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     async with db.get_pool().acquire() as conn:
         await conn.execute(
             "update users set password_hash = $1, must_change_password = false where id = $2",

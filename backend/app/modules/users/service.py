@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from ..auth.security import hash_password
+from ..auth.security import hash_password, validate_password
 
 
 class UsersError(Exception):
@@ -103,8 +103,10 @@ async def create_user(conn, org_id, login: str, password: str, last_name, first_
     login = (login or "").strip()
     if not login:
         raise UsersError("Укажите логин")
-    if not password or len(password) < 4:
-        raise UsersError("Пароль минимум 4 символа")
+    try:
+        validate_password(password, login)
+    except ValueError as e:
+        raise UsersError(str(e))
     if await conn.fetchval("select 1 from users where organization_id=$1 and login=$2", org_id, login):
         raise UsersError("Пользователь с таким логином уже есть")
     await _dept_ok(conn, org_id, department_id)
@@ -177,8 +179,10 @@ async def login_events_report(conn, org_id, limit: int = 50) -> dict:
 
 
 async def reset_password(conn, org_id, user_id: str, new_password: str) -> dict:
-    if not new_password or len(new_password) < 4:
-        raise UsersError("Пароль минимум 4 символа")
+    try:
+        validate_password(new_password)
+    except ValueError as e:
+        raise UsersError(str(e))
     if await _user_org(conn, org_id, user_id) is None:
         raise UsersError("Пользователь не найден")
     await conn.execute(

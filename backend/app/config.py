@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     admin_login: str = "admin"
     admin_password: str = "admin"
 
+    # Парольная политика (применяется при смене/сбросе/создании пароля пользователя;
+    # НЕ применяется к первичному admin из bootstrap). Настраивается через env.
+    password_min_length: int = 8
+    password_require_complexity: bool = True  # требовать и буквы, и цифры
+
     # MinIO (хранилище документов). По умолчанию — имя сервиса Docker;
     # для локального запуска: MINIO_ENDPOINT=localhost:9800
     minio_endpoint: str = "minio:9000"
