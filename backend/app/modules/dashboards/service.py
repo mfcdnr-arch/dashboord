@@ -22,7 +22,7 @@ class DashboardError(Exception):
 
 
 WIDGET_TYPES = {"kpi", "gauge", "table", "bar", "line", "pie", "plan_fact", "dynamics", "compare",
-                "text", "image"}
+                "heatmap", "text", "image"}
 # Аннотационные виджеты (без данных) — заголовок/текст и картинка/лого.
 ANNOTATION_TYPES = {"text", "image"}
 
@@ -534,6 +534,25 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         res["type"], res["viz"], res["title"] = "compare", cfg.get("viz", "bar"), name
         return res
 
+    if t == "heatmap":
+        # Тепловая карта: матрица строки(датасета) × поля, значение — интенсивность цвета.
+        # Для МФЦ удобно: услуги × периоды/отделы, нагрузка по строкам и столбцам.
+        fields = cfg.get("value_fields") or []
+        if not cfg.get("dataset_code") or not fields:
+            raise DashboardError("Тепловая карта: укажите dataset_code и value_fields")
+        ms = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row)
+        # ms: {categories:[строки], series:[{name:поле, data:[значения по строкам]}]}
+        cols = [s["name"] for s in ms["series"]]
+        cells = []  # [col_idx, row_idx, value]
+        nums = []
+        for ci, s in enumerate(ms["series"]):
+            for ri, v in enumerate(s["data"]):
+                if v is not None:
+                    cells.append([ci, ri, v])
+                    nums.append(v)
+        return {"type": "heatmap", "title": name, "rows": ms["categories"], "columns": cols,
+                "cells": cells, "min": (min(nums) if nums else 0), "max": (max(nums) if nums else 0)}
+
     if t == "dynamics":
         if not cfg.get("dataset_code") or not cfg.get("value_field"):
             raise DashboardError("Динамика: укажите dataset_code и value_field")
@@ -714,6 +733,17 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
             ws.append(["Категория"] + [s.get("name") for s in series])
             for i, c in enumerate(cats):
                 ws.append([c] + [(s.get("data") or [])[i] if i < len(s.get("data", [])) else None for s in series])
+        elif t == "heatmap":
+            ws = wb.create_sheet(sheet_name(name))
+            cols = list(data.get("columns", []))
+            rws = list(data.get("rows", []))
+            grid = [[None] * len(cols) for _ in rws]
+            for ci, ri, v in data.get("cells", []):
+                if ri < len(rws) and ci < len(cols):
+                    grid[ri][ci] = v
+            ws.append(["Строка"] + cols)
+            for i, rname in enumerate(rws):
+                ws.append([rname] + grid[i])
 
     if not has_summary and len(wb.sheetnames) > 1:
         wb.remove(summary)  # нет KPI/план-факта, но есть датасетные листы — убираем пустую сводку
@@ -964,6 +994,9 @@ async def suggest_widgets(conn, org_id, dataset_code: str) -> List[dict]:
     if len(fields) >= 2:
         specs.append({"name": "Сравнение полей", "widget_type": "compare",
                       "config": {"dataset_code": dataset_code, "value_fields": [f["code"] for f in fields[:4]], "viz": "bar"},
+                      "width": 6, "height": 7})
+        specs.append({"name": "Тепловая карта", "widget_type": "heatmap",
+                      "config": {"dataset_code": dataset_code, "value_fields": [f["code"] for f in fields[:6]]},
                       "width": 6, "height": 7})
         specs.append({"name": f"План/факт: {fields[0]['name']} / {fields[1]['name']}", "widget_type": "plan_fact",
                       "config": {"dataset_code": dataset_code, "plan_field": fields[0]["code"], "fact_field": fields[1]["code"]},

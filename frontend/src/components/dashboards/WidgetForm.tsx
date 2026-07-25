@@ -3,6 +3,7 @@ import { previewWidget, widgetSuggestions, type DataSources, type MetricSource, 
 import { WidgetPreviewBody } from '../WidgetView'
 import FormulaBuilder from '../FormulaBuilder'
 import { DEFAULT_SIZE, F, WT, btn, btnAuto, btnGhost, sel, wtBadge } from './shared'
+import { WidgetPicker, WIDGET_META } from './WidgetPicker'
 
 export function SourceCatalog({ sources }: { sources: DataSources }) {
   const [open, setOpen] = useState(false)
@@ -140,12 +141,13 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const [imgUrl, setImgUrl] = useState(cfg0.url || '')
   const [caption, setCaption] = useState(cfg0.caption || '')
 
+  const [pickerOpen, setPickerOpen] = useState(false)
   const isText = type === 'text'
   const isImage = type === 'image'
   const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
-  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'compare'].includes(type)
+  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'compare', 'heatmap'].includes(type)
   const usesValueField = ['bar', 'line', 'pie', 'dynamics'].includes(type) || (['kpi', 'gauge'].includes(type) && source === 'dataset')
-  const usesMulti = type === 'compare'
+  const usesMulti = type === 'compare' || type === 'heatmap'
   const toggleField = (c: string) => setMultiFields((s) => s.includes(c) ? s.filter((x) => x !== c) : [...s, c])
 
   // Шкала спидометра (gauge): максимум; пусто — авто.
@@ -171,6 +173,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     if (type === 'plan_fact') return source === 'metric' ? ((metricCode && factMetric) ? { plan_metric: metricCode, fact_metric: factMetric } : null) : ((dataset && planField && factField) ? { dataset_code: dataset, plan_field: planField, fact_field: factField } : null)
     if (type === 'table') return dataset ? { dataset_code: dataset } : null
     if (type === 'compare') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields, viz } : null
+    if (type === 'heatmap') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields } : null
     return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null // bar/line/pie/dynamics
   }
 
@@ -220,7 +223,13 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end', border: initial ? 'none' : '1px solid #e5e7eb', borderRadius: 10, padding: initial ? 0 : 12 }}>
       <F t="Название"><input style={sel} placeholder="Заголовок виджета" value={name} onChange={(e) => setName(e.target.value)} /></F>
-      <F t="Тип"><select style={sel} value={type} onChange={(e) => { const v = e.target.value; setType(v); if (v !== 'kpi' && source === 'formula') setSource('metric') }}>{WT.map((x) => <option key={x.v} value={x.v}>{x.t}</option>)}</select></F>
+      <F t="Тип"><button type="button" style={{ ...sel, minWidth: 200, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', cursor: 'pointer' }}
+        onClick={() => setPickerOpen(true)} title="Открыть галерею типов виджетов">
+        <span style={{ fontWeight: 600, color: '#1f2937' }}>{WIDGET_META[type]?.t || type}</span>
+        <span style={{ fontSize: 12, color: '#2f5496' }}>▦ галерея</span>
+      </button></F>
+      {pickerOpen && <WidgetPicker value={type} onClose={() => setPickerOpen(false)}
+        onPick={(v) => { setType(v); if (!['kpi', 'gauge'].includes(v) && source === 'formula') setSource('metric') }} />}
       {isText && (
         <>
           <F t="Заголовок (крупно)"><input style={{ ...sel, width: 200 }} placeholder="напр. Итоги квартала" value={heading} onChange={(e) => setHeading(e.target.value)} /></F>
@@ -276,7 +285,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       )}
       {usesMulti && (
         <>
-          <F t="Поля (несколько)">
+          <F t={type === 'heatmap' ? 'Поля (столбцы карты)' : 'Поля (несколько)'}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', height: 34, alignItems: 'center' }}>
               {numFields(dataset).map((f) => (
                 <label key={f.code} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 13 }}>
@@ -285,7 +294,9 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
               ))}
             </div>
           </F>
-          <F t="Вид"><select style={sel} value={viz} onChange={(e) => setViz(e.target.value)}><option value="bar">Столбцы</option><option value="line">Линии</option></select></F>
+          {type === 'compare' && (
+            <F t="Вид"><select style={sel} value={viz} onChange={(e) => setViz(e.target.value)}><option value="bar">Столбцы</option><option value="line">Линии</option></select></F>
+          )}
         </>
       )}
       {type === 'plan_fact' && source === 'dataset' && (

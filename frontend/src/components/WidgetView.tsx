@@ -197,6 +197,26 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     return <EChart option={opt} height={230} onPick={onPick} />
   }
 
+  if (data.type === 'heatmap') {
+    const rows: string[] = data.rows || []
+    const cols: string[] = data.columns || []
+    const cells: number[][] = data.cells || []
+    if (rows.length === 0 || cols.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
+    const longX = cols.some((c) => c.length > 6)
+    const opt: EChartsOption = {
+      tooltip: { position: 'top', formatter: (p: any) => `${cols[p.value[0]]} · ${rows[p.value[1]]}: <b>${fmt(p.value[2])}</b>` },
+      grid: { left: 8, right: 12, top: 10, bottom: longX ? 58 : 44, containLabel: true },
+      xAxis: { type: 'category', data: cols, splitArea: { show: true }, axisLabel: { fontSize: 11, interval: 0, rotate: longX ? 30 : 0 } },
+      yAxis: { type: 'category', data: rows, splitArea: { show: true }, axisLabel: { fontSize: 11, interval: 0 } },
+      visualMap: { min: data.min ?? 0, max: data.max || 1, calculable: true, orient: 'horizontal', left: 'center', bottom: 0,
+        itemHeight: 80, textStyle: { fontSize: 10 }, inRange: { color: ['#e6edf6', '#7aa6d6', '#2f5496', '#0f3b7a'] } },
+      series: [{ type: 'heatmap', data: cells, label: { show: rows.length * cols.length <= 60, fontSize: 10, formatter: (p: any) => fmt(p.value[2]) },
+        emphasis: { itemStyle: { shadowBlur: 6, shadowColor: 'rgba(0,0,0,0.3)' } } }],
+    }
+    const h = Math.min(380, Math.max(200, rows.length * 26 + (longX ? 96 : 82)))
+    return <EChart option={opt} height={h} />
+  }
+
   // bar | line | pie
   if ((data.categories || []).length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
   return <EChart option={chartOption(data)} height={200} onPick={onPick} />
