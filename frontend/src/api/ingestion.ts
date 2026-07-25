@@ -49,12 +49,14 @@ export interface FieldMap {
   unit?: string | null
   is_row_label: boolean
 }
+export interface ValidationWarning { code: string; count: number; message: string }
 export interface ReleaseResult {
   release_id: string
   status: string
   values_count: number
   rows: number
   superseded_release_id: string | null
+  validation?: { warnings: ValidationWarning[]; ok: boolean }
 }
 export interface ReleaseConflict {
   conflict: true

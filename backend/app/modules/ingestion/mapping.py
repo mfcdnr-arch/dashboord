@@ -84,6 +84,56 @@ def _cast(value: str, data_type: str) -> dict:
     return out
 
 
+def _validate_grid(rows, value_fields, label_col, field_type) -> list:
+    """Проверка бизнес-правил при загрузке (чистая, без БД): дубли строк, строки
+    без названия, число не распозналось, отрицательные значения, пропуски.
+    Возвращает список предупреждений [{code, count, message}] — НЕ блокирует релиз."""
+    empty_rows = 0
+    seen: dict = {}
+    unparsed: list = []
+    negative: list = []
+    missing = 0
+    for row in rows:
+        row_label = row[label_col] if label_col is not None and label_col < len(row) else None
+        if row_label is None or not str(row_label).strip():
+            empty_rows += 1
+        else:
+            seen[row_label] = seen.get(row_label, 0) + 1
+        for f in value_fields:
+            fcode = f["field_code"]
+            if field_type.get(fcode) != "number":
+                continue
+            ci = f["column_index"]
+            raw = row[ci] if ci < len(row) else ""
+            num = analyze.parse_number(raw)
+            if num is None:
+                if str(raw).strip():
+                    unparsed.append(f"{row_label or '—'}·{fcode}: «{str(raw)[:20]}»")
+                else:
+                    missing += 1
+            elif num < 0:
+                negative.append(f"{row_label or '—'}·{fcode}: {num}")
+
+    warnings = []
+    dups = {k: c for k, c in seen.items() if c > 1}
+    if dups:
+        warnings.append({"code": "duplicate_rows", "count": len(dups),
+                         "message": f"Повторяющиеся названия строк: {len(dups)} ({', '.join(map(str, list(dups)[:5]))})"})
+    if empty_rows:
+        warnings.append({"code": "empty_rows", "count": empty_rows,
+                         "message": f"Строки без названия: {empty_rows}"})
+    if unparsed:
+        warnings.append({"code": "not_a_number", "count": len(unparsed),
+                         "message": f"Число не распознано в {len(unparsed)} ячейках: {'; '.join(unparsed[:5])}"})
+    if negative:
+        warnings.append({"code": "negative", "count": len(negative),
+                         "message": f"Отрицательные значения: {len(negative)} ({'; '.join(negative[:5])})"})
+    if missing:
+        warnings.append({"code": "missing_values", "count": missing,
+                         "message": f"Пропущенные числовые значения: {missing}"})
+    return warnings
+
+
 async def build_release(conn, *, job_id: str, table_id: str, code: str, name: str,
                         reporting_period_start, reporting_period_end,
                         fields: List[dict], supersede: bool, user: dict) -> dict:
@@ -183,6 +233,8 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
             )
             n_values += 1
 
+    warnings = _validate_grid(grid[header_rows:], value_fields, label_col, field_type)
+
     # проставляем ссылку на замещающий выпуск (сам статус уже 'superseded')
     superseded_id = None
     if existing is not None and supersede:
@@ -198,4 +250,5 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         "values_count": n_values,
         "rows": len(grid) - header_rows,
         "superseded_release_id": superseded_id,
+        "validation": {"warnings": warnings, "ok": len(warnings) == 0},
     }

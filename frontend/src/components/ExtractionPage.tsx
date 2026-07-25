@@ -266,6 +266,19 @@ function ResultPanel({ result, onBack }: { result: ReleaseResult; onBack: () => 
         Материализовано <strong>{result.values_count}</strong> значений из <strong>{result.rows}</strong> строк.
         {result.superseded_release_id && ' Прежний выпуск за этот период помечен как замещённый.'}
       </div>
+      {result.validation && result.validation.warnings.length > 0 && (
+        <div style={{ marginTop: 12, border: '1px solid #f0d9a8', background: '#fff8e8', borderRadius: 10, padding: '10px 12px' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#8a6d1a', marginBottom: 6 }}>
+            ⚠ Проверка данных: замечания ({result.validation.warnings.length}) — данные загружены, рекомендуем проверить
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#7a5c12' }}>
+            {result.validation.warnings.map((w) => <li key={w.code} style={{ marginBottom: 2 }}>{w.message}</li>)}
+          </ul>
+        </div>
+      )}
+      {result.validation && result.validation.ok && (
+        <div style={{ marginTop: 10, fontSize: 13, color: '#0f6e56' }}>✓ Проверка данных пройдена без замечаний.</div>
+      )}
       <button style={{ ...btn, marginTop: 14 }} onClick={onBack}>К документам</button>
     </div>
   )
