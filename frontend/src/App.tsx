@@ -11,6 +11,7 @@ import ReportsPage from './components/ReportsPage'
 import AuditPage from './components/AuditPage'
 import ModerationPage from './components/ModerationPage'
 import CatalogPage from './components/CatalogPage'
+import NotificationBell from './components/NotificationBell'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -110,6 +111,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         </span>
         <span style={{ fontSize: 13 }}><strong>{me.full_name || me.login}</strong></span>
         {!narrow && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: '#eef', color: '#2f5496' }}>{me.roles.join(', ')}</span>}
+        <NotificationBell />
         <button onClick={onLogout} style={{ height: 32, padding: '0 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }}>Выйти</button>
       </header>
 

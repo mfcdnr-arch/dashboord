@@ -30,6 +30,8 @@ export default defineConfig({
       '/audit': 'http://localhost:8080',
       '/moderation': 'http://localhost:8080',
       '/catalog': 'http://localhost:8080',
+      '/notifications': 'http://localhost:8080',
+      '/maintenance': 'http://localhost:8080',
     },
   },
 })

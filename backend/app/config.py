@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     minio_bucket: str = "documents"
     minio_secure: bool = False
 
+    # Жизненный цикл данных (обслуживание, планировщик).
+    # Ретенция: скользящее окно хранения данных датасетов (месяцев). 0 — выключено.
+    retention_months: int = 12
+    # Свежесть: если по объекту нет новых данных дольше N дней — уведомление.
+    stale_days: int = 45
+
     @property
     def database_dsn(self) -> str:
         return (

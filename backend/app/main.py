@@ -19,8 +19,10 @@ from .modules.home.router import router as home_router
 from .modules.documents.storage import ensure_bucket
 from .modules.ingestion import queue as ingestion_queue
 from .modules.ingestion.router import router as ingestion_router
+from .modules.maintenance.router import router as maintenance_router
 from .modules.metrics.router import router as metrics_router
 from .modules.moderation.router import router as moderation_router
+from .modules.notifications.router import router as notifications_router
 from .modules.objects.router import router as objects_router
 from .modules.reports.router import router as reports_router
 from .modules.system.router import router as system_router
@@ -89,6 +91,8 @@ app.include_router(home_router)
 app.include_router(users_router)
 app.include_router(reports_router)
 app.include_router(catalog_router)
+app.include_router(notifications_router)
+app.include_router(maintenance_router)
 
 
 @app.get("/health", tags=["system"])
