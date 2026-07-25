@@ -217,6 +217,57 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     return <EChart option={opt} height={h} />
   }
 
+  if (data.type === 'pivot') {
+    const cols: string[] = data.columns || []
+    const rows: any[] = data.rows || []
+    if (rows.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
+    const totCell: React.CSSProperties = { ...td, fontWeight: 700, background: '#f4f7fb' }
+    return (
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
+          <thead><tr><th style={th}>Строка</th>{cols.map((c) => <th key={c} style={th}>{c}</th>)}<th style={{ ...th, color: '#2f5496' }}>Итого</th></tr></thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i}><td style={{ ...td, fontWeight: 600 }}>{r.row}</td>
+                {cols.map((_, ci) => <td key={ci} style={{ ...td, textAlign: 'right' }}>{typeof r.values[ci] === 'number' ? fmt(r.values[ci]) : '—'}</td>)}
+                <td style={{ ...totCell, textAlign: 'right' }}>{fmt(r.total)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot><tr><td style={totCell}>Итого</td>
+            {(data.col_totals || []).map((v: number, i: number) => <td key={i} style={{ ...totCell, textAlign: 'right' }}>{fmt(v)}</td>)}
+            <td style={{ ...totCell, textAlign: 'right', color: '#2f5496' }}>{fmt(data.grand_total)}</td>
+          </tr></tfoot>
+        </table>
+      </div>
+    )
+  }
+
+  if (data.type === 'waterfall') {
+    const cats: string[] = data.categories || []
+    if (cats.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
+    const vals: number[] = (data.values || []).map((x: any) => (x == null ? 0 : x))
+    const total = vals.reduce((a, b) => a + b, 0)
+    const catAll = [...cats, data.total_label || 'Итого']
+    const placeholder: number[] = []
+    const bars: any[] = []
+    let run = 0
+    vals.forEach((x) => { placeholder.push(x >= 0 ? run : run + x); bars.push({ value: Math.abs(x), itemStyle: { color: x >= 0 ? '#0f6e56' : '#a3532d' } }); run += x })
+    placeholder.push(0); bars.push({ value: total, itemStyle: { color: '#2f5496' } })
+    const longX = catAll.some((c) => c.length > 6)
+    const opt: EChartsOption = {
+      grid: { left: 44, right: 12, top: 12, bottom: longX ? 56 : 40 },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: (p: any) => { const i = p[0].dataIndex; const v = i < vals.length ? vals[i] : total; return `${catAll[i]}: <b>${fmt(v)}</b>` } },
+      xAxis: { type: 'category', data: catAll, axisLabel: { interval: 0, rotate: longX ? 30 : 0, fontSize: 11 } },
+      yAxis: { type: 'value' },
+      series: [
+        { type: 'bar', stack: 'wf', itemStyle: { color: 'transparent' }, emphasis: { itemStyle: { color: 'transparent' } }, data: placeholder, silent: true },
+        { type: 'bar', stack: 'wf', data: bars, barMaxWidth: 40, label: { show: true, position: 'top', fontSize: 10, formatter: (p: any) => fmt(p.dataIndex < vals.length ? vals[p.dataIndex] : total) } },
+      ],
+    }
+    return <EChart option={opt} height={220} />
+  }
+
   // bar | line | pie
   if ((data.categories || []).length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
   return <EChart option={chartOption(data)} height={200} onPick={onPick} />

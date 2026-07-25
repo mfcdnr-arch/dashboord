@@ -145,9 +145,9 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const isText = type === 'text'
   const isImage = type === 'image'
   const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
-  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'compare', 'heatmap'].includes(type)
-  const usesValueField = ['bar', 'line', 'pie', 'dynamics'].includes(type) || (['kpi', 'gauge'].includes(type) && source === 'dataset')
-  const usesMulti = type === 'compare' || type === 'heatmap'
+  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'compare', 'heatmap', 'pivot', 'waterfall'].includes(type)
+  const usesValueField = ['bar', 'line', 'pie', 'dynamics', 'waterfall'].includes(type) || (['kpi', 'gauge'].includes(type) && source === 'dataset')
+  const usesMulti = type === 'compare' || type === 'heatmap' || type === 'pivot'
   const toggleField = (c: string) => setMultiFields((s) => s.includes(c) ? s.filter((x) => x !== c) : [...s, c])
 
   // Шкала спидометра (gauge): максимум; пусто — авто.
@@ -173,7 +173,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     if (type === 'plan_fact') return source === 'metric' ? ((metricCode && factMetric) ? { plan_metric: metricCode, fact_metric: factMetric } : null) : ((dataset && planField && factField) ? { dataset_code: dataset, plan_field: planField, fact_field: factField } : null)
     if (type === 'table') return dataset ? { dataset_code: dataset } : null
     if (type === 'compare') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields, viz } : null
-    if (type === 'heatmap') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields } : null
+    if (type === 'heatmap' || type === 'pivot') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields } : null
     return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null // bar/line/pie/dynamics
   }
 

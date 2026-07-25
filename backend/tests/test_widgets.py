@@ -76,6 +76,25 @@ async def test_heatmap(client, admin_headers, seed_dataset):
     assert d["min"] == 28 and d["max"] == 100
 
 
+async def test_pivot(client, admin_headers, seed_dataset):
+    d = await _preview(client, admin_headers, "pivot",
+                       {"dataset_code": "t_ds", "value_fields": ["plan", "fact"]})
+    assert d["type"] == "pivot"
+    assert d["columns"] == ["plan", "fact"]
+    assert len(d["rows"]) == 3
+    assert d["rows"][0]["total"] == 190  # Паспорт: plan100+fact90
+    assert d["col_totals"] == [180, 173]
+    assert d["grand_total"] == 353
+
+
+async def test_waterfall(client, admin_headers, seed_dataset):
+    d = await _preview(client, admin_headers, "waterfall",
+                       {"dataset_code": "t_ds", "value_field": "plan"})
+    assert d["type"] == "waterfall"
+    assert d["categories"] == seed_dataset["rows"]
+    assert d["values"] == seed_dataset["plan"]  # [100,50,30]
+
+
 async def test_text(client, admin_headers):
     d = await _preview(client, admin_headers, "text", {"heading": "Заголовок", "body": "Текст"})
     assert d["type"] == "text" and d["heading"] == "Заголовок"

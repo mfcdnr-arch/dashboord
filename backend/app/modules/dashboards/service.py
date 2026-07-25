@@ -391,6 +391,8 @@ async def suggest_widgets(conn, org_id, dataset_code: str) -> List[dict]:
     f0 = fields[0]
     specs.append({"name": f"{f0['name']} по строкам", "widget_type": "bar",
                   "config": {"dataset_code": dataset_code, "value_field": f0["code"]}, "width": 5, "height": 6})
+    specs.append({"name": f"Водопад: {f0['name']}", "widget_type": "waterfall",
+                  "config": {"dataset_code": dataset_code, "value_field": f0["code"]}, "width": 6, "height": 6})
     if periods > 1:
         specs.append({"name": f"Динамика: {f0['name']}", "widget_type": "dynamics",
                       "config": {"dataset_code": dataset_code, "value_field": f0["code"]}, "width": 6, "height": 6})
@@ -401,6 +403,9 @@ async def suggest_widgets(conn, org_id, dataset_code: str) -> List[dict]:
         specs.append({"name": "Тепловая карта", "widget_type": "heatmap",
                       "config": {"dataset_code": dataset_code, "value_fields": [f["code"] for f in fields[:6]]},
                       "width": 6, "height": 7})
+        specs.append({"name": "Сводная таблица", "widget_type": "pivot",
+                      "config": {"dataset_code": dataset_code, "value_fields": [f["code"] for f in fields[:6]]},
+                      "width": 6, "height": 6})
         specs.append({"name": f"План/факт: {fields[0]['name']} / {fields[1]['name']}", "widget_type": "plan_fact",
                       "config": {"dataset_code": dataset_code, "plan_field": fields[0]["code"], "fact_field": fields[1]["code"]},
                       "width": 4, "height": 5})

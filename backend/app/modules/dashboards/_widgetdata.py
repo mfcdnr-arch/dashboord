@@ -225,6 +225,41 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         return {"type": "heatmap", "title": name, "rows": ms["categories"], "columns": cols,
                 "cells": cells, "min": (min(nums) if nums else 0), "max": (max(nums) if nums else 0)}
 
+    if t == "pivot":
+        # Сводная таблица: строки × поля + итоги по строкам, столбцам и общий.
+        # Для МФЦ: услуги × показатели с автоматическими суммами (отчётность).
+        fields = cfg.get("value_fields") or []
+        if not cfg.get("dataset_code") or not fields:
+            raise DashboardError("Сводная таблица: укажите dataset_code и value_fields")
+        ms = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row)
+        cols = [s["name"] for s in ms["series"]]
+        col_totals = [0.0] * len(cols)
+        grand = 0.0
+        rows_out = []
+        for ri, rlabel in enumerate(ms["categories"]):
+            vals, rtotal = [], 0.0
+            for ci, s in enumerate(ms["series"]):
+                v = s["data"][ri]
+                vals.append(v)
+                if v is not None:
+                    rtotal += v
+                    col_totals[ci] += v
+                    grand += v
+            rows_out.append({"row": rlabel, "values": vals, "total": rtotal})
+        return {"type": "pivot", "title": name, "columns": cols, "rows": rows_out,
+                "col_totals": col_totals, "grand_total": grand}
+
+    if t == "waterfall":
+        # Водопад: вклад каждой строки в накопленный итог (нарастающим), финальный столбец «Итого».
+        # Для МФЦ: из чего складывается общий объём (услуги → суммарно).
+        if not cfg.get("dataset_code") or not cfg.get("value_field"):
+            raise DashboardError("Водопад: укажите dataset_code и value_field")
+        series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row)
+        cats = [s["category"] for s in series]
+        vals = [s["value"] for s in series]
+        return {"type": "waterfall", "title": name, "categories": cats, "values": vals,
+                "total_label": cfg.get("total_label") or "Итого"}
+
     if t == "dynamics":
         if not cfg.get("dataset_code") or not cfg.get("value_field"):
             raise DashboardError("Динамика: укажите dataset_code и value_field")
@@ -416,6 +451,19 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
             ws.append(["Строка"] + cols)
             for i, rname in enumerate(rws):
                 ws.append([rname] + grid[i])
+        elif t == "pivot":
+            ws = wb.create_sheet(sheet_name(name))
+            cols = list(data.get("columns", []))
+            ws.append(["Строка"] + cols + ["Итого"])
+            for r in data.get("rows", []):
+                ws.append([r.get("row")] + list(r.get("values", [])) + [r.get("total")])
+            ws.append(["Итого"] + list(data.get("col_totals", [])) + [data.get("grand_total")])
+        elif t == "waterfall":
+            ws = wb.create_sheet(sheet_name(name))
+            ws.append(["Категория", "Значение"])
+            for c, v in zip(data.get("categories", []), data.get("values", [])):
+                ws.append([c, v])
+            ws.append([data.get("total_label", "Итого"), sum(v for v in data.get("values", []) if v is not None)])
 
     if not has_summary and len(wb.sheetnames) > 1:
         wb.remove(summary)  # нет KPI/план-факта, но есть датасетные листы — убираем пустую сводку
