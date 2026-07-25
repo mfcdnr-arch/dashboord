@@ -125,6 +125,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const allNumFields = Array.from(new Map(sources.datasets.flatMap((d) => d.fields.filter((f) => f.data_type === 'number').map((f) => [f.code, f])) as [string, { code: string; name: string }][]).values())
   const initDataset = cfg0.dataset_code || sources.datasets[0]?.code || ''
   const [name, setName] = useState(initial?.name || '')
+  const [help, setHelp] = useState<string>(cfg0.help || '')  // авторская подсказка-тултип
   const [type, setType] = useState(initial?.widget_type || 'kpi')
   const [source, setSource] = useState<'metric' | 'dataset' | 'formula'>(cfg0.formula ? 'formula' : (cfg0.metric_code || cfg0.plan_metric) ? 'metric' : (cfg0.dataset_code ? 'dataset' : 'metric'))
   const [formulaDsl, setFormulaDsl] = useState<string>(cfg0.formula || '')
@@ -222,6 +223,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       config.alerts = cfg0.alerts
       if (cfg0.alert_on) config.alert_on = cfg0.alert_on
     }
+    if (help.trim()) config.help = help.trim()  // авторская подсказка → тултип на виджете
     const body: { name: string; widget_type: string; config: Record<string, unknown>; width?: number; height?: number } = {
       name: name.trim() || WT.find((x) => x.v === type)?.t || type, widget_type: type, config,
     }
@@ -233,6 +235,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end', border: initial ? 'none' : '1px solid #e5e7eb', borderRadius: 10, padding: initial ? 0 : 12 }}>
       <F t="Название"><input style={sel} placeholder="Заголовок виджета" value={name} onChange={(e) => setName(e.target.value)} /></F>
+      <F t="Подсказка (тултип)"><input style={sel} placeholder="Что показывает виджет — покажется по значку «i»" value={help} onChange={(e) => setHelp(e.target.value)} /></F>
       <F t="Тип"><button type="button" style={{ ...sel, minWidth: 200, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', cursor: 'pointer' }}
         onClick={() => setPickerOpen(true)} title="Открыть галерею типов виджетов">
         <span style={{ fontWeight: 600, color: '#1f2937' }}>{WIDGET_META[type]?.t || type}</span>

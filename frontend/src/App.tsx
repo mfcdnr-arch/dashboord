@@ -12,6 +12,7 @@ import AuditPage from './components/AuditPage'
 import ModerationPage from './components/ModerationPage'
 import CatalogPage from './components/CatalogPage'
 import NotificationBell from './components/NotificationBell'
+import OnboardingHint from './components/OnboardingHint'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -137,6 +138,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         </nav>
 
         <main style={{ flex: 1, padding: narrow ? 12 : 24, maxWidth: narrow ? '100%' : 900, minWidth: 0 }}>
+          <OnboardingHint section={section} roles={me.roles} userKey={me.login} />
           {section === 'home' ? (
             <HomePage me={me} canManage={canManage} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'objects' ? (

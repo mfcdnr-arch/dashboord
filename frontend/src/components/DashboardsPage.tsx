@@ -9,6 +9,8 @@ import {
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
 } from '../api'
 import WidgetView from './WidgetView'
+import InfoTip from './InfoTip'
+import { WIDGET_META } from './dashboards/WidgetPicker'
 import KioskView from './KioskView'
 
 import { AccessEditor } from './dashboards/AccessEditor'
@@ -19,6 +21,14 @@ import { PubBadge, WT, alertBtn, btn, btnAuto, btnGhost, crumb, dialog, editBtn,
 const GL = WidthProvider(GridLayout)
 
 const DASH_PAGE = 50
+
+// Текст тултипа виджета: подсказка по типу (из галереи) + авторская заметка
+// (config.help), если задана в форме виджета.
+function widgetTip(w: { widget_type: string; config: Record<string, unknown> }): string {
+  const typeHint = WIDGET_META[w.widget_type]?.hint || ''
+  const help = typeof w.config?.help === 'string' ? (w.config.help as string).trim() : ''
+  return [typeHint, help].filter(Boolean).join('. ')
+}
 
 export default function DashboardsPage({ canManage, isAdmin, initialDashboardId }: { canManage: boolean; isAdmin?: boolean; initialDashboardId?: string | null }) {
   const [dashboards, setDashboards] = useState<Dashboard[]>([])
@@ -447,6 +457,9 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                       <div className={editMode ? 'wdrag' : ''} style={{ display: 'flex', alignItems: 'center', marginBottom: 8, cursor: editMode ? 'move' : 'default' }}>
                         <div style={{ fontSize: 13, fontWeight: 600 }}>{w.name}</div>
                         <span style={wtBadge}>{WT.find((x) => x.v === w.widget_type)?.t || w.widget_type}</span>
+                        <span style={{ marginLeft: 6 }}>
+                          <InfoTip text={widgetTip(w)} />
+                        </span>
                         {canManage && sources && <button style={editBtn} onClick={() => setEditWidget(w)} title="Изменить данные/тип виджета">✎</button>}
                         {canManage && ['kpi', 'gauge', 'plan_fact', 'dynamics'].includes(w.widget_type) && (
                           <button style={alertBtn} onClick={() => setAlertWidget(w)}
