@@ -140,6 +140,8 @@ class GrantIn(BaseModel):
     grantee_type: str
     role_id: Optional[str] = None
     user_id: Optional[str] = None
+    scope: str = "dashboard"          # 'dashboard' (весь дашборд) | 'widget' (один виджет)
+    widget_id: Optional[str] = None   # обязателен при scope='widget'
 
 
 @router.get("/dashboards/{dashboard_id}/grants")
@@ -147,7 +149,8 @@ async def list_grants(dashboard_id: str, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:
         try:
             return {"grants": await service.list_grants(conn, user["organization_id"], dashboard_id),
-                    "targets": await service.grant_targets(conn, user["organization_id"])}
+                    "targets": await service.grant_targets(conn, user["organization_id"]),
+                    "widgets": await service.dashboard_widgets_flat(conn, user["organization_id"], dashboard_id)}
         except DashboardError as e:
             raise _bad(e)
 
@@ -158,7 +161,8 @@ async def add_grant(dashboard_id: str, body: GrantIn, user: dict = Depends(manag
         try:
             async with conn.transaction():
                 return await service.add_grant(conn, user["organization_id"], user["id"], dashboard_id,
-                                               body.grantee_type, body.role_id, body.user_id)
+                                               body.grantee_type, body.role_id, body.user_id,
+                                               scope=body.scope, widget_id=body.widget_id)
         except DashboardError as e:
             raise _bad(e)
 

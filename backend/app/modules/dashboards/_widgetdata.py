@@ -15,7 +15,7 @@ from ..metrics import resolver as mr
 from ..metrics.parser import FormulaError, extract_dependencies, parse
 from ._alerts import _cfg, evaluate_alert
 from ._base import WIDGET_TYPES, DashboardError
-from ._rls import _can_view, visible_dashboard_ids
+from ._rls import _can_view, visible_dashboard_ids, visible_widget_ids
 
 
 def _apply_target(res: dict, cfg: dict, value) -> None:
@@ -190,6 +190,13 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
     # видимость уже проверена выше). По HTTP всегда приходит user — fail closed.
     if not skip_acl and (user is None or not await _can_view(conn, org_id, user, str(w["dashboard_id"]))):
         raise DashboardError("Виджет не найден")
+    # RLS widget-level: если для дашборда включён whitelist — виджет вне списка
+    # для зрителя-по-гранту невидим (fail closed). Пропускаем при skip_acl
+    # (батч-выдача уже отфильтровала виджеты по whitelist выше).
+    if not skip_acl:
+        allowed = await visible_widget_ids(conn, org_id, user, str(w["dashboard_id"]))
+        if allowed is not None and widget_id not in allowed:
+            raise DashboardError("Виджет не найден")
     # TTL-кэш: данные виджета одинаковы для всех, кто его видит (доступ проверен
     # выше). Ключ учитывает фильтры страницы. Мягкая деградация при недоступном Redis.
     key = f"wd:{widget_id}:{from_date or ''}:{to_date or ''}:{row or ''}"
@@ -217,11 +224,14 @@ async def compute_page_data(conn, org_id, page_id: str, user: dict,
         raise DashboardError("Страница не найдена")
     if not await _can_view(conn, org_id, user, str(p["dashboard_id"])):
         raise DashboardError("Страница не найдена")
+    allowed = await visible_widget_ids(conn, org_id, user, str(p["dashboard_id"]))
     rows = await conn.fetch(
         "select id from widgets where page_id=$1::uuid order by position_y, position_x", page_id)
     out = []
     for w in rows:
         wid = str(w["id"])
+        if allowed is not None and wid not in allowed:
+            continue  # виджет вне whitelist — не отдаём данные
         try:
             data = await compute_widget_data(conn, org_id, wid, from_date, to_date, row, skip_acl=True)
             out.append({"id": wid, "data": data})
@@ -464,8 +474,11 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
     if not await _can_view(conn, org_id, user, str(p["dashboard_id"])):
         raise DashboardError("Страница не найдена")
 
+    allowed = await visible_widget_ids(conn, org_id, user, str(p["dashboard_id"]))
     rows = await conn.fetch(
         "select id, name, widget_type from widgets where page_id=$1::uuid order by position_y, position_x", page_id)
+    if allowed is not None:
+        rows = [w for w in rows if str(w["id"]) in allowed]
 
     wb = Workbook()
     summary = wb.active
@@ -566,6 +579,9 @@ async def widget_drill(conn, org_id, widget_id: str, user: dict) -> dict:
     if w is None:
         raise DashboardError("Виджет не найден")
     if not await _can_view(conn, org_id, user, str(w["dashboard_id"])):
+        raise DashboardError("Виджет не найден")
+    allowed = await visible_widget_ids(conn, org_id, user, str(w["dashboard_id"]))
+    if allowed is not None and widget_id not in allowed:
         raise DashboardError("Виджет не найден")
     cfg = _cfg(w)
     metric_codes = [cfg[k] for k in ("metric_code", "plan_metric", "fact_metric") if cfg.get(k)]

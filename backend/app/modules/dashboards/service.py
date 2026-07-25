@@ -21,7 +21,7 @@ from ._alerts import (  # noqa: F401
     _ALERT_OP_TXT, _ALERT_STYLES, _alert_match, _alert_measure, _cfg, evaluate_alert,
 )
 from ._base import ANNOTATION_TYPES, WIDGET_TYPES, DashboardError  # noqa: F401
-from ._rls import PRIVILEGED_ROLES, _can_view, _user_ctx, visible_dashboard_ids  # noqa: F401
+from ._rls import PRIVILEGED_ROLES, _can_view, _user_ctx, visible_dashboard_ids, visible_widget_ids  # noqa: F401
 from ._widgetdata import (  # noqa: F401
     _best_metric_version, _compute_widget, _dataset_multi_series, _dataset_period_series,
     _dataset_series, _dataset_table, _formula_value, _metric_value, _page_org, _widget_org,
@@ -150,10 +150,13 @@ async def list_page_widgets(conn, org_id, page_id: str, user: dict) -> dict:
         raise DashboardError("Страница не найдена")
     if not await _can_view(conn, org_id, user, str(p["dashboard_id"])):
         raise DashboardError("Страница не найдена")
+    allowed = await visible_widget_ids(conn, org_id, user, str(p["dashboard_id"]))
     rows = await conn.fetch(
         "select id, name, widget_type, position_x, position_y, width, height, config "
         "from widgets where page_id=$1::uuid order by position_y, position_x", page_id,
     )
+    if allowed is not None:
+        rows = [w for w in rows if str(w["id"]) in allowed]
     return {"page_id": page_id, "widgets": [
         {**{k: w[k] for k in ("id", "name", "widget_type", "position_x", "position_y", "width", "height")},
          "config": _cfg(w)} for w in rows]}
@@ -232,27 +235,56 @@ async def list_grants(conn, org_id, dashboard_id: str) -> List[dict]:
     if not await _owns_dashboard(conn, org_id, dashboard_id):
         raise DashboardError("Дашборд не найден")
     rows = await conn.fetch(
-        "select g.id, g.grantee_type, g.role_id, g.user_id, g.granted_at, "
-        "r.name as role_name, r.code as role_code, u.login, u.full_name "
+        "select g.id, g.scope, g.grantee_type, g.role_id, g.user_id, g.widget_id, g.granted_at, "
+        "r.name as role_name, r.code as role_code, u.login, u.full_name, w.name as widget_name "
         "from access_grants g "
         "left join roles r on r.id=g.role_id left join users u on u.id=g.user_id "
-        "where g.dashboard_id=$1::uuid and g.scope='dashboard' order by g.granted_at", dashboard_id)
+        "left join widgets w on w.id=g.widget_id "
+        "where g.dashboard_id=$1::uuid order by g.scope, g.granted_at", dashboard_id)
     out = []
     for g in rows:
         label = (g["role_name"] or g["role_code"]) if g["grantee_type"] == "role" else (g["full_name"] or g["login"])
-        out.append({"id": str(g["id"]), "grantee_type": g["grantee_type"],
+        out.append({"id": str(g["id"]), "scope": g["scope"], "grantee_type": g["grantee_type"],
                     "role_id": str(g["role_id"]) if g["role_id"] else None,
                     "user_id": str(g["user_id"]) if g["user_id"] else None,
-                    "label": label, "granted_at": g["granted_at"]})
+                    "widget_id": str(g["widget_id"]) if g["widget_id"] else None,
+                    "widget_name": g["widget_name"], "label": label, "granted_at": g["granted_at"]})
     return out
 
 
-async def add_grant(conn, org_id, granted_by, dashboard_id: str, grantee_type: str,
-                    role_id: Optional[str], user_id: Optional[str]) -> dict:
+async def dashboard_widgets_flat(conn, org_id, dashboard_id: str) -> List[dict]:
+    """Плоский список виджетов дашборда (для выбора при выдаче widget-гранта)."""
     if not await _owns_dashboard(conn, org_id, dashboard_id):
         raise DashboardError("Дашборд не найден")
+    rows = await conn.fetch(
+        "select w.id, w.name, w.widget_type, p.name as page_title "
+        "from widgets w join dashboard_pages p on p.id=w.page_id "
+        "where w.dashboard_id=$1::uuid order by p.position, w.position_y, w.position_x", dashboard_id)
+    return [{"id": str(w["id"]), "name": w["name"], "widget_type": w["widget_type"],
+             "page_title": w["page_title"]} for w in rows]
+
+
+async def add_grant(conn, org_id, granted_by, dashboard_id: str, grantee_type: str,
+                    role_id: Optional[str], user_id: Optional[str],
+                    scope: str = "dashboard", widget_id: Optional[str] = None) -> dict:
+    if not await _owns_dashboard(conn, org_id, dashboard_id):
+        raise DashboardError("Дашборд не найден")
+    if scope not in ("dashboard", "widget"):
+        raise DashboardError("scope должен быть 'dashboard' или 'widget'")
     if grantee_type not in ("role", "user"):
         raise DashboardError("grantee_type должен быть 'role' или 'user'")
+    if scope == "widget":
+        if not widget_id:
+            raise DashboardError("Укажите виджет")
+        # виджет должен принадлежать этому дашборду и организации
+        if not await conn.fetchval(
+                "select 1 from widgets where id=$1::uuid and dashboard_id=$2::uuid and organization_id=$3",
+                widget_id, dashboard_id, org_id):
+            raise DashboardError("Виджет не найден в этом дашборде")
+    else:
+        widget_id = None
+    # условие совпадения виджета в проверке дубликата (NULL != NULL в SQL → is not distinct from)
+    wcond = "widget_id is not distinct from $3::uuid"
     if grantee_type == "role":
         if not role_id:
             raise DashboardError("Укажите роль")
@@ -260,8 +292,8 @@ async def add_grant(conn, org_id, granted_by, dashboard_id: str, grantee_type: s
             raise DashboardError("Роль не найдена")
         user_id = None
         exists = await conn.fetchval(
-            "select 1 from access_grants where dashboard_id=$1::uuid and scope='dashboard' "
-            "and grantee_type='role' and role_id=$2::uuid", dashboard_id, role_id)
+            f"select 1 from access_grants where dashboard_id=$1::uuid and scope=$2 and {wcond} "
+            "and grantee_type='role' and role_id=$4::uuid", dashboard_id, scope, widget_id, role_id)
     else:
         if not user_id:
             raise DashboardError("Укажите пользователя")
@@ -269,18 +301,18 @@ async def add_grant(conn, org_id, granted_by, dashboard_id: str, grantee_type: s
             raise DashboardError("Пользователь не найден")
         role_id = None
         exists = await conn.fetchval(
-            "select 1 from access_grants where dashboard_id=$1::uuid and scope='dashboard' "
-            "and grantee_type='user' and user_id=$2::uuid", dashboard_id, user_id)
+            f"select 1 from access_grants where dashboard_id=$1::uuid and scope=$2 and {wcond} "
+            "and grantee_type='user' and user_id=$4::uuid", dashboard_id, scope, widget_id, user_id)
     if exists:
         raise DashboardError("Доступ уже выдан")
     row = await conn.fetchrow(
-        "insert into access_grants(scope, dashboard_id, grantee_type, role_id, user_id, granted_by) "
-        "values('dashboard', $1::uuid, $2, $3::uuid, $4::uuid, $5) returning id",
-        dashboard_id, grantee_type, role_id, user_id, granted_by)
+        "insert into access_grants(scope, dashboard_id, widget_id, grantee_type, role_id, user_id, granted_by) "
+        "values($1, $2::uuid, $3::uuid, $4, $5::uuid, $6::uuid, $7) returning id",
+        scope, dashboard_id, widget_id, grantee_type, role_id, user_id, granted_by)
     await audit_svc.write_event(
         conn, org_id, granted_by, "grant_access", "dashboard", dashboard_id,
-        new_data={"grant_id": str(row["id"]), "grantee_type": grantee_type,
-                  "role_id": role_id, "user_id": user_id})
+        new_data={"grant_id": str(row["id"]), "scope": scope, "widget_id": widget_id,
+                  "grantee_type": grantee_type, "role_id": role_id, "user_id": user_id})
     return {"id": str(row["id"])}
 
 
@@ -289,12 +321,12 @@ async def remove_grant(conn, org_id, dashboard_id: str, grant_id: str, actor_use
         raise DashboardError("Дашборд не найден")
     old = await conn.fetchrow(
         "select grantee_type, role_id, user_id from access_grants "
-        "where id=$1::uuid and dashboard_id=$2::uuid and scope='dashboard'",
+        "where id=$1::uuid and dashboard_id=$2::uuid",
         grant_id, dashboard_id)
     if old is None:
         raise DashboardError("Грант не найден")
     await conn.execute(
-        "delete from access_grants where id=$1::uuid and dashboard_id=$2::uuid and scope='dashboard'",
+        "delete from access_grants where id=$1::uuid and dashboard_id=$2::uuid",
         grant_id, dashboard_id)
     await audit_svc.write_event(
         conn, org_id, actor_user_id, "revoke_access", "dashboard", dashboard_id,

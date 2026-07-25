@@ -49,3 +49,35 @@ async def _can_view(conn, org_id, user: dict, dashboard_id: str) -> bool:
         "and g.scope='dashboard' and ((g.grantee_type='user' and g.user_id=$3) "
         "or (g.grantee_type='role' and g.role_id = any($4::uuid[]))))))",
         dashboard_id, org_id, user["id"], ctx["role_ids"]))
+
+
+async def visible_widget_ids(conn, org_id, user: dict, dashboard_id: str):
+    """Whitelist виджетов внутри уже видимого дашборда (миграция 004, п.3–4).
+
+    Возвращает:
+      • None  — видны ВСЕ виджеты (нет ограничения): для привилегированных ролей,
+                для автора дашборда, а также если на дашборде нет ни одного
+                widget-level гранта (fallback к dashboard-level, п.4);
+      • set   — множество разрешённых widget_id: как только на дашборде появляется
+                хотя бы один widget-грант, зритель-по-гранту видит ТОЛЬКО те
+                виджеты, что выданы ему напрямую или на его роль (п.3, whitelist).
+
+    Предполагается, что видимость самого дашборда уже проверена _can_view.
+    """
+    ctx = await _user_ctx(conn, user)
+    if ctx["privileged"]:
+        return None
+    # Автор видит все свои виджеты — ограничение адресовано зрителям-по-гранту.
+    if await conn.fetchval(
+            "select 1 from dashboards where id=$1::uuid and created_by=$2", dashboard_id, user["id"]):
+        return None
+    # Есть ли на дашборде widget-level гранты вообще?
+    if not await conn.fetchval(
+            "select 1 from access_grants where dashboard_id=$1::uuid and scope='widget' limit 1", dashboard_id):
+        return None  # нет — значит whitelist не активен, видны все виджеты
+    rows = await conn.fetch(
+        "select distinct widget_id from access_grants "
+        "where dashboard_id=$1::uuid and scope='widget' and widget_id is not null and "
+        "((grantee_type='user' and user_id=$2) or (grantee_type='role' and role_id = any($3::uuid[])))",
+        dashboard_id, user["id"], ctx["role_ids"])
+    return {str(r["widget_id"]) for r in rows}
