@@ -4,6 +4,7 @@ import {
   type Doc, type Folder, type Obj,
 } from '../api'
 import ExtractionPage from './ExtractionPage'
+import RowAclEditor from './RowAclEditor'
 
 const DOCS_PAGE = 50
 
@@ -15,6 +16,7 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
   const [docs, setDocs] = useState<Doc[]>([])
   const [docsTotal, setDocsTotal] = useState(0)
   const [openDoc, setOpenDoc] = useState<Doc | null>(null)
+  const [rowAclObj, setRowAclObj] = useState<Obj | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const [newObj, setNewObj] = useState('')
@@ -160,6 +162,12 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
           <form onSubmit={addFolder} style={rowForm}>
             <input style={input} placeholder="Название папки" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} />
             <button style={btn} disabled={busy || !newFolder.trim()}>＋ Папка</button>
+            {canManage && (
+              <button type="button" style={{ ...btn, background: '#eef2f8', color: '#2f5496' }}
+                onClick={() => setRowAclObj(obj)} title="Ограничить видимость строк данных по подразделению">
+                🔐 Доступ к строкам
+              </button>
+            )}
           </form>
           <List
             items={folders.map((f) => ({ id: f.id, title: f.name, sub: '', onClick: () => openFolder(f) }))}
@@ -167,6 +175,8 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
           />
         </Section>
       )}
+
+      {rowAclObj && <RowAclEditor object={rowAclObj} onClose={() => setRowAclObj(null)} />}
 
       {folder && openDoc && (
         <ExtractionPage doc={openDoc} canManage={canManage} onBack={() => { setOpenDoc(null); refreshDocs() }} />

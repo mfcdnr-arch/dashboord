@@ -22,6 +22,7 @@ from ._alerts import (  # noqa: F401
 )
 from ._base import ANNOTATION_TYPES, WIDGET_TYPES, DashboardError  # noqa: F401
 from ._comments import add_comment, delete_comment, list_comments  # noqa: F401
+from ._rowrls import get_row_acl, set_row_acl  # noqa: F401
 from ._rls import PRIVILEGED_ROLES, _can_view, _user_ctx, visible_dashboard_ids, visible_widget_ids  # noqa: F401
 from ._widgetdata import (  # noqa: F401
     _best_metric_version, _compute_widget, _dataset_multi_series, _dataset_period_series,

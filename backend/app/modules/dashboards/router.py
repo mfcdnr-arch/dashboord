@@ -180,6 +180,30 @@ async def remove_grant(dashboard_id: str, grant_id: str, user: dict = Depends(ma
             raise _bad(e)
 
 
+# --- Row-level RLS: доступ к строкам данных объекта по подразделению ---
+class RowAclIn(BaseModel):
+    row_labels: list[str] = []
+
+
+@router.get("/objects/{object_id}/row-acl")
+async def get_row_acl(object_id: str, user: dict = Depends(manage)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.get_row_acl(conn, user["organization_id"], object_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.put("/objects/{object_id}/row-acl/{department_id}")
+async def set_row_acl(object_id: str, department_id: str, body: RowAclIn, user: dict = Depends(manage)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.set_row_acl(conn, user["organization_id"], user["id"],
+                                             object_id, department_id, body.row_labels)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 # --- Обсуждение дашборда (комментарии) ---
 class CommentIn(BaseModel):
     body: str = Field(min_length=1, max_length=4000)

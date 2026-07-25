@@ -16,6 +16,7 @@ from ..metrics.parser import FormulaError, extract_dependencies, parse
 from ._alerts import _cfg, evaluate_alert
 from ._base import WIDGET_TYPES, DashboardError
 from ._rls import _can_view, visible_dashboard_ids, visible_widget_ids
+from ._rowrls import allowed_rows_for_dataset, rls_tag
 
 
 def _apply_target(res: dict, cfg: dict, value) -> None:
@@ -97,19 +98,31 @@ async def _metric_value(conn, org_id, code: str):
     return value, row["unit"]
 
 
-async def _dataset_series(conn, org_id, dataset_code: str, value_field: str, row=None):
+def _row_acl_clause(params: list, allowed) -> str:
+    """Добавляет фильтр по разрешённым строкам (row-level RLS) к запросу
+    dataset_values. allowed=None — без фильтра; set — whitelist row_label
+    (пустой набор → ни одной строки)."""
+    if allowed is None:
+        return ""
+    params.append(list(allowed))
+    return f" and row_label = any(${len(params)}::text[])"
+
+
+async def _dataset_series(conn, org_id, dataset_code: str, value_field: str, row=None, allowed=None):
     rel = await mr._active_release(conn, org_id, dataset_code)
     if rel is None:
         raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
+    params: list = [rel, value_field, row]
+    acl = _row_acl_clause(params, allowed)
     rows = await conn.fetch(
         "select row_label, value_number from dataset_values "
         "where dataset_release_id=$1 and canonical_field_code=$2 and value_number is not null "
-        "and ($3::text is null or row_label=$3) order by row_index", rel, value_field, row,
+        f"and ($3::text is null or row_label=$3){acl} order by row_index", *params,
     )
     return [{"category": r["row_label"], "value": float(r["value_number"])} for r in rows]
 
 
-async def _dataset_multi_series(conn, org_id, dataset_code: str, value_fields: List[str], row=None) -> dict:
+async def _dataset_multi_series(conn, org_id, dataset_code: str, value_fields: List[str], row=None, allowed=None) -> dict:
     """Несколько серий по одному датасету: категории=строки, серия=каждое поле."""
     rel = await mr._active_release(conn, org_id, dataset_code)
     if rel is None:
@@ -120,10 +133,12 @@ async def _dataset_multi_series(conn, org_id, dataset_code: str, value_fields: L
         "left join canonical_fields cf on cf.code=drf.canonical_field_code "
         "  and cf.object_id=(select object_id from dataset_releases where id=$1) "
         "where drf.dataset_release_id=$1", rel)}
+    params: list = [rel, value_fields, row]
+    acl = _row_acl_clause(params, allowed)
     rows = await conn.fetch(
         "select row_index, row_label, canonical_field_code, value_number from dataset_values "
         "where dataset_release_id=$1 and canonical_field_code = any($2::text[]) and value_number is not null "
-        "and ($3::text is null or row_label=$3) order by row_index", rel, value_fields, row)
+        f"and ($3::text is null or row_label=$3){acl} order by row_index", *params)
     categories: List[str] = []
     per: Dict[str, Dict[str, float]] = {f: {} for f in value_fields}
     for r in rows:
@@ -136,7 +151,7 @@ async def _dataset_multi_series(conn, org_id, dataset_code: str, value_fields: L
 
 
 async def _dataset_period_series(conn, org_id, dataset_code: str, value_field: str,
-                                from_date=None, to_date=None, row=None):
+                                from_date=None, to_date=None, row=None, allowed=None):
     """Ряд по периодам: для каждого активного выпуска датасета — сумма поля (динамика)."""
     rels = await conn.fetch(
         "select id, reporting_period_start from dataset_releases "
@@ -150,16 +165,18 @@ async def _dataset_period_series(conn, org_id, dataset_code: str, value_field: s
         raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
     out = []
     for r in rels:
+        params: list = [r["id"], value_field, row]
+        acl = _row_acl_clause(params, allowed)
         s = await conn.fetchval(
             "select coalesce(sum(value_number),0) from dataset_values "
-            "where dataset_release_id=$1 and canonical_field_code=$2 and ($3::text is null or row_label=$3)",
-            r["id"], value_field, row)
+            f"where dataset_release_id=$1 and canonical_field_code=$2 and ($3::text is null or row_label=$3){acl}",
+            *params)
         period = r["reporting_period_start"].isoformat() if r["reporting_period_start"] else "—"
         out.append((period, float(s)))
     return out
 
 
-async def _dataset_table(conn, org_id, dataset_code: str, row=None):
+async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None):
     rel = await mr._active_release(conn, org_id, dataset_code)
     if rel is None:
         raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
@@ -167,10 +184,12 @@ async def _dataset_table(conn, org_id, dataset_code: str, row=None):
         "select distinct canonical_field_code from dataset_values where dataset_release_id=$1 "
         "order by canonical_field_code", rel)
     cols = [f["canonical_field_code"] for f in fields]
+    params: list = [rel, row]
+    acl = _row_acl_clause(params, allowed)
     vals = await conn.fetch(
         "select row_index, row_label, canonical_field_code, value_text, value_number "
-        "from dataset_values where dataset_release_id=$1 and ($2::text is null or row_label=$2) "
-        "order by row_index", rel, row)
+        f"from dataset_values where dataset_release_id=$1 and ($2::text is null or row_label=$2){acl} "
+        "order by row_index", *params)
     by_row: Dict[int, dict] = {}
     for v in vals:
         r = by_row.setdefault(v["row_index"], {"__row__": v["row_label"]})
@@ -197,16 +216,19 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
         allowed = await visible_widget_ids(conn, org_id, user, str(w["dashboard_id"]))
         if allowed is not None and widget_id not in allowed:
             raise DashboardError("Виджет не найден")
-    # TTL-кэш: данные виджета одинаковы для всех, кто его видит (доступ проверен
-    # выше). Ключ учитывает фильтры страницы. Мягкая деградация при недоступном Redis.
-    key = f"wd:{widget_id}:{from_date or ''}:{to_date or ''}:{row or ''}"
+    # TTL-кэш: данные виджета одинаковы для всех с ОДИНАКОВОЙ видимостью строк.
+    # Ключ учитывает фильтры страницы и row-level RLS (метка по подразделению),
+    # иначе отфильтрованные данные одного отдела попали бы другому. Мягкая
+    # деградация при недоступном Redis.
+    tag = await rls_tag(conn, user)
+    key = f"wd:{widget_id}:{from_date or ''}:{to_date or ''}:{row or ''}:{tag}"
     cached = await cache.get(key)
     if cached is not None:
         try:
             return json.loads(cached)
         except ValueError:
             pass
-    result = await _compute_widget(conn, org_id, w["widget_type"], w["name"], _cfg(w), from_date, to_date, row)
+    result = await _compute_widget(conn, org_id, w["widget_type"], w["name"], _cfg(w), from_date, to_date, row, user=user)
     try:
         await cache.set(key, json.dumps(result, ensure_ascii=False), cache.WIDGET_DATA_TTL)
     except (TypeError, ValueError):
@@ -233,7 +255,10 @@ async def compute_page_data(conn, org_id, page_id: str, user: dict,
         if allowed is not None and wid not in allowed:
             continue  # виджет вне whitelist — не отдаём данные
         try:
-            data = await compute_widget_data(conn, org_id, wid, from_date, to_date, row, skip_acl=True)
+            # user передаём для row-level RLS (skip_acl только пропускает повторную
+            # проверку видимости дашборда/виджета — она уже сделана выше).
+            data = await compute_widget_data(conn, org_id, wid, from_date, to_date, row,
+                                             user=user, skip_acl=True)
             out.append({"id": wid, "data": data})
         except DashboardError as e:
             out.append({"id": wid, "error": str(e)})
@@ -248,13 +273,20 @@ async def preview_widget(conn, org_id, widget_type: str, name: Optional[str], co
 
 
 async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
-                          from_date=None, to_date=None, row=None) -> dict:
+                          from_date=None, to_date=None, row=None, user=None) -> dict:
     # Виджетный фильтр (переопределение глобального): если у виджета задан
     # собственный фильтр (filter_scope='own'), он игнорирует фильтр страницы.
     if cfg.get("filter_scope") == "own":
         from_date = cfg.get("own_from") or None
         to_date = cfg.get("own_to") or None
         row = cfg.get("own_row") or None
+
+    # Row-level RLS: разрешённые строки датасета для пользователя (None — все).
+    # Применяется к ВИДЖЕТНЫМ чтениям датасета; именованные метрики/формулы —
+    # не фильтруются (их значения объективны). user=None (предпросмотр) → все строки.
+    allowed = None
+    if user is not None and cfg.get("dataset_code"):
+        allowed = await allowed_rows_for_dataset(conn, org_id, user, cfg["dataset_code"])
 
     if t == "text":
         return {"type": "text", "title": name, "heading": cfg.get("heading"),
@@ -268,7 +300,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         fields = cfg.get("value_fields") or []
         if not cfg.get("dataset_code") or not fields:
             raise DashboardError("Сравнение: укажите dataset_code и value_fields")
-        res = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row)
+        res = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row, allowed)
         res["type"], res["viz"], res["title"] = "compare", cfg.get("viz", "bar"), name
         return res
 
@@ -278,7 +310,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         fields = cfg.get("value_fields") or []
         if not cfg.get("dataset_code") or not fields:
             raise DashboardError("Тепловая карта: укажите dataset_code и value_fields")
-        ms = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row)
+        ms = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row, allowed)
         # ms: {categories:[строки], series:[{name:поле, data:[значения по строкам]}]}
         cols = [s["name"] for s in ms["series"]]
         cells = []  # [col_idx, row_idx, value]
@@ -297,7 +329,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         fields = cfg.get("value_fields") or []
         if not cfg.get("dataset_code") or not fields:
             raise DashboardError("Сводная таблица: укажите dataset_code и value_fields")
-        ms = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row)
+        ms = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row, allowed)
         cols = [s["name"] for s in ms["series"]]
         col_totals = [0.0] * len(cols)
         grand = 0.0
@@ -320,7 +352,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         # Для МФЦ: из чего складывается общий объём (услуги → суммарно).
         if not cfg.get("dataset_code") or not cfg.get("value_field"):
             raise DashboardError("Водопад: укажите dataset_code и value_field")
-        series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row)
+        series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed)
         cats = [s["category"] for s in series]
         vals = [s["value"] for s in series]
         return {"type": "waterfall", "title": name, "categories": cats, "values": vals,
@@ -348,7 +380,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
     if t == "dynamics":
         if not cfg.get("dataset_code") or not cfg.get("value_field"):
             raise DashboardError("Динамика: укажите dataset_code и value_field")
-        series = await _dataset_period_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], from_date, to_date, row)
+        series = await _dataset_period_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], from_date, to_date, row, allowed)
         periods = [p for p, _ in series]
         values = [v for _, v in series]
         change = values[-1] - values[-2] if len(values) >= 2 else None
@@ -368,7 +400,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         elif cfg.get("metric_code"):
             value, unit = await _metric_value(conn, org_id, cfg["metric_code"])
         elif cfg.get("dataset_code") and cfg.get("value_field"):
-            series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row)
+            series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed)
             value, unit = sum(s["value"] for s in series), cfg.get("unit")
         else:
             raise DashboardError("KPI: укажите формулу, metric_code или dataset_code+value_field")
@@ -384,7 +416,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         elif cfg.get("metric_code"):
             value, unit = await _metric_value(conn, org_id, cfg["metric_code"])
         elif cfg.get("dataset_code") and cfg.get("value_field"):
-            series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row)
+            series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed)
             value, unit = sum(s["value"] for s in series), cfg.get("unit")
         else:
             raise DashboardError("Gauge: укажите формулу, metric_code или dataset_code+value_field")
@@ -401,8 +433,8 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
             plan, unit = await _metric_value(conn, org_id, cfg["plan_metric"])
             fact, _ = await _metric_value(conn, org_id, cfg["fact_metric"])
         elif cfg.get("dataset_code") and cfg.get("plan_field") and cfg.get("fact_field"):
-            plan = sum(s["value"] for s in await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["plan_field"], row))
-            fact = sum(s["value"] for s in await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["fact_field"], row))
+            plan = sum(s["value"] for s in await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["plan_field"], row, allowed))
+            fact = sum(s["value"] for s in await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["fact_field"], row, allowed))
             unit = cfg.get("unit")
         else:
             raise DashboardError("План-факт: укажите plan_metric+fact_metric или dataset_code+plan_field+fact_field")
@@ -414,13 +446,13 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
     if t == "table":
         if not cfg.get("dataset_code"):
             raise DashboardError("Таблица: укажите dataset_code")
-        table = await _dataset_table(conn, org_id, cfg["dataset_code"], row)
+        table = await _dataset_table(conn, org_id, cfg["dataset_code"], row, allowed)
         return {"type": "table", "title": name, **table}
 
     # bar | line | pie
     if not cfg.get("dataset_code") or not cfg.get("value_field"):
         raise DashboardError("График: укажите dataset_code и value_field")
-    series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row)
+    series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed)
     return {"type": t, "title": name,
             "categories": [s["category"] for s in series],
             "values": [s["value"] for s in series]}
@@ -624,7 +656,9 @@ async def widget_drill(conn, org_id, widget_id: str, user: dict) -> dict:
     tables: Dict[str, Any] = {}
     for dc in seen:
         try:
-            tables[dc] = await _dataset_table(conn, org_id, dc)
+            # Drill-до-первичных-строк тоже под row-level RLS.
+            dc_allowed = await allowed_rows_for_dataset(conn, org_id, user, dc)
+            tables[dc] = await _dataset_table(conn, org_id, dc, allowed=dc_allowed)
         except DashboardError:
             tables[dc] = {"columns": [], "rows": []}
 
