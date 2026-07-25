@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { changePassword, checkPassword, getPasswordPolicy, passwordHint, type PasswordPolicy } from '../api'
+import Logo from './Logo'
 
 export default function ChangePassword({
   token,
@@ -39,6 +40,13 @@ export default function ChangePassword({
   return (
     <div style={wrap}>
       <form onSubmit={submit} style={card}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <Logo size={38} radius={9} />
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1 }}>Dashboard</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>ГБУ «МФЦ ДНР»</div>
+          </div>
+        </div>
         <h1 style={{ fontSize: 18, marginTop: 0 }}>Смена пароля</h1>
         <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 0 }}>
           При первом входе необходимо задать новый пароль.

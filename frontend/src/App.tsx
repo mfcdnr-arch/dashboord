@@ -14,6 +14,7 @@ import CatalogPage from './components/CatalogPage'
 import NotificationBell from './components/NotificationBell'
 import OnboardingHint from './components/OnboardingHint'
 import ThemeToggle from './components/ThemeToggle'
+import Logo from './components/Logo'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -103,7 +104,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   return (
     <div style={{ fontFamily: 'var(--font-body)', minHeight: '100vh' }}>
       <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
-        <div style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>D</div>
+        <Logo size={34} />
         <div>
           <div style={{ fontSize: 16, fontWeight: 600, lineHeight: 1 }}>Dashboard</div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>ГБУ «МФЦ ДНР»</div>

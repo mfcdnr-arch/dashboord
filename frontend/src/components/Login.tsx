@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { login, setToken } from '../api'
+import Logo from './Logo'
 
 // Стартовая страница входа. Двухпанельная: слева — о портале, справа — форма.
 // БРЕНД: цвета/название/эмблема вынесены в BRAND ниже — под будущий брендбук МФЦ
@@ -58,7 +59,7 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
       <div style={{ ...hero, padding: narrow ? '32px 24px' : '56px 52px', minHeight: narrow ? undefined : '100vh' }}>
         <div style={heroInner}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: narrow ? 20 : 40 }}>
-            <div style={emblem}>D</div>
+            <Logo size={48} radius={12} border={false} />
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: 0.3 }}>Dashboard</div>
               <div style={{ fontSize: 12, opacity: 0.8 }}>{BRAND.orgShort}</div>
@@ -119,10 +120,6 @@ const hero: React.CSSProperties = {
   background: `radial-gradient(1200px 600px at 15% -10%, ${BRAND.primary} 0%, ${BRAND.primaryDark} 55%, #3a1e12 100%)`,
 }
 const heroInner: React.CSSProperties = { width: '100%', maxWidth: 680 }
-const emblem: React.CSSProperties = {
-  width: 44, height: 44, borderRadius: 12, background: 'rgba(255,255,255,0.14)', border: '1px solid rgba(255,255,255,0.25)',
-  display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 20,
-}
 const featCard: React.CSSProperties = {
   background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 12, padding: '14px 16px',
 }
