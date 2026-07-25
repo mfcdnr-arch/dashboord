@@ -7,7 +7,7 @@ on:
 
 jobs:
   frontend:
-    name: Фронтенд (tsc + build)
+    name: Фронтенд (tsc + тесты + build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,6 +19,8 @@ jobs:
       - run: npm ci
         working-directory: frontend
       - run: npx tsc --noEmit
+        working-directory: frontend
+      - run: npm test
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
