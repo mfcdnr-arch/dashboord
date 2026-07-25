@@ -131,6 +131,26 @@ export async function removeDashboardGrant(dashboardId: string, grantId: string)
   if (!res.ok) throw new Error(await errText(res))
 }
 
+// --- Обсуждение дашборда (комментарии) ---
+export interface DashComment { id: string; body: string; created_at: string; author_id: string | null; author: string; can_delete: boolean }
+export async function listComments(dashboardId: string, limit = 50, offset = 0): Promise<Page<DashComment>> {
+  const p = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  const res = await fetch(`/dashboards/${dashboardId}/comments?${p}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function addComment(dashboardId: string, body: string): Promise<{ id: string }> {
+  const res = await fetch(`/dashboards/${dashboardId}/comments`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ body }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function deleteComment(dashboardId: string, commentId: string): Promise<void> {
+  const res = await fetch(`/dashboards/${dashboardId}/comments/${commentId}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
+
 // --- Пресеты фильтров дашборда (FR-13) ---
 export interface DashFilters { from?: string; to?: string; row?: string }
 export interface DashPreset { id: string; name: string; filters: DashFilters }

@@ -180,6 +180,42 @@ async def remove_grant(dashboard_id: str, grant_id: str, user: dict = Depends(ma
             raise _bad(e)
 
 
+# --- Обсуждение дашборда (комментарии) ---
+class CommentIn(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+
+@router.get("/dashboards/{dashboard_id}/comments")
+async def list_comments(dashboard_id: str, user: dict = Depends(get_current_user),
+                        limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.list_comments(conn, user["organization_id"], user, dashboard_id,
+                                               limit=limit, offset=offset)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.post("/dashboards/{dashboard_id}/comments", status_code=status.HTTP_201_CREATED)
+async def add_comment(dashboard_id: str, body: CommentIn, user: dict = Depends(get_current_user)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            async with conn.transaction():
+                return await service.add_comment(conn, user["organization_id"], user, dashboard_id, body.body)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.delete("/dashboards/{dashboard_id}/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_comment(dashboard_id: str, comment_id: str, user: dict = Depends(get_current_user)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            async with conn.transaction():
+                await service.delete_comment(conn, user["organization_id"], user, dashboard_id, comment_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 # --- Пресеты фильтров дашборда ---
 class PresetIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)

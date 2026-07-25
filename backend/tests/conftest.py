@@ -57,6 +57,9 @@ async def purge_dashboard(did):
         await conn.execute("delete from access_grants where dashboard_id=$1::uuid", did)
         await conn.execute("delete from dashboard_favorites where dashboard_id=$1::uuid", did)
         await conn.execute("delete from dashboard_filter_presets where dashboard_id=$1::uuid", did)
+        # Уведомления по дашборду (напр. dashboard.comment) — FK на дашборд нет,
+        # чистим по entity; получатели уйдут каскадом от notification_events.
+        await conn.execute("delete from notification_events where entity_type='dashboard' and entity_id=$1::uuid", did)
         await conn.execute("delete from dashboards where id=$1::uuid", did)
 
 

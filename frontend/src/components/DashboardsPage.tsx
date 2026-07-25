@@ -12,6 +12,7 @@ import WidgetView from './WidgetView'
 import KioskView from './KioskView'
 
 import { AccessEditor } from './dashboards/AccessEditor'
+import { Comments } from './dashboards/Comments'
 import { AlertEditor } from './dashboards/AlertEditor'
 import { SourceCatalog, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
 import { PubBadge, WT, alertBtn, btn, btnAuto, btnGhost, crumb, dialog, editBtn, errBox, input, linkDanger, muted, overlay, presetChip, rmBtn, rowForm, rowItem, tab, tabActive, widgetCard, wtBadge } from './dashboards/shared'
@@ -62,6 +63,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   const [alertWidget, setAlertWidget] = useState<Widget | null>(null)
   const [editWidget, setEditWidget] = useState<Widget | null>(null)
   const [accessOpen, setAccessOpen] = useState(false)
+  const [commentsOpen, setCommentsOpen] = useState(false)
   const [presets, setPresets] = useState<DashPreset[]>([])
   const [kiosk, setKiosk] = useState(false)
 
@@ -361,6 +363,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
             {page && <button style={btnGhost} disabled={exporting} onClick={exportPng} title="Снимок страницы в PNG">⤓ PNG</button>}
             {canManage && <button style={btnGhost} onClick={saveTemplate}>Сохранить как шаблон</button>}
             {canManage && <button style={btnGhost} onClick={() => setAccessOpen(true)} title="Кто видит этот дашборд">🔒 Доступ</button>}
+            <button style={btnGhost} onClick={() => setCommentsOpen(true)} title="Обсуждение дашборда">💬 Обсуждение</button>
           </div>
           {versions && (
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, marginBottom: 12 }}>
@@ -490,6 +493,10 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
           </div>
         </div>
       )}
+      {commentsOpen && sel && (
+        <Comments dashboard={sel.dashboard} onClose={() => setCommentsOpen(false)} />
+      )}
+
       {accessOpen && sel && (
         <AccessEditor dashboard={sel.dashboard} onClose={() => setAccessOpen(false)} />
       )}

@@ -14,6 +14,7 @@ EVENT_LABELS = {
     "data.missing": "Ожидаемые данные не поступили",
     "data.retention": "Очистка старых данных (ретенция)",
     "widget.created.no_explicit_access": "Новый виджет без прав доступа",
+    "dashboard.comment": "Новый комментарий к дашборду",
 }
 
 
