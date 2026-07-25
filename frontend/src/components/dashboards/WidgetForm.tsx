@@ -121,6 +121,8 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
 }) {
   const cfg0 = (initial?.config || {}) as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
   const numFields = (dc: string) => (sources.datasets.find((d) => d.code === dc)?.fields.filter((f) => f.data_type === 'number') || [])
+  // Уникальные числовые поля по ВСЕМ датасетам — для «Сравнения подразделений» (поле, не привязанное к датасету).
+  const allNumFields = Array.from(new Map(sources.datasets.flatMap((d) => d.fields.filter((f) => f.data_type === 'number').map((f) => [f.code, f])) as [string, { code: string; name: string }][]).values())
   const initDataset = cfg0.dataset_code || sources.datasets[0]?.code || ''
   const [name, setName] = useState(initial?.name || '')
   const [type, setType] = useState(initial?.widget_type || 'kpi')
@@ -140,8 +142,10 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const [align, setAlign] = useState(cfg0.align || 'left')
   const [imgUrl, setImgUrl] = useState(cfg0.url || '')
   const [caption, setCaption] = useState(cfg0.caption || '')
+  const [objField, setObjField] = useState(cfg0.value_field || allNumFields[0]?.code || '')
 
   const [pickerOpen, setPickerOpen] = useState(false)
+  const isObjectsCompare = type === 'objects_compare'
   const isText = type === 'text'
   const isImage = type === 'image'
   const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
@@ -172,6 +176,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     }
     if (type === 'plan_fact') return source === 'metric' ? ((metricCode && factMetric) ? { plan_metric: metricCode, fact_metric: factMetric } : null) : ((dataset && planField && factField) ? { dataset_code: dataset, plan_field: planField, fact_field: factField } : null)
     if (type === 'table') return dataset ? { dataset_code: dataset } : null
+    if (type === 'objects_compare') return objField ? { value_field: objField } : null
     if (type === 'compare') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields, viz } : null
     if (type === 'heatmap' || type === 'pivot') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields } : null
     return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null // bar/line/pie/dynamics
@@ -279,6 +284,12 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       )}
       {usesValueField && (
         <F t="Поле (значение)"><select style={sel} value={valueField} onChange={(e) => setValueField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></F>
+      )}
+      {isObjectsCompare && (
+        <F t="Показатель (по подразделениям)"><select style={sel} value={objField} onChange={(e) => setObjField(e.target.value)}>
+          {allNumFields.length === 0 && <option value="">— нет числовых полей —</option>}
+          {allNumFields.map((f) => <option key={f.code} value={f.code}>{f.name} ({f.code})</option>)}
+        </select></F>
       )}
       {type === 'gauge' && (
         <F t="Шкала, max (пусто — авто)"><input style={{ ...sel, width: 130 }} type="number" placeholder="напр. 100" value={gaugeMax} onChange={(e) => setGaugeMax(e.target.value)} /></F>

@@ -16,6 +16,7 @@ const ICONS: Record<string, React.ReactNode> = {
   dynamics: <svg style={box} viewBox="0 0 52 34"><polyline points="8,24 18,20 28,22 40,10 46,8" fill="none" stroke={C1} strokeWidth="2.5" /><circle cx="46" cy="8" r="2.5" fill={C1} /></svg>,
   compare: <svg style={box} viewBox="0 0 52 34"><rect x="8" y="14" width="5" height="14" fill={C1} /><rect x="14" y="18" width="5" height="10" fill={C3} /><rect x="25" y="8" width="5" height="20" fill={C1} /><rect x="31" y="16" width="5" height="12" fill={C3} /></svg>,
   waterfall: <svg style={box} viewBox="0 0 52 34"><rect x="7" y="20" width="7" height="8" fill={GREEN} /><rect x="16" y="14" width="7" height="6" fill={GREEN} /><rect x="25" y="10" width="7" height="4" fill={C1} /><rect x="34" y="14" width="7" height="4" fill={GOLD} /><rect x="43" y="6" width="7" height="22" fill={C1} /></svg>,
+  objects_compare: <svg style={box} viewBox="0 0 52 34"><rect x="9" y="8" width="9" height="20" fill={C1} /><rect x="22" y="14" width="9" height="14" fill={GREEN} /><rect x="35" y="18" width="9" height="10" fill={GOLD} /><line x1="6" y1="28" x2="47" y2="28" stroke="#cbd5e1" strokeWidth="1" /></svg>,
   pivot: <svg style={box} viewBox="0 0 52 34"><rect x="8" y="5" width="36" height="24" fill="none" stroke={C1} strokeWidth="1.5" /><line x1="8" y1="12" x2="44" y2="12" stroke={C1} strokeWidth="1.5" /><line x1="8" y1="23" x2="44" y2="23" stroke={GOLD} strokeWidth="1.5" /><line x1="32" y1="5" x2="32" y2="29" stroke={GOLD} strokeWidth="1.5" /><line x1="20" y1="5" x2="20" y2="29" stroke="#cbd5e1" strokeWidth="1" /></svg>,
   heatmap: <svg style={box} viewBox="0 0 52 34">{[0, 1, 2].map(r => [0, 1, 2, 3].map(c => { const arr = ['#e6edf6', C3, C1, GOLD, C2]; return <rect key={`${r}-${c}`} x={8 + c * 9} y={4 + r * 9} width="8" height="8" fill={arr[(r * 4 + c) % arr.length]} /> }))}</svg>,
   table: <svg style={box} viewBox="0 0 52 34"><rect x="8" y="6" width="36" height="22" fill="none" stroke={C1} strokeWidth="1.5" /><line x1="8" y1="13" x2="44" y2="13" stroke={C1} strokeWidth="1.5" /><line x1="20" y1="6" x2="20" y2="28" stroke="#cbd5e1" strokeWidth="1" /><line x1="32" y1="6" x2="32" y2="28" stroke="#cbd5e1" strokeWidth="1" /><line x1="8" y1="20" x2="44" y2="20" stroke="#cbd5e1" strokeWidth="1" /></svg>,
@@ -45,6 +46,7 @@ export const WIDGET_GROUPS: Group[] = [
       { v: 'dynamics', t: 'Динамика', hint: 'Ряд по периодам + прирост' },
       { v: 'compare', t: 'Сравнение', hint: 'Несколько полей рядом (мультисерия)' },
       { v: 'waterfall', t: 'Водопад', hint: 'Вклад строк в накопленный итог' },
+      { v: 'objects_compare', t: 'Сравнение подразделений', hint: 'Показатель по объектам/филиалам рядом' },
     ],
   },
   {

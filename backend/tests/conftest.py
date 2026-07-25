@@ -110,12 +110,16 @@ async def seed_dataset(ids):
         await conn.execute("delete from dataset_values where dataset_release_id in "
                            "(select id from dataset_releases where code='t_ds')")
         await conn.execute("delete from dataset_releases where code='t_ds'")
+        await conn.execute("delete from objects where name='t_obj' and organization_id=$1", ids["org"])
+        # тест-объект (= подразделение) — чтобы работал objects_compare (агрегация по объектам)
+        obj = await conn.fetchval(
+            "insert into objects(organization_id,name) values($1,'t_obj') returning id", ids["org"])
         rel_old = await conn.fetchval(
-            "insert into dataset_releases(organization_id,code,name,status,reporting_period_start,created_by) "
-            "values($1,'t_ds','Тест ДС',$2,'2026-01-01',$3) returning id", ids["org"], "released", ids["admin"])
+            "insert into dataset_releases(organization_id,code,name,status,reporting_period_start,created_by,object_id) "
+            "values($1,'t_ds','Тест ДС',$2,'2026-01-01',$3,$4) returning id", ids["org"], "released", ids["admin"], obj)
         rel_new = await conn.fetchval(
-            "insert into dataset_releases(organization_id,code,name,status,reporting_period_start,created_by) "
-            "values($1,'t_ds','Тест ДС',$2,'2026-02-01',$3) returning id", ids["org"], "released", ids["admin"])
+            "insert into dataset_releases(organization_id,code,name,status,reporting_period_start,created_by,object_id) "
+            "values($1,'t_ds','Тест ДС',$2,'2026-02-01',$3,$4) returning id", ids["org"], "released", ids["admin"], obj)
         for i, r in enumerate(rows):
             # старый выпуск — только plan (для динамики: 2 периода)
             await conn.execute("insert into dataset_values(dataset_release_id,row_index,row_label,canonical_field_code,value_number) "
@@ -130,6 +134,7 @@ async def seed_dataset(ids):
         await conn.execute("delete from dataset_values where dataset_release_id in "
                            "(select id from dataset_releases where code='t_ds')")
         await conn.execute("delete from dataset_releases where code='t_ds'")
+        await conn.execute("delete from objects where name='t_obj' and organization_id=$1", ids["org"])
 
 
 @pytest_asyncio.fixture

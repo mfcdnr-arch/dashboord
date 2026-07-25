@@ -268,6 +268,21 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     return <EChart option={opt} height={220} />
   }
 
+  if (data.type === 'objects_compare') {
+    const cats: string[] = data.categories || []
+    if (cats.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных по объектам для этого показателя</div>
+    const longX = cats.some((c) => c.length > 6)
+    const opt: EChartsOption = {
+      grid: { left: 44, right: 12, top: 14, bottom: longX ? 60 : 40 },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      xAxis: { type: 'category', data: cats, axisLabel: { interval: 0, rotate: longX ? 30 : 0, fontSize: 11 } },
+      yAxis: { type: 'value' },
+      series: [{ type: 'bar', barMaxWidth: 44, label: { show: true, position: 'top', fontSize: 11, formatter: (p: any) => fmt(p.value) },
+        data: (data.values || []).map((v: number, i: number) => ({ value: v, itemStyle: { color: PALETTE[i % PALETTE.length] } })) }],
+    }
+    return <EChart option={opt} height={220} onPick={onPick} />
+  }
+
   // bar | line | pie
   if ((data.categories || []).length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
   return <EChart option={chartOption(data)} height={200} onPick={onPick} />

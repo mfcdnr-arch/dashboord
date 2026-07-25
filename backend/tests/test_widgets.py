@@ -95,6 +95,20 @@ async def test_waterfall(client, admin_headers, seed_dataset):
     assert d["values"] == seed_dataset["plan"]  # [100,50,30]
 
 
+async def test_objects_compare(client, admin_headers, seed_dataset):
+    d = await _preview(client, admin_headers, "objects_compare", {"value_field": "plan"})
+    assert d["type"] == "objects_compare"
+    assert "t_obj" in d["categories"]  # тест-объект (подразделение)
+    i = d["categories"].index("t_obj")
+    assert d["values"][i] == 180  # сумма поля plan в последнем выпуске
+
+
+async def test_objects_compare_missing_field_400(client, admin_headers):
+    r = await client.post("/widgets/preview", headers=admin_headers,
+                         json={"widget_type": "objects_compare", "name": "T", "config": {}})
+    assert r.status_code == 400
+
+
 async def test_text(client, admin_headers):
     d = await _preview(client, admin_headers, "text", {"heading": "Заголовок", "body": "Текст"})
     assert d["type"] == "text" and d["heading"] == "Заголовок"

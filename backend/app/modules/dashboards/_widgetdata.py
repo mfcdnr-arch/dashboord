@@ -260,6 +260,25 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         return {"type": "waterfall", "title": name, "categories": cats, "values": vals,
                 "total_label": cfg.get("total_label") or "Итого"}
 
+    if t == "objects_compare":
+        # Сравнение подразделений: показатель (поле) агрегируется по ОБЪЕКТАМ
+        # (каждый объект = подразделение/филиал), берётся последний выпуск на объект.
+        field = cfg.get("value_field")
+        if not field:
+            raise DashboardError("Сравнение подразделений: укажите показатель (поле)")
+        rows = await conn.fetch(
+            "with latest as ("
+            "  select distinct on (object_id) id, object_id from dataset_releases "
+            "  where organization_id=$1 and status<>'superseded' and object_id is not null "
+            "  order by object_id, reporting_period_start desc nulls last, created_at desc) "
+            "select o.name as obj, coalesce(sum(dv.value_number),0) as val "
+            "from latest l join objects o on o.id=l.object_id "
+            "join dataset_values dv on dv.dataset_release_id=l.id and dv.canonical_field_code=$2 "
+            "group by o.name having coalesce(sum(dv.value_number),0) <> 0 order by val desc",
+            org_id, field)
+        return {"type": "objects_compare", "title": name,
+                "categories": [r["obj"] for r in rows], "values": [float(r["val"]) for r in rows]}
+
     if t == "dynamics":
         if not cfg.get("dataset_code") or not cfg.get("value_field"):
             raise DashboardError("Динамика: укажите dataset_code и value_field")
@@ -464,6 +483,11 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
             for c, v in zip(data.get("categories", []), data.get("values", [])):
                 ws.append([c, v])
             ws.append([data.get("total_label", "Итого"), sum(v for v in data.get("values", []) if v is not None)])
+        elif t == "objects_compare":
+            ws = wb.create_sheet(sheet_name(name))
+            ws.append(["Подразделение", "Значение"])
+            for c, v in zip(data.get("categories", []), data.get("values", [])):
+                ws.append([c, v])
 
     if not has_summary and len(wb.sheetnames) > 1:
         wb.remove(summary)  # нет KPI/план-факта, но есть датасетные листы — убираем пустую сводку
