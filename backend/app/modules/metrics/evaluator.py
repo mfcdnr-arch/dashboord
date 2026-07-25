@@ -10,9 +10,48 @@ field/cell/metric, PLAN_FACT_DELTA/PLAN_FACT_PCT.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Protocol
+import json
+from calendar import monthrange
+from datetime import date
+from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from .parser import FormulaError
+
+
+def node_key(node: Dict[str, Any]) -> str:
+    """Стабильный ключ узла AST — для сопоставления предзагруженного ряда окна."""
+    return json.dumps(node, sort_keys=True, ensure_ascii=False)
+
+
+def _add_months(d: date, n: int) -> date:
+    m = d.month - 1 + n
+    y = d.year + m // 12
+    m = m % 12 + 1
+    return date(y, m, min(d.day, monthrange(y, m)[1]))
+
+
+def _shift_back(iso: str, unit: str) -> str:
+    """Период на 1 единицу назад (для PERIOD_COMPARE)."""
+    from datetime import timedelta
+    d = date.fromisoformat(iso)
+    if unit == "day":
+        d = d - timedelta(days=1)
+    elif unit == "week":
+        d = d - timedelta(days=7)
+    elif unit == "month":
+        d = _add_months(d, -1)
+    elif unit == "quarter":
+        d = _add_months(d, -3)
+    elif unit == "year":
+        d = _add_months(d, -12)
+    return d.isoformat()
+
+
+def _nearest_value(series: List[Tuple[str, float]], target_iso: str) -> float:
+    """Значение периода, ближайшего к target (для сравнения периодов)."""
+    tgt = date.fromisoformat(target_iso)
+    best = min(series, key=lambda pv: abs((date.fromisoformat(pv[0]) - tgt).days))
+    return best[1]
 
 
 class Resolver(Protocol):
@@ -28,6 +67,10 @@ class Resolver(Protocol):
 
     def metric(self, code: str, version: Any) -> float:
         """Значение другой метрики (version: 'approved' | 'latest' | int)."""
+        ...
+
+    def window_series(self, key: str) -> List[Tuple[str, float]]:
+        """Ряд (период_iso, значение) для оконной функции — по возрастанию периода."""
         ...
 
 
@@ -116,9 +159,32 @@ def evaluate(ast: Dict[str, Any], resolver: Resolver) -> float:
         return value / base * 100.0
 
     if t in ("running_total", "period_compare", "share"):
-        raise FormulaError(
-            f"Оконная функция «{t}» пока не вычисляется — нужен ряд значений по периодам "
-            f"(временной контур/архив). Формула сохраняется, но предпросмотр недоступен."
-        )
+        getter = getattr(resolver, "window_series", None)
+        if getter is None:
+            # Резолвер без периодов (напр. in-memory смоук): вычисление недоступно.
+            raise FormulaError(f"Оконная функция «{t}» требует ряд значений по периодам")
+        series = getter(node_key(ast))  # [(период_iso, значение)] по возрастанию
+        if not series:
+            raise FormulaError(f"Оконная функция «{t}»: нет данных по периодам (нужны выпуски датасета за разные периоды)")
+        if t == "running_total":
+            # Нарастающий итог как скаляр = сумма по всем периодам до последнего.
+            return float(sum(v for _, v in series))
+        if t == "share":
+            # Доля значения последнего периода в сумме по всем периодам, %.
+            total = sum(v for _, v in series)
+            if total == 0:
+                raise FormulaError("SHARE_OF_TOTAL: сумма по периодам равна нулю")
+            return series[-1][1] / total * 100.0
+        # period_compare: последний период vs период на 1 unit назад
+        if len(series) < 2:
+            raise FormulaError("PERIOD_COMPARE: нужно минимум 2 периода данных")
+        cur_period, cur = series[-1]
+        prev = _nearest_value(series[:-1], _shift_back(cur_period, ast["unit"]))
+        mode = ast.get("mode", "delta")
+        if mode == "delta":
+            return cur - prev
+        if prev == 0:
+            raise FormulaError("PERIOD_COMPARE: значение прошлого периода равно нулю")
+        return cur / prev * 100.0 if mode == "pct" else cur / prev  # pct | ratio
 
     raise FormulaError(f"Неизвестный узел AST: {t}")

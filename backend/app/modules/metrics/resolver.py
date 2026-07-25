@@ -24,11 +24,16 @@ def collect_refs(ast: Dict[str, Any]) -> Dict[str, list]:
     columns: List[Tuple[str, str, Optional[Dict[str, str]]]] = []
     cells: List[Tuple[str, str, str, str]] = []
     metrics: List[Tuple[str, Any]] = []
+    windows: List[Dict[str, Any]] = []
 
     def walk(node: Any) -> None:
         if not isinstance(node, dict):
             return
         t = node.get("t")
+        if t in ("running_total", "period_compare", "share"):
+            # Оконная функция — данные грузятся отдельно по периодам (не рекурсируем в arg).
+            windows.append(node)
+            return
         if t == "agg" and node["arg"].get("t") == "field":
             f = node["arg"]
             columns.append((f["dataset"], f["field"], node.get("filter")))
@@ -46,17 +51,23 @@ def collect_refs(ast: Dict[str, Any]) -> Dict[str, list]:
                     walk(it)
 
     walk(ast)
-    return {"columns": columns, "cells": cells, "metrics": metrics}
+    return {"columns": columns, "cells": cells, "metrics": metrics, "windows": windows}
 
 
 # --------------------------------------------------------------------------- #
 # Кэш-резолвер (реализует протокол evaluator.Resolver)
 # --------------------------------------------------------------------------- #
 class CacheResolver:
-    def __init__(self, columns: dict, cells: dict, metrics: dict):
+    def __init__(self, columns: dict, cells: dict, metrics: dict, windows: Optional[dict] = None):
         self._columns = columns
         self._cells = cells
         self._metrics = metrics
+        self._windows = windows or {}
+
+    def window_series(self, key: str):
+        if key not in self._windows:
+            raise FormulaError("Оконная функция: ряд по периодам не предзагружен")
+        return self._windows[key]
 
     def column(self, dataset: str, field: str, filters: Optional[Dict[str, str]]) -> List[float]:
         key = (dataset, field, _freeze(filters))
@@ -100,8 +111,21 @@ async def _active_release(conn, org_id, code: str, date: Optional[str] = None):
     )
 
 
-async def _fetch_column(conn, org_id, dataset: str, field: str, filters: Optional[Dict[str, str]]) -> List[float]:
-    rel = await _active_release(conn, org_id, dataset)
+async def _dataset_periods(conn, org_id, datasets) -> List[str]:
+    """Упорядоченный список периодов (reporting_period_start, iso) по выпускам
+    указанных датасетов — ось времени для оконных функций."""
+    if not datasets:
+        return []
+    rows = await conn.fetch(
+        "select distinct reporting_period_start as p from dataset_releases "
+        "where organization_id=$1 and code = any($2::text[]) and status <> 'superseded' "
+        "and reporting_period_start is not null order by p", org_id, list(datasets))
+    return [r["p"].isoformat() for r in rows]
+
+
+async def _fetch_column(conn, org_id, dataset: str, field: str, filters: Optional[Dict[str, str]],
+                        period: Optional[str] = None) -> List[float]:
+    rel = await _active_release(conn, org_id, dataset, period)
     if rel is None:
         raise FormulaError(f"Датасет '{dataset}' не найден или не выпущен")
     if filters:
@@ -162,8 +186,55 @@ async def evaluate_ast(conn, org_id, ast: Dict[str, Any], _visiting: Optional[se
         if code not in metrics:
             metrics[code] = await _compute_metric(conn, org_id, code, version, _visiting)
 
-    resolver = CacheResolver(columns, cells, metrics)
+    windows: dict = {}
+    for wnode in refs.get("windows", []):
+        key = evaluator.node_key(wnode)
+        if key not in windows:
+            windows[key] = await _compute_window_series(conn, org_id, wnode, _visiting)
+
+    resolver = CacheResolver(columns, cells, metrics, windows)
     return evaluator.evaluate(ast, resolver)
+
+
+async def _compute_window_series(conn, org_id, wnode: Dict[str, Any], visiting: set) -> List[Tuple[str, float]]:
+    """Ряд (период, значение_arg) — вычисляет arg оконной функции для каждого
+    периода выпусков датасетов, на которые ссылается arg. metric()/cell() внутри
+    arg берутся на активном выпуске (период-независимо)."""
+    arg = wnode["arg"]
+    arg_refs = collect_refs(arg)
+    datasets = {ds for ds, _f, _flt in arg_refs["columns"]}
+    periods = await _dataset_periods(conn, org_id, datasets)
+
+    # период-независимые ссылки (ячейки/метрики) — грузим один раз
+    cells: dict = {}
+    for ds, dt, row, col in arg_refs["cells"]:
+        cells[(ds, dt, row, col)] = await _fetch_cell(conn, org_id, ds, dt, row, col)
+    metrics: dict = {}
+    for code, version in arg_refs["metrics"]:
+        if code not in metrics:
+            metrics[code] = await _compute_metric(conn, org_id, code, version, visiting)
+
+    series: List[Tuple[str, float]] = []
+    for p in periods:
+        cols: dict = {}
+        ok = True
+        for ds, f, flt in arg_refs["columns"]:
+            k = (ds, f, _freeze(flt))
+            if k in cols:
+                continue
+            try:
+                cols[k] = await _fetch_column(conn, org_id, ds, f, flt, period=p)
+            except FormulaError:
+                ok = False
+                break
+        if not ok:
+            continue
+        try:
+            val = evaluator.evaluate(arg, CacheResolver(cols, cells, metrics))
+        except FormulaError:
+            continue
+        series.append((p, val))
+    return series
 
 
 async def _compute_metric(conn, org_id, code: str, version: Any, visiting: set) -> float:
