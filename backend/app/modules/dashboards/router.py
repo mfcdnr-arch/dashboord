@@ -324,6 +324,19 @@ async def list_widgets(page_id: str, user: dict = Depends(get_current_user)):
             raise _bad(e)
 
 
+@router.get("/dashboard-pages/{page_id}/data")
+async def page_data(page_id: str, user: dict = Depends(get_current_user),
+                    from_: Optional[str] = Query(None, alias="from"),
+                    to: Optional[str] = Query(None),
+                    row: Optional[str] = Query(None)):
+    """Данные всех виджетов страницы за 1 запрос (перф). Учитывает фильтры страницы."""
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.compute_page_data(conn, user["organization_id"], page_id, user, from_, to, row)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.post("/dashboard-pages/{page_id}/widgets", status_code=status.HTTP_201_CREATED)
 async def create_widget(page_id: str, body: WidgetIn, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:

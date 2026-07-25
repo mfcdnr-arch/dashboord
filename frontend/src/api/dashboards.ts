@@ -169,6 +169,18 @@ export async function listPageWidgets(pageId: string): Promise<{ page_id: string
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+// Данные всех виджетов страницы за 1 запрос (перф). Учитывает фильтры страницы.
+export interface PageWidgetData { id: string; data?: any; error?: string } // eslint-disable-line @typescript-eslint/no-explicit-any
+export async function getPageData(pageId: string, from?: string, to?: string, row?: string): Promise<{ page_id: string; widgets: PageWidgetData[] }> {
+  const p = new URLSearchParams()
+  if (from) p.set('from', from)
+  if (to) p.set('to', to)
+  if (row) p.set('row', row)
+  const qs = p.toString()
+  const res = await fetch(`/dashboard-pages/${pageId}/data${qs ? '?' + qs : ''}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
 export async function createWidget(pageId: string, body: {
   name: string; widget_type: string; config: Record<string, unknown>
   position_x?: number; position_y?: number; width?: number; height?: number

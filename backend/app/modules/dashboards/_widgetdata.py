@@ -207,6 +207,29 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
     return result
 
 
+async def compute_page_data(conn, org_id, page_id: str, user: dict,
+                            from_date=None, to_date=None, row=None) -> dict:
+    """Данные ВСЕХ виджетов страницы одним запросом (перф: 1 запрос вместо N).
+    Доступ проверяется один раз на уровне страницы; далее компьютим виджеты
+    (с кэшем/алертами). Ошибка одного виджета не рушит остальные."""
+    p = await _page_org(conn, org_id, page_id)
+    if p is None:
+        raise DashboardError("Страница не найдена")
+    if not await _can_view(conn, org_id, user, str(p["dashboard_id"])):
+        raise DashboardError("Страница не найдена")
+    rows = await conn.fetch(
+        "select id from widgets where page_id=$1::uuid order by position_y, position_x", page_id)
+    out = []
+    for w in rows:
+        wid = str(w["id"])
+        try:
+            data = await compute_widget_data(conn, org_id, wid, from_date, to_date, row, skip_acl=True)
+            out.append({"id": wid, "data": data})
+        except DashboardError as e:
+            out.append({"id": wid, "error": str(e)})
+    return {"page_id": page_id, "widgets": out}
+
+
 async def preview_widget(conn, org_id, widget_type: str, name: Optional[str], config: dict) -> dict:
     """Предпросмотр виджета по конфигу без сохранения (для конструктора)."""
     if widget_type not in WIDGET_TYPES:

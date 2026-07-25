@@ -4,9 +4,9 @@ import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import {
   autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deletePage, deletePreset, deleteWidget, getDashboard,
-  exportPageXlsx, getDataSources, instantiateTemplate, listDashboardVersions, listDashboards, listObjects, listPageWidgets, listPresets,
+  exportPageXlsx, getDataSources, getPageData, instantiateTemplate, listDashboardVersions, listDashboards, listObjects, listPageWidgets, listPresets,
   listTemplates, publishDashboard, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
-  type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Obj, type Widget, type WidgetSpec,
+  type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
 } from '../api'
 import WidgetView from './WidgetView'
 import KioskView from './KioskView'
@@ -35,6 +35,20 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   const [pTo, setPTo] = useState('')
   const [crossRow, setCrossRow] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
+  // Батч-данные страницы: один запрос на все виджеты (перф, вместо N запросов).
+  // Виджеты всегда в батч-режиме (ждут данные родителя, не фетчат сами); при СБОЕ
+  // батча — фолбэк: batchFailed=true → виджеты дофетчат по одному.
+  const [pageData, setPageData] = useState<Record<string, PageWidgetData>>({})
+  const [batchFailed, setBatchFailed] = useState(false)
+  useEffect(() => {
+    if (!page) { setPageData({}); setBatchFailed(false); return }
+    let cancelled = false
+    setPageData({}); setBatchFailed(false)
+    getPageData(page.id, pFrom || undefined, pTo || undefined, crossRow || undefined)
+      .then((r) => { if (cancelled) return; const m: Record<string, PageWidgetData> = {}; r.widgets.forEach((w) => { m[w.id] = w }); setPageData(m) })
+      .catch(() => { if (!cancelled) setBatchFailed(true) }) // фолбэк на self-fetch
+    return () => { cancelled = true }
+  }, [page?.id, pFrom, pTo, crossRow, reloadKey]) // eslint-disable-line react-hooks/exhaustive-deps
   const pageRef = useRef<HTMLDivElement>(null)
   const [objects, setObjects] = useState<Obj[]>([])
   const [autoObj, setAutoObj] = useState('')
@@ -421,7 +435,8 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                         {canManage && <button style={rmBtn} onClick={() => delWidget(w)} title="Удалить">✕</button>}
                       </div>
                       <div style={{ overflow: 'auto', maxHeight: 'calc(100% - 30px)' }}>
-                        <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} row={crossRow || undefined} onPick={setCrossRow} />
+                        <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} row={crossRow || undefined} onPick={setCrossRow}
+                          batched={!batchFailed} injData={pageData[w.id]?.data} injError={pageData[w.id]?.error} />
                       </div>
                     </div>
                   ))}

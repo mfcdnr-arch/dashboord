@@ -35,15 +35,21 @@ function chartOption(data: any): EChartsOption {
   }
 }
 
-export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void }) {
+export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string }) {
   const [data, setData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [drill, setDrill] = useState<any | null>(null)
 
   useEffect(() => {
+    // Батч-режим: данные приходят от родителя (1 запрос на всю страницу) — не фетчим сами.
+    if (batched) {
+      setData(injData ?? null)
+      setError(injError ?? null)
+      return
+    }
     setData(null); setError(null)
     getWidgetData(widgetId, from, to, row).then(setData).catch((e) => setError((e as Error).message))
-  }, [widgetId, reloadKey, from, to, row])
+  }, [widgetId, reloadKey, from, to, row, batched, injData, injError])
 
   const openDrill = () => getWidgetDrill(widgetId).then(setDrill).catch((e) => setError((e as Error).message))
 

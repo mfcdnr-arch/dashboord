@@ -25,7 +25,7 @@ from ._rls import PRIVILEGED_ROLES, _can_view, _user_ctx, visible_dashboard_ids 
 from ._widgetdata import (  # noqa: F401
     _best_metric_version, _compute_widget, _dataset_multi_series, _dataset_period_series,
     _dataset_series, _dataset_table, _formula_value, _metric_value, _page_org, _widget_org,
-    compute_widget_data, export_page_xlsx, list_org_alerts, preview_widget, widget_drill,
+    compute_page_data, compute_widget_data, export_page_xlsx, list_org_alerts, preview_widget, widget_drill,
 )
 
 
