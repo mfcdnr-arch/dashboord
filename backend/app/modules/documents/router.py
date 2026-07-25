@@ -9,7 +9,7 @@ import hashlib
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 
 from ... import db
@@ -20,6 +20,7 @@ router = APIRouter(tags=["documents"])
 manage = require_roles("admin", "moderator")
 
 ALLOWED = {"xlsx", "xls", "csv", "pdf", "docx"}
+MAX_DOCS_LIMIT = 200
 
 
 async def _folder_in_org(conn, folder_id: str, org_id) -> bool:
@@ -84,10 +85,24 @@ async def upload_document(
 
 
 @router.get("/folders/{folder_id}/documents")
-async def list_documents(folder_id: str, user: dict = Depends(get_current_user)):
+async def list_documents(
+    folder_id: str,
+    limit: int = Query(50, ge=1, le=MAX_DOCS_LIMIT),
+    offset: int = Query(0, ge=0),
+    user: dict = Depends(get_current_user),
+):
+    """Постранично: {total, limit, offset, items}. Сортировка — новые сверху.
+
+    Пагинация нужна, чтобы папка с тысячами документов не выгружалась целиком
+    на каждый заход. Индексы ix_documents_folder_created / ix_document_versions_doc
+    (миграция 022) держат запрос на диапазоне без полного скана.
+    """
     async with db.get_pool().acquire() as conn:
         if not await _folder_in_org(conn, folder_id, user["organization_id"]):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Папка не найдена")
+        total = await conn.fetchval(
+            "select count(*) from documents where folder_id=$1::uuid", folder_id
+        )
         rows = await conn.fetch(
             "select d.id, d.original_filename, d.source_type, d.status, "
             "d.reporting_period_start, d.reporting_period_end, d.created_at, "
@@ -95,7 +110,7 @@ async def list_documents(folder_id: str, user: dict = Depends(get_current_user))
             "from documents d "
             "left join lateral (select id, file_size_bytes from document_versions v "
             "  where v.document_id=d.id order by version_no desc limit 1) v on true "
-            "where d.folder_id=$1::uuid order by d.created_at desc",
-            folder_id,
+            "where d.folder_id=$1::uuid order by d.created_at desc limit $2 offset $3",
+            folder_id, limit, offset,
         )
-    return [dict(r) for r in rows]
+    return {"total": total, "limit": limit, "offset": offset, "items": [dict(r) for r in rows]}

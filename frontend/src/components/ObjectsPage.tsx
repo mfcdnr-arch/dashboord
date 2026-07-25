@@ -5,12 +5,15 @@ import {
 } from '../api'
 import ExtractionPage from './ExtractionPage'
 
+const DOCS_PAGE = 50
+
 export default function ObjectsPage({ canManage }: { canManage: boolean }) {
   const [objects, setObjects] = useState<Obj[]>([])
   const [obj, setObj] = useState<Obj | null>(null)
   const [folders, setFolders] = useState<Folder[]>([])
   const [folder, setFolder] = useState<Folder | null>(null)
   const [docs, setDocs] = useState<Doc[]>([])
+  const [docsTotal, setDocsTotal] = useState(0)
   const [openDoc, setOpenDoc] = useState<Doc | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -34,6 +37,7 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
     setFolder(null)
     setOpenDoc(null)
     setDocs([])
+    setDocsTotal(0)
     try {
       setFolders(await listFolders(o.id))
     } catch (e) {
@@ -41,12 +45,18 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
     }
   }
 
+  async function loadDocs(folderId: string) {
+    const page = await listDocuments(folderId, DOCS_PAGE, 0)
+    setDocs(page.items)
+    setDocsTotal(page.total)
+  }
+
   async function openFolder(f: Folder) {
     setError(null)
     setFolder(f)
     setOpenDoc(null)
     try {
-      setDocs(await listDocuments(f.id))
+      await loadDocs(f.id)
     } catch (e) {
       fail(e)
     }
@@ -55,7 +65,18 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
   async function refreshDocs() {
     if (!folder) return
     try {
-      setDocs(await listDocuments(folder.id))
+      await loadDocs(folder.id)
+    } catch (e) {
+      fail(e)
+    }
+  }
+
+  async function loadMoreDocs() {
+    if (!folder) return
+    try {
+      const page = await listDocuments(folder.id, DOCS_PAGE, docs.length)
+      setDocs((prev) => [...prev, ...page.items])
+      setDocsTotal(page.total)
     } catch (e) {
       fail(e)
     }
@@ -102,7 +123,7 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
       await uploadDocument(folder.id, file, date)
       setFile(null)
       setDate('')
-      setDocs(await listDocuments(folder.id))
+      await loadDocs(folder.id)
     } catch (e) {
       fail(e)
     } finally {
@@ -163,6 +184,13 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
             items={docs.map((d) => ({ id: d.id, title: d.original_filename, sub: `${d.source_type.toUpperCase()} · ${d.reporting_period_start} · ${fmtSize(d.size)} · ${statusLabel(d.status)}`, onClick: () => setOpenDoc(d) }))}
             empty="В папке пока нет документов"
           />
+          {docs.length < docsTotal && (
+            <div style={{ textAlign: 'center', marginTop: 12 }}>
+              <button style={{ ...btn, background: '#eef2f8', color: '#2f5496' }} onClick={loadMoreDocs}>
+                Показать ещё ({docsTotal - docs.length})
+              </button>
+            </div>
+          )}
         </Section>
       )}
     </div>

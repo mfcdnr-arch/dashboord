@@ -57,8 +57,15 @@ export async function createFolder(objectId: string, name: string): Promise<Fold
   return res.json()
 }
 
-export async function listDocuments(folderId: string): Promise<Doc[]> {
-  const res = await fetch(`/folders/${folderId}/documents`, { headers: authH() })
+export interface DocPage {
+  total: number
+  limit: number
+  offset: number
+  items: Doc[]
+}
+
+export async function listDocuments(folderId: string, limit = 50, offset = 0): Promise<DocPage> {
+  const res = await fetch(`/folders/${folderId}/documents?limit=${limit}&offset=${offset}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
