@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { EChartsOption } from 'echarts'
 import { getWidgetData, getWidgetDrill } from '../api'
-import EChart from './EChart'
+import EChart from './EChartLazy'
 
 // Отрисовка данных виджета: KPI/таблица/план-факт — HTML, столбцы/линия/круговая —
 // ECharts. По кнопке «подробнее» — drill (прозрачность): формула метрики + первичные строки.

@@ -5,6 +5,19 @@ import react from '@vitejs/plugin-react'
 // чтобы не упираться в CORS.
 export default defineConfig({
   plugins: [react()],
+  build: {
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        // Вендоры — отдельными кэшируемыми чанками (echarts/jspdf/html2canvas
+        // уезжают в свои чанки автоматически за счёт динамического импорта).
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom'],
+          grid: ['react-grid-layout', 'react-resizable'],
+        },
+      },
+    },
+  },
   server: {
     port: 3080,
     proxy: {

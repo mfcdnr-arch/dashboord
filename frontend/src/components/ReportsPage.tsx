@@ -3,7 +3,7 @@ import {
   getAttendanceReport, getBusinessReport, getDashboardViewers, getDataQualityReport, getModerationReport, getPopularityReport, getSystemReport,
   type AttendanceReport, type BusinessReport, type DashboardViewers, type DataQualityReport, type Gauge, type ModerationReport, type PopularityReport, type SystemReport,
 } from '../api'
-import EChart from './EChart'
+import EChart from './EChartLazy'
 
 function num(n: number | null): string {
   if (n == null || !isFinite(n)) return '—'

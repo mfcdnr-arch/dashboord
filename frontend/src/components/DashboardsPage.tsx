@@ -1,6 +1,4 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import html2canvas from 'html2canvas'
-import { jsPDF } from 'jspdf'
 import GridLayout, { WidthProvider, type Layout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
@@ -190,6 +188,8 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
     if (!el || !sel || !page) return
     setExporting(true)
     try {
+      // тяжёлые библиотеки грузим по требованию (динамический импорт → отдельный чанк)
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
       const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
       const pdf = new jsPDF('p', 'mm', 'a4')
       const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight()
@@ -212,6 +212,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
     if (!el || !sel || !page) return
     setExporting(true)
     try {
+      const { default: html2canvas } = await import('html2canvas')
       const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
       const a = document.createElement('a')
       a.href = canvas.toDataURL('image/png'); a.download = `${sel.dashboard.name} — ${page.name}.png`; a.click()
