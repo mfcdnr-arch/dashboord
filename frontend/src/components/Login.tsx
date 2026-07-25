@@ -5,9 +5,9 @@ import { login, setToken } from '../api'
 // БРЕНД: цвета/название/эмблема вынесены в BRAND ниже — под будущий брендбук МФЦ
 // достаточно поменять значения (или заменить эмблему на <img> с логотипом).
 const BRAND = {
-  primary: 'var(--accent)',
-  primaryDark: '#1e3a6b',
-  accent: '#c69b2f',
+  primary: 'var(--accent)',   // фирменный красный «Мои Документы»
+  primaryDark: '#a5361f',     // глубокий красный
+  accent: '#c39367',          // фирменный бежевый
   orgShort: 'ГБУ «МФЦ ДНР»',
   orgFull: 'Многофункциональный центр предоставления государственных и муниципальных услуг',
   portal: 'Аналитический портал',
@@ -113,10 +113,10 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
   )
 }
 
-const page: React.CSSProperties = { minHeight: '100vh', display: 'flex', fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif', color: 'var(--text)' }
+const page: React.CSSProperties = { minHeight: '100vh', display: 'flex', fontFamily: 'var(--font-body)', color: 'var(--text)' }
 const hero: React.CSSProperties = {
   flex: 1.25, color: 'var(--on-accent)', display: 'flex', alignItems: 'center',
-  background: `radial-gradient(1200px 600px at 15% -10%, ${BRAND.primary} 0%, ${BRAND.primaryDark} 55%, #16233f 100%)`,
+  background: `radial-gradient(1200px 600px at 15% -10%, ${BRAND.primary} 0%, ${BRAND.primaryDark} 55%, #3a1e12 100%)`,
 }
 const heroInner: React.CSSProperties = { width: '100%', maxWidth: 680 }
 const emblem: React.CSSProperties = {
@@ -126,7 +126,7 @@ const emblem: React.CSSProperties = {
 const featCard: React.CSSProperties = {
   background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 12, padding: '14px 16px',
 }
-const formSide: React.CSSProperties = { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f4f6fa' }
+const formSide: React.CSSProperties = { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }
 const card: React.CSSProperties = {
   width: '100%', maxWidth: 360, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16,
   padding: 28, display: 'flex', flexDirection: 'column', boxShadow: '0 10px 40px rgba(20,35,76,0.08)',

@@ -137,7 +137,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
                       xAxis: { type: 'value', splitLine: { lineStyle: { color: '#eef0f3' } } },
                       yAxis: { type: 'category', inverse: true, data: pop.top_dashboards.map((d) => d.name), axisLabel: { fontSize: 11, width: 130, overflow: 'truncate' } },
                       tooltip: { trigger: 'item' },
-                      series: [{ type: 'bar', data: pop.top_dashboards.map((d) => d.views), itemStyle: { color: '#2f5496', borderRadius: [0, 4, 4, 0] }, barMaxWidth: 20, label: { show: true, position: 'right', fontSize: 11 } }],
+                      series: [{ type: 'bar', data: pop.top_dashboards.map((d) => d.views), itemStyle: { color: '#e04e39', borderRadius: [0, 4, 4, 0] }, barMaxWidth: 20, label: { show: true, position: 'right', fontSize: 11 } }],
                     }} />
                   <div style={{ ...muted, fontSize: 11 }}>Клик по столбцу — кто смотрел дашборд.</div>
                 </div>

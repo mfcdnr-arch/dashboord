@@ -59,7 +59,7 @@ export default function ChangePassword({
 
 const wrap: React.CSSProperties = {
   minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontFamily: 'system-ui, sans-serif', padding: 24,
+  fontFamily: 'var(--font-body)', padding: 24,
 }
 const card: React.CSSProperties = {
   width: 320, border: '1px solid var(--border)', borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column',

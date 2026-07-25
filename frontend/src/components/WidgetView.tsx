@@ -11,7 +11,7 @@ function fmt(n: number): string {
   return Number.isInteger(n) ? n.toLocaleString('ru-RU') : n.toFixed(2)
 }
 
-const PALETTE = ['#2f5496', '#4f86c6', '#7aa6d6', '#0f6e56', '#c69b2f', '#a3532d', '#6b5ca3']
+const PALETTE = ['#e04e39', '#c39367', '#623b2a', '#8a5a1a', '#e0885f', '#a5563c', '#d0a97e']
 
 function chartOption(data: any): EChartsOption {
   const cats: string[] = data.categories || []
@@ -30,7 +30,7 @@ function chartOption(data: any): EChartsOption {
     xAxis: { type: 'category', data: cats, axisLabel: { interval: 0, rotate: cats.some((c) => c.length > 6) ? 30 : 0, fontSize: 11 } },
     yAxis: { type: 'value' },
     series: [{ type: isLine ? 'line' : 'bar', data: vals, smooth: isLine,
-      itemStyle: { color: '#2f5496' }, lineStyle: { color: '#2f5496', width: 2 }, areaStyle: isLine ? { opacity: 0.08 } : undefined,
+      itemStyle: { color: '#e04e39' }, lineStyle: { color: '#e04e39', width: 2 }, areaStyle: isLine ? { opacity: 0.08 } : undefined,
       barMaxWidth: 40 }],
   }
 }
@@ -122,7 +122,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
   }
   if (data.type === 'gauge') {
     const max = data.max || 100
-    const color = data.alert?.color || '#2f5496'
+    const color = data.alert?.color || '#e04e39'
     const opt: EChartsOption = {
       series: [{
         type: 'gauge', min: 0, max,
@@ -181,8 +181,8 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
   if (data.type === 'dynamics') {
     const periods: string[] = data.periods || []
     if (periods.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных за период</div>
-    const series: any[] = [{ type: 'line', name: 'Значение', data: data.values, smooth: true, itemStyle: { color: '#2f5496' },
-      lineStyle: { color: '#2f5496', width: 2 }, areaStyle: { opacity: 0.08 } }]
+    const series: any[] = [{ type: 'line', name: 'Значение', data: data.values, smooth: true, itemStyle: { color: '#e04e39' },
+      lineStyle: { color: '#e04e39', width: 2 }, areaStyle: { opacity: 0.08 } }]
     // Линейный тренд (наложение): прямая по концам от бэкенда, интерполируем по периодам.
     if (data.trend && periods.length >= 2) {
       const [s, e] = data.trend
@@ -242,7 +242,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
       xAxis: { type: 'category', data: cols, splitArea: { show: true }, axisLabel: { fontSize: 11, interval: 0, rotate: longX ? 30 : 0 } },
       yAxis: { type: 'category', data: rows, splitArea: { show: true }, axisLabel: { fontSize: 11, interval: 0 } },
       visualMap: { min: data.min ?? 0, max: data.max || 1, calculable: true, orient: 'horizontal', left: 'center', bottom: 0,
-        itemHeight: 80, textStyle: { fontSize: 10 }, inRange: { color: ['#e6edf6', '#7aa6d6', '#2f5496', '#0f3b7a'] } },
+        itemHeight: 80, textStyle: { fontSize: 10 }, inRange: { color: ['#faf0e9', '#e0b58f', '#e0885f', '#e04e39', '#a5563c'] } },
       series: [{ type: 'heatmap', data: cells, label: { show: rows.length * cols.length <= 60, fontSize: 10, formatter: (p: any) => fmt(p.value[2]) },
         emphasis: { itemStyle: { shadowBlur: 6, shadowColor: 'rgba(0,0,0,0.3)' } } }],
     }
@@ -286,7 +286,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     const bars: any[] = []
     let run = 0
     vals.forEach((x) => { placeholder.push(x >= 0 ? run : run + x); bars.push({ value: Math.abs(x), itemStyle: { color: x >= 0 ? '#0f6e56' : '#a3532d' } }); run += x })
-    placeholder.push(0); bars.push({ value: total, itemStyle: { color: '#2f5496' } })
+    placeholder.push(0); bars.push({ value: total, itemStyle: { color: '#e04e39' } })
     const longX = catAll.some((c) => c.length > 6)
     const opt: EChartsOption = {
       grid: { left: 44, right: 12, top: 12, bottom: longX ? 56 : 40 },
