@@ -18,6 +18,39 @@ from ._base import WIDGET_TYPES, DashboardError
 from ._rls import _can_view, visible_dashboard_ids
 
 
+def _apply_target(res: dict, cfg: dict, value) -> None:
+    """Цель/бенчмарк на показателе (KPI/gauge): добавляет target и % достижения."""
+    t = cfg.get("target")
+    if t is None or value is None:
+        return
+    try:
+        tgt = float(t)
+    except (TypeError, ValueError):
+        return
+    res["target"] = tgt
+    res["target_label"] = cfg.get("target_label") or "Цель"
+    res["target_pct"] = (float(value) / tgt * 100.0) if tgt else None
+
+
+def _linear_trend(values: list) -> Optional[dict]:
+    """Линейная регрессия y=a+b·x (x=0..n-1) по ряду значений (без ИИ, метод
+    наименьших квадратов). Возвращает наклон и концы прямой для наложения."""
+    ys = [v for v in values if v is not None]
+    n = len(ys)
+    if n < 2:
+        return None
+    xs = range(n)
+    sx, sy = sum(xs), sum(ys)
+    sxx = sum(x * x for x in xs)
+    sxy = sum(x * ys[x] for x in xs)
+    denom = n * sxx - sx * sx
+    if denom == 0:
+        return None
+    b = (n * sxy - sx * sy) / denom
+    a = (sy - b * sx) / n
+    return {"slope": b, "endpoints": [a, a + b * (len(values) - 1)]}
+
+
 async def _widget_org(conn, org_id, widget_id: str):
     return await conn.fetchrow(
         "select w.* from widgets w where w.id=$1::uuid and w.organization_id=$2", widget_id, org_id)
@@ -289,6 +322,10 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         change_pct = (change / values[-2] * 100.0) if (change is not None and values[-2]) else None
         res = {"type": "dynamics", "title": name, "periods": periods, "values": values,
                "change": change, "change_pct": change_pct}
+        if cfg.get("trend"):
+            tr = _linear_trend(values)
+            if tr:
+                res["trend"], res["trend_slope"] = tr["endpoints"], tr["slope"]
         res["alert"] = evaluate_alert("dynamics", cfg, res)
         return res
 
@@ -303,6 +340,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         else:
             raise DashboardError("KPI: укажите формулу, metric_code или dataset_code+value_field")
         res = {"type": "kpi", "value": value, "unit": unit, "title": name}
+        _apply_target(res, cfg, value)
         res["alert"] = evaluate_alert("kpi", cfg, res)
         return res
 
@@ -321,6 +359,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         if gmax is None:
             gmax = 100 if (unit and "%" in unit) else (round((value or 0) * 1.25) or 100)
         res = {"type": "gauge", "value": value, "unit": unit, "max": gmax, "title": name}
+        _apply_target(res, cfg, value)
         res["alert"] = evaluate_alert("kpi", cfg, res)  # те же пороги, что и KPI
         return res
 

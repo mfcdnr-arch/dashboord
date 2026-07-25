@@ -95,6 +95,21 @@ async def test_waterfall(client, admin_headers, seed_dataset):
     assert d["values"] == seed_dataset["plan"]  # [100,50,30]
 
 
+async def test_kpi_target(client, admin_headers, seed_dataset):
+    d = await _preview(client, admin_headers, "kpi",
+                       {"dataset_code": "t_ds", "value_field": "plan", "target": 200})
+    assert d["target"] == 200
+    assert abs(d["target_pct"] - 90.0) < 0.01  # 180/200
+
+
+async def test_dynamics_trend(client, admin_headers, seed_dataset):
+    d = await _preview(client, admin_headers, "dynamics",
+                       {"dataset_code": "t_ds", "value_field": "plan", "trend": True})
+    assert len(d["trend"]) == 2
+    assert d["trend_slope"] == 15  # (180 - 165) / 1 период
+    assert d["trend"] == [165, 180]
+
+
 async def test_objects_compare(client, admin_headers, seed_dataset):
     d = await _preview(client, admin_headers, "objects_compare", {"value_field": "plan"})
     assert d["type"] == "objects_compare"

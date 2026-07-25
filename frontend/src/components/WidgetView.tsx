@@ -71,6 +71,19 @@ export function WidgetPreviewBody({ data }: { data: any }) {
   return <Body data={data} />
 }
 
+// Цель/бенчмарк под показателем: значение цели + % достижения (зелёный при ≥100%).
+function TargetLine({ data }: { data: any }) {
+  if (data.target == null) return null
+  const pct = data.target_pct
+  const reached = pct != null && pct >= 100
+  return (
+    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+      {data.target_label || 'Цель'}: <b style={{ color: '#374151' }}>{fmt(data.target)}</b>
+      {pct != null && <span style={{ marginLeft: 6, color: reached ? '#0f6e56' : '#9a6a00', fontWeight: 600 }}>· {fmt(pct)}%{reached ? ' ✓' : ''}</span>}
+    </div>
+  )
+}
+
 function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) {
   if (data.type === 'text') {
     const align = data.align === 'center' ? 'center' : 'left'
@@ -93,8 +106,11 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
   }
   if (data.type === 'kpi') {
     return (
-      <div style={{ fontSize: 30, fontWeight: 700, color: data.alert?.color || '#2f5496' }}>{fmt(data.value)}
-        {data.unit && <span style={{ fontSize: 15, color: '#6b7280', marginLeft: 6 }}>{data.unit}</span>}
+      <div>
+        <div style={{ fontSize: 30, fontWeight: 700, color: data.alert?.color || '#2f5496' }}>{fmt(data.value)}
+          {data.unit && <span style={{ fontSize: 15, color: '#6b7280', marginLeft: 6 }}>{data.unit}</span>}
+        </div>
+        <TargetLine data={data} />
       </div>
     )
   }
@@ -118,7 +134,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
         data: [{ value: data.value ?? 0 }],
       }],
     }
-    return <EChart option={opt} height={190} />
+    return <div><EChart option={opt} height={190} /><div style={{ marginTop: -14 }}><TargetLine data={data} /></div></div>
   }
   if (data.type === 'plan_fact') {
     const pct = data.pct
@@ -159,21 +175,32 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
   if (data.type === 'dynamics') {
     const periods: string[] = data.periods || []
     if (periods.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных за период</div>
+    const series: any[] = [{ type: 'line', name: 'Значение', data: data.values, smooth: true, itemStyle: { color: '#2f5496' },
+      lineStyle: { color: '#2f5496', width: 2 }, areaStyle: { opacity: 0.08 } }]
+    // Линейный тренд (наложение): прямая по концам от бэкенда, интерполируем по периодам.
+    if (data.trend && periods.length >= 2) {
+      const [s, e] = data.trend
+      const n = periods.length
+      const line = periods.map((_, i) => s + (e - s) * i / (n - 1))
+      series.push({ type: 'line', name: 'Тренд', data: line, smooth: false, symbol: 'none',
+        lineStyle: { color: '#c69b2f', width: 2, type: 'dashed' } })
+    }
     const opt: EChartsOption = {
       grid: { left: 44, right: 12, top: 12, bottom: 40 },
       tooltip: { trigger: 'axis' },
+      legend: data.trend ? { bottom: 0, textStyle: { fontSize: 10 }, itemHeight: 8 } : undefined,
       xAxis: { type: 'category', data: periods, axisLabel: { rotate: 30, fontSize: 11 } },
       yAxis: { type: 'value' },
-      series: [{ type: 'line', data: data.values, smooth: true, itemStyle: { color: '#2f5496' },
-        lineStyle: { color: '#2f5496', width: 2 }, areaStyle: { opacity: 0.08 } }],
+      series,
     }
     const ch = data.change
     return (
       <div>
-        <EChart option={opt} height={180} />
+        <EChart option={opt} height={data.trend ? 196 : 180} />
         {ch != null && (
           <div style={{ fontSize: 13, marginTop: 4 }}>
             К пред. периоду: <b style={{ color: ch >= 0 ? '#0f6e56' : '#a32d2d' }}>{ch >= 0 ? '↑ +' : '↓ '}{fmt(ch)}{data.change_pct != null ? ` (${fmt(data.change_pct)}%)` : ''}</b>
+            {data.trend_slope != null && <span style={{ marginLeft: 10, color: '#8a6d1a' }}>тренд: <b>{data.trend_slope >= 0 ? '↗ рост' : '↘ спад'}</b> ({fmt(data.trend_slope)}/период)</span>}
           </div>
         )}
       </div>

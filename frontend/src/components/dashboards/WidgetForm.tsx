@@ -156,6 +156,9 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
 
   // Шкала спидометра (gauge): максимум; пусто — авто.
   const [gaugeMax, setGaugeMax] = useState<string>(cfg0.gauge_max != null ? String(cfg0.gauge_max) : '')
+  // Цель/бенчмарк (kpi/gauge) и линейный тренд (dynamics).
+  const [target, setTarget] = useState<string>(cfg0.target != null ? String(cfg0.target) : '')
+  const [trend, setTrend] = useState<boolean>(!!cfg0.trend)
 
   // Свой фильтр виджета (переопределение глобального фильтра страницы).
   const [ownFilter, setOwnFilter] = useState<boolean>(cfg0.filter_scope === 'own')
@@ -172,6 +175,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         : source === 'metric' ? (metricCode ? { metric_code: metricCode } : null) : ((dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null)
       if (!base) return null
       if (type === 'gauge' && gaugeMax.trim() && !isNaN(Number(gaugeMax))) (base as Record<string, unknown>).gauge_max = Number(gaugeMax)
+      if (target.trim() && !isNaN(Number(target))) (base as Record<string, unknown>).target = Number(target)
       return base
     }
     if (type === 'plan_fact') return source === 'metric' ? ((metricCode && factMetric) ? { plan_metric: metricCode, fact_metric: factMetric } : null) : ((dataset && planField && factField) ? { dataset_code: dataset, plan_field: planField, fact_field: factField } : null)
@@ -179,7 +183,8 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     if (type === 'objects_compare') return objField ? { value_field: objField } : null
     if (type === 'compare') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields, viz } : null
     if (type === 'heatmap' || type === 'pivot') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields } : null
-    return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null // bar/line/pie/dynamics
+    if (type === 'dynamics') return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField, ...(trend ? { trend: true } : {}) } : null
+    return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null // bar/line/pie
   }
 
   // Итоговый config = базовый + (опционально) свой фильтр (кроме text/image).
@@ -293,6 +298,14 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       )}
       {type === 'gauge' && (
         <F t="Шкала, max (пусто — авто)"><input style={{ ...sel, width: 130 }} type="number" placeholder="напр. 100" value={gaugeMax} onChange={(e) => setGaugeMax(e.target.value)} /></F>
+      )}
+      {['kpi', 'gauge'].includes(type) && (
+        <F t="Цель (пусто — нет)"><input style={{ ...sel, width: 130 }} type="number" placeholder="напр. 200" value={target} onChange={(e) => setTarget(e.target.value)} /></F>
+      )}
+      {type === 'dynamics' && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }} title="Наложить линию линейного тренда (метод наименьших квадратов)">
+          <input type="checkbox" checked={trend} onChange={(e) => setTrend(e.target.checked)} />Линия тренда
+        </label>
       )}
       {usesMulti && (
         <>
