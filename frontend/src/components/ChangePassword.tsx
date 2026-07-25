@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react'
-import { changePassword } from '../api'
+import { useEffect, useState, type FormEvent } from 'react'
+import { changePassword, checkPassword, getPasswordPolicy, passwordHint, type PasswordPolicy } from '../api'
 
 export default function ChangePassword({
   token,
@@ -12,14 +12,15 @@ export default function ChangePassword({
   const [pw2, setPw2] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [policy, setPolicy] = useState<PasswordPolicy>({ min_length: 8, require_complexity: true })
+  useEffect(() => { getPasswordPolicy().then(setPolicy) }, [])
+  const pwErr = pw1 ? checkPassword(pw1, policy) : null
 
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError(null)
-    if (pw1.length < 6) {
-      setError('Пароль должен быть не короче 6 символов')
-      return
-    }
+    const v = checkPassword(pw1, policy)
+    if (v) { setError(v); return }
     if (pw1 !== pw2) {
       setError('Пароли не совпадают')
       return
@@ -43,7 +44,8 @@ export default function ChangePassword({
           При первом входе необходимо задать новый пароль.
         </p>
         <label style={label}>Новый пароль</label>
-        <input style={input} type="password" value={pw1} onChange={(e) => setPw1(e.target.value)} autoFocus />
+        <input style={{ ...input, marginBottom: 4, borderColor: pwErr ? '#d99' : '#d1d5db' }} type="password" value={pw1} onChange={(e) => setPw1(e.target.value)} autoFocus />
+        <div style={{ fontSize: 12, color: pwErr ? '#a32d2d' : '#6b7280', marginBottom: 10 }}>{pwErr || passwordHint(policy)}</div>
         <label style={label}>Повторите пароль</label>
         <input style={input} type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
         {error && <div style={errBox}>{error}</div>}

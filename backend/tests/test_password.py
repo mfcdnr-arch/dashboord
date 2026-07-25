@@ -27,3 +27,11 @@ async def test_reject_common_weak(client, viewer):
 async def test_accept_strong(client, viewer):
     r = await _change(client, viewer["headers"], "Str0ngPass9")
     assert r.status_code == 200
+
+
+async def test_password_policy_endpoint(client):
+    # публичный (для подсказок UI): min_length + require_complexity
+    r = await client.get("/auth/password-policy")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["min_length"] >= 1 and isinstance(body["require_complexity"], bool)

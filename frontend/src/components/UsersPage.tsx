@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import {
-  createDepartment, createUser, deleteDepartment, exportLoginEvents, getLoginEvents, listDepartments, listRoles, listUsers,
-  resetUserPassword, setUserActive, updateUser,
-  type AppUser, type Department, type LoginEventsReport, type Role,
+  checkPassword, createDepartment, createUser, deleteDepartment, exportLoginEvents, getLoginEvents, getPasswordPolicy,
+  listDepartments, listRoles, listUsers, passwordHint, resetUserPassword, setUserActive, updateUser,
+  type AppUser, type Department, type LoginEventsReport, type PasswordPolicy, type Role,
 } from '../api'
 
 function fmtDt(iso: string | null): string {
@@ -51,7 +51,7 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
     try { await setUserActive(u.id, !u.is_active); reload() } catch (e) { fail(e) }
   }
   async function resetPw(u: AppUser) {
-    const pw = prompt(`Новый временный пароль для «${u.login}» (мин. 4 символа):`)
+    const pw = prompt(`Новый временный пароль для «${u.login}»\n(минимум 8 символов, обязательно буквы и цифры):`)
     if (!pw) return
     try { await resetUserPassword(u.id, pw.trim()); alert('Пароль сброшен. Пользователь сменит его при входе.') } catch (e) { fail(e) }
   }
@@ -183,11 +183,15 @@ function UserEditor({ user, depts, roles, onClose, onSaved }: {
     user ? roles.filter((r) => user.roles.includes(r.code)).map((r) => r.id) : roles.filter((r) => r.code === 'user').map((r) => r.id)))
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [policy, setPolicy] = useState<PasswordPolicy>({ min_length: 8, require_complexity: true })
+  useEffect(() => { getPasswordPolicy().then(setPolicy) }, [])
+  const pwErr = (isNew && password) ? checkPassword(password, policy, login) : null
   const toggle = (id: string) => setRoleIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
 
   async function save() {
     setErr(null)
-    if (isNew && (!login.trim() || password.length < 4)) { setErr('Укажите логин и пароль (мин. 4 символа)'); return }
+    if (isNew && !login.trim()) { setErr('Укажите логин'); return }
+    if (isNew) { const v = checkPassword(password, policy, login); if (v) { setErr(v); return } }
     setBusy(true)
     try {
       const common = { last_name: last.trim() || undefined, first_name: first.trim() || undefined, middle_name: middle.trim() || undefined, email: email.trim() || undefined, department_id: deptId || undefined, role_ids: [...roleIds] }
@@ -206,7 +210,8 @@ function UserEditor({ user, depts, roles, onClose, onSaved }: {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           {isNew && <L t="Логин *"><input style={input} value={login} onChange={(e) => setLogin(e.target.value)} /></L>}
-          {isNew && <L t="Временный пароль *"><input style={input} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="мин. 4 символа" /></L>}
+          {isNew && <L t="Временный пароль *"><input style={{ ...input, borderColor: pwErr ? '#d99' : undefined }} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={`минимум ${policy.min_length}, буквы+цифры`} /></L>}
+          {isNew && <div style={{ gridColumn: '1 / -1', fontSize: 12, color: pwErr ? '#a32d2d' : '#6b7280', marginTop: -4 }}>{pwErr || passwordHint(policy)}</div>}
           <L t="Фамилия"><input style={input} value={last} onChange={(e) => setLast(e.target.value)} /></L>
           <L t="Имя"><input style={input} value={first} onChange={(e) => setFirst(e.target.value)} /></L>
           <L t="Отчество"><input style={input} value={middle} onChange={(e) => setMiddle(e.target.value)} /></L>

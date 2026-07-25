@@ -16,6 +16,17 @@ class ChangePasswordIn(BaseModel):
     new_password: str = Field(min_length=1, max_length=200)
 
 
+@router.get("/password-policy")
+async def password_policy():
+    """Параметры парольной политики — чтобы UI показывал корректные подсказки
+    и предпроверял пароль до отправки. Не секретно."""
+    from ...config import settings
+    return {
+        "min_length": settings.password_min_length,
+        "require_complexity": settings.password_require_complexity,
+    }
+
+
 @router.post("/login")
 async def login(request: Request, form: OAuth2PasswordRequestForm = Depends()):
     fwd = request.headers.get("x-forwarded-for")
