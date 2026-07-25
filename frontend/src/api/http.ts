@@ -17,6 +17,18 @@ export function authH(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t}` } : {}
 }
 
+// Скачивание файла с авторизацией (blob → ссылка → клик). Для выгрузок CSV/XLSX.
+export async function downloadFile(url: string, filename: string): Promise<void> {
+  const res = await fetch(url, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  const href = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = href
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(href)
+}
+
 export async function errText(res: Response): Promise<string> {
   try {
     const e = await res.json()

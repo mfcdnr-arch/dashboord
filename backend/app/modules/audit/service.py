@@ -25,6 +25,7 @@ ACTIONS = ["create", "update", "delete", "publish", "grant_access", "revoke_acce
 NOISE_FIELDS = {"updated_at"}
 
 MAX_LIMIT = 200
+EXPORT_MAX = 50000  # верхний предел строк в выгрузке журнала (защита от гигантских файлов)
 
 
 class AuditError(Exception):
@@ -106,29 +107,9 @@ def _changed_fields(old: dict, new: dict, *, drop_noise: bool = True) -> list[st
     return sorted(changed)
 
 
-async def list_events(
-    conn,
-    org_id,
-    *,
-    actor: Optional[str] = None,
-    entity_type: Optional[str] = None,
-    entity_id: Optional[str] = None,
-    action: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    include_views: bool = False,
-    limit: int = 50,
-    offset: int = 0,
-) -> dict:
-    """Отфильтрованный, постранично выданный журнал + total и фасеты фильтров.
-
-    Просмотры (action=view) по умолчанию скрыты, чтобы журнал изменений не
-    засорялся частыми событиями; показываются при include_views=true или при
-    явном фильтре по действию «Просмотр».
-    """
-    limit = max(1, min(limit, MAX_LIMIT))
-    offset = max(0, offset)
-
+def _events_where(org_id, *, actor=None, entity_type=None, entity_id=None,
+                  action=None, date_from=None, date_to=None, include_views=False):
+    """Собрать WHERE + параметры для журнала аудита (общий для чтения и экспорта)."""
     where = ["a.organization_id = $1"]
     params: list[Any] = [org_id]
     if not include_views and action != "view":
@@ -153,8 +134,70 @@ async def list_events(
     if date_to:
         # включительно по дате: строгий верх — начало следующего дня передаёт клиент
         add("a.created_at < ${n}::timestamptz", date_to)
+    return " and ".join(where), params
 
-    where_sql = " and ".join(where)
+
+# Действия по-русски для выгрузки/отображения.
+ACTION_RU = {"create": "создание", "update": "изменение", "delete": "удаление",
+             "view": "просмотр", "publish": "публикация", "login": "вход"}
+
+
+async def export_events(conn, org_id, *, actor=None, entity_type=None, entity_id=None,
+                        action=None, date_from=None, date_to=None, include_views=False):
+    """Плоские строки журнала аудита под выгрузку (CSV/XLSX): (headers, rows).
+    Фильтры те же, что у чтения; выгружается до EXPORT_MAX строк."""
+    where_sql, params = _events_where(
+        org_id, actor=actor, entity_type=entity_type, entity_id=entity_id,
+        action=action, date_from=date_from, date_to=date_to, include_views=include_views)
+    rows = await conn.fetch(
+        f"""
+        select a.created_at, a.action, a.entity_type, a.entity_id,
+               u.login as actor_login, u.full_name as actor_name, a.ip_address,
+               a.old_data, a.new_data
+        from audit_log a left join users u on u.id = a.actor_user_id
+        where {where_sql} order by a.created_at desc, a.id limit {EXPORT_MAX}
+        """, *params)
+    headers = ["Дата/время", "Действие", "Тип объекта", "Объект", "Логин", "ФИО", "IP", "Изменённые поля"]
+    out = []
+    for r in rows:
+        old, new = _as_dict(r["old_data"]), _as_dict(r["new_data"])
+        out.append([
+            r["created_at"].strftime("%Y-%m-%d %H:%M:%S") if r["created_at"] else "",
+            ACTION_RU.get(r["action"], r["action"]),
+            r["entity_type"],
+            _entity_name(old, new) or str(r["entity_id"]),
+            r["actor_login"], r["actor_name"], r["ip_address"],
+            ", ".join(_changed_fields(old, new)) if r["action"] == "update" else "",
+        ])
+    return headers, out
+
+
+async def list_events(
+    conn,
+    org_id,
+    *,
+    actor: Optional[str] = None,
+    entity_type: Optional[str] = None,
+    entity_id: Optional[str] = None,
+    action: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    include_views: bool = False,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    """Отфильтрованный, постранично выданный журнал + total и фасеты фильтров.
+
+    Просмотры (action=view) по умолчанию скрыты, чтобы журнал изменений не
+    засорялся частыми событиями; показываются при include_views=true или при
+    явном фильтре по действию «Просмотр».
+    """
+    limit = max(1, min(limit, MAX_LIMIT))
+    offset = max(0, offset)
+
+    where_sql, params = _events_where(
+        org_id, actor=actor, entity_type=entity_type, entity_id=entity_id,
+        action=action, date_from=date_from, date_to=date_to, include_views=include_views)
 
     total = await conn.fetchval(f"select count(*) from audit_log a where {where_sql}", *params)
 

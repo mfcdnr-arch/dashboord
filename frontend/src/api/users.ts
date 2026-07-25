@@ -1,4 +1,9 @@
-import { authH, errText } from './http'
+import { authH, downloadFile, errText } from './http'
+
+// Выгрузка журнала входов в CSV/XLSX.
+export function exportLoginEvents(fmt: 'csv' | 'xlsx'): Promise<void> {
+  return downloadFile(`/login-events/export.${fmt}`, `login-events.${fmt}`)
+}
 
 // --- Модуль «Пользователи» (волна B) ---
 export interface Department { id: string; name: string; users: number }

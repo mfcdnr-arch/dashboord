@@ -7,16 +7,23 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from ... import db
+from ...exports import to_csv, to_xlsx
 from ..auth.deps import require_roles
 from . import service
 from .service import UsersError
 
 router = APIRouter(tags=["users"])
 admin = require_roles("admin")
+CSV_MEDIA = "text/csv; charset=utf-8"
+XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _attach(name: str) -> dict:
+    return {"Content-Disposition": f'attachment; filename="{name}"'}
 
 
 def _bad(e: UsersError) -> HTTPException:
@@ -93,6 +100,20 @@ async def list_roles(user: dict = Depends(admin)):
 async def login_events(user: dict = Depends(admin)):
     async with db.get_pool().acquire() as conn:
         return await service.login_events_report(conn, user["organization_id"])
+
+
+@router.get("/login-events/export.csv")
+async def export_login_csv(user: dict = Depends(admin)):
+    async with db.get_pool().acquire() as conn:
+        headers, rows = await service.login_events_export(conn, user["organization_id"])
+    return Response(to_csv(headers, rows), media_type=CSV_MEDIA, headers=_attach("login-events.csv"))
+
+
+@router.get("/login-events/export.xlsx")
+async def export_login_xlsx(user: dict = Depends(admin)):
+    async with db.get_pool().acquire() as conn:
+        headers, rows = await service.login_events_export(conn, user["organization_id"])
+    return Response(to_xlsx("Журнал входов", headers, rows), media_type=XLSX_MEDIA, headers=_attach("login-events.xlsx"))
 
 
 # --- Пользователи ---

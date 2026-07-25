@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import {
-  createDepartment, createUser, deleteDepartment, getLoginEvents, listDepartments, listRoles, listUsers,
+  createDepartment, createUser, deleteDepartment, exportLoginEvents, getLoginEvents, listDepartments, listRoles, listUsers,
   resetUserPassword, setUserActive, updateUser,
   type AppUser, type Department, type LoginEventsReport, type Role,
 } from '../api'
@@ -117,6 +117,10 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
 
       {/* Аудит входов */}
       <Section title="Журнал входов (аудит)">
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }} title="Выгрузить полный журнал входов">
+          <button style={linkBtn} onClick={() => exportLoginEvents('csv').catch(() => {})}>⤓ CSV</button>
+          <button style={linkBtn} onClick={() => exportLoginEvents('xlsx').catch(() => {})}>⤓ Excel</button>
+        </div>
         {!audit ? <span style={muted}>Загрузка…</span> : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
             <div>

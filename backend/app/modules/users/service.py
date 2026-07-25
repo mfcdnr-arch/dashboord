@@ -178,6 +178,23 @@ async def login_events_report(conn, org_id, limit: int = 50) -> dict:
     }
 
 
+async def login_events_export(conn, org_id, limit: int = 50000):
+    """Плоские строки журнала входов под выгрузку (CSV/XLSX): (headers, rows).
+    Все события (успех и неудача), новые сверху."""
+    rows = await conn.fetch(
+        "select e.created_at, e.login, u.full_name, e.ip, e.user_agent, e.success "
+        "from login_events e left join users u on u.id=e.user_id "
+        "where e.organization_id=$1 or e.organization_id is null "
+        "order by e.created_at desc limit $2", org_id, limit)
+    headers = ["Дата/время", "Логин", "ФИО", "IP", "Устройство", "Результат"]
+    out = [[
+        r["created_at"].strftime("%Y-%m-%d %H:%M:%S") if r["created_at"] else "",
+        r["login"], r["full_name"], r["ip"], r["user_agent"],
+        "успех" if r["success"] else "неудача",
+    ] for r in rows]
+    return headers, out
+
+
 async def reset_password(conn, org_id, user_id: str, new_password: str) -> dict:
     try:
         validate_password(new_password)

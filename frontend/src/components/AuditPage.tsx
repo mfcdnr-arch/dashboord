@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  getAuditEvent, listAudit,
+  exportAudit, getAuditEvent, listAudit,
   type AuditDetail, type AuditItem, type AuditList, type AuditQuery,
 } from '../api'
 
@@ -81,11 +81,31 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
 
   const hasFilters = !!(actor || entityType || action || dateFrom || dateTo || includeViews)
 
+  const curQuery = (): AuditQuery => {
+    const q: AuditQuery = {}
+    if (actor) q.actor = actor
+    if (entityType) q.entity_type = entityType
+    if (action) q.action = action
+    if (dateFrom) q.date_from = dateFrom
+    if (dateTo) { const d = new Date(dateTo); d.setDate(d.getDate() + 1); q.date_to = d.toISOString().slice(0, 10) }
+    if (includeViews) q.include_views = true
+    return q
+  }
+  const doExport = (fmt: 'csv' | 'xlsx') => exportAudit(curQuery(), fmt).catch((e) => setError((e as Error).message))
+
   return (
     <div>
-      <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Аудит действий</h2>
-      <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
-        Журнал изменений дашбордов, виджетов и прав доступа: кто, что и когда менял.
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Аудит действий</h2>
+          <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+            Журнал изменений дашбордов, виджетов и прав доступа: кто, что и когда менял.
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }} title="Выгрузить журнал с учётом текущих фильтров">
+          <button style={ghostBtn} onClick={() => doExport('csv')}>⤓ CSV</button>
+          <button style={ghostBtn} onClick={() => doExport('xlsx')}>⤓ Excel</button>
+        </div>
       </div>
       {error && <div style={errBox}>{error}</div>}
 

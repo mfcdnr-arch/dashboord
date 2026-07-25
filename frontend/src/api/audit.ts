@@ -1,4 +1,4 @@
-import { authH, errText } from './http'
+import { authH, downloadFile, errText } from './http'
 
 // --- Аудит действий (журнал изменений сущностей) ---
 export interface AuditItem {
@@ -60,6 +60,17 @@ export async function listAudit(q: AuditQuery = {}): Promise<AuditList> {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+// Выгрузка журнала аудита в CSV/XLSX с текущими фильтрами (limit/offset не нужны).
+export function exportAudit(q: AuditQuery, fmt: 'csv' | 'xlsx'): Promise<void> {
+  const p = new URLSearchParams()
+  Object.entries(q).forEach(([k, v]) => {
+    if (k === 'limit' || k === 'offset') return
+    if (v !== undefined && v !== '' && v !== null) p.set(k, String(v))
+  })
+  const qs = p.toString()
+  return downloadFile(`/audit/export.${fmt}${qs ? '?' + qs : ''}`, `audit.${fmt}`)
+}
+
 export async function getAuditEvent(id: string): Promise<AuditDetail> {
   const res = await fetch(`/audit/${id}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
