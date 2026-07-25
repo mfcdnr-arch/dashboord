@@ -3,9 +3,12 @@
 Модульная архитектура: каждый домен — отдельный пакет в app/modules/<name>/
 со своим router. Здесь только сборка приложения и подключение роутеров.
 """
+import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+import asyncpg
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from . import cache, db
 from .config import settings
@@ -43,6 +46,17 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+logger = logging.getLogger("app")
+
+
+@app.exception_handler(asyncpg.exceptions.DataError)
+async def _data_error_handler(request: Request, exc: asyncpg.exceptions.DataError):
+    """Харденинг: некорректный идентификатор/значение из клиента (напр. невалидный
+    UUID в пути `/dashboards/{id}`) → чистый 400 вместо сырого 500 DataError.
+    Логируем на случай, если это редкий внутренний баг, а не кривой ввод."""
+    logger.warning("DataError на %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(status_code=400, content={"detail": "Некорректный идентификатор или значение в запросе"})
 
 
 class ClientIPMiddleware:
