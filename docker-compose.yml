@@ -83,14 +83,22 @@ services:
         condition: service_healthy
     ports:
       - "${API_PORT:-8080}:8000"
+    # DEV: код монтируется внутрь + hot-reload — не нужно пересобирать образ
+    # после каждого правки (прод-стек это НЕ использует, см. docker-compose.prod.yml).
+    volumes:
+      - ./backend/app:/app/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
 
   # Фоновый воркер извлечения документов (arq/Redis). Тот же образ, что и api.
   worker:
     build: ./backend
     container_name: dashbord_worker
-    command: arq app.modules.ingestion.worker.WorkerSettings
+    command: arq app.modules.ingestion.worker.WorkerSettings --watch app
     environment: *backend_env
+    # DEV: код монтируется + arq --watch перезапускает воркер при изменениях.
+    volumes:
+      - ./backend/app:/app/app
     depends_on: *backend_deps
     restart: unless-stopped
 

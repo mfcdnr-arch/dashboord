@@ -76,3 +76,44 @@ jobs:
           out="$(sh db/run-migrations.sh)"
           echo "$out"
           echo "$out" | grep -q "применено: 0" || { echo "Повторный прогон применил новые миграции — не идемпотентно!"; exit 1; }
+
+  tests:
+    name: Тесты (pytest + БД)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: dashbord
+          POSTGRES_USER: dashbord
+          POSTGRES_PASSWORD: dashbord
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U dashbord"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: dashbord
+      POSTGRES_USER: dashbord
+      POSTGRES_PASSWORD: dashbord
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Применить миграции (схема для тестов)
+        env:
+          MIGRATIONS_DIR: db/migrations
+        run: sh db/run-migrations.sh
+      - name: Установить зависимости (вкл. тестовые)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements-dev.txt
+      - name: pytest (auth / RLS / виджеты / модерация)
+        working-directory: backend
+        run: python -m pytest
