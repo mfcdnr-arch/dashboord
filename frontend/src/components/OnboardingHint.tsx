@@ -59,15 +59,15 @@ export default function OnboardingHint({ section, roles, userKey }: { section: s
 
   return (
     <div style={{
-      display: 'flex', alignItems: 'flex-start', gap: 10, background: '#eff4fb', border: '1px solid #d6e2f2',
-      borderRadius: 10, padding: '10px 12px', marginBottom: 16, fontSize: 13, color: '#2f4666',
+      display: 'flex', alignItems: 'flex-start', gap: 10, background: 'var(--accent-weak-bg)', border: '1px solid var(--border)',
+      borderRadius: 10, padding: '10px 12px', marginBottom: 16, fontSize: 13, color: 'var(--text-2)',
     }}>
       <span style={{ fontSize: 16, lineHeight: 1 }}>{hint.icon}</span>
       <span style={{ flex: 1, lineHeight: 1.45 }}>{text}</span>
       <button
         onClick={() => { localStorage.setItem(storeKey, '1'); setHidden(true) }}
         title="Больше не показывать эту подсказку"
-        style={{ border: 'none', background: 'none', color: '#7089a8', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0 }}>✕</button>
+        style={{ border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0 }}>✕</button>
     </div>
   )
 }

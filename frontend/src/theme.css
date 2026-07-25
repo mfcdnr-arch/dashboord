@@ -1,0 +1,73 @@
+/* Дизайн-токены тем Dashboard (светлая + тёмная).
+ *
+ * Компоненты используют var(--token); СВЕТЛЫЕ значения = текущая палитра МФЦ,
+ * тёмные — производные. Брендбук уточняет ТОЛЬКО значения ниже — разметку и
+ * компоненты трогать не нужно. Переключение — атрибутом data-theme на <html>.
+ */
+:root {
+  --bg: #f4f6f9;             /* фон страницы */
+  --surface: #ffffff;       /* карточки, диалоги, поля ввода */
+  --surface-2: #f9fafb;     /* приглушённая поверхность: шапки таблиц, код */
+  --surface-3: #f1f2f4;     /* нейтральные чипы */
+  --surface-accent: #f4f7fb;/* слегка акцентная поверхность (итоги, ховер) */
+  --accent-weak-bg: #eef2f8;/* акцентная подложка (чипы, кнопки-призраки) */
+
+  --text: #1f2937;          /* основной текст */
+  --text-2: #374151;        /* вторичный текст */
+  --text-muted: #6b7280;    /* приглушённый */
+  --text-faint: #9aa4b2;    /* совсем бледный / плейсхолдеры */
+
+  --accent: #2f5496;        /* фирменный акцент (задаёт брендбук) */
+  --accent-strong: #24406f;
+  --on-accent: #ffffff;     /* текст/иконка поверх акцента или цветной кнопки */
+
+  --border: #e5e7eb;        /* основные границы */
+  --border-strong: #d1d5db; /* границы полей ввода */
+  --border-faint: #eef0f3;  /* бледные разделители */
+
+  --danger: #a32d2d;
+  --danger-bg: #fcebeb;
+  --success: #0f6e56;
+  --success-bg: #e1f5ee;
+  --warn: #8a6d1a;
+  --warn-bg: #fdf6e3;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f1621;
+  --surface: #1a2230;
+  --surface-2: #212c3d;
+  --surface-3: #273244;
+  --surface-accent: #202b3f;
+  --accent-weak-bg: #223049;
+
+  --text: #e7ecf4;
+  --text-2: #c7cfdd;
+  --text-muted: #9aa7bd;
+  --text-faint: #74829a;
+
+  --accent: #6f9ae0;
+  --accent-strong: #8fb2ea;
+  --on-accent: #ffffff;
+
+  --border: #313d54;
+  --border-strong: #3c4a66;
+  --border-faint: #2a3446;
+
+  --danger: #f08a83;
+  --danger-bg: #3a2120;
+  --success: #52c2a2;
+  --success-bg: #163330;
+  --warn: #e0bb72;
+  --warn-bg: #332c14;
+
+  color-scheme: dark;
+}
+
+/* База: фон и цвет текста страницы берутся из токенов. */
+html, body {
+  background: var(--bg);
+  color: var(--text);
+}

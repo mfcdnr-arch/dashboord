@@ -17,11 +17,11 @@ const CHECK_BLOCKS: { code: string; label: string }[] = [
   { code: 'visual', label: 'Визуализация' },
 ]
 const CHECK_OPTIONS: { code: string; label: string; color: string }[] = [
-  { code: 'idle', label: '—', color: '#9aa4b2' },
-  { code: 'passed', label: 'ОК', color: '#0f6e56' },
-  { code: 'warning', label: 'Замечание', color: '#9a6a00' },
-  { code: 'failed', label: 'Не пройдено', color: '#a32d2d' },
-  { code: 'skipped', label: 'Пропустить', color: '#6b7280' },
+  { code: 'idle', label: '—', color: 'var(--text-faint)' },
+  { code: 'passed', label: 'ОК', color: 'var(--success)' },
+  { code: 'warning', label: 'Замечание', color: 'var(--warn)' },
+  { code: 'failed', label: 'Не пройдено', color: 'var(--danger)' },
+  { code: 'skipped', label: 'Пропустить', color: 'var(--text-muted)' },
 ]
 
 function fmtDt(iso: string): string {
@@ -45,12 +45,12 @@ export default function ModerationPage({ me, onOpenDashboard }: {
     getReasonCodes().then(setReasons).catch((e) => setError((e as Error).message))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!canModerate) return <div style={{ color: '#a32d2d' }}>Раздел «Модерация» доступен модератору или администратору.</div>
+  if (!canModerate) return <div style={{ color: 'var(--danger)' }}>Раздел «Модерация» доступен модератору или администратору.</div>
 
   return (
     <div>
       <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Модерация</h2>
-      <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+      <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
         Дашборды, отправленные на проверку. Одобрение публикует дашборд. Собственные одобрять нельзя (конфликт интересов).
       </div>
       {error && <div style={errBox}>{error}</div>}
@@ -69,10 +69,10 @@ export default function ModerationPage({ me, onOpenDashboard }: {
                     {onOpenDashboard && <button style={linkBtn} onClick={() => onOpenDashboard(q.dashboard_id)} title="Открыть дашборд">↗</button>}
                   </td>
                   <td style={td}>{q.requester}</td>
-                  <td style={{ ...td, color: '#6b7280', whiteSpace: 'nowrap' }}>{fmtDt(q.requested_at)}</td>
+                  <td style={{ ...td, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{fmtDt(q.requested_at)}</td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>
                     {q.own
-                      ? <span style={{ color: '#9a6a00', fontSize: 12 }} title="Вы автор/инициатор — нужен другой модератор">свой · нельзя</span>
+                      ? <span style={{ color: 'var(--warn)', fontSize: 12 }} title="Вы автор/инициатор — нужен другой модератор">свой · нельзя</span>
                       : <button style={btn} onClick={() => setReview(q)}>Проверить</button>}
                   </td>
                 </tr>
@@ -125,7 +125,7 @@ function ReviewModal({ item, reasons, onClose, onDone, onError }: {
           <div style={{ fontSize: 16, fontWeight: 600 }}>Проверка: {item.name}</div>
           <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
         </div>
-        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 14 }}>Отправил: {item.requester} · {fmtDt(item.requested_at)}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>Отправил: {item.requester} · {fmtDt(item.requested_at)}</div>
 
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Чек-лист проверки</div>
         <div style={{ display: 'grid', gap: 8, marginBottom: 16 }}>
@@ -137,9 +137,9 @@ function ReviewModal({ item, reasons, onClose, onDone, onError }: {
                   <button key={o.code} onClick={() => setChecks((s) => ({ ...s, [b.code]: o.code }))}
                     style={{
                       fontSize: 12, padding: '2px 8px', borderRadius: 8, cursor: 'pointer',
-                      border: `1px solid ${checks[b.code] === o.code ? o.color : '#d1d5db'}`,
-                      background: checks[b.code] === o.code ? o.color : '#fff',
-                      color: checks[b.code] === o.code ? '#fff' : '#374151',
+                      border: `1px solid ${checks[b.code] === o.code ? o.color : 'var(--border-strong)'}`,
+                      background: checks[b.code] === o.code ? o.color : 'var(--on-accent)',
+                      color: checks[b.code] === o.code ? 'var(--on-accent)' : 'var(--text-2)',
                     }}>{o.label}</button>
                 ))}
               </div>
@@ -155,7 +155,7 @@ function ReviewModal({ item, reasons, onClose, onDone, onError }: {
         <textarea style={{ ...input, width: '100%', height: 56, padding: 8, resize: 'vertical' }}
           placeholder="Комментарий (обязателен для причины «Иная»)" value={comment} onChange={(e) => setComment(e.target.value)} />
 
-        {hasFail && <div style={{ fontSize: 12, color: '#9a6a00', marginTop: 8 }}>⚠ Есть непройденные блоки — обычно такой дашборд возвращают на доработку.</div>}
+        {hasFail && <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 8 }}>⚠ Есть непройденные блоки — обычно такой дашборд возвращают на доработку.</div>}
 
         <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
           <button style={{ ...btnGhost, marginLeft: 'auto' }} disabled={busy} onClick={() => act('return')}>↩ Вернуть на доработку</button>
@@ -166,14 +166,14 @@ function ReviewModal({ item, reasons, onClose, onDone, onError }: {
   )
 }
 
-const input: React.CSSProperties = { minHeight: 34, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff', fontFamily: 'inherit' }
-const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: '#2f5496', color: '#fff', fontSize: 13, cursor: 'pointer' }
-const btnGhost: React.CSSProperties = { height: 34, padding: '0 14px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', color: '#a32d2d', fontSize: 13, cursor: 'pointer' }
-const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: '#2f5496', cursor: 'pointer', fontSize: 13, padding: '0 0 0 6px' }
-const xBtn: React.CSSProperties = { border: 'none', background: 'none', color: '#a32d2d', cursor: 'pointer', padding: 0, fontSize: 15 }
-const th: React.CSSProperties = { border: '1px solid #eef0f3', padding: '6px 10px', background: '#f9fafb', textAlign: 'left', color: '#6b7280', fontWeight: 600 }
-const td: React.CSSProperties = { border: '1px solid #eef0f3', padding: '6px 10px' }
-const muted: React.CSSProperties = { color: '#9aa4b2', fontSize: 13 }
-const errBox: React.CSSProperties = { background: '#fcebeb', color: '#a32d2d', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
+const input: React.CSSProperties = { minHeight: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, background: 'var(--surface)', fontFamily: 'inherit' }
+const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
+const btnGhost: React.CSSProperties = { height: 34, padding: '0 14px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--danger)', fontSize: 13, cursor: 'pointer' }
+const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, padding: '0 0 0 6px' }
+const xBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0, fontSize: 15 }
+const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
+const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px' }
+const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
+const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }
-const dialog: React.CSSProperties = { background: '#fff', borderRadius: 14, padding: 22, width: 560, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }
+const dialog: React.CSSProperties = { background: 'var(--surface)', borderRadius: 14, padding: 22, width: 560, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }

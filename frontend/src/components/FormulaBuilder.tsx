@@ -134,12 +134,12 @@ export default function FormulaBuilder({ sources, onFormula }: { sources: DataSo
           <TermCard term={pctBase} sources={sources} byCode={byCode}
             onPatch={(p) => setPctBase({ ...pctBase, ...p })}
             onSetDataset={(c) => setPctBase(applyDataset(pctBase, c, byCode))} />
-          <div style={{ textAlign: 'center', fontSize: 18, color: '#9aa4b2' }}>%</div>
+          <div style={{ textAlign: 'center', fontSize: 18, color: 'var(--text-faint)' }}>%</div>
           <div style={pctLbl}>Значение — сколько % от базы</div>
           <TermCard term={pctValue} sources={sources} byCode={byCode}
             onPatch={(p) => setPctValue({ ...pctValue, ...p })}
             onSetDataset={(c) => setPctValue(applyDataset(pctValue, c, byCode))} />
-          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
             Результат = значение ÷ база × 100. Пример: план 200 (=100%), факт 50 → 25%.
           </div>
         </div>
@@ -228,18 +228,18 @@ function DatasetSel({ sources, value, onChange }: { sources: DataSources; value:
 }
 
 function Lbl({ t, children }: { t: string; children: React.ReactNode }) {
-  return <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, color: '#6b7280' }}>{t}{children}</label>
+  return <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--text-muted)' }}>{t}{children}</label>
 }
 
-const card: React.CSSProperties = { border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, background: '#fff' }
+const card: React.CSSProperties = { border: '1px solid var(--border)', borderRadius: 10, padding: 12, background: 'var(--surface)' }
 const rowWrap: React.CSSProperties = { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }
-const sel: React.CSSProperties = { height: 32, padding: '0 8px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff' }
-const opBtn: React.CSSProperties = { width: 34, height: 30, border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 15 }
-const opBtnActive: React.CSSProperties = { background: '#2f5496', color: '#fff', border: '1px solid #2f5496' }
-const tabBtn: React.CSSProperties = { height: 30, padding: '0 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }
-const tabBtnActive: React.CSSProperties = { background: '#eef', border: '1px solid #2f5496', color: '#2f5496' }
-const addBtn: React.CSSProperties = { marginTop: 10, height: 34, padding: '0 14px', border: '1px dashed #9aa4b2', borderRadius: 8, background: '#fff', color: '#2f5496', cursor: 'pointer', fontSize: 13 }
-const rmBtn: React.CSSProperties = { marginLeft: 'auto', width: 26, height: 26, border: '1px solid #e5e7eb', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#a32d2d' }
-const pctLbl: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#2f5496' }
-const muted: React.CSSProperties = { color: '#6b7280', fontSize: 13, padding: '8px 0' }
-const srcHint: React.CSSProperties = { fontSize: 11, color: '#9aa4b2', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const sel: React.CSSProperties = { height: 32, padding: '0 8px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, background: 'var(--surface)' }
+const opBtn: React.CSSProperties = { width: 34, height: 30, border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', cursor: 'pointer', fontSize: 15 }
+const opBtnActive: React.CSSProperties = { background: 'var(--accent)', color: 'var(--on-accent)', border: '1px solid var(--accent)' }
+const tabBtn: React.CSSProperties = { height: 30, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', cursor: 'pointer', fontSize: 13 }
+const tabBtnActive: React.CSSProperties = { background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent)' }
+const addBtn: React.CSSProperties = { marginTop: 10, height: 34, padding: '0 14px', border: '1px dashed var(--text-faint)', borderRadius: 8, background: 'var(--surface)', color: 'var(--accent)', cursor: 'pointer', fontSize: 13 }
+const rmBtn: React.CSSProperties = { marginLeft: 'auto', width: 26, height: 26, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--danger)' }
+const pctLbl: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--accent)' }
+const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 13, padding: '8px 0' }
+const srcHint: React.CSSProperties = { fontSize: 11, color: 'var(--text-faint)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }

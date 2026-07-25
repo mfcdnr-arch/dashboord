@@ -112,7 +112,7 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
         <StatusBadge status={starting ? 'running' : job?.status || 'none'} />
       </div>
       <h2 style={{ fontSize: 17, margin: '0 0 4px' }}>Распознавание: {doc.original_filename}</h2>
-      <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+      <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
         {doc.source_type.toUpperCase()} · отчётная дата {doc.reporting_period_start}
       </div>
 
@@ -158,7 +158,7 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
           {table && (
             <div style={{ marginTop: 20 }}>
               <h3 style={h3}>Сопоставление столбцов</h3>
-              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
                 Отметьте столбец-метку строки (◉), задайте тип и снимите ненужные столбцы.
               </div>
               <MappingEditor cols={cols} disabled={!canManage} onPatch={patch} onRowLabel={setRowLabel} />
@@ -192,19 +192,19 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
 function PreviewGrid({ table }: { table: ExtractionJob['tables'][number] }) {
   return (
     <div>
-      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
         Предпросмотр · {table.row_count} строк × {table.column_count} столбцов · шапка: {table.header_rows} стр.
       </div>
-      <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: 10 }}>
+      <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 10 }}>
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
           <tbody>
             {table.preview.slice(0, 12).map((row, ri) => (
-              <tr key={ri} style={{ background: ri < table.header_rows ? '#f3f6fc' : '#fff' }}>
+              <tr key={ri} style={{ background: ri < table.header_rows ? 'var(--accent-weak-bg)' : 'var(--surface)' }}>
                 {row.map((cell, ci) => (
                   <td key={ci} style={{
-                    border: '1px solid #eef0f3', padding: '5px 9px', whiteSpace: 'nowrap',
+                    border: '1px solid var(--border-faint)', padding: '5px 9px', whiteSpace: 'nowrap',
                     fontWeight: ri < table.header_rows ? 600 : 400,
-                    color: ri < table.header_rows ? '#2f5496' : '#111827',
+                    color: ri < table.header_rows ? 'var(--accent)' : 'var(--text)',
                   }}>{cell || '—'}</td>
                 ))}
               </tr>
@@ -212,7 +212,7 @@ function PreviewGrid({ table }: { table: ExtractionJob['tables'][number] }) {
           </tbody>
         </table>
       </div>
-      {table.row_count > 12 && <div style={{ fontSize: 12, color: '#9aa4b2', marginTop: 4 }}>…показаны первые 12 строк</div>}
+      {table.row_count > 12 && <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 4 }}>…показаны первые 12 строк</div>}
     </div>
   )
 }
@@ -223,8 +223,8 @@ function MappingEditor({ cols, disabled, onPatch, onRowLabel }: {
   onRowLabel: (idx: number) => void
 }) {
   return (
-    <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
-      <div style={{ ...mapRow, background: '#f9fafb', fontWeight: 600, fontSize: 12, color: '#6b7280' }}>
+    <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ ...mapRow, background: 'var(--surface-2)', fontWeight: 600, fontSize: 12, color: 'var(--text-muted)' }}>
         <span style={{ width: 30 }}>вкл.</span>
         <span style={{ flex: 1 }}>Столбец в файле</span>
         <span style={{ flex: 1 }}>Имя поля</span>
@@ -237,7 +237,7 @@ function MappingEditor({ cols, disabled, onPatch, onRowLabel }: {
             <input type="checkbox" checked={c.include} disabled={disabled || c.is_row_label}
               onChange={(e) => onPatch(c.column_index, { include: e.target.checked })} />
           </span>
-          <span style={{ flex: 1, fontSize: 13, color: '#374151' }}>{c.source_header}</span>
+          <span style={{ flex: 1, fontSize: 13, color: 'var(--text-2)' }}>{c.source_header}</span>
           <span style={{ flex: 1 }}>
             <input style={{ ...input, width: '95%', height: 30 }} value={c.field_name} disabled={disabled}
               onChange={(e) => onPatch(c.column_index, { field_name: e.target.value })} />
@@ -260,24 +260,24 @@ function MappingEditor({ cols, disabled, onPatch, onRowLabel }: {
 
 function ResultPanel({ result, onBack }: { result: ReleaseResult; onBack: () => void }) {
   return (
-    <div style={{ border: '1px solid #cfe9dd', background: '#f2fbf7', borderRadius: 12, padding: 20 }}>
-      <div style={{ fontSize: 15, fontWeight: 600, color: '#0f6e56', marginBottom: 6 }}>✓ Выпуск датасета создан</div>
-      <div style={{ fontSize: 14, color: '#374151' }}>
+    <div style={{ border: '1px solid var(--success-bg)', background: 'var(--success-bg)', borderRadius: 12, padding: 20 }}>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--success)', marginBottom: 6 }}>✓ Выпуск датасета создан</div>
+      <div style={{ fontSize: 14, color: 'var(--text-2)' }}>
         Материализовано <strong>{result.values_count}</strong> значений из <strong>{result.rows}</strong> строк.
         {result.superseded_release_id && ' Прежний выпуск за этот период помечен как замещённый.'}
       </div>
       {result.validation && result.validation.warnings.length > 0 && (
-        <div style={{ marginTop: 12, border: '1px solid #f0d9a8', background: '#fff8e8', borderRadius: 10, padding: '10px 12px' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#8a6d1a', marginBottom: 6 }}>
+        <div style={{ marginTop: 12, border: '1px solid var(--warn)', background: 'var(--warn-bg)', borderRadius: 10, padding: '10px 12px' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--warn)', marginBottom: 6 }}>
             ⚠ Проверка данных: замечания ({result.validation.warnings.length}) — данные загружены, рекомендуем проверить
           </div>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#7a5c12' }}>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--warn)' }}>
             {result.validation.warnings.map((w) => <li key={w.code} style={{ marginBottom: 2 }}>{w.message}</li>)}
           </ul>
         </div>
       )}
       {result.validation && result.validation.ok && (
-        <div style={{ marginTop: 10, fontSize: 13, color: '#0f6e56' }}>✓ Проверка данных пройдена без замечаний.</div>
+        <div style={{ marginTop: 10, fontSize: 13, color: 'var(--success)' }}>✓ Проверка данных пройдена без замечаний.</div>
       )}
       <button style={{ ...btn, marginTop: 14 }} onClick={onBack}>К документам</button>
     </div>
@@ -292,7 +292,7 @@ function ConflictDialog({ conflict, busy, onSupersede, onCancel }: {
     <div style={overlay} onClick={onCancel}>
       <div style={dialog} onClick={(e) => e.stopPropagation()}>
         <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>Выпуск за этот период уже существует</div>
-        <div style={{ fontSize: 14, color: '#374151', marginBottom: 16 }}>
+        <div style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: 16 }}>
           Активный выпуск: «{conflict.name}» от {new Date(conflict.created_at).toLocaleString('ru-RU')}.<br />
           Заместить его новыми данными? Прежний сохранится в истории как замещённый.
         </div>
@@ -307,12 +307,12 @@ function ConflictDialog({ conflict, busy, onSupersede, onCancel }: {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { t: string; bg: string; c: string }> = {
-    none: { t: 'не распознан', bg: '#f1f2f4', c: '#6b7280' },
-    queued: { t: 'в очереди', bg: '#fef6e0', c: '#8a6d1a' },
-    running: { t: 'распознаётся…', bg: '#fef6e0', c: '#8a6d1a' },
-    succeeded: { t: 'распознан', bg: '#e1f5ee', c: '#0f6e56' },
-    needs_review: { t: 'нужна проверка', bg: '#fef6e0', c: '#8a6d1a' },
-    failed: { t: 'ошибка', bg: '#fcebeb', c: '#a32d2d' },
+    none: { t: 'не распознан', bg: 'var(--surface-3)', c: 'var(--text-muted)' },
+    queued: { t: 'в очереди', bg: 'var(--warn-bg)', c: 'var(--warn)' },
+    running: { t: 'распознаётся…', bg: 'var(--warn-bg)', c: 'var(--warn)' },
+    succeeded: { t: 'распознан', bg: 'var(--success-bg)', c: 'var(--success)' },
+    needs_review: { t: 'нужна проверка', bg: 'var(--warn-bg)', c: 'var(--warn)' },
+    failed: { t: 'ошибка', bg: 'var(--danger-bg)', c: 'var(--danger)' },
   }
   const s = map[status] || map.none
   return <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 12, background: s.bg, color: s.c }}>{s.t}</span>
@@ -320,23 +320,23 @@ function StatusBadge({ status }: { status: string }) {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: '#6b7280' }}>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: 'var(--text-muted)' }}>
       {label}{children}
     </label>
   )
 }
 
-const crumb: React.CSSProperties = { border: 'none', background: 'none', color: '#2f5496', cursor: 'pointer', fontSize: 14, padding: 0 }
-const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14 }
-const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: '#2f5496', color: '#fff', fontSize: 14, cursor: 'pointer' }
-const btnGhost: React.CSSProperties = { height: 36, padding: '0 14px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', fontSize: 14, cursor: 'pointer' }
-const btnDanger: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: '#a32d2d', color: '#fff', fontSize: 14, cursor: 'pointer' }
-const chip: React.CSSProperties = { padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', fontSize: 13, cursor: 'pointer' }
-const chipActive: React.CSSProperties = { background: '#eef', borderColor: '#2f5496', color: '#2f5496' }
+const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 14, padding: 0 }
+const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 14 }
+const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }
+const btnGhost: React.CSSProperties = { height: 36, padding: '0 14px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', fontSize: 14, cursor: 'pointer' }
+const btnDanger: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--danger)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }
+const chip: React.CSSProperties = { padding: '6px 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', fontSize: 13, cursor: 'pointer' }
+const chipActive: React.CSSProperties = { background: 'var(--accent-weak-bg)', borderColor: 'var(--accent)', color: 'var(--accent)' }
 const h3: React.CSSProperties = { fontSize: 14, margin: '0 0 8px' }
-const muted: React.CSSProperties = { color: '#6b7280', fontSize: 14 }
-const mapRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid #f0f0f0' }
-const errBox: React.CSSProperties = { background: '#fcebeb', color: '#a32d2d', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
-const warnBox: React.CSSProperties = { background: '#fef6e0', color: '#8a6d1a', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 8 }
+const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 14 }
+const mapRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid var(--border-faint)' }
+const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
+const warnBox: React.CSSProperties = { background: 'var(--warn-bg)', color: 'var(--warn)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 8 }
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }
-const dialog: React.CSSProperties = { background: '#fff', borderRadius: 14, padding: 24, width: 440, maxWidth: '90vw', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }
+const dialog: React.CSSProperties = { background: 'var(--surface)', borderRadius: 14, padding: 24, width: 440, maxWidth: '90vw', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }

@@ -59,7 +59,7 @@ export function AlertEditor({ widget, onClose, onSaved }: { widget: Widget; onCl
           <div style={{ fontSize: 16, fontWeight: 600 }}>⚠ Пороги KPI-алерта: {widget.name}</div>
           <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
         </div>
-        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
           Правила проверяются сверху вниз; срабатывает первое подходящее и задаёт цвет виджета.
         </div>
 
@@ -75,7 +75,7 @@ export function AlertEditor({ widget, onClose, onSaved }: { widget: Widget; onCl
 
         {rules.length === 0 && <div style={{ ...muted, marginBottom: 10 }}>Порогов пока нет. Добавьте правило ниже.</div>}
         {rules.map((r, i) => (
-          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 8, borderBottom: '1px solid #f1f3f5', paddingBottom: 8 }}>
+          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 8, borderBottom: '1px solid var(--surface-2)', paddingBottom: 8 }}>
             <F t="Уровень"><select style={sel} value={r.level} onChange={(e) => set(i, { level: e.target.value })}>{LEVELS.map((l) => <option key={l.v} value={l.v}>{l.t}</option>)}</select></F>
             <F t="Условие"><select style={sel} value={r.op} onChange={(e) => set(i, { op: e.target.value })}>{OPS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}</select></F>
             <F t="Значение"><input style={{ ...sel, width: 90 }} type="number" value={r.value} onChange={(e) => set(i, { value: e.target.value })} /></F>
@@ -87,7 +87,7 @@ export function AlertEditor({ widget, onClose, onSaved }: { widget: Widget; onCl
           </div>
         ))}
 
-        {err && <div style={{ color: '#a32d2d', fontSize: 13, marginTop: 6 }}>{err}</div>}
+        {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 6 }}>{err}</div>}
         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
           <button style={btnGhost} onClick={add}>+ Правило</button>
           <button style={{ ...btn, marginLeft: 'auto' }} disabled={busy} onClick={save}>{busy ? 'Сохранение…' : 'Сохранить'}</button>

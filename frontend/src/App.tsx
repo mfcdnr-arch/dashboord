@@ -13,6 +13,7 @@ import ModerationPage from './components/ModerationPage'
 import CatalogPage from './components/CatalogPage'
 import NotificationBell from './components/NotificationBell'
 import OnboardingHint from './components/OnboardingHint'
+import ThemeToggle from './components/ThemeToggle'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -54,7 +55,7 @@ export default function App() {
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui, sans-serif', color: '#6b7280' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui, sans-serif', color: 'var(--text-muted)' }}>
       {children}
     </div>
   )
@@ -101,25 +102,26 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh' }}>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap' }}>
-        <div style={{ width: 30, height: 30, borderRadius: 8, background: '#2f5496', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>D</div>
+      <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+        <div style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>D</div>
         <div>
           <div style={{ fontSize: 16, fontWeight: 600, lineHeight: 1 }}>Dashboard</div>
-          <div style={{ fontSize: 11, color: '#6b7280' }}>ГБУ «МФЦ ДНР»</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>ГБУ «МФЦ ДНР»</div>
         </div>
-        <span style={{ marginLeft: 'auto', fontSize: 13, padding: '4px 10px', borderRadius: 12, background: ok ? '#e1f5ee' : '#fcebeb', color: ok ? '#0f6e56' : '#a32d2d' }}>
+        <span style={{ marginLeft: 'auto', fontSize: 13, padding: '4px 10px', borderRadius: 12, background: ok ? 'var(--success-bg)' : 'var(--danger-bg)', color: ok ? 'var(--success)' : 'var(--danger)' }}>
           API: {health ? `${health.status} · БД ${health.db}` : '…'}
         </span>
         <span style={{ fontSize: 13 }}><strong>{me.full_name || me.login}</strong></span>
-        {!narrow && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: '#eef', color: '#2f5496' }}>{me.roles.join(', ')}</span>}
+        {!narrow && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'var(--accent-weak-bg)', color: 'var(--accent)' }}>{me.roles.join(', ')}</span>}
         <NotificationBell />
-        <button onClick={onLogout} style={{ height: 32, padding: '0 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }}>Выйти</button>
+        <ThemeToggle />
+        <button onClick={onLogout} style={{ height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer', fontSize: 13 }}>Выйти</button>
       </header>
 
       <div style={{ display: 'flex', flexDirection: narrow ? 'column' : 'row', minHeight: 'calc(100vh - 55px)' }}>
         <nav style={narrow
-          ? { display: 'flex', gap: 6, overflowX: 'auto', padding: '8px 12px', borderBottom: '1px solid #e5e7eb' }
-          : { width: 200, borderRight: '1px solid #e5e7eb', padding: 12 }}>
+          ? { display: 'flex', gap: 6, overflowX: 'auto', padding: '8px 12px', borderBottom: '1px solid var(--border)' }
+          : { width: 200, borderRight: '1px solid var(--border)', padding: 12 }}>
           {nav.map((n) => (
             <button
               key={n.key}
@@ -128,8 +130,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
                 display: 'block', width: narrow ? 'auto' : '100%', whiteSpace: 'nowrap', textAlign: 'left',
                 padding: '8px 12px', marginBottom: narrow ? 0 : 4,
                 border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 14,
-                background: section === n.key ? '#eef' : 'transparent',
-                color: section === n.key ? '#2f5496' : n.ready ? '#111827' : '#9aa4b2',
+                background: section === n.key ? 'var(--accent-weak-bg)' : 'transparent',
+                color: section === n.key ? 'var(--accent)' : n.ready ? 'var(--text)' : 'var(--text-faint)',
               }}
             >
               {n.label}{!n.ready && <span style={{ fontSize: 11 }}> · в разработке</span>}
@@ -158,7 +160,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ) : section === 'catalog' ? (
             <CatalogPage me={me} />
           ) : (
-            <div style={{ color: '#9aa4b2' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>
+            <div style={{ color: 'var(--text-faint)' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>
           )}
         </main>
       </div>

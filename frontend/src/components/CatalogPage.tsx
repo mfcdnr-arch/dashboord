@@ -19,7 +19,7 @@ export default function CatalogPage({ me }: { me: { roles: string[] } }) {
   const reload = () => { listServices().then(setServices).catch(fail); listRefDocs().then(setDocs).catch(fail) }
   useEffect(() => { if (canRead) reload() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!canRead) return <div style={{ color: '#a32d2d' }}>Раздел «Справочники» доступен модератору или администратору.</div>
+  if (!canRead) return <div style={{ color: 'var(--danger)' }}>Раздел «Справочники» доступен модератору или администратору.</div>
 
   async function addService(e: FormEvent) {
     e.preventDefault()
@@ -56,7 +56,7 @@ export default function CatalogPage({ me }: { me: { roles: string[] } }) {
   return (
     <div>
       <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Справочники</h2>
-      <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+      <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
         Перечень услуг и служебные документы для проверки дашбордов.{!isAdmin && ' Редактирование — у администратора.'}
       </div>
       {error && <div style={errBox}>{error}</div>}
@@ -81,11 +81,11 @@ export default function CatalogPage({ me }: { me: { roles: string[] } }) {
                     <td style={{ ...td, fontFamily: 'monospace' }}>{s.code}</td>
                     <td style={{ ...td, fontWeight: 600 }}>{s.name}</td>
                     <td style={td}>{s.category || '—'}</td>
-                    <td style={td}>{s.is_active ? <span style={{ color: '#0f6e56' }}>активна</span> : <span style={{ color: '#9aa4b2' }}>скрыта</span>}</td>
+                    <td style={td}>{s.is_active ? <span style={{ color: 'var(--success)' }}>активна</span> : <span style={{ color: 'var(--text-faint)' }}>скрыта</span>}</td>
                     {isAdmin && (
                       <td style={{ ...td, whiteSpace: 'nowrap' }}>
                         <button style={linkBtn} onClick={() => toggleService(s)}>{s.is_active ? 'скрыть' : 'вернуть'}</button>
-                        <button style={{ ...linkBtn, color: '#a32d2d' }} onClick={() => delService(s)}>удалить</button>
+                        <button style={{ ...linkBtn, color: 'var(--danger)' }} onClick={() => delService(s)}>удалить</button>
                       </td>
                     )}
                   </tr>
@@ -109,14 +109,14 @@ export default function CatalogPage({ me }: { me: { roles: string[] } }) {
         {docs.length === 0 ? <span style={muted}>Документов пока нет.</span> : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {docs.map((d) => (
-              <div key={d.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, border: '1px solid #eef0f3', borderRadius: 8, padding: '8px 10px' }}>
+              <div key={d.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, border: '1px solid var(--border-faint)', borderRadius: 8, padding: '8px 10px' }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>
-                    📄 {d.url ? <a href={d.url} target="_blank" rel="noreferrer" style={{ color: '#2f5496' }}>{d.title}</a> : d.title}
+                    📄 {d.url ? <a href={d.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{d.title}</a> : d.title}
                   </div>
-                  {d.description && <div style={{ fontSize: 12, color: '#6b7280' }}>{d.description}</div>}
+                  {d.description && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{d.description}</div>}
                 </div>
-                {isAdmin && <button style={{ ...linkBtn, color: '#a32d2d' }} onClick={() => delDoc(d)}>удалить</button>}
+                {isAdmin && <button style={{ ...linkBtn, color: 'var(--danger)' }} onClick={() => delDoc(d)}>удалить</button>}
               </div>
             ))}
           </div>
@@ -130,10 +130,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return <div style={{ marginBottom: 24 }}><h3 style={{ fontSize: 15, margin: '0 0 10px' }}>{title}</h3>{children}</div>
 }
 
-const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }
-const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: '#2f5496', color: '#fff', fontSize: 13, cursor: 'pointer' }
-const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: '#2f5496', cursor: 'pointer', fontSize: 12, padding: '0 6px 0 0' }
-const th: React.CSSProperties = { border: '1px solid #eef0f3', padding: '6px 10px', background: '#f9fafb', textAlign: 'left', color: '#6b7280', fontWeight: 600 }
-const td: React.CSSProperties = { border: '1px solid #eef0f3', padding: '6px 10px' }
-const muted: React.CSSProperties = { color: '#9aa4b2', fontSize: 13 }
-const errBox: React.CSSProperties = { background: '#fcebeb', color: '#a32d2d', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
+const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13 }
+const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
+const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: '0 6px 0 0' }
+const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
+const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px' }
+const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
+const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }

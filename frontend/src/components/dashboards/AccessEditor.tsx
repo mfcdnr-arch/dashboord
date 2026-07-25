@@ -40,9 +40,9 @@ export function AccessEditor({ dashboard, onClose }: { dashboard: Dashboard; onC
   }
 
   const chip = (g: DashGrant) => (
-    <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, background: '#eef', color: '#2f5496', padding: '4px 10px', borderRadius: 12 }}>
+    <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, background: 'var(--accent-weak-bg)', color: 'var(--accent)', padding: '4px 10px', borderRadius: 12 }}>
       {g.grantee_type === 'role' ? '👥' : '👤'} {g.label}
-      <button style={{ border: 'none', background: 'none', color: '#a32d2d', cursor: 'pointer', padding: 0 }} onClick={() => remove(g.id)} title="Убрать доступ">✕</button>
+      <button style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0 }} onClick={() => remove(g.id)} title="Убрать доступ">✕</button>
     </span>
   )
 
@@ -53,7 +53,7 @@ export function AccessEditor({ dashboard, onClose }: { dashboard: Dashboard; onC
           <div style={{ fontSize: 16, fontWeight: 600 }}>🔒 Доступ: {dashboard.name}</div>
           <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
         </div>
-        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
           Администраторы и модераторы видят все дашборды. Остальные — только выданные здесь (по роли или пользователю) и созданные ими самими.
         </div>
 
@@ -70,7 +70,7 @@ export function AccessEditor({ dashboard, onClose }: { dashboard: Dashboard; onC
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {widgets.filter((w) => widgetGrants.some((g) => g.widget_id === w.id)).map((w) => (
                 <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 13, color: '#374151' }}>▦ {w.name}:</span>
+                  <span style={{ fontSize: 13, color: 'var(--text-2)' }}>▦ {w.name}:</span>
                   {widgetGrants.filter((g) => g.widget_id === w.id).map(chip)}
                 </div>
               ))}
@@ -78,7 +78,7 @@ export function AccessEditor({ dashboard, onClose }: { dashboard: Dashboard; onC
           )}
         </div>
         {widgetGrants.length > 0 && (
-          <div style={{ fontSize: 12, color: '#8a6d1a', background: '#fdf6e3', border: '1px solid #f0e2b6', borderRadius: 8, padding: '7px 10px', marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--warn)', background: 'var(--warn-bg)', border: '1px solid var(--warn)', borderRadius: 8, padding: '7px 10px', marginBottom: 12 }}>
             ⚠️ Пока есть хотя бы один виджет-грант, зрители-по-гранту видят <b>только</b> выданные им виджеты (белый список). Уберите все виджет-гранты, чтобы вернуть показ всех виджетов.
           </div>
         )}
@@ -106,7 +106,7 @@ export function AccessEditor({ dashboard, onClose }: { dashboard: Dashboard; onC
           </F>
           <button style={btn} disabled={busy} onClick={add}>＋ Выдать доступ</button>
         </div>
-        {err && <div style={{ color: '#a32d2d', fontSize: 13, marginTop: 10 }}>{err}</div>}
+        {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 10 }}>{err}</div>}
       </div>
     </div>
   )

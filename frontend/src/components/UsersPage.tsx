@@ -54,7 +54,7 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!me.roles.includes('admin')) {
-    return <div style={{ color: '#a32d2d' }}>Раздел «Пользователи» доступен только администратору.</div>
+    return <div style={{ color: 'var(--danger)' }}>Раздел «Пользователи» доступен только администратору.</div>
   }
 
   async function addDept(e: FormEvent) {
@@ -90,7 +90,7 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
           {depts.length === 0 && <span style={muted}>Отделов пока нет.</span>}
           {depts.map((d) => (
             <span key={d.id} style={chip}>
-              {d.name} <span style={{ color: '#9aa4b2' }}>· {d.users}</span>
+              {d.name} <span style={{ color: 'var(--text-faint)' }}>· {d.users}</span>
               <button style={xBtn} onClick={() => delDept(d)} title="Удалить отдел">✕</button>
             </span>
           ))}
@@ -120,14 +120,14 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
                   <td style={td}>{u.department || '—'}</td>
                   <td style={td}>{u.roles.length ? u.roles.map(roleName).join(', ') : '—'}</td>
                   <td style={td}>
-                    {u.is_active ? <span style={{ color: '#0f6e56' }}>активен</span> : <span style={{ color: '#a32d2d' }}>заблокирован</span>}
-                    {u.must_change_password && <span style={{ color: '#9a6a00', marginLeft: 6 }} title="Сменит пароль при входе">· смена пароля</span>}
+                    {u.is_active ? <span style={{ color: 'var(--success)' }}>активен</span> : <span style={{ color: 'var(--danger)' }}>заблокирован</span>}
+                    {u.must_change_password && <span style={{ color: 'var(--warn)', marginLeft: 6 }} title="Сменит пароль при входе">· смена пароля</span>}
                   </td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>
                     <button style={linkBtn} onClick={() => setEdit(u)}>✎ изменить</button>
                     <button style={linkBtn} onClick={() => resetPw(u)}>🔑 пароль</button>
                     {u.id !== me.id && (
-                      <button style={{ ...linkBtn, color: u.is_active ? '#a32d2d' : '#0f6e56' }} onClick={() => toggleActive(u)}>
+                      <button style={{ ...linkBtn, color: u.is_active ? 'var(--danger)' : 'var(--success)' }} onClick={() => toggleActive(u)}>
                         {u.is_active ? '🔒 блок' : '🔓 разблок'}
                       </button>
                     )}
@@ -140,7 +140,7 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
         {users.length === 0 && <div style={muted}>Ничего не найдено.</div>}
         {users.length < usersTotal && (
           <div style={{ textAlign: 'center', marginTop: 12 }}>
-            <button style={{ ...btn, background: '#eef2f8', color: '#2f5496' }} onClick={loadMoreUsers}>
+            <button style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent)' }} onClick={loadMoreUsers}>
               Показать ещё ({usersTotal - users.length})
             </button>
           </div>
@@ -165,7 +165,7 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
                       <tr key={s.login} style={{ opacity: s.is_active ? 1 : 0.55 }}>
                         <td style={{ ...td, fontWeight: 600 }}>{s.login}</td>
                         <td style={td}>{s.logins}</td>
-                        <td style={{ ...td, color: s.failed ? '#a32d2d' : undefined }}>{s.failed}</td>
+                        <td style={{ ...td, color: s.failed ? 'var(--danger)' : undefined }}>{s.failed}</td>
                         <td style={td}>{fmtDt(s.last_login)}</td>
                       </tr>
                     ))}
@@ -179,10 +179,10 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
                 {audit.recent.length === 0 && <span style={muted}>Событий пока нет.</span>}
                 {audit.recent.map((r, i) => (
                   <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, alignItems: 'center' }}>
-                    <span style={{ color: r.success ? '#0f6e56' : '#a32d2d' }}>{r.success ? '✓' : '✕'}</span>
+                    <span style={{ color: r.success ? 'var(--success)' : 'var(--danger)' }}>{r.success ? '✓' : '✕'}</span>
                     <span style={{ flex: 1 }}><b>{r.login}</b>{r.full_name ? ` · ${r.full_name}` : ''}</span>
-                    <span style={{ color: '#9aa4b2' }}>{r.ip || '—'}</span>
-                    <span style={{ color: '#9aa4b2' }}>{fmtDt(r.created_at)}</span>
+                    <span style={{ color: 'var(--text-faint)' }}>{r.ip || '—'}</span>
+                    <span style={{ color: 'var(--text-faint)' }}>{fmtDt(r.created_at)}</span>
                   </div>
                 ))}
               </div>
@@ -243,7 +243,7 @@ function UserEditor({ user, depts, roles, onClose, onSaved }: {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           {isNew && <L t="Логин *"><input style={input} value={login} onChange={(e) => setLogin(e.target.value)} /></L>}
           {isNew && <L t="Временный пароль *"><input style={{ ...input, borderColor: pwErr ? '#d99' : undefined }} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={`минимум ${policy.min_length}, буквы+цифры`} /></L>}
-          {isNew && <div style={{ gridColumn: '1 / -1', fontSize: 12, color: pwErr ? '#a32d2d' : '#6b7280', marginTop: -4 }}>{pwErr || passwordHint(policy)}</div>}
+          {isNew && <div style={{ gridColumn: '1 / -1', fontSize: 12, color: pwErr ? 'var(--danger)' : 'var(--text-muted)', marginTop: -4 }}>{pwErr || passwordHint(policy)}</div>}
           <L t="Фамилия"><input style={input} value={last} onChange={(e) => setLast(e.target.value)} /></L>
           <L t="Имя"><input style={input} value={first} onChange={(e) => setFirst(e.target.value)} /></L>
           <L t="Отчество"><input style={input} value={middle} onChange={(e) => setMiddle(e.target.value)} /></L>
@@ -254,7 +254,7 @@ function UserEditor({ user, depts, roles, onClose, onSaved }: {
           </select></L>
         </div>
         <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Роли</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Роли</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {roles.map((r) => (
               <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
@@ -263,8 +263,8 @@ function UserEditor({ user, depts, roles, onClose, onSaved }: {
             ))}
           </div>
         </div>
-        {isNew && <div style={{ fontSize: 12, color: '#9a6a00', marginTop: 8 }}>Пользователь сменит временный пароль при первом входе.</div>}
-        {err && <div style={{ color: '#a32d2d', fontSize: 13, marginTop: 8 }}>{err}</div>}
+        {isNew && <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 8 }}>Пользователь сменит временный пароль при первом входе.</div>}
+        {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 8 }}>{err}</div>}
         <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
           <button style={{ ...btn, marginLeft: 'auto' }} disabled={busy} onClick={save}>{busy ? 'Сохранение…' : 'Сохранить'}</button>
         </div>
@@ -277,17 +277,17 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return <div style={{ marginBottom: 24 }}><h3 style={{ fontSize: 15, margin: '0 0 10px' }}>{title}</h3>{children}</div>
 }
 function L({ t, children }: { t: string; children: React.ReactNode }) {
-  return <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: '#6b7280' }}>{t}{children}</label>
+  return <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: 'var(--text-muted)' }}>{t}{children}</label>
 }
 
-const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }
-const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: '#2f5496', color: '#fff', fontSize: 13, cursor: 'pointer' }
-const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: '#2f5496', cursor: 'pointer', fontSize: 12, padding: '0 6px 0 0' }
-const chip: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#eef', color: '#2f5496', padding: '4px 10px', borderRadius: 12, fontSize: 13 }
-const xBtn: React.CSSProperties = { border: 'none', background: 'none', color: '#a32d2d', cursor: 'pointer', padding: 0 }
-const th: React.CSSProperties = { border: '1px solid #eef0f3', padding: '6px 10px', background: '#f9fafb', textAlign: 'left', color: '#6b7280', fontWeight: 600 }
-const td: React.CSSProperties = { border: '1px solid #eef0f3', padding: '6px 10px' }
-const muted: React.CSSProperties = { color: '#9aa4b2', fontSize: 13 }
-const errBox: React.CSSProperties = { background: '#fcebeb', color: '#a32d2d', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
+const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13 }
+const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
+const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: '0 6px 0 0' }
+const chip: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--accent-weak-bg)', color: 'var(--accent)', padding: '4px 10px', borderRadius: 12, fontSize: 13 }
+const xBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0 }
+const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
+const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px' }
+const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
+const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }
-const dialog: React.CSSProperties = { background: '#fff', borderRadius: 14, padding: 22, width: 560, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }
+const dialog: React.CSSProperties = { background: 'var(--surface)', borderRadius: 14, padding: 22, width: 560, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }

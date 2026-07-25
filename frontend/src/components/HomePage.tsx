@@ -39,7 +39,7 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
   }
 
   if (error) return <div style={errBox}>{error}</div>
-  if (!data) return <div style={{ color: '#9aa4b2' }}>Загрузка…</div>
+  if (!data) return <div style={{ color: 'var(--text-faint)' }}>Загрузка…</div>
 
   const c = data.counters
   const counters = [
@@ -59,7 +59,7 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
       {/* Приветствие + дата/время */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <h2 style={{ fontSize: 20, margin: 0 }}>Здравствуйте, {me.full_name || me.login}!</h2>
-        <div style={{ color: '#6b7280', fontSize: 14 }}>
+        <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>
           {now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {now.toLocaleTimeString('ru-RU')}
         </div>
       </div>
@@ -68,8 +68,8 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 24 }}>
         {counters.map((x) => (
           <div key={x.t} style={counter}>
-            <div style={{ fontSize: 26, fontWeight: 700, color: '#2f5496' }}>{x.v}</div>
-            <div style={{ fontSize: 12, color: '#6b7280' }}>{x.t}</div>
+            <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--accent)' }}>{x.v}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{x.t}</div>
           </div>
         ))}
       </div>
@@ -80,7 +80,7 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
             {data.alerts.map((a) => {
               const st = a.level === 'danger'
-                ? { color: '#a32d2d', bg: '#fcebeb' } : { color: '#9a6a00', bg: '#fff4e0' }
+                ? { color: 'var(--danger)', bg: 'var(--danger-bg)' } : { color: 'var(--warn)', bg: 'var(--warn-bg)' }
               return (
                 <button key={a.widget_id} onClick={() => onOpenDashboard(a.dashboard_id)}
                   style={{ textAlign: 'left', cursor: 'pointer', border: `1px solid ${st.color}`, borderLeft: `4px solid ${st.color}`, borderRadius: 10, padding: '10px 12px', background: st.bg }}
@@ -89,10 +89,10 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
                     <span style={{ fontSize: 13, fontWeight: 600, color: st.color }}>{a.widget_name}</span>
                     <span style={{ fontSize: 12, color: st.color, marginLeft: 'auto' }}>{a.label}</span>
                   </div>
-                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-                    {a.measure != null && <b style={{ color: '#374151' }}>{fmt(a.measure)}{a.unit ? ` ${a.unit}` : ''}</b>}
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                    {a.measure != null && <b style={{ color: 'var(--text-2)' }}>{fmt(a.measure)}{a.unit ? ` ${a.unit}` : ''}</b>}
                     <span style={{ marginLeft: a.measure != null ? 8 : 0 }}>{a.dashboard_name}{a.page_name ? ` · ${a.page_name}` : ''}</span>
-                    {!a.published && <span style={{ marginLeft: 6, color: '#9aa4b2' }}>(черновик)</span>}
+                    {!a.published && <span style={{ marginLeft: 6, color: 'var(--text-faint)' }}>(черновик)</span>}
                   </div>
                 </button>
               )
@@ -108,12 +108,12 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
           {data.key_kpis.map((k) => (
             <div key={k.code} style={kpiCard}>
               <div style={{ display: 'flex', alignItems: 'flex-start' }}>
-                <div style={{ fontSize: 13, color: '#374151' }}>{k.name}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-2)' }}>{k.name}</div>
                 {canManage && <button style={rmBtn} onClick={() => removeKpi(k.code)} title="Убрать с главной">✕</button>}
               </div>
               {k.value != null
-                ? <div style={{ fontSize: 26, fontWeight: 700, color: '#2f5496', marginTop: 4 }}>{fmt(k.value)}{k.unit && <span style={{ fontSize: 13, color: '#6b7280', marginLeft: 4 }}>{k.unit}</span>}</div>
-                : <div style={{ fontSize: 12, color: '#a32d2d', marginTop: 6 }}>{k.error || 'нет значения'}</div>}
+                ? <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--accent)', marginTop: 4 }}>{fmt(k.value)}{k.unit && <span style={{ fontSize: 13, color: 'var(--text-muted)', marginLeft: 4 }}>{k.unit}</span>}</div>
+                : <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 6 }}>{k.error || 'нет значения'}</div>}
             </div>
           ))}
         </div>
@@ -133,12 +133,12 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
         {data.pages.length === 0 ? <div style={muted}>Пока нет страниц дашбордов.</div> : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {Object.entries(byDash).map(([did, g]) => (
-              <div key={did} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
+              <div key={did} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{g.name}</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {g.pages.map((p) => (
                     <button key={p.page_id} style={pageChip} onClick={() => onOpenDashboard(did)} title={p.description || ''}>
-                      {p.page_name} <span style={{ color: '#9aa4b2' }}>· {p.widgets} вид.</span>
+                      {p.page_name} <span style={{ color: 'var(--text-faint)' }}>· {p.widgets} вид.</span>
                     </button>
                   ))}
                 </div>
@@ -157,7 +157,7 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
                 <div key={i} style={{ display: 'flex', gap: 8, fontSize: 13 }}>
                   <span>{KIND_ICON[r.kind] || '•'}</span>
                   <span style={{ flex: 1 }}>{r.title}</span>
-                  <span style={{ color: '#9aa4b2', fontSize: 12 }}>{ago(r.at)}</span>
+                  <span style={{ color: 'var(--text-faint)', fontSize: 12 }}>{ago(r.at)}</span>
                 </div>
               ))}
             </div>
@@ -169,7 +169,7 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
               {data.freshness.map((f, i) => (
                 <div key={i} style={{ display: 'flex', gap: 8, fontSize: 13 }}>
                   <span style={{ flex: 1 }}>{f.name}</span>
-                  <span style={{ color: f.last_period ? '#374151' : '#9aa4b2' }}>{f.last_period ? `данные на ${f.last_period}` : 'нет данных'}</span>
+                  <span style={{ color: f.last_period ? 'var(--text-2)' : 'var(--text-faint)' }}>{f.last_period ? `данные на ${f.last_period}` : 'нет данных'}</span>
                 </div>
               ))}
             </div>
@@ -189,11 +189,11 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-const counter: React.CSSProperties = { minWidth: 96, border: '1px solid #e5e7eb', borderRadius: 12, padding: '12px 16px', textAlign: 'center' }
-const kpiCard: React.CSSProperties = { border: '1px solid #e5e7eb', borderRadius: 12, padding: 12, background: '#fff' }
-const pageChip: React.CSSProperties = { border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', padding: '6px 10px', fontSize: 13, cursor: 'pointer', color: '#2f5496' }
-const sel: React.CSSProperties = { height: 34, padding: '0 8px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff' }
-const btn: React.CSSProperties = { height: 34, padding: '0 12px', border: 'none', borderRadius: 8, background: '#2f5496', color: '#fff', fontSize: 13, cursor: 'pointer' }
-const rmBtn: React.CSSProperties = { marginLeft: 'auto', width: 22, height: 22, border: '1px solid #e5e7eb', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#a32d2d', fontSize: 11 }
-const muted: React.CSSProperties = { color: '#6b7280', fontSize: 14, paddingBottom: 8 }
-const errBox: React.CSSProperties = { background: '#fcebeb', color: '#a32d2d', fontSize: 13, padding: '8px 10px', borderRadius: 8 }
+const counter: React.CSSProperties = { minWidth: 96, border: '1px solid var(--border)', borderRadius: 12, padding: '12px 16px', textAlign: 'center' }
+const kpiCard: React.CSSProperties = { border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'var(--surface)' }
+const pageChip: React.CSSProperties = { border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', padding: '6px 10px', fontSize: 13, cursor: 'pointer', color: 'var(--accent)' }
+const sel: React.CSSProperties = { height: 34, padding: '0 8px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, background: 'var(--surface)' }
+const btn: React.CSSProperties = { height: 34, padding: '0 12px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
+const rmBtn: React.CSSProperties = { marginLeft: 'auto', width: 22, height: 22, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--danger)', fontSize: 11 }
+const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 14, paddingBottom: 8 }
+const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8 }

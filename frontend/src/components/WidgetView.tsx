@@ -83,9 +83,9 @@ function TargetLine({ data }: { data: any }) {
   const pct = data.target_pct
   const reached = pct != null && pct >= 100
   return (
-    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-      {data.target_label || 'Цель'}: <b style={{ color: '#374151' }}>{fmt(data.target)}</b>
-      {pct != null && <span style={{ marginLeft: 6, color: reached ? '#0f6e56' : '#9a6a00', fontWeight: 600 }}>· {fmt(pct)}%{reached ? ' ✓' : ''}</span>}
+    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+      {data.target_label || 'Цель'}: <b style={{ color: 'var(--text-2)' }}>{fmt(data.target)}</b>
+      {pct != null && <span style={{ marginLeft: 6, color: reached ? 'var(--success)' : 'var(--warn)', fontWeight: 600 }}>· {fmt(pct)}%{reached ? ' ✓' : ''}</span>}
     </div>
   )
 }
@@ -96,8 +96,8 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     if (!data.heading && !data.body) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Пустая аннотация</div>
     return (
       <div style={{ textAlign: align }}>
-        {data.heading && <div style={{ fontSize: 18, fontWeight: 700, color: '#1f2937' }}>{data.heading}</div>}
-        {data.body && <div style={{ fontSize: 14, color: '#374151', marginTop: data.heading ? 4 : 0, whiteSpace: 'pre-wrap' }}>{data.body}</div>}
+        {data.heading && <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>{data.heading}</div>}
+        {data.body && <div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: data.heading ? 4 : 0, whiteSpace: 'pre-wrap' }}>{data.body}</div>}
       </div>
     )
   }
@@ -106,15 +106,15 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     return (
       <div style={{ textAlign: 'center' }}>
         <img src={data.url} alt={data.caption || ''} style={{ maxWidth: '100%', maxHeight: 220, objectFit: data.fit === 'cover' ? 'cover' : 'contain' }} />
-        {data.caption && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{data.caption}</div>}
+        {data.caption && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{data.caption}</div>}
       </div>
     )
   }
   if (data.type === 'kpi') {
     return (
       <div>
-        <div style={{ fontSize: 30, fontWeight: 700, color: data.alert?.color || '#2f5496' }}>{fmt(data.value)}
-          {data.unit && <span style={{ fontSize: 15, color: '#6b7280', marginLeft: 6 }}>{data.unit}</span>}
+        <div style={{ fontSize: 30, fontWeight: 700, color: data.alert?.color || 'var(--accent)' }}>{fmt(data.value)}
+          {data.unit && <span style={{ fontSize: 15, color: 'var(--text-muted)', marginLeft: 6 }}>{data.unit}</span>}
         </div>
         <TargetLine data={data} />
       </div>
@@ -149,14 +149,14 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
         <div style={{ display: 'flex', gap: 18 }}>
           <div><div style={muted}>План</div><b>{fmt(data.plan)}</b></div>
           <div><div style={muted}>Факт</div><b>{fmt(data.fact)}</b></div>
-          <div><div style={muted}>Δ</div><b style={{ color: data.delta >= 0 ? '#0f6e56' : '#a32d2d' }}>{data.delta >= 0 ? '+' : ''}{fmt(data.delta)}</b></div>
+          <div><div style={muted}>Δ</div><b style={{ color: data.delta >= 0 ? 'var(--success)' : 'var(--danger)' }}>{data.delta >= 0 ? '+' : ''}{fmt(data.delta)}</b></div>
         </div>
         {pct != null && (
           <div style={{ marginTop: 8 }}>
-            <div style={{ height: 10, background: '#eef0f3', borderRadius: 6, overflow: 'hidden' }}>
-              <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: data.alert?.color || (pct >= 100 ? '#0f6e56' : '#2f5496') }} />
+            <div style={{ height: 10, background: 'var(--border-faint)', borderRadius: 6, overflow: 'hidden' }}>
+              <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: data.alert?.color || (pct >= 100 ? 'var(--success)' : 'var(--accent)') }} />
             </div>
-            <div style={{ fontSize: 13, color: '#374151', marginTop: 2 }}>Выполнение: <b>{fmt(pct)}%</b></div>
+            <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 2 }}>Выполнение: <b>{fmt(pct)}%</b></div>
           </div>
         )}
       </div>
@@ -205,8 +205,8 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
         <EChart option={opt} height={data.trend ? 196 : 180} />
         {ch != null && (
           <div style={{ fontSize: 13, marginTop: 4 }}>
-            К пред. периоду: <b style={{ color: ch >= 0 ? '#0f6e56' : '#a32d2d' }}>{ch >= 0 ? '↑ +' : '↓ '}{fmt(ch)}{data.change_pct != null ? ` (${fmt(data.change_pct)}%)` : ''}</b>
-            {data.trend_slope != null && <span style={{ marginLeft: 10, color: '#8a6d1a' }}>тренд: <b>{data.trend_slope >= 0 ? '↗ рост' : '↘ спад'}</b> ({fmt(data.trend_slope)}/период)</span>}
+            К пред. периоду: <b style={{ color: ch >= 0 ? 'var(--success)' : 'var(--danger)' }}>{ch >= 0 ? '↑ +' : '↓ '}{fmt(ch)}{data.change_pct != null ? ` (${fmt(data.change_pct)}%)` : ''}</b>
+            {data.trend_slope != null && <span style={{ marginLeft: 10, color: 'var(--warn)' }}>тренд: <b>{data.trend_slope >= 0 ? '↗ рост' : '↘ спад'}</b> ({fmt(data.trend_slope)}/период)</span>}
           </div>
         )}
       </div>
@@ -254,11 +254,11 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     const cols: string[] = data.columns || []
     const rows: any[] = data.rows || []
     if (rows.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
-    const totCell: React.CSSProperties = { ...td, fontWeight: 700, background: '#f4f7fb' }
+    const totCell: React.CSSProperties = { ...td, fontWeight: 700, background: 'var(--surface-accent)' }
     return (
       <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
-          <thead><tr><th style={th}>Строка</th>{cols.map((c) => <th key={c} style={th}>{c}</th>)}<th style={{ ...th, color: '#2f5496' }}>Итого</th></tr></thead>
+          <thead><tr><th style={th}>Строка</th>{cols.map((c) => <th key={c} style={th}>{c}</th>)}<th style={{ ...th, color: 'var(--accent)' }}>Итого</th></tr></thead>
           <tbody>
             {rows.map((r, i) => (
               <tr key={i}><td style={{ ...td, fontWeight: 600 }}>{r.row}</td>
@@ -269,7 +269,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
           </tbody>
           <tfoot><tr><td style={totCell}>Итого</td>
             {(data.col_totals || []).map((v: number, i: number) => <td key={i} style={{ ...totCell, textAlign: 'right' }}>{fmt(v)}</td>)}
-            <td style={{ ...totCell, textAlign: 'right', color: '#2f5496' }}>{fmt(data.grand_total)}</td>
+            <td style={{ ...totCell, textAlign: 'right', color: 'var(--accent)' }}>{fmt(data.grand_total)}</td>
           </tr></tfoot>
         </table>
       </div>
@@ -375,13 +375,13 @@ function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
   )
 }
 
-const muted: React.CSSProperties = { fontSize: 11, color: '#9aa4b2' }
-const errBox: React.CSSProperties = { background: '#fcebeb', color: '#a32d2d', fontSize: 12, padding: '6px 8px', borderRadius: 6 }
-const th: React.CSSProperties = { border: '1px solid #eef0f3', padding: '4px 8px', background: '#f9fafb', textAlign: 'left', color: '#6b7280', fontWeight: 600 }
-const td: React.CSSProperties = { border: '1px solid #eef0f3', padding: '4px 8px' }
-const drillBtn: React.CSSProperties = { marginTop: 8, border: 'none', background: 'none', color: '#2f5496', cursor: 'pointer', fontSize: 12, padding: 0 }
+const muted: React.CSSProperties = { fontSize: 11, color: 'var(--text-faint)' }
+const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 12, padding: '6px 8px', borderRadius: 6 }
+const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '4px 8px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
+const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '4px 8px' }
+const drillBtn: React.CSSProperties = { marginTop: 8, border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: 0 }
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }
-const dialog: React.CSSProperties = { background: '#fff', borderRadius: 14, padding: 22, width: 560, maxWidth: '92vw', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }
-const secH: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#2f5496', marginBottom: 6 }
-const mono: React.CSSProperties = { fontFamily: 'ui-monospace, monospace', fontSize: 12, background: '#f9fafb', padding: '6px 8px', borderRadius: 6, overflowX: 'auto' }
-const rmBtn: React.CSSProperties = { width: 26, height: 26, border: '1px solid #e5e7eb', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#6b7280' }
+const dialog: React.CSSProperties = { background: 'var(--surface)', borderRadius: 14, padding: 22, width: 560, maxWidth: '92vw', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }
+const secH: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--accent)', marginBottom: 6 }
+const mono: React.CSSProperties = { fontFamily: 'ui-monospace, monospace', fontSize: 12, background: 'var(--surface-2)', padding: '6px 8px', borderRadius: 6, overflowX: 'auto' }
+const rmBtn: React.CSSProperties = { width: 26, height: 26, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--text-muted)' }

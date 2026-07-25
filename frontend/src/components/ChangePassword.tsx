@@ -40,12 +40,12 @@ export default function ChangePassword({
     <div style={wrap}>
       <form onSubmit={submit} style={card}>
         <h1 style={{ fontSize: 18, marginTop: 0 }}>Смена пароля</h1>
-        <p style={{ fontSize: 13, color: '#6b7280', marginTop: 0 }}>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 0 }}>
           При первом входе необходимо задать новый пароль.
         </p>
         <label style={label}>Новый пароль</label>
-        <input style={{ ...input, marginBottom: 4, borderColor: pwErr ? '#d99' : '#d1d5db' }} type="password" value={pw1} onChange={(e) => setPw1(e.target.value)} autoFocus />
-        <div style={{ fontSize: 12, color: pwErr ? '#a32d2d' : '#6b7280', marginBottom: 10 }}>{pwErr || passwordHint(policy)}</div>
+        <input style={{ ...input, marginBottom: 4, borderColor: pwErr ? '#d99' : 'var(--border-strong)' }} type="password" value={pw1} onChange={(e) => setPw1(e.target.value)} autoFocus />
+        <div style={{ fontSize: 12, color: pwErr ? 'var(--danger)' : 'var(--text-muted)', marginBottom: 10 }}>{pwErr || passwordHint(policy)}</div>
         <label style={label}>Повторите пароль</label>
         <input style={input} type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
         {error && <div style={errBox}>{error}</div>}
@@ -62,15 +62,15 @@ const wrap: React.CSSProperties = {
   fontFamily: 'system-ui, sans-serif', padding: 24,
 }
 const card: React.CSSProperties = {
-  width: 320, border: '1px solid #e5e7eb', borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column',
+  width: 320, border: '1px solid var(--border)', borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column',
 }
-const label: React.CSSProperties = { fontSize: 13, color: '#6b7280', marginBottom: 4 }
+const label: React.CSSProperties = { fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }
 const input: React.CSSProperties = {
-  height: 38, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 8, marginBottom: 14, fontSize: 14,
+  height: 38, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, marginBottom: 14, fontSize: 14,
 }
 const button: React.CSSProperties = {
-  height: 40, border: 'none', borderRadius: 8, background: '#2f5496', color: '#fff', fontSize: 15, cursor: 'pointer', marginTop: 4,
+  height: 40, border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 15, cursor: 'pointer', marginTop: 4,
 }
 const errBox: React.CSSProperties = {
-  background: '#fcebeb', color: '#a32d2d', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12,
+  background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12,
 }

@@ -232,7 +232,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
     try {
       // тяжёлые библиотеки грузим по требованию (динамический импорт → отдельный чанк)
       const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
-      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: 'var(--surface)', useCORS: true })
       const pdf = new jsPDF('p', 'mm', 'a4')
       const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight()
       const pageCanvasH = Math.floor((canvas.width * ph) / pw)
@@ -255,7 +255,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
     setExporting(true)
     try {
       const { default: html2canvas } = await import('html2canvas')
-      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: 'var(--surface)', useCORS: true })
       const a = document.createElement('a')
       a.href = canvas.toDataURL('image/png'); a.download = `${sel.dashboard.name} — ${page.name}.png`; a.click()
     } catch (e) { fail(e) } finally { setExporting(false) }
@@ -292,7 +292,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, marginBottom: 16 }}>
         <button style={crumb} onClick={() => { setSel(null); setPage(null) }}>Дашборды</button>
-        {sel && <><span style={{ color: '#9aa4b2' }}>/</span><span>{sel.dashboard.name}</span></>}
+        {sel && <><span style={{ color: 'var(--text-faint)' }}>/</span><span>{sel.dashboard.name}</span></>}
       </div>
 
       {error && <div style={errBox}>{error}</div>}
@@ -307,7 +307,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
           )}
           {canManage && objects.length > 0 && (
             <div style={{ ...rowForm, alignItems: 'center' }}>
-              <span style={{ fontSize: 13, color: '#6b7280' }}>или собрать автоматически из объекта:</span>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>или собрать автоматически из объекта:</span>
               <select style={{ ...input, height: 36 }} value={autoObj} onChange={(e) => setAutoObj(e.target.value)}>
                 <option value="">выберите объект…</option>
                 {objects.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
@@ -317,7 +317,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
           )}
           {canManage && templates.length > 0 && (
             <div style={{ ...rowForm, alignItems: 'center' }}>
-              <span style={{ fontSize: 13, color: '#6b7280' }}>или создать из шаблона:</span>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>или создать из шаблона:</span>
               <select style={{ ...input, height: 36 }} value={tpl} onChange={(e) => setTpl(e.target.value)}>
                 <option value="">выберите шаблон…</option>
                 {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -333,17 +333,17 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
             {dashboards.length === 0 ? (
               <div style={muted}>{query.trim() || favOnly ? 'Ничего не найдено.' : 'Пока нет дашбордов.'}</div>
             ) : (
-              <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
                 {dashboards.map((d, i) => (
-                  <div key={d.id} onClick={() => openDashboard(d.id)} style={{ ...rowItem, borderTop: i ? '1px solid #f0f0f0' : 'none' }}>
+                  <div key={d.id} onClick={() => openDashboard(d.id)} style={{ ...rowItem, borderTop: i ? '1px solid var(--border-faint)' : 'none' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
                       <button onClick={(e) => toggleFav(e, d)} title={d.is_favorite ? 'Убрать из избранного' : 'В избранное'}
-                        style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: d.is_favorite ? '#e0a800' : '#c9ccd1', padding: 0, lineHeight: 1 }}>
+                        style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: d.is_favorite ? '#e0a800' : 'var(--border-strong)', padding: 0, lineHeight: 1 }}>
                         {d.is_favorite ? '★' : '☆'}
                       </button>
                       {d.name}
                     </span>
-                    <span style={{ fontSize: 12, color: '#6b7280' }}>страниц: {d.pages ?? 0} · {d.publication_status}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>страниц: {d.pages ?? 0} · {d.publication_status}</span>
                   </div>
                 ))}
               </div>
@@ -376,16 +376,16 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
             <button style={btnGhost} onClick={() => setCommentsOpen(true)} title="Обсуждение дашборда">💬 Обсуждение</button>
           </div>
           {versions && (
-            <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, marginBottom: 12 }}>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, marginBottom: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
                 <b style={{ fontSize: 13 }}>История версий</b>
-                <button style={{ ...linkDanger, marginLeft: 'auto', color: '#6b7280' }} onClick={() => setVersions(null)}>закрыть</button>
+                <button style={{ ...linkDanger, marginLeft: 'auto', color: 'var(--text-muted)' }} onClick={() => setVersions(null)}>закрыть</button>
               </div>
               {versions.length === 0 ? <div style={muted}>Пока нет опубликованных версий.</div> : versions.map((v) => (
                 <div key={v.version_no} style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, padding: '4px 0' }}>
-                  <span>v{v.version_no}</span><span style={{ color: '#6b7280' }}>{v.status_code}</span>
-                  <span style={{ color: '#9aa4b2' }}>{new Date(v.created_at).toLocaleString('ru-RU')}</span>
-                  {canManage && <button style={{ ...linkDanger, color: '#2f5496', marginLeft: 'auto' }} onClick={() => doRestore(v.version_no)}>откатить</button>}
+                  <span>v{v.version_no}</span><span style={{ color: 'var(--text-muted)' }}>{v.status_code}</span>
+                  <span style={{ color: 'var(--text-faint)' }}>{new Date(v.created_at).toLocaleString('ru-RU')}</span>
+                  {canManage && <button style={{ ...linkDanger, color: 'var(--accent)', marginLeft: 'auto' }} onClick={() => doRestore(v.version_no)}>откатить</button>}
                 </div>
               ))}
             </div>
@@ -408,12 +408,12 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
           {!page ? (
             <div style={muted}>{sel.pages.length ? 'Выберите страницу.' : 'Создайте первую страницу дашборда.'}</div>
           ) : (
-            <div ref={pageRef} style={{ background: '#fff' }}>
+            <div ref={pageRef} style={{ background: 'var(--surface)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                 <h3 style={{ fontSize: 15, margin: 0 }}>Страница «{page.name}»</h3>
                 {canManage && <button style={{ ...tab, height: 30, ...(editMode ? tabActive : {}) }} onClick={() => setEditMode((v) => !v)}>{editMode ? '✓ Готово' : '✎ Раскладка'}</button>}
                 {canManage && <button style={linkDanger} onClick={() => delPage(page)}>удалить страницу</button>}
-                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280', flexWrap: 'wrap' }}>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
                   <span>Период:</span>
                   <input type="date" style={{ ...input, height: 30, width: 140 }} value={pFrom} onChange={(e) => setPFrom(e.target.value)} />
                   <span>—</span>
@@ -433,16 +433,16 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
 
               {/* Пресеты фильтров (сохранённые наборы, FR-13) */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: '#6b7280' }}>Пресеты:</span>
-                {presets.length === 0 && <span style={{ fontSize: 12, color: '#9aa4b2' }}>нет сохранённых наборов</span>}
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Пресеты:</span>
+                {presets.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>нет сохранённых наборов</span>}
                 {presets.map((p) => (
                   <span key={p.id} style={presetChip}>
-                    <button style={{ border: 'none', background: 'none', color: '#2f5496', cursor: 'pointer', padding: 0, fontSize: 13 }} onClick={() => applyPreset(p)} title="Применить набор фильтров">{p.name}</button>
-                    {canManage && <button style={{ border: 'none', background: 'none', color: '#a32d2d', cursor: 'pointer', padding: 0 }} onClick={() => removePreset(p)} title="Удалить пресет">✕</button>}
+                    <button style={{ border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: 13 }} onClick={() => applyPreset(p)} title="Применить набор фильтров">{p.name}</button>
+                    {canManage && <button style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0 }} onClick={() => removePreset(p)} title="Удалить пресет">✕</button>}
                   </span>
                 ))}
                 {canManage && <button style={{ ...tab, height: 28 }} onClick={savePreset}>💾 Сохранить текущие</button>}
-                <span style={{ fontSize: 12, color: '#9aa4b2', marginLeft: 4 }}>клик по столбцу/сектору тоже задаёт «Строку»</span>
+                <span style={{ fontSize: 12, color: 'var(--text-faint)', marginLeft: 4 }}>клик по столбцу/сектору тоже задаёт «Строку»</span>
               </div>
 
               {/* Сетка виджетов (drag-drop в режиме раскладки) */}
@@ -453,7 +453,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                   onDragStop={(_l, _o, n) => persistItem(n)} onResizeStop={(_l, _o, n) => persistItem(n)}
                   layout={widgets.map((w) => ({ i: w.id, x: w.position_x || 0, y: w.position_y || 0, w: w.width || 4, h: w.height || 4 }))}>
                   {widgets.map((w) => (
-                    <div key={w.id} style={{ ...widgetCard, height: '100%', overflow: 'hidden', outline: editMode ? '1px dashed #9aa4b2' : 'none' }}>
+                    <div key={w.id} style={{ ...widgetCard, height: '100%', overflow: 'hidden', outline: editMode ? '1px dashed var(--text-faint)' : 'none' }}>
                       <div className={editMode ? 'wdrag' : ''} style={{ display: 'flex', alignItems: 'center', marginBottom: 8, cursor: editMode ? 'move' : 'default' }}>
                         <div style={{ fontSize: 13, fontWeight: 600 }}>{w.name}</div>
                         <span style={wtBadge}>{WT.find((x) => x.v === w.widget_type)?.t || w.widget_type}</span>
@@ -499,7 +499,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
               <div style={{ fontSize: 16, fontWeight: 600 }}>✎ Изменить виджет: {editWidget.name}</div>
               <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={() => setEditWidget(null)}>✕</button>
             </div>
-            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
               Смените тип, источник, датасет или поля — размещение на странице и пороги алертов сохранятся.
             </div>
             <WidgetForm sources={sources} initial={editWidget} submitLabel="Сохранить" onCreate={saveWidgetEdit} />

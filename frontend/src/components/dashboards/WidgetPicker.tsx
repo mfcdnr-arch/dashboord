@@ -76,14 +76,14 @@ function Card({ m, active, onPick }: { m: Meta; active: boolean; onPick: (v: str
     <button type="button" onClick={() => onPick(m.v)} title={m.hint}
       style={{
         display: 'flex', flexDirection: 'column', gap: 6, width: 150, textAlign: 'left',
-        border: `1.5px solid ${active ? '#2f5496' : '#e5e7eb'}`, borderRadius: 12, padding: 10,
-        background: active ? '#eef3fb' : '#fff', cursor: 'pointer', boxShadow: active ? '0 0 0 3px rgba(47,84,150,0.12)' : 'none',
+        border: `1.5px solid ${active ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 12, padding: 10,
+        background: active ? 'var(--accent-weak-bg)' : 'var(--surface)', cursor: 'pointer', boxShadow: active ? '0 0 0 3px rgba(47,84,150,0.12)' : 'none',
       }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ flexShrink: 0 }}>{ICONS[m.v]}</div>
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{m.t}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{m.t}</span>
       </div>
-      <span style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.3 }}>{m.hint}</span>
+      <span style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.3 }}>{m.hint}</span>
     </button>
   )
 }
@@ -100,8 +100,8 @@ export function WidgetPicker({ value, onPick, onClose }: { value: string; onPick
         {WIDGET_GROUPS.map((g) => (
           <div key={g.key} style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#2f5496' }}>{g.title}</span>
-              <span style={{ fontSize: 11, color: '#9aa4b2' }}>{g.note}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{g.title}</span>
+              <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{g.note}</span>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
               {g.items.map((m) => <Card key={m.v} m={m} active={m.v === value} onPick={(v) => { onPick(v); onClose() }} />)}
@@ -113,4 +113,4 @@ export function WidgetPicker({ value, onPick, onClose }: { value: string; onPick
   )
 }
 
-const closeBtn: React.CSSProperties = { marginLeft: 'auto', width: 28, height: 28, border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', cursor: 'pointer', color: '#6b7280' }
+const closeBtn: React.CSSProperties = { marginLeft: 'auto', width: 28, height: 28, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', cursor: 'pointer', color: 'var(--text-muted)' }

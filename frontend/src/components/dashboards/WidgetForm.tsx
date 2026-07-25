@@ -18,30 +18,30 @@ export function SourceCatalog({ sources }: { sources: DataSources }) {
   }
   const chip = (bg: string, color: string): React.CSSProperties => ({ display: 'inline-block', margin: '2px 4px 2px 0', padding: '1px 8px', borderRadius: 8, background: bg, color, fontSize: 12 })
   return (
-    <div style={{ border: '1px solid #d1d5db', borderRadius: 10, padding: 12, marginBottom: 12, background: '#f8fafc' }}>
+    <div style={{ border: '1px solid var(--border-strong)', borderRadius: 10, padding: 12, marginBottom: 12, background: 'var(--surface-2)' }}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
         <b style={{ fontSize: 13 }}>📚 Каталог источников</b>
-        <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 8 }}>что можно применить в дашборде</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>что можно применить в дашборде</span>
         <button style={{ ...btnGhost, height: 28, marginLeft: 'auto' }} onClick={() => setOpen(false)}>Скрыть</button>
       </div>
 
-      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Датасеты (из документов) — клик раскрывает поля/строки/периоды</div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Датасеты (из документов) — клик раскрывает поля/строки/периоды</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
-        {sources.datasets.length === 0 && <span style={{ fontSize: 12, color: '#9aa4b2' }}>Нет датасетов — сначала распознайте документ.</span>}
+        {sources.datasets.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Нет датасетов — сначала распознайте документ.</span>}
         {sources.datasets.map((d) => (
-          <div key={d.code} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 10px', background: '#fff' }}>
+          <div key={d.code} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', background: 'var(--surface)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setExp(exp === d.code ? null : d.code)}>
-              <span style={{ color: '#2f5496' }}>{exp === d.code ? '▾' : '▸'}</span>
+              <span style={{ color: 'var(--accent)' }}>{exp === d.code ? '▾' : '▸'}</span>
               <span style={{ fontSize: 13, fontWeight: 600 }}>{d.name}</span>
-              <span style={{ fontSize: 11, color: '#9aa4b2' }}>({d.code})</span>
-              <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 'auto' }}>📄 {[d.document, d.folder, d.object].filter(Boolean).join(' · ') || '—'}</span>
+              <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>({d.code})</span>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>📄 {[d.document, d.folder, d.object].filter(Boolean).join(' · ') || '—'}</span>
             </div>
             {exp === d.code && (
-              <div style={{ marginTop: 8, fontSize: 12, color: '#374151' }}>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-2)' }}>
                 <div style={{ marginBottom: 4 }}><b>Поля/столбцы:</b> {d.fields.length === 0 ? '—' : d.fields.map((f) => (
-                  <span key={f.code} style={chip('#eef', '#2f5496')}>{f.name} <span style={{ color: '#9aa4b2' }}>· {f.data_type === 'number' ? 'число' : f.data_type === 'date' ? 'дата' : 'текст'}{f.is_row_label ? ' · строка' : ''}</span></span>
+                  <span key={f.code} style={chip('var(--accent-weak-bg)', 'var(--accent)')}>{f.name} <span style={{ color: 'var(--text-faint)' }}>· {f.data_type === 'number' ? 'число' : f.data_type === 'date' ? 'дата' : 'текст'}{f.is_row_label ? ' · строка' : ''}</span></span>
                 ))}</div>
-                <div style={{ marginBottom: 4 }}><b>Строки:</b> {d.rows.length === 0 ? '—' : d.rows.map((r, i) => <span key={i} style={chip('#f1f2f4', '#374151')}>{r}</span>)}</div>
+                <div style={{ marginBottom: 4 }}><b>Строки:</b> {d.rows.length === 0 ? '—' : d.rows.map((r, i) => <span key={i} style={chip('var(--surface-3)', 'var(--text-2)')}>{r}</span>)}</div>
                 <div><b>Периоды:</b> {d.dates.length === 0 ? '—' : d.dates.join(', ')}</div>
               </div>
             )}
@@ -49,10 +49,10 @@ export function SourceCatalog({ sources }: { sources: DataSources }) {
         ))}
       </div>
 
-      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Показатели (метрики) — готовые формулы для KPI/план-факта</div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Показатели (метрики) — готовые формулы для KPI/план-факта</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {sources.metrics.length === 0 && <span style={{ fontSize: 12, color: '#9aa4b2' }}>Нет метрик — создайте в разделе «Метрики».</span>}
-        {sources.metrics.map((m) => <span key={m.code} style={chip('#eef', '#2f5496')}>{m.name} <span style={{ color: '#9aa4b2' }}>({m.code})</span></span>)}
+        {sources.metrics.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Нет метрик — создайте в разделе «Метрики».</span>}
+        {sources.metrics.map((m) => <span key={m.code} style={chip('var(--accent-weak-bg)', 'var(--accent)')}>{m.name} <span style={{ color: 'var(--text-faint)' }}>({m.code})</span></span>)}
       </div>
     </div>
   )
@@ -89,20 +89,20 @@ export function SuggestPanel({ datasets, onAdd }: { datasets: DataSources['datas
     )
   }
   return (
-    <div style={{ border: '1px solid #d1d5db', borderRadius: 10, padding: 12, marginBottom: 12, background: '#f8fafc' }}>
+    <div style={{ border: '1px solid var(--border-strong)', borderRadius: 10, padding: 12, marginBottom: 12, background: 'var(--surface-2)' }}>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
         <F t="Датасет"><select style={sel} value={dc} onChange={(e) => { setDc(e.target.value); load(e.target.value) }}>
           {datasets.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}
         </select></F>
         <button style={{ ...btn, height: 34 }} disabled={busy || chosen.size === 0} onClick={add}>{busy ? 'Добавление…' : `＋ Добавить выбранные (${chosen.size})`}</button>
         <button style={{ ...btnGhost, height: 34 }} onClick={() => setOpen(false)}>Скрыть</button>
-        <span style={{ fontSize: 12, color: '#6b7280' }}>отметьте нужные предложения</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>отметьте нужные предложения</span>
       </div>
-      {err && <div style={{ color: '#a32d2d', fontSize: 12, marginBottom: 6 }}>{err}</div>}
+      {err && <div style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 6 }}>{err}</div>}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {specs.length === 0 && !err && <span style={{ fontSize: 12, color: '#9aa4b2' }}>Нет предложений.</span>}
+        {specs.length === 0 && !err && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Нет предложений.</span>}
         {specs.map((s, i) => (
-          <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, border: '1px solid #e5e7eb', borderRadius: 8, padding: '5px 10px', background: chosen.has(i) ? '#eef' : '#fff', cursor: 'pointer' }}>
+          <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, border: '1px solid var(--border)', borderRadius: 8, padding: '5px 10px', background: chosen.has(i) ? 'var(--accent-weak-bg)' : 'var(--surface)', cursor: 'pointer' }}>
             <input type="checkbox" checked={chosen.has(i)} onChange={() => toggle(i)} />
             {s.name}
             <span style={{ ...wtBadge, marginLeft: 4 }}>{WT.find((x) => x.v === s.widget_type)?.t || s.widget_type}</span>
@@ -233,13 +233,13 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   }
 
   return (
-    <form onSubmit={submit} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end', border: initial ? 'none' : '1px solid #e5e7eb', borderRadius: 10, padding: initial ? 0 : 12 }}>
+    <form onSubmit={submit} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end', border: initial ? 'none' : '1px solid var(--border)', borderRadius: 10, padding: initial ? 0 : 12 }}>
       <F t="Название"><input style={sel} placeholder="Заголовок виджета" value={name} onChange={(e) => setName(e.target.value)} /></F>
       <F t="Подсказка (тултип)"><input style={sel} placeholder="Что показывает виджет — покажется по значку «i»" value={help} onChange={(e) => setHelp(e.target.value)} /></F>
       <F t="Тип"><button type="button" style={{ ...sel, minWidth: 200, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', cursor: 'pointer' }}
         onClick={() => setPickerOpen(true)} title="Открыть галерею типов виджетов">
-        <span style={{ fontWeight: 600, color: '#1f2937' }}>{WIDGET_META[type]?.t || type}</span>
-        <span style={{ fontSize: 12, color: '#2f5496' }}>▦ галерея</span>
+        <span style={{ fontWeight: 600, color: 'var(--text)' }}>{WIDGET_META[type]?.t || type}</span>
+        <span style={{ fontSize: 12, color: 'var(--accent)' }}>▦ галерея</span>
       </button></F>
       {pickerOpen && <WidgetPicker value={type} onClose={() => setPickerOpen(false)}
         onPick={(v) => { setType(v); if (!['kpi', 'gauge'].includes(v) && source === 'formula') setSource('metric') }} />}
@@ -266,7 +266,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         <>
           <F t="Единица (необяз.)"><input style={{ ...sel, width: 110 }} placeholder="напр. шт, %" value={formulaUnit} onChange={(e) => setFormulaUnit(e.target.value)} /></F>
           <div style={{ flexBasis: '100%' }}>
-            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>Формула показателя — соберите мышью ниже или введите текстом; считается на лету, без создания метрики</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Формула показателя — соберите мышью ниже или введите текстом; считается на лету, без создания метрики</div>
             <input style={{ ...sel, width: '100%', fontFamily: 'ui-monospace, monospace', marginBottom: 8 }}
               placeholder="напр. SUM(field('plan','kol')) + 10" value={formulaDsl} onChange={(e) => setFormulaDsl(e.target.value)} />
             <FormulaBuilder sources={sources} onFormula={setFormulaDsl} />
@@ -281,7 +281,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       )}
       {usesSource && source === 'metric' && (() => {
         const line = (lbl: string, x?: MetricSource) => (x && (x.formula || x.unit)) ? (
-          <div style={{ fontSize: 11, color: '#6b7280' }}>{lbl}<b style={{ color: '#374151' }}>{x.name}</b>{x.unit ? ` · ед.: ${x.unit}` : ''}{x.formula ? <> · формула: <code style={{ fontFamily: 'ui-monospace, monospace', background: '#f1f2f4', padding: '0 4px', borderRadius: 4 }}>{x.formula}</code></> : ''}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{lbl}<b style={{ color: 'var(--text-2)' }}>{x.name}</b>{x.unit ? ` · ед.: ${x.unit}` : ''}{x.formula ? <> · формула: <code style={{ fontFamily: 'ui-monospace, monospace', background: 'var(--surface-3)', padding: '0 4px', borderRadius: 4 }}>{x.formula}</code></> : ''}</div>
         ) : null
         const m = sources.metrics.find((x) => x.code === metricCode)
         const fm = type === 'plan_fact' ? sources.metrics.find((x) => x.code === factMetric) : undefined
@@ -333,8 +333,8 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         </>
       )}
       {!isText && !isImage && (
-        <div style={{ flexBasis: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #eef0f3', borderRadius: 8, background: '#fafbfc' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151' }}>
+        <div style={{ flexBasis: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid var(--border-faint)', borderRadius: 8, background: 'var(--surface-2)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-2)' }}>
             <input type="checkbox" checked={ownFilter} onChange={(e) => setOwnFilter(e.target.checked)} />
             Свой фильтр (не зависит от фильтра страницы)
           </label>
@@ -348,11 +348,11 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         </div>
       )}
       <div style={{ flexBasis: '100%', marginTop: 6 }}>
-        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>Предпросмотр</div>
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 12, minHeight: 56, background: '#fff' }}>
-          {previewErr ? <div style={{ color: '#a32d2d', fontSize: 12 }}>{previewErr}</div>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Предпросмотр</div>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, minHeight: 56, background: 'var(--surface)' }}>
+          {previewErr ? <div style={{ color: 'var(--danger)', fontSize: 12 }}>{previewErr}</div>
             : preview ? <WidgetPreviewBody data={preview} />
-              : <div style={{ color: '#9aa4b2', fontSize: 12 }}>Заполните поля — здесь появится живой предпросмотр виджета</div>}
+              : <div style={{ color: 'var(--text-faint)', fontSize: 12 }}>Заполните поля — здесь появится живой предпросмотр виджета</div>}
         </div>
       </div>
       <button style={{ ...btn, flexBasis: '100%' }}>{submitLabel || 'Добавить'}</button>

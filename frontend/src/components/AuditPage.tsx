@@ -15,8 +15,8 @@ const ACTION_LABEL: Record<string, string> = {
   grant_access: 'Выдача доступа', revoke_access: 'Отзыв доступа', view: 'Просмотр',
 }
 const ACTION_COLOR: Record<string, string> = {
-  create: '#0f6e56', update: '#9a6a00', delete: '#a32d2d', publish: '#2f5496',
-  grant_access: '#0f6e56', revoke_access: '#a32d2d', view: '#6b7280',
+  create: 'var(--success)', update: 'var(--warn)', delete: 'var(--danger)', publish: 'var(--accent)',
+  grant_access: 'var(--success)', revoke_access: 'var(--danger)', view: 'var(--text-muted)',
 }
 
 function fmtDt(iso: string | null): string {
@@ -60,7 +60,7 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
   useEffect(load, [actor, entityType, action, dateFrom, dateTo, includeViews, offset]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!me.roles.includes('admin')) {
-    return <div style={{ color: '#a32d2d' }}>Раздел «Аудит действий» доступен только администратору.</div>
+    return <div style={{ color: 'var(--danger)' }}>Раздел «Аудит действий» доступен только администратору.</div>
   }
 
   const facets = data?.facets
@@ -98,7 +98,7 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
         <div style={{ flex: 1 }}>
           <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Аудит действий</h2>
-          <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
             Журнал изменений дашбордов, виджетов и прав доступа: кто, что и когда менял.
           </div>
         </div>
@@ -131,7 +131,7 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
         </F>
         <F t="С даты"><input type="date" style={input} value={dateFrom} onChange={(e) => onFilterChange(setDateFrom)(e.target.value)} /></F>
         <F t="По дату"><input type="date" style={input} value={dateTo} onChange={(e) => onFilterChange(setDateTo)(e.target.value)} /></F>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', height: 34, whiteSpace: 'nowrap' }} title="Просмотры дашбордов по умолчанию скрыты, чтобы журнал изменений не засорялся">
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-2)', height: 34, whiteSpace: 'nowrap' }} title="Просмотры дашбордов по умолчанию скрыты, чтобы журнал изменений не засорялся">
           <input type="checkbox" checked={includeViews} onChange={(e) => { setOffset(0); setIncludeViews(e.target.checked) }} />
           Показывать просмотры
         </label>
@@ -139,7 +139,7 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
       </div>
 
       {/* Итоги + пагинация */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, fontSize: 13, color: '#6b7280' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, fontSize: 13, color: 'var(--text-muted)' }}>
         <span>{loading ? 'Загрузка…' : total === 0 ? 'Записей нет' : `${from}–${to} из ${total}`}</span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
           <button style={pageBtn} disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>← Назад</button>
@@ -153,7 +153,7 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
           <tbody>
             {data?.items.map((it) => <Row key={it.id} it={it} onOpen={() => openDetail(it.id)} />)}
             {!loading && data && data.items.length === 0 && (
-              <tr><td style={{ ...td, color: '#9aa4b2' }} colSpan={6}>Ничего не найдено по заданным фильтрам.</td></tr>
+              <tr><td style={{ ...td, color: 'var(--text-faint)' }} colSpan={6}>Ничего не найдено по заданным фильтрам.</td></tr>
             )}
           </tbody>
         </table>
@@ -168,11 +168,11 @@ function Row({ it, onOpen }: { it: AuditItem; onOpen: () => void }) {
   const et = it.entity_type === 'dashboard' ? 'Дашборд' : it.entity_type === 'widget' ? 'Виджет' : it.entity_type === 'object_acl' ? 'Права' : it.entity_type
   return (
     <tr>
-      <td style={{ ...td, whiteSpace: 'nowrap', color: '#6b7280' }}>{fmtDt(it.created_at)}</td>
+      <td style={{ ...td, whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{fmtDt(it.created_at)}</td>
       <td style={td}>{actorText(it)}</td>
-      <td style={td}><span style={{ color: ACTION_COLOR[it.action] || '#111827', fontWeight: 600 }}>{ACTION_LABEL[it.action] || it.action}</span></td>
-      <td style={td}><span style={{ color: '#6b7280' }}>{et}:</span> {it.entity_name || <span style={{ color: '#9aa4b2' }}>{it.entity_id.slice(0, 8)}…</span>}</td>
-      <td style={td}>{it.changed_fields.length ? <span style={{ color: '#9a6a00' }}>{it.changed_fields.join(', ')}</span> : <span style={{ color: '#9aa4b2' }}>—</span>}</td>
+      <td style={td}><span style={{ color: ACTION_COLOR[it.action] || 'var(--text)', fontWeight: 600 }}>{ACTION_LABEL[it.action] || it.action}</span></td>
+      <td style={td}><span style={{ color: 'var(--text-muted)' }}>{et}:</span> {it.entity_name || <span style={{ color: 'var(--text-faint)' }}>{it.entity_id.slice(0, 8)}…</span>}</td>
+      <td style={td}>{it.changed_fields.length ? <span style={{ color: 'var(--warn)' }}>{it.changed_fields.join(', ')}</span> : <span style={{ color: 'var(--text-faint)' }}>—</span>}</td>
       <td style={{ ...td, whiteSpace: 'nowrap' }}><button style={linkBtn} onClick={onOpen}>подробнее</button></td>
     </tr>
   )
@@ -196,9 +196,9 @@ function DetailModal({ d, onClose }: { d: AuditDetail; onClose: () => void }) {
           </div>
           <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
         </div>
-        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 4 }}>{d.entity_name || d.entity_id}</div>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, color: '#6b7280', marginBottom: 14 }}>
-          <span>Автор: <b style={{ color: '#111827' }}>{actorText(d)}</b></span>
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>{d.entity_name || d.entity_id}</div>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
+          <span>Автор: <b style={{ color: 'var(--text)' }}>{actorText(d)}</b></span>
           <span>Время: {fmtDt(d.created_at)}</span>
           {d.ip_address && <span>IP: {d.ip_address}</span>}
         </div>
@@ -211,8 +211,8 @@ function DetailModal({ d, onClose }: { d: AuditDetail; onClose: () => void }) {
                 {changed.map((f) => (
                   <tr key={f.field}>
                     <td style={{ ...td, fontWeight: 600, whiteSpace: 'nowrap' }}>{f.field}</td>
-                    <td style={{ ...td, color: '#a32d2d', maxWidth: 260, wordBreak: 'break-word' }}>{fmtVal(f.old)}</td>
-                    <td style={{ ...td, color: '#0f6e56', maxWidth: 260, wordBreak: 'break-word' }}>{fmtVal(f.new)}</td>
+                    <td style={{ ...td, color: 'var(--danger)', maxWidth: 260, wordBreak: 'break-word' }}>{fmtVal(f.old)}</td>
+                    <td style={{ ...td, color: 'var(--success)', maxWidth: 260, wordBreak: 'break-word' }}>{fmtVal(f.new)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -248,17 +248,17 @@ function DetailModal({ d, onClose }: { d: AuditDetail; onClose: () => void }) {
 }
 
 function F({ t, children }: { t: string; children: React.ReactNode }) {
-  return <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: '#6b7280' }}>{t}{children}</label>
+  return <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: 'var(--text-muted)' }}>{t}{children}</label>
 }
 
-const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: '#fff' }
-const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: '#2f5496', cursor: 'pointer', fontSize: 12, padding: 0 }
-const ghostBtn: React.CSSProperties = { height: 34, padding: '0 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', color: '#6b7280', fontSize: 13, cursor: 'pointer' }
-const pageBtn: React.CSSProperties = { height: 30, padding: '0 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', fontSize: 12, cursor: 'pointer' }
-const xBtn: React.CSSProperties = { border: 'none', background: 'none', color: '#a32d2d', cursor: 'pointer', padding: 0, fontSize: 15 }
-const th: React.CSSProperties = { border: '1px solid #eef0f3', padding: '6px 10px', background: '#f9fafb', textAlign: 'left', color: '#6b7280', fontWeight: 600 }
-const td: React.CSSProperties = { border: '1px solid #eef0f3', padding: '6px 10px', verticalAlign: 'top' }
-const muted: React.CSSProperties = { color: '#9aa4b2', fontSize: 13 }
-const errBox: React.CSSProperties = { background: '#fcebeb', color: '#a32d2d', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
+const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, background: 'var(--surface)' }
+const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: 0 }
+const ghostBtn: React.CSSProperties = { height: 34, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer' }
+const pageBtn: React.CSSProperties = { height: 30, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', fontSize: 12, cursor: 'pointer' }
+const xBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0, fontSize: 15 }
+const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
+const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', verticalAlign: 'top' }
+const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
+const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }
-const dialog: React.CSSProperties = { background: '#fff', borderRadius: 14, padding: 22, width: 640, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }
+const dialog: React.CSSProperties = { background: 'var(--surface)', borderRadius: 14, padding: 22, width: 640, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }

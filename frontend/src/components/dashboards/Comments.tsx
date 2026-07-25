@@ -47,7 +47,7 @@ export function Comments({ dashboard, onClose }: { dashboard: Dashboard; onClose
           <div style={{ fontSize: 16, fontWeight: 600 }}>💬 Обсуждение: {dashboard.name}</div>
           <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
         </div>
-        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
           Комментарии видны всем, кто имеет доступ к дашборду. Автор дашборда получит уведомление о новом комментарии.
         </div>
 
@@ -55,13 +55,13 @@ export function Comments({ dashboard, onClose }: { dashboard: Dashboard; onClose
           {items.length === 0 ? <div style={muted}>Пока нет комментариев. Начните обсуждение.</div> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {items.map((c) => (
-                <div key={c.id} style={{ border: '1px solid #eef0f3', borderRadius: 10, padding: '8px 12px' }}>
+                <div key={c.id} style={{ border: '1px solid var(--border-faint)', borderRadius: 10, padding: '8px 12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: '#2f5496' }}>{c.author}</span>
-                    <span style={{ fontSize: 12, color: '#9aa4b2' }}>{fmtDt(c.created_at)}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{c.author}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{fmtDt(c.created_at)}</span>
                     {c.can_delete && (
                       <button onClick={() => remove(c.id)} title="Удалить комментарий"
-                        style={{ marginLeft: 'auto', border: 'none', background: 'none', color: '#a32d2d', cursor: 'pointer', fontSize: 13, padding: 0 }}>✕</button>
+                        style={{ marginLeft: 'auto', border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 13, padding: 0 }}>✕</button>
                     )}
                   </div>
                   <div style={{ fontSize: 14, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{c.body}</div>
@@ -78,10 +78,10 @@ export function Comments({ dashboard, onClose }: { dashboard: Dashboard; onClose
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
           <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Написать комментарий…" rows={2}
-            style={{ flex: 1, resize: 'vertical', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14, fontFamily: 'inherit' }} />
+            style={{ flex: 1, resize: 'vertical', padding: '8px 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 14, fontFamily: 'inherit' }} />
           <button style={btn} disabled={busy || !text.trim()} onClick={send}>Отправить</button>
         </div>
-        {err && <div style={{ color: '#a32d2d', fontSize: 13, marginTop: 10 }}>{err}</div>}
+        {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 10 }}>{err}</div>}
       </div>
     </div>
   )

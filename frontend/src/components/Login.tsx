@@ -5,7 +5,7 @@ import { login, setToken } from '../api'
 // БРЕНД: цвета/название/эмблема вынесены в BRAND ниже — под будущий брендбук МФЦ
 // достаточно поменять значения (или заменить эмблему на <img> с логотипом).
 const BRAND = {
-  primary: '#2f5496',
+  primary: 'var(--accent)',
   primaryDark: '#1e3a6b',
   accent: '#c69b2f',
   orgShort: 'ГБУ «МФЦ ДНР»',
@@ -95,7 +95,7 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
       <div style={{ ...formSide, padding: narrow ? '28px 24px 44px' : 24, minHeight: narrow ? undefined : '100vh' }}>
         <form onSubmit={submit} style={card}>
           <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Вход в систему</h2>
-          <p style={{ fontSize: 13, color: '#6b7280', margin: '0 0 20px' }}>Введите логин и пароль, выданные администратором.</p>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 20px' }}>Введите логин и пароль, выданные администратором.</p>
           <label style={label}>Логин</label>
           <input style={input} value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
           <label style={label}>Пароль</label>
@@ -104,7 +104,7 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
           <button style={{ ...button, opacity: busy || !username || !password ? 0.6 : 1 }} disabled={busy || !username || !password}>
             {busy ? 'Вход…' : 'Войти'}
           </button>
-          <div style={{ fontSize: 12, color: '#9aa4b2', marginTop: 16, textAlign: 'center' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 16, textAlign: 'center' }}>
             Нет доступа? Обратитесь к администратору системы.
           </div>
         </form>
@@ -113,9 +113,9 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
   )
 }
 
-const page: React.CSSProperties = { minHeight: '100vh', display: 'flex', fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif', color: '#1f2937' }
+const page: React.CSSProperties = { minHeight: '100vh', display: 'flex', fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif', color: 'var(--text)' }
 const hero: React.CSSProperties = {
-  flex: 1.25, color: '#fff', display: 'flex', alignItems: 'center',
+  flex: 1.25, color: 'var(--on-accent)', display: 'flex', alignItems: 'center',
   background: `radial-gradient(1200px 600px at 15% -10%, ${BRAND.primary} 0%, ${BRAND.primaryDark} 55%, #16233f 100%)`,
 }
 const heroInner: React.CSSProperties = { width: '100%', maxWidth: 680 }
@@ -128,10 +128,10 @@ const featCard: React.CSSProperties = {
 }
 const formSide: React.CSSProperties = { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f4f6fa' }
 const card: React.CSSProperties = {
-  width: '100%', maxWidth: 360, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16,
+  width: '100%', maxWidth: 360, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16,
   padding: 28, display: 'flex', flexDirection: 'column', boxShadow: '0 10px 40px rgba(20,35,76,0.08)',
 }
-const label: React.CSSProperties = { fontSize: 13, color: '#6b7280', marginBottom: 4 }
-const input: React.CSSProperties = { height: 40, padding: '0 12px', border: '1px solid #d1d5db', borderRadius: 9, marginBottom: 14, fontSize: 14 }
-const button: React.CSSProperties = { height: 42, border: 'none', borderRadius: 9, background: BRAND.primary, color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginTop: 4 }
-const errBox: React.CSSProperties = { background: '#fcebeb', color: '#a32d2d', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
+const label: React.CSSProperties = { fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }
+const input: React.CSSProperties = { height: 40, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 9, marginBottom: 14, fontSize: 14 }
+const button: React.CSSProperties = { height: 42, border: 'none', borderRadius: 9, background: BRAND.primary, color: 'var(--on-accent)', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginTop: 4 }
+const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }

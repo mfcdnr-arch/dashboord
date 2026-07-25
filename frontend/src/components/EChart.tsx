@@ -10,11 +10,22 @@ import type { EChartsOption } from 'echarts' // только тип (стира�
 echarts.use([BarChart, LineChart, PieChart, GaugeChart, HeatmapChart,
   GridComponent, TooltipComponent, LegendComponent, TitleComponent, VisualMapComponent, CanvasRenderer])
 
+// ECharts рисует на canvas и НЕ понимает CSS-переменные, поэтому значения тем
+// (цвет текста/осей) читаем из токенов через getComputedStyle и подставляем
+// в option. Тексты осей/легенды без явного цвета наследуют textStyle.color.
+function themeDefaults(): EChartsOption {
+  const cs = getComputedStyle(document.documentElement)
+  const muted = cs.getPropertyValue('--text-muted').trim() || '#6b7280'
+  return { textStyle: { color: muted } }
+}
+
 // Тонкая обёртка над ECharts: инициализирует график в div, применяет option,
 // подстраивает размер под контейнер, освобождает ресурсы при размонтировании.
 export default function EChart({ option, height = 200, onPick }: { option: EChartsOption; height?: number; onPick?: (name: string) => void }) {
   const ref = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null)
+  const optionRef = useRef(option)
+  optionRef.current = option
   const pickRef = useRef(onPick)
   pickRef.current = onPick
 
@@ -25,11 +36,14 @@ export default function EChart({ option, height = 200, onPick }: { option: EChar
     chart.on('click', (p: any) => { if (p?.name) pickRef.current?.(p.name) })
     const ro = new ResizeObserver(() => chart.resize())
     ro.observe(ref.current)
-    return () => { ro.disconnect(); chart.dispose(); chartRef.current = null }
+    // Перерисовать при смене темы (data-theme на <html>) — обновить цвета текста.
+    const mo = new MutationObserver(() => chart.setOption({ ...themeDefaults(), ...optionRef.current }, true))
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => { ro.disconnect(); mo.disconnect(); chart.dispose(); chartRef.current = null }
   }, [])
 
   useEffect(() => {
-    chartRef.current?.setOption(option, true)
+    chartRef.current?.setOption({ ...themeDefaults(), ...option }, true)
   }, [option])
 
   return <div ref={ref} style={{ width: '100%', height }} />
