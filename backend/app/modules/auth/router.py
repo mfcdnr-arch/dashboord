@@ -32,18 +32,31 @@ async def login(request: Request, form: OAuth2PasswordRequestForm = Depends()):
     fwd = request.headers.get("x-forwarded-for")
     ip = (fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else None)) or None
     ua = request.headers.get("user-agent")
+    from ...config import settings
     async with db.get_pool().acquire() as conn:
         row = await conn.fetchrow(
             "select id, organization_id, password_hash, is_active from users where login = $1",
             form.username,
         )
-        ok = bool(row) and row["is_active"] and verify_password(form.password, row["password_hash"])
+        # Защита от подбора: блокировка по логину после N неудач за окно.
+        locked = False
+        if settings.login_max_attempts > 0:
+            fails = await conn.fetchval(
+                "select count(*) from login_events where login=$1 and success=false "
+                "and created_at > now() - make_interval(mins => $2)",
+                form.username, settings.login_lockout_minutes)
+            locked = fails >= settings.login_max_attempts
+        ok = (not locked) and bool(row) and row["is_active"] and verify_password(form.password, row["password_hash"])
         await conn.execute(
             "insert into login_events(organization_id, user_id, login, ip, user_agent, success) "
             "values($1,$2,$3,$4,$5,$6)",
             row["organization_id"] if row else None, row["id"] if row else None,
             form.username, ip, ua, ok,
         )
+    if locked:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Слишком много неудачных попыток. Повторите через {settings.login_lockout_minutes} мин.")
     if not ok:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный логин или пароль")
     return {"access_token": create_token(str(row["id"])), "token_type": "bearer"}

@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     password_min_length: int = 8
     password_require_complexity: bool = True  # требовать и буквы, и цифры
 
+    # Защита от подбора пароля: после login_max_attempts неудач за login_lockout_minutes
+    # вход по этому логину временно блокируется. 0 в max — выключить блокировку.
+    login_max_attempts: int = 5
+    login_lockout_minutes: int = 15
+
     # MinIO (хранилище документов). По умолчанию — имя сервиса Docker;
     # для локального запуска: MINIO_ENDPOINT=localhost:9800
     minio_endpoint: str = "minio:9000"
