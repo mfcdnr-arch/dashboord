@@ -226,6 +226,41 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     )
   }
 
+  if (data.type === 'yoy') {
+    // Год к году: текущий год (сплошная) против прошлого (пунктир) по месяцам.
+    const months: string[] = data.months || []
+    if (months.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
+    const series: any[] = [] // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (data.previous_year != null) {
+      series.push({ type: 'line', name: String(data.previous_year), data: data.previous, smooth: true, symbol: 'circle', symbolSize: 5,
+        itemStyle: { color: '#c39367' }, lineStyle: { color: '#c39367', width: 2, type: 'dashed' } })
+    }
+    series.push({ type: 'line', name: String(data.current_year), data: data.current, smooth: true, symbol: 'circle', symbolSize: 5,
+      itemStyle: { color: '#e04e39' }, lineStyle: { color: '#e04e39', width: 2.5 }, areaStyle: { opacity: 0.08 } })
+    const opt: EChartsOption = {
+      grid: { left: 44, right: 12, top: 12, bottom: 40 },
+      tooltip: { trigger: 'axis' },
+      legend: { bottom: 0, textStyle: { fontSize: 11 } },
+      xAxis: { type: 'category', data: months, axisLabel: { fontSize: 11 } },
+      yAxis: { type: 'value' },
+      series,
+    }
+    const ch = data.change
+    return (
+      <div>
+        <EChart option={opt} height={196} />
+        {ch != null ? (
+          <div style={{ fontSize: 13, marginTop: 4 }}>
+            К {data.previous_year} г. (сопоставимые месяцы: {data.compared_months}): <b style={{ color: ch >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+              {ch >= 0 ? '↑ +' : '↓ '}{fmt(ch)}{data.change_pct != null ? ` (${fmt(data.change_pct)}%)` : ''}{data.unit ? ` ${data.unit}` : ''}</b>
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, marginTop: 4, color: 'var(--text-muted)' }}>Нет данных за прошлый год — сравнение появится, когда будут данные двух лет.</div>
+        )}
+      </div>
+    )
+  }
+
   if (data.type === 'compare') {
     const cats: string[] = data.categories || []
     if (cats.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>

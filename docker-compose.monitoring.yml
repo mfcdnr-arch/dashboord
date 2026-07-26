@@ -10,6 +10,13 @@
 # Loki/promtail/exporters — только во внутренней сети.
 name: dashbord-monitoring
 
+# Ротация логов контейнеров (иначе json-логи растут неограниченно).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 networks:
   # Сеть основного прод-стека (чтобы Prometheus резолвил `api`). Должна
   # существовать — поднимите сначала docker-compose.prod.yml.
@@ -26,6 +33,7 @@ services:
   prometheus:
     image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}
     container_name: dashbord_prometheus
+    logging: *default-logging
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=15d
@@ -39,6 +47,7 @@ services:
   grafana:
     image: ${GRAFANA_IMAGE:-grafana/grafana:11.2.0}
     container_name: dashbord_grafana
+    logging: *default-logging
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
@@ -54,6 +63,7 @@ services:
   loki:
     image: ${LOKI_IMAGE:-grafana/loki:3.1.1}
     container_name: dashbord_loki
+    logging: *default-logging
     command: -config.file=/etc/loki/loki-config.yml
     volumes:
       - ./monitoring/loki-config.yml:/etc/loki/loki-config.yml:ro
@@ -63,6 +73,7 @@ services:
   promtail:
     image: ${PROMTAIL_IMAGE:-grafana/promtail:3.1.1}
     container_name: dashbord_promtail
+    logging: *default-logging
     command: -config.file=/etc/promtail/promtail-config.yml
     volumes:
       - ./monitoring/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
@@ -73,6 +84,7 @@ services:
   node-exporter:
     image: ${NODE_EXPORTER_IMAGE:-prom/node-exporter:v1.8.2}
     container_name: dashbord_node_exporter
+    logging: *default-logging
     command:
       - --path.rootfs=/host
     volumes:
@@ -82,6 +94,7 @@ services:
   cadvisor:
     image: ${CADVISOR_IMAGE:-gcr.io/cadvisor/cadvisor:v0.49.1}
     container_name: dashbord_cadvisor
+    logging: *default-logging
     privileged: true
     volumes:
       - /:/rootfs:ro

@@ -1,8 +1,6 @@
 """Перепривязка датасетов/метрик при клонировании шаблона дашборда."""
 import pytest
 
-pytestmark = pytest.mark.asyncio(loop_scope="session")
-
 from conftest import purge_dashboard  # noqa: E402
 from app import db  # noqa: E402
 from app.modules.dashboards import service as svc  # noqa: E402
@@ -30,6 +28,7 @@ def test_remap_config():
     assert svc._remap_config(cfg, {}, {})["dataset_code"] == "old_ds"
 
 
+@pytest.mark.asyncio(loop_scope="session")
 async def test_template_bindings_and_instantiate(client, admin_headers, seed_dataset):
     # дашборд → страница → виджет на t_ds → сохранить как шаблон
     did = (await client.post("/dashboards", headers=admin_headers, json={"name": "ztest_tpl_src"})).json()["id"]

@@ -23,10 +23,21 @@ docker inspect dashbord_prod_postgres >/dev/null 2>&1 || { echo "postgres кон
 log "Дамп PostgreSQL → $DEST/db.dump"
 docker exec dashbord_prod_postgres pg_dump -U "$PGUSER" -d "$PGDB" -Fc > "$DEST/db.dump"
 
+# Проверка ВОССТАНОВИМОСТИ: pg_restore читает оглавление дампа. Битый/пустой
+# дамп ловим сразу в момент бэкапа, а не в день аварии.
+log "Проверка восстановимости дампа (pg_restore --list)…"
+docker exec -i dashbord_prod_postgres pg_restore --list < "$DEST/db.dump" >/dev/null \
+  || { echo "[backup] ОШИБКА: дамп не читается pg_restore — бэкап НЕ валиден"; exit 1; }
+
 log "Архив тома MinIO ($MINIO_VOLUME) → $DEST/minio.tgz"
 if docker volume inspect "$MINIO_VOLUME" >/dev/null 2>&1; then
   docker run --rm -v "$MINIO_VOLUME":/data:ro -v "$PWD/$DEST":/backup alpine \
     tar czf /backup/minio.tgz -C /data . 2>/dev/null || log "предупреждение: том MinIO пуст или недоступен"
+  # Целостность архива MinIO (tar читается до конца).
+  if [ -f "$DEST/minio.tgz" ]; then
+    tar -tzf "$DEST/minio.tgz" >/dev/null \
+      || { echo "[backup] ОШИБКА: архив MinIO повреждён — бэкап НЕ валиден"; exit 1; }
+  fi
 else
   log "том $MINIO_VOLUME не найден — пропуск MinIO"
 fi

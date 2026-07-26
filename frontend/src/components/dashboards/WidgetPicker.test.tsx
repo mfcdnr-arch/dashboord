@@ -10,9 +10,9 @@ describe('WidgetPicker (галерея типов виджетов)', () => {
     }
   })
 
-  it('показывает новые типы (heatmap/pivot/waterfall/сравнение подразделений)', () => {
+  it('показывает новые типы (heatmap/pivot/waterfall/сравнение подразделений/год к году)', () => {
     render(<WidgetPicker value="kpi" onPick={() => {}} onClose={() => {}} />)
-    for (const t of ['Тепловая карта', 'Сводная таблица', 'Водопад', 'Сравнение подразделений']) {
+    for (const t of ['Тепловая карта', 'Сводная таблица', 'Водопад', 'Сравнение подразделений', 'Год к году']) {
       expect(screen.getByText(t)).toBeInTheDocument()
     }
   })

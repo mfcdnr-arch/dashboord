@@ -9,10 +9,19 @@
 #  - APP_ENV=production, секреты из .env.prod.
 name: dashbord-prod
 
+# Ротация логов контейнеров: без неё json-логи растут неограниченно и за месяцы
+# съедают диск сервера (самый частый инцидент on-prem). 10 МБ × 3 файла на сервис.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     container_name: dashbord_prod_postgres
+    logging: *default-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-dashbord}
       POSTGRES_USER: ${POSTGRES_USER:-dashbord}
@@ -24,11 +33,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    mem_limit: 1g
     restart: unless-stopped
 
   redis:
     image: ${REDIS_IMAGE:-redis:7-alpine}
     container_name: dashbord_prod_redis
+    logging: *default-logging
     volumes:
       - redisdata:/data
     healthcheck:
@@ -36,12 +47,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    mem_limit: 256m
     restart: unless-stopped
 
   minio:
     # Пин под старые/generic CPU ВМ (latest требует x86-64-v2 и падает).
     image: ${MINIO_IMAGE:-minio/minio:RELEASE.2022-10-24T18-35-07Z}
     container_name: dashbord_prod_minio
+    logging: *default-logging
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_USER:-dashbord}
@@ -53,12 +66,14 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    mem_limit: 512m
     restart: unless-stopped
 
   # One-shot: применяет миграции по порядку с трекингом, затем завершается.
   migrate:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     container_name: dashbord_prod_migrate
+    logging: *default-logging
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -78,6 +93,7 @@ services:
     build: ./backend
     image: dashbord-api:latest
     container_name: dashbord_prod_api
+    logging: *default-logging
     environment: &backend_env
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -107,12 +123,14 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+    mem_limit: 1g
     restart: unless-stopped
 
   worker:
     build: ./backend
     image: dashbord-api:latest
     container_name: dashbord_prod_worker
+    logging: *default-logging
     command: arq app.modules.ingestion.worker.WorkerSettings
     environment: *backend_env
     depends_on:
@@ -122,17 +140,28 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    # Живость arq: воркер раз в 60с пишет health-ключ в Redis (health_check_interval
+    # в WorkerSettings), `arq --check` его читает. Упавший воркер станет unhealthy.
+    healthcheck:
+      test: ["CMD", "arq", "--check", "app.modules.ingestion.worker.WorkerSettings"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    mem_limit: 1g
     restart: unless-stopped
 
   web:
     build: ./frontend
     image: dashbord-web:latest
     container_name: dashbord_prod_web
+    logging: *default-logging
     depends_on:
       api:
         condition: service_healthy
     ports:
       - "${WEB_PORT:-8090}:80"
+    mem_limit: 128m
     restart: unless-stopped
 
 volumes:

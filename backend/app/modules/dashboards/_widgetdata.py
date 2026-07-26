@@ -416,6 +416,44 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         res["alert"] = evaluate_alert("dynamics", cfg, res)
         return res
 
+    if t == "yoy":
+        # Год к году: помесячные ряды последнего года данных против предыдущего.
+        # Глобальный фильтр периода НЕ применяется (сравнение всегда «последний
+        # год против прошлого»); cross-filter «Строка» и row-RLS — применяются.
+        if not cfg.get("dataset_code") or not cfg.get("value_field"):
+            raise DashboardError("Год к году: укажите dataset_code и value_field")
+        series = await _dataset_period_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], None, None, row, allowed)
+        by_year: Dict[int, Dict[int, float]] = {}
+        for p, v in series:
+            if len(p) < 7 or not p[:4].isdigit():
+                continue  # выпуски без даты периода в сравнении не участвуют
+            y, m = int(p[:4]), int(p[5:7])
+            ym = by_year.setdefault(y, {})
+            ym[m] = ym.get(m, 0.0) + v
+        if not by_year:
+            raise DashboardError("Год к году: у выпусков датасета нет дат периодов")
+        cur = max(by_year)
+        prev = cur - 1
+        months = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
+        cur_map, prev_map = by_year.get(cur, {}), by_year.get(prev, {})
+        cur_vals = [cur_map.get(m) for m in range(1, 13)]
+        prev_vals = [prev_map.get(m) for m in range(1, 13)]
+        cur_total = sum(v for v in cur_vals if v is not None)
+        # Честное сравнение — по СОПОСТАВИМЫМ месяцам (данные есть в обоих годах),
+        # иначе неполный год сравнивался бы с полным.
+        common = sorted(set(cur_map) & set(prev_map))
+        prev_cmp = sum(prev_map[m] for m in common) if common else None
+        cur_cmp = sum(cur_map[m] for m in common) if common else None
+        change = (cur_cmp - prev_cmp) if prev_cmp is not None else None
+        change_pct = (change / prev_cmp * 100.0) if (change is not None and prev_cmp) else None
+        return {"type": "yoy", "title": name, "months": months,
+                "current_year": cur, "previous_year": prev if prev_map else None,
+                "current": cur_vals, "previous": prev_vals,
+                "current_total": cur_total,
+                "previous_total": (sum(v for v in prev_vals if v is not None) if prev_map else None),
+                "compared_months": len(common),
+                "change": change, "change_pct": change_pct, "unit": cfg.get("unit")}
+
     if t == "kpi":
         if cfg.get("formula"):
             value, unit = await _formula_value(conn, org_id, cfg["formula"]), cfg.get("unit")
@@ -581,6 +619,12 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
             ws.append(["Период", "Значение"])
             for pr, v in zip(data.get("periods", []), data.get("values", [])):
                 ws.append([pr, v])
+        elif t == "yoy":
+            ws = wb.create_sheet(sheet_name(name))
+            py, cy = data.get("previous_year"), data.get("current_year")
+            ws.append(["Месяц", str(py) if py else "пред. год", str(cy)])
+            for mn, pv, cv in zip(data.get("months", []), data.get("previous", []), data.get("current", [])):
+                ws.append([mn, pv, cv])
         elif t == "compare":
             ws = wb.create_sheet(sheet_name(name))
             series = data.get("series", [])

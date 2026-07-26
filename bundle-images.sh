@@ -3,19 +3,36 @@
 # Собирает api/web ПОД amd64 (независимо от арх. этой машины) и сохраняет все
 # нужные образы в один tar. На целевой ВМ:  docker load -i dashbord-images.tar
 #
-#   ./bundle-images.sh            # → dashbord-images.tar
+#   ./bundle-images.sh                 # → dashbord-images.tar (вкл. мониторинг)
+#   ./bundle-images.sh --no-monitoring # без образов Prometheus/Grafana/Loki (меньше размер)
 #   OUT=/path/bundle.tar ./bundle-images.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 
 PLATFORM="${PLATFORM:-linux/amd64}"
 OUT="${OUT:-dashbord-images.tar}"
+WITH_MONITORING=1
+for a in "$@"; do
+  case "$a" in
+    --no-monitoring) WITH_MONITORING="" ;;
+    *) echo "Неизвестный флаг: $a"; exit 2 ;;
+  esac
+done
 
 # Пины берём из .env.prod, иначе — дефолты (синхронно с docker-compose.prod.yml).
 env_get() { grep -E "^$1=" .env.prod 2>/dev/null | cut -d= -f2- | tail -1; }
 POSTGRES_IMAGE="${POSTGRES_IMAGE:-$(env_get POSTGRES_IMAGE)}"; POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:16-alpine}"
 REDIS_IMAGE="${REDIS_IMAGE:-$(env_get REDIS_IMAGE)}"; REDIS_IMAGE="${REDIS_IMAGE:-redis:7-alpine}"
 MINIO_IMAGE="${MINIO_IMAGE:-$(env_get MINIO_IMAGE)}"; MINIO_IMAGE="${MINIO_IMAGE:-minio/minio:RELEASE.2022-10-24T18-35-07Z}"
+# Наблюдаемость (пины синхронно с docker-compose.monitoring.yml) — чтобы
+# мониторинг поднимался и на изолированной (офлайн) Astra.
+PROMETHEUS_IMAGE="${PROMETHEUS_IMAGE:-$(env_get PROMETHEUS_IMAGE)}"; PROMETHEUS_IMAGE="${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}"
+GRAFANA_IMAGE="${GRAFANA_IMAGE:-$(env_get GRAFANA_IMAGE)}"; GRAFANA_IMAGE="${GRAFANA_IMAGE:-grafana/grafana:11.2.0}"
+LOKI_IMAGE="${LOKI_IMAGE:-$(env_get LOKI_IMAGE)}"; LOKI_IMAGE="${LOKI_IMAGE:-grafana/loki:3.1.1}"
+PROMTAIL_IMAGE="${PROMTAIL_IMAGE:-$(env_get PROMTAIL_IMAGE)}"; PROMTAIL_IMAGE="${PROMTAIL_IMAGE:-grafana/promtail:3.1.1}"
+NODE_EXPORTER_IMAGE="${NODE_EXPORTER_IMAGE:-$(env_get NODE_EXPORTER_IMAGE)}"; NODE_EXPORTER_IMAGE="${NODE_EXPORTER_IMAGE:-prom/node-exporter:v1.8.2}"
+CADVISOR_IMAGE="${CADVISOR_IMAGE:-$(env_get CADVISOR_IMAGE)}"; CADVISOR_IMAGE="${CADVISOR_IMAGE:-gcr.io/cadvisor/cadvisor:v0.49.1}"
+MONITORING_IMAGES="$PROMETHEUS_IMAGE $GRAFANA_IMAGE $LOKI_IMAGE $PROMTAIL_IMAGE $NODE_EXPORTER_IMAGE $CADVISOR_IMAGE"
 
 log() { printf '\033[1;34m[bundle]\033[0m %s\n' "$1"; }
 
@@ -25,8 +42,13 @@ log "Сборка api/web под $PLATFORM (buildx --load)…"
 docker buildx build --platform "$PLATFORM" -t dashbord-api:latest --load ./backend
 docker buildx build --platform "$PLATFORM" -t dashbord-web:latest --load ./frontend
 
+BASE_IMAGES="$POSTGRES_IMAGE $REDIS_IMAGE $MINIO_IMAGE"
+if [ -n "$WITH_MONITORING" ]; then
+  BASE_IMAGES="$BASE_IMAGES $MONITORING_IMAGES"
+  log "Мониторинг включён в бандл (--no-monitoring, чтобы исключить)."
+fi
 log "Загрузка базовых образов под $PLATFORM…"
-for img in "$POSTGRES_IMAGE" "$REDIS_IMAGE" "$MINIO_IMAGE"; do
+for img in $BASE_IMAGES; do
   docker pull --platform "$PLATFORM" "$img"
 done
 
@@ -36,7 +58,7 @@ done
 # digest not found»; одиночный save работает везде. Один итоговый файл — удобно
 # копировать на изолированную ВМ.
 log "Сохранение образов (по одному) → $OUT…"
-IMAGES="dashbord-api:latest dashbord-web:latest $POSTGRES_IMAGE $REDIS_IMAGE $MINIO_IMAGE"
+IMAGES="dashbord-api:latest dashbord-web:latest $BASE_IMAGES"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 i=0

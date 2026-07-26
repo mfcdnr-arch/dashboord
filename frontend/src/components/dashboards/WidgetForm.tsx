@@ -176,8 +176,8 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const isText = type === 'text'
   const isImage = type === 'image'
   const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
-  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'compare', 'heatmap', 'pivot', 'waterfall'].includes(type)
-  const usesValueField = ['bar', 'line', 'pie', 'dynamics', 'waterfall'].includes(type) || (['kpi', 'gauge'].includes(type) && source === 'dataset')
+  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall'].includes(type)
+  const usesValueField = ['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall'].includes(type) || (['kpi', 'gauge'].includes(type) && source === 'dataset')
   const usesMulti = type === 'compare' || type === 'heatmap' || type === 'pivot'
   const toggleField = (c: string) => setMultiFields((s) => s.includes(c) ? s.filter((x) => x !== c) : [...s, c])
 
@@ -211,7 +211,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     if (type === 'compare') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields, viz } : null
     if (type === 'heatmap' || type === 'pivot') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields } : null
     if (type === 'dynamics') return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField, ...(trend ? { trend: true } : {}) } : null
-    return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null // bar/line/pie
+    return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null // bar/line/pie/yoy
   }
 
   // Итоговый config = базовый + (опционально) свой фильтр (кроме text/image).

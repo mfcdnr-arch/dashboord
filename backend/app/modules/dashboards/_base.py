@@ -8,6 +8,6 @@ class DashboardError(Exception):
 
 
 WIDGET_TYPES = {"kpi", "gauge", "table", "bar", "line", "pie", "plan_fact", "dynamics", "compare",
-                "heatmap", "pivot", "waterfall", "objects_compare", "text", "image"}
+                "heatmap", "pivot", "waterfall", "objects_compare", "yoy", "text", "image"}
 # Аннотационные виджеты (без данных) — заголовок/текст и картинка/лого.
 ANNOTATION_TYPES = {"text", "image"}

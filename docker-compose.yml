@@ -4,11 +4,19 @@
 # Остановка: docker compose -p dashbord down
 name: dashbord
 
+# Ротация логов контейнеров (иначе json-логи растут неограниченно).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     # Прод-цель — postgres:16-alpine; локально используем доступный образ (сеть к Docker Hub недоступна).
     image: ${POSTGRES_IMAGE:-postgres:15-alpine}
     container_name: dashbord_postgres
+    logging: *default-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-dashbord}
       POSTGRES_USER: ${POSTGRES_USER:-dashbord}
@@ -29,6 +37,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: dashbord_redis
+    logging: *default-logging
     ports:
       - "${REDIS_PORT:-6380}:6379"
     volumes:
@@ -43,6 +52,7 @@ services:
   minio:
     image: ${MINIO_IMAGE:-minio/minio:latest}
     container_name: dashbord_minio
+    logging: *default-logging
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_USER:-dashbord}
@@ -62,6 +72,7 @@ services:
   api:
     build: ./backend
     container_name: dashbord_api
+    logging: *default-logging
     environment: &backend_env
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -94,6 +105,7 @@ services:
   worker:
     build: ./backend
     container_name: dashbord_worker
+    logging: *default-logging
     command: arq app.modules.ingestion.worker.WorkerSettings --watch app
     environment: *backend_env
     # DEV: код монтируется + arq --watch перезапускает воркер при изменениях.

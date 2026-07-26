@@ -58,4 +58,7 @@ class WorkerSettings:
     on_startup = on_startup
     on_shutdown = on_shutdown
     redis_settings = redis_settings()
+    # Живость воркера: раз в 60с пишет health-ключ в Redis; healthcheck контейнера
+    # проверяет его командой `arq --check` (см. docker-compose.prod.yml).
+    health_check_interval = 60
     max_jobs = 4  # один сервер, ~20 пользователей — умеренный параллелизм

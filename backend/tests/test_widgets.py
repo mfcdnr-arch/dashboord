@@ -52,6 +52,32 @@ async def test_freshness_as_of(client, admin_headers, seed_dataset):
     assert t.get("as_of") is None
 
 
+async def test_yoy(client, admin_headers, seed_dataset, ids):
+    """Год к году: 2026 (янв 165, фев 180) против добавленного 2025 (янв 100).
+    Сравнение — по сопоставимым месяцам (январь): 165 против 100."""
+    from app import db
+    async with db.acquire() as conn:
+        rel = await conn.fetchval(
+            "insert into dataset_releases(organization_id,code,name,status,reporting_period_start,created_by) "
+            "values($1,'t_ds','Тест ДС','released','2025-01-01',$2) returning id", ids["org"], ids["admin"])
+        for i, v in enumerate([50, 25, 25]):
+            await conn.execute(
+                "insert into dataset_values(dataset_release_id,row_index,row_label,canonical_field_code,value_number) "
+                "values($1,$2,'r','plan',$3)", rel, i, v)
+    try:
+        d = await _preview(client, admin_headers, "yoy", {"dataset_code": "t_ds", "value_field": "plan"})
+        assert d["type"] == "yoy"
+        assert d["current_year"] == 2026 and d["previous_year"] == 2025
+        assert d["current"][0] == 165 and d["current"][1] == 180   # янв/фев 2026
+        assert d["previous"][0] == 100 and d["previous"][1] is None  # янв 2025
+        assert d["compared_months"] == 1 and d["change"] == 65      # 165-100 за январь
+        assert round(d["change_pct"]) == 65
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from dataset_values where dataset_release_id=$1", rel)
+            await conn.execute("delete from dataset_releases where id=$1", rel)
+
+
 async def test_plan_fact(client, admin_headers, seed_dataset):
     d = await _preview(client, admin_headers, "plan_fact",
                        {"dataset_code": "t_ds", "plan_field": "plan", "fact_field": "fact"})
