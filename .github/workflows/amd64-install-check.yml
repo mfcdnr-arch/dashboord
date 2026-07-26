@@ -81,12 +81,14 @@ jobs:
       - name: Наблюдаемость (Prometheus + Grafana)
         if: ${{ inputs.monitoring }}
         run: |
-          ok=""
-          for i in $(seq 1 30); do
-            curl -sf http://localhost:9090/-/ready >/dev/null && ok=1 && break; sleep 2
-          done
-          [ -n "$ok" ] && echo "Prometheus ready"
-          curl -sf http://localhost:3000/api/health
+          wait_http() { # url имя — ждать успешного ответа до 90с
+            for i in $(seq 1 45); do
+              curl -sf "$1" >/dev/null && echo "$2 ready" && return 0; sleep 2
+            done
+            echo "$2 НЕ ответил за 90с"; return 1
+          }
+          wait_http http://localhost:9090/-/ready "Prometheus"
+          wait_http http://localhost:3000/api/health "Grafana"
 
       - name: "Бэкап: разовый прогон (с проверкой восстановимости) + расписание"
         run: |
