@@ -93,6 +93,18 @@ done
 # 5. Smoke-проверка -------------------------------------------------------
 WEB_PORT="$(grep -E '^WEB_PORT=' .env.prod | cut -d= -f2 || true)"; WEB_PORT="${WEB_PORT:-8090}"
 HTTPS_PORT="$(grep -E '^HTTPS_PORT=' .env.prod | cut -d= -f2 || true)"; HTTPS_PORT="${HTTPS_PORT:-8443}"
+
+# Дождаться, пока nginx начнёт принимать соединения: web стартует последним,
+# и на быстрой машине smoke иначе прилетает раньше bind'а порта (гонка).
+if [ -n "$TLS" ]; then WAIT_URL="https://localhost:${HTTPS_PORT}/"; else WAIT_URL="http://localhost:${WEB_PORT}/"; fi
+log "Ожидание готовности веб-прокси…"
+for i in $(seq 1 30); do
+  code="$(curl -ks -o /dev/null -w '%{http_code}' -m 3 "$WAIT_URL" || true)"
+  [ "$code" != "000" ] && break
+  sleep 1
+  [ "$i" = 30 ] && { err "веб-прокси не отвечает на $WAIT_URL за ~30с — смотрите: $COMPOSE logs web"; exit 1; }
+done
+
 if [ -z "$SKIP_SMOKE" ]; then
   if [ -n "$TLS" ]; then
     ./smoke.sh "$HTTPS_PORT" https || { err "smoke-проверка (HTTPS) не пройдена"; exit 1; }
