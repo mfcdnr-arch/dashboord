@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 
@@ -62,7 +63,9 @@ async def system_health(conn) -> dict:
     minio_ok = False
     t0 = time.perf_counter()
     try:
-        minio_ok = bool(storage.get_client().bucket_exists(settings.minio_bucket))
+        # Синхронный minio-клиент — в отдельном потоке (не блокировать event-loop).
+        minio_ok = bool(await asyncio.to_thread(
+            lambda: storage.get_client().bucket_exists(settings.minio_bucket)))
     except Exception:
         minio_ok = False
     services.append({"name": "MinIO", "ok": minio_ok, "latency_ms": round((time.perf_counter() - t0) * 1000, 1)})

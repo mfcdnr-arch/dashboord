@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import time
 
 from ...config import settings
@@ -24,12 +25,17 @@ async def heal() -> dict:
     actions = []
 
     # (1) MinIO: гарантировать наличие бакета (idempotent — создаёт, если нет).
+    # Синхронный minio-клиент — в отдельном потоке, чтобы не блокировать event-loop.
+    def _ensure_bucket() -> bool:
+        client = storage.get_client()
+        was = client.bucket_exists(settings.minio_bucket)
+        if not was:
+            storage.ensure_bucket()
+        return was
+
     t0 = time.perf_counter()
     try:
-        client = storage.get_client()
-        existed = client.bucket_exists(settings.minio_bucket)
-        if not existed:
-            storage.ensure_bucket()
+        existed = await asyncio.to_thread(_ensure_bucket)
         actions.append({
             "name": "MinIO: бакет документов",
             "ok": True,

@@ -21,6 +21,23 @@ manage = require_roles("admin", "moderator")
 
 ALLOWED = {"xlsx", "xls", "csv", "pdf", "docx"}
 MAX_DOCS_LIMIT = 200
+# Серверный лимит размера загружаемого документа (в дополнение к nginx
+# client_max_body_size). Читаем чанками с ранним обрывом, чтобы ограничить
+# память даже при прямом доступе к API (без прокси).
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 МБ
+
+
+async def _read_capped(file, limit: int) -> bytes:
+    """Читает UploadFile по частям; при превышении limit — HTTP 413."""
+    buf = bytearray()
+    while chunk := await file.read(1024 * 1024):
+        buf.extend(chunk)
+        if len(buf) > limit:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                f"Файл слишком большой. Максимум {limit // (1024 * 1024)} МБ.",
+            )
+    return bytes(buf)
 
 
 async def _folder_in_org(conn, folder_id: str, org_id) -> bool:
@@ -47,7 +64,7 @@ async def upload_document(
             status.HTTP_400_BAD_REQUEST,
             f"Неподдерживаемый формат: .{ext}. Разрешены: {', '.join(sorted(ALLOWED))}",
         )
-    content = await file.read()
+    content = await _read_capped(file, MAX_UPLOAD_BYTES)
     if not content:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустой файл")
     checksum = hashlib.sha256(content).hexdigest()

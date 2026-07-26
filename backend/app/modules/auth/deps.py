@@ -1,7 +1,7 @@
 """Зависимости авторизации: текущий пользователь из JWT."""
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
 from ... import db
@@ -9,8 +9,13 @@ from .security import decode_token
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
+# Пока пароль временный (must_change_password), доступ разрешён ТОЛЬКО к смене
+# пароля и своему профилю — иначе можно было бы пользоваться API, не сменив
+# выданный админом временный пароль (обход обязательной смены).
+_ALLOWED_BEFORE_PW_CHANGE = {"/auth/change-password", "/auth/me"}
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+
+async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)) -> dict:
     user_id = decode_token(token)
     if not user_id:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Недействительный токен")
@@ -22,6 +27,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         )
     if row is None or not row["is_active"]:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Пользователь не найден или заблокирован")
+    if row["must_change_password"] and request.url.path not in _ALLOWED_BEFORE_PW_CHANGE:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Сначала смените временный пароль")
     return dict(row)
 
 

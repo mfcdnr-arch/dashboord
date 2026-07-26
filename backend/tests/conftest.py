@@ -26,6 +26,11 @@ async def _seeded():
     """Один раз на сессию: пул БД + гарантированный admin/роли/организация."""
     await db.connect()
     await ensure_seed()
+    # Сид-admin заводится с must_change_password=true (обязательная смена при
+    # первом входе форсится и на бэкенде). Для тестов admin — «уже онбордён»,
+    # иначе его токен получал бы 403 на всех эндпоинтах.
+    async with db.acquire() as conn:
+        await conn.execute("update users set must_change_password=false where login in ('admin','superadmin')")
     yield
     await db.disconnect()
 
