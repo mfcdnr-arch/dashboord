@@ -35,4 +35,14 @@ docker save -o "$OUT" \
   dashbord-api:latest dashbord-web:latest \
   "$POSTGRES_IMAGE" "$REDIS_IMAGE" "$MINIO_IMAGE"
 
+# Пост-проверка целостности: tar не пуст и содержит манифест со всеми образами.
+log "Проверка бандла…"
+[ -s "$OUT" ] || { echo "[bundle] ОШИБКА: пустой архив $OUT"; exit 1; }
+tags="$(tar -xOf "$OUT" manifest.json 2>/dev/null | grep -o '"[^"]*:[^"]*"' | tr -d '"' | grep -E ':' || true)"
+if [ -n "$tags" ]; then
+  echo "$tags" | sed 's/^/  • /'
+else
+  echo "[bundle] ВНИМАНИЕ: не удалось прочитать манифест (проверьте вручную: docker load -i $OUT)"
+fi
+
 log "Готово: $OUT ($(du -h "$OUT" | cut -f1)). На цели: docker load -i $(basename "$OUT")"
