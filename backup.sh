@@ -51,7 +51,7 @@ log "Размер набора: $(du -sh "$DEST" | cut -f1)"
 # Ротация: оставить последние BACKUP_KEEP
 log "Ротация (храним $BACKUP_KEEP)…"
 ls -1dt "$BACKUP_DIR"/*/ 2>/dev/null | tail -n +$((BACKUP_KEEP + 1)) | while read -r old; do
-  log "удаляю старый: $old"; rm -rf "$old"
+  log "удаляю старый: $old"; rm -rf "$old" || log "не удалось удалить $old (чужой владелец?) — пропуск"
 done
 
 log "Готово: $DEST"

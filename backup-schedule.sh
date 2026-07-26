@@ -18,6 +18,10 @@ KEEP="${BACKUP_KEEP:-$(env_get BACKUP_KEEP)}"; KEEP="${KEEP:-7}"
 BACKUP_DIR="${BACKUP_DIR:-$(env_get BACKUP_DIR)}"; BACKUP_DIR="${BACKUP_DIR:-$REPO/backups}"
 SERVICE=dashbord-backup
 ACTION="${1:-install}"
+# От чьего имени работает плановый бэкап: пользователь, вызвавший sudo (он в
+# группе docker — предпосылка установки). Иначе root-овые файлы в backups/
+# ломали бы последующий ручной `./backup.sh` без root.
+RUN_AS="${SUDO_USER:-root}"
 
 case "$TIME" in
   [0-2][0-9]:[0-5][0-9]) : ;;
@@ -34,6 +38,7 @@ Wants=docker.service
 
 [Service]
 Type=oneshot
+${RUN_AS:+User=$RUN_AS}
 WorkingDirectory=$REPO
 Environment=BACKUP_KEEP=$KEEP
 Environment=BACKUP_DIR=$BACKUP_DIR
@@ -75,15 +80,17 @@ case "$ACTION" in
   install)
     need_root
     mkdir -p "$BACKUP_DIR"
+    # Каталог — пользователю расписания, иначе ручной ./backup.sh без root падал бы.
+    [ "$RUN_AS" != root ] && chown "$RUN_AS" "$BACKUP_DIR" 2>/dev/null || true
     if has_systemd; then
       service_unit > "/etc/systemd/system/$SERVICE.service"
       timer_unit  > "/etc/systemd/system/$SERVICE.timer"
       systemctl daemon-reload
       systemctl enable --now "$SERVICE.timer"
-      echo "systemd-таймер установлен:"; systemctl list-timers "$SERVICE.timer" --no-pager || true
+      echo "systemd-таймер установлен (запуск от $RUN_AS):"; systemctl list-timers "$SERVICE.timer" --no-pager || true
     else
-      ( crontab -l 2>/dev/null | grep -vF "$REPO/backup.sh"; cron_line ) | crontab -
-      echo "cron-задача установлена:"; crontab -l | grep -F "$REPO/backup.sh"
+      ( crontab -u "$RUN_AS" -l 2>/dev/null | grep -vF "$REPO/backup.sh"; cron_line ) | crontab -u "$RUN_AS" -
+      echo "cron-задача установлена (crontab $RUN_AS):"; crontab -u "$RUN_AS" -l | grep -F "$REPO/backup.sh"
     fi
     echo "Готово. Проверить разовый запуск: ./backup.sh"
     ;;
@@ -95,7 +102,7 @@ case "$ACTION" in
       systemctl daemon-reload
       echo "systemd-таймер снят."
     else
-      crontab -l 2>/dev/null | grep -vF "$REPO/backup.sh" | crontab - || true
+      crontab -u "$RUN_AS" -l 2>/dev/null | grep -vF "$REPO/backup.sh" | crontab -u "$RUN_AS" - || true
       echo "cron-задача снята."
     fi
     ;;
