@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { previewWidget, widgetSuggestions, type DataSources, type MetricSource, type Widget, type WidgetSpec } from '../../api'
 import { WidgetPreviewBody } from '../WidgetView'
 import FormulaBuilder from '../FormulaBuilder'
-import { DEFAULT_SIZE, F, WT, btn, btnAuto, btnGhost, sel, wtBadge } from './shared'
+import { DEFAULT_SIZE, F, WT, btn, btnAuto, btnGhost, sel, tab, tabActive, wtBadge } from './shared'
 import { WidgetPicker, WIDGET_META } from './WidgetPicker'
 
 export function SourceCatalog({ sources }: { sources: DataSources }) {
@@ -130,6 +130,9 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const [source, setSource] = useState<'metric' | 'dataset' | 'formula'>(cfg0.formula ? 'formula' : (cfg0.metric_code || cfg0.plan_metric) ? 'metric' : (cfg0.dataset_code ? 'dataset' : 'metric'))
   const [formulaDsl, setFormulaDsl] = useState<string>(cfg0.formula || '')
   const [formulaUnit, setFormulaUnit] = useState<string>(cfg0.unit || '')
+  // Режим ввода формулы: визуальный сборщик (по умолчанию) или ручной текст DSL.
+  // При редактировании существующей текстовой формулы — сразу «текст», чтобы её было видно.
+  const [formulaMode, setFormulaMode] = useState<'visual' | 'text'>(cfg0.formula ? 'text' : 'visual')
   const [metricCode, setMetricCode] = useState(cfg0.metric_code || cfg0.plan_metric || sources.metrics[0]?.code || '')
   const [factMetric, setFactMetric] = useState(cfg0.fact_metric || sources.metrics[1]?.code || sources.metrics[0]?.code || '')
   const [dataset, setDataset] = useState(initDataset)
@@ -143,6 +146,22 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const [align, setAlign] = useState(cfg0.align || 'left')
   const [imgUrl, setImgUrl] = useState(cfg0.url || '')
   const [caption, setCaption] = useState(cfg0.caption || '')
+  const [imgErr, setImgErr] = useState<string | null>(null)
+  const [imgAdvanced, setImgAdvanced] = useState(false)  // ручной ввод URL — «продвинутый» режим
+
+  // Загрузка картинки файлом → data-URI (встраивается в дашборд, работает офлайн).
+  // Ограничение размера, чтобы не раздувать JSON виджета в БД.
+  const IMG_MAX_KB = 512
+  function onPickImage(file: File | null) {
+    setImgErr(null)
+    if (!file) return
+    if (!file.type.startsWith('image/')) { setImgErr('Это не изображение'); return }
+    if (file.size > IMG_MAX_KB * 1024) { setImgErr(`Слишком большой файл (${Math.round(file.size / 1024)} КБ). Максимум ${IMG_MAX_KB} КБ — сожмите или уменьшите картинку.`); return }
+    const reader = new FileReader()
+    reader.onload = () => setImgUrl(String(reader.result || ''))
+    reader.onerror = () => setImgErr('Не удалось прочитать файл')
+    reader.readAsDataURL(file)
+  }
   const [objField, setObjField] = useState(cfg0.value_field || allNumFields[0]?.code || '')
 
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -252,8 +271,32 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       )}
       {isImage && (
         <>
-          <F t="URL картинки"><input style={{ ...sel, width: 300 }} placeholder="https://… или data:image/…" value={imgUrl} onChange={(e) => setImgUrl(e.target.value)} /></F>
-          <F t="Подпись (необяз.)"><input style={{ ...sel, width: 180 }} placeholder="напр. Логотип МФЦ" value={caption} onChange={(e) => setCaption(e.target.value)} /></F>
+          <div style={{ flexBasis: '100%', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <F t="Картинка (файл ≤ 512 КБ)">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <label style={{ ...btnGhost, height: 34, display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+                  🖼 Выбрать файл…
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => onPickImage(e.target.files?.[0] ?? null)} />
+                </label>
+                {imgUrl && (
+                  <>
+                    <img src={imgUrl} alt="" style={{ height: 34, maxWidth: 90, objectFit: 'contain', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)' }} />
+                    <button type="button" style={{ ...btnGhost, height: 34 }} onClick={() => { setImgUrl(''); setImgErr(null) }}>Убрать</button>
+                  </>
+                )}
+              </div>
+            </F>
+            <F t="Подпись (необяз.)"><input style={{ ...sel, width: 180 }} placeholder="напр. Логотип МФЦ" value={caption} onChange={(e) => setCaption(e.target.value)} /></F>
+          </div>
+          {imgErr && <div style={{ flexBasis: '100%', color: 'var(--danger)', fontSize: 12 }}>{imgErr}</div>}
+          <div style={{ flexBasis: '100%' }}>
+            <button type="button" style={{ border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: 0 }} onClick={() => setImgAdvanced((v) => !v)}>
+              {imgAdvanced ? '▾' : '▸'} Указать ссылкой (URL)
+            </button>
+            {imgAdvanced && (
+              <input style={{ ...sel, width: '100%', marginTop: 6 }} placeholder="https://… или data:image/…" value={imgUrl} onChange={(e) => { setImgUrl(e.target.value); setImgErr(null) }} />
+            )}
+          </div>
         </>
       )}
       {usesSource && (
@@ -266,10 +309,25 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         <>
           <F t="Единица (необяз.)"><input style={{ ...sel, width: 110 }} placeholder="напр. шт, %" value={formulaUnit} onChange={(e) => setFormulaUnit(e.target.value)} /></F>
           <div style={{ flexBasis: '100%' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Формула показателя — соберите мышью ниже или введите текстом; считается на лету, без создания метрики</div>
-            <input style={{ ...sel, width: '100%', fontFamily: 'ui-monospace, monospace', marginBottom: 8 }}
-              placeholder="напр. SUM(field('plan','kol')) + 10" value={formulaDsl} onChange={(e) => setFormulaDsl(e.target.value)} />
-            <FormulaBuilder sources={sources} onFormula={setFormulaDsl} />
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              <button type="button" style={{ ...tab, ...(formulaMode === 'visual' ? tabActive : {}) }} onClick={() => setFormulaMode('visual')}>🖱 Конструктор</button>
+              <button type="button" style={{ ...tab, ...(formulaMode === 'text' ? tabActive : {}) }} onClick={() => setFormulaMode('text')}>⌨ Текст</button>
+            </div>
+            {formulaMode === 'visual' ? (
+              <>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>Соберите показатель мышью — считается на лету, без создания метрики</div>
+                <FormulaBuilder sources={sources} onFormula={setFormulaDsl} />
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+                  Получится формула: <code style={{ fontFamily: 'ui-monospace, monospace', background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 4 }}>{formulaDsl || '—'}</code>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Формула показателя (как в Excel): данные — <code>field('датасет','поле')</code>, действия — <code>+ − * /</code>, свёртка — <code>SUM(…)</code></div>
+                <input style={{ ...sel, width: '100%', fontFamily: 'ui-monospace, monospace' }}
+                  placeholder="напр. SUM(field('plan','kol')) + 10" value={formulaDsl} onChange={(e) => setFormulaDsl(e.target.value)} />
+              </>
+            )}
           </div>
         </>
       )}
@@ -342,7 +400,12 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
               <F t="С даты"><input type="date" style={sel} value={ownFrom} onChange={(e) => setOwnFrom(e.target.value)} /></F>
               <F t="По дату"><input type="date" style={sel} value={ownTo} onChange={(e) => setOwnTo(e.target.value)} /></F>
-              <F t="Строка"><input style={sel} value={ownRow} onChange={(e) => setOwnRow(e.target.value)} placeholder="напр. Паспорт" /></F>
+              <F t="Строка">{(() => {
+                const rows = sources.datasets.find((d) => d.code === dataset)?.rows || []
+                return rows.length
+                  ? <select style={sel} value={ownRow} onChange={(e) => setOwnRow(e.target.value)}><option value="">— все строки —</option>{rows.map((r) => <option key={r} value={r}>{r}</option>)}</select>
+                  : <input style={sel} value={ownRow} onChange={(e) => setOwnRow(e.target.value)} placeholder="напр. Паспорт" />
+              })()}</F>
             </div>
           )}
         </div>
