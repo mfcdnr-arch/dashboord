@@ -1,0 +1,95 @@
+# Репетиция развёртывания на Astra БЕЗ Astra: раннер GitHub Actions — это
+# нативная amd64 Linux-ВМ с Docker. Прогоняет ровно тот путь, что пройдёт
+# администратор на сервере: bundle-images.sh → офлайн-install.sh → smoke.
+#
+# Чего этот прогон НЕ доказывает (остаётся на реальную Astra): версия Docker
+# из репозитория Astra, старый CPU без x86-64-v2 (закрыто пином MinIO), офлайн-apt.
+#
+# Запуск ТОЛЬКО вручную: GitHub → Actions → «Проверка amd64…» → Run workflow.
+name: Проверка amd64 (бандл + install)
+
+on:
+  workflow_dispatch:
+    inputs:
+      monitoring:
+        description: "Поднять и наблюдаемость (--monitoring)"
+        type: boolean
+        default: true
+
+jobs:
+  amd64-install:
+    name: bundle-images.sh + install.sh на amd64 (репетиция Astra)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Окружение (arch, docker, место) + очистка предустановленных образов
+        run: |
+          uname -m
+          docker version --format '{{.Server.Version}}'
+          docker compose version
+          docker image prune -af >/dev/null
+          df -h /
+
+      - name: Сборка офлайн-бандла (все образы, вкл. мониторинг)
+        run: ./bundle-images.sh
+
+      - name: "Бандл: состав и архитектура каждого образа = amd64"
+        run: |
+          echo "— состав —"; tar -xOf dashbord-images.tar ./IMAGES.txt
+          for img in $(tar -xOf dashbord-images.tar ./IMAGES.txt); do
+            arch=$(docker image inspect "$img" --format '{{.Architecture}}')
+            printf '%-55s %s\n' "$img" "$arch"
+            [ "$arch" = "amd64" ] || { echo "ОШИБКА: $img не amd64"; exit 1; }
+          done
+          du -h dashbord-images.tar
+
+      - name: Имитация чистого офлайн-сервера (удалить собранные образы)
+        run: |
+          # install.sh должен реально загрузить образы из tar (docker load),
+          # как на изолированной Astra, а не взять из локального кэша сборки.
+          docker image rm -f dashbord-api:latest dashbord-web:latest
+
+      - name: Установка одной командой (офлайн-путь, HTTPS)
+        run: |
+          FLAGS=""
+          [ "${{ inputs.monitoring }}" = "true" ] && FLAGS="--monitoring"
+          TLS_CN=localhost ./install.sh $FLAGS
+
+      - name: "Пост-проверки: health, worker, rate-limit, gzip, заголовки"
+        run: |
+          docker ps --format '{{.Names}}\t{{.Status}}'
+          curl -ks https://localhost:8443/health | grep '"db":"ok"'
+          # worker должен стать healthy (start_period 90с + интервал 60с)
+          for i in $(seq 1 40); do
+            s=$(docker inspect -f '{{.State.Health.Status}}' dashbord_prod_worker)
+            [ "$s" = healthy ] && break; sleep 5
+          done
+          echo "worker: $s"; [ "$s" = healthy ]
+          # rate-limit /auth/login: из 15 быстрых попыток часть должна получить 429
+          codes=$(for i in $(seq 1 15); do curl -ks -o /dev/null -w '%{http_code} ' \
+            -X POST https://localhost:8443/auth/login -d 'username=x&password=y'; done)
+          echo "login codes: $codes"; echo "$codes" | grep -q 429
+          # gzip на JS-бандле SPA
+          asset=$(curl -ks https://localhost:8443/ | grep -o 'assets/[^"]*\.js' | head -1)
+          curl -ksI -H 'Accept-Encoding: gzip' "https://localhost:8443/$asset" \
+            | grep -i 'content-encoding: gzip'
+          # security-заголовки
+          curl -ksI https://localhost:8443/ | grep -iE 'content-security-policy|x-content-type-options'
+
+      - name: Наблюдаемость (Prometheus + Grafana)
+        if: ${{ inputs.monitoring }}
+        run: |
+          ok=""
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9090/-/ready >/dev/null && ok=1 && break; sleep 2
+          done
+          [ -n "$ok" ] && echo "Prometheus ready"
+          curl -sf http://localhost:3000/api/health
+
+      - name: "Бэкап: разовый прогон (с проверкой восстановимости) + расписание"
+        run: |
+          ./backup.sh
+          ls -la backups/*/
+          sudo ./backup-schedule.sh status
