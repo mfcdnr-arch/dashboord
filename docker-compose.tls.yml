@@ -1,0 +1,15 @@
+# Оверлей HTTPS для прод-стека (LAN, самоподписанный сертификат).
+# Применяется поверх docker-compose.prod.yml:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml --env-file .env.prod up -d
+# или проще:  ./deploy.sh --tls   (сгенерирует сертификат и добавит этот файл).
+#
+# Требует ./certs/tls.crt и ./certs/tls.key (создаёт ./gen-tls.sh).
+name: dashbord-prod
+
+services:
+  web:
+    volumes:
+      - ./frontend/nginx.tls.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    ports:
+      - "${HTTPS_PORT:-8443}:443"

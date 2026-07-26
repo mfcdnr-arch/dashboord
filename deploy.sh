@@ -9,15 +9,23 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-COMPOSE="docker compose -f docker-compose.prod.yml --env-file .env.prod"
-NO_BUILD=""; SKIP_SMOKE=""
+NO_BUILD=""; SKIP_SMOKE=""; TLS=""
 for a in "$@"; do
   case "$a" in
     --no-build) NO_BUILD=1 ;;
     --skip-smoke) SKIP_SMOKE=1 ;;
+    --tls) TLS=1 ;;
     *) echo "Неизвестный флаг: $a"; exit 2 ;;
   esac
 done
+
+# HTTPS в LAN: генерируем самоподписанный сертификат и включаем TLS-оверлей.
+COMPOSE_FILES="-f docker-compose.prod.yml"
+if [ -n "$TLS" ]; then
+  [ -f certs/tls.crt ] || ./gen-tls.sh "${TLS_CN:-localhost}" "${TLS_SAN:-}"
+  COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.tls.yml"
+fi
+COMPOSE="docker compose $COMPOSE_FILES --env-file .env.prod"
 
 log() { printf '\033[1;34m[deploy]\033[0m %s\n' "$1"; }
 err() { printf '\033[1;31m[deploy] ОШИБКА:\033[0m %s\n' "$1" >&2; }
@@ -35,11 +43,15 @@ if ! { [ -n "$CV_MAJOR" ] && [ "$CV_MAJOR" -ge 2 ] 2>/dev/null; }; then
 fi
 docker info >/dev/null 2>&1 || { err "демон docker недоступен (запущен? права?)"; exit 1; }
 
-[ -f .env.prod ] || { err "нет .env.prod — скопируйте из .env.prod.example и заполните секреты"; exit 1; }
+# Нет .env.prod — сгенерировать сильные секреты автоматически (без ручного ввода).
+if [ ! -f .env.prod ]; then
+  log "Файл .env.prod не найден — генерирую сильные секреты (gen-secrets.sh)…"
+  ./gen-secrets.sh
+fi
 
 # Плейсхолдеры-секреты не должны утечь в прод.
 if grep -q "CHANGE_ME" .env.prod; then
-  err "в .env.prod остались значения CHANGE_ME — задайте реальные секреты"; exit 1
+  err "в .env.prod остались значения CHANGE_ME — задайте реальные секреты (или удалите .env.prod и запустите снова для авто-генерации)"; exit 1
 fi
 
 # Урок ВМ из проекта DS: сбитые часы → apt/подписи/сборка ломаются. Предупредим.
@@ -79,10 +91,18 @@ for i in $(seq 1 30); do
 done
 
 # 5. Smoke-проверка -------------------------------------------------------
+WEB_PORT="$(grep -E '^WEB_PORT=' .env.prod | cut -d= -f2 || true)"; WEB_PORT="${WEB_PORT:-8090}"
+HTTPS_PORT="$(grep -E '^HTTPS_PORT=' .env.prod | cut -d= -f2 || true)"; HTTPS_PORT="${HTTPS_PORT:-8443}"
 if [ -z "$SKIP_SMOKE" ]; then
-  WEB_PORT="$(grep -E '^WEB_PORT=' .env.prod | cut -d= -f2 || true)"; WEB_PORT="${WEB_PORT:-8090}"
-  ./smoke.sh "$WEB_PORT" || { err "smoke-проверка не пройдена"; exit 1; }
+  if [ -n "$TLS" ]; then
+    ./smoke.sh "$HTTPS_PORT" https || { err "smoke-проверка (HTTPS) не пройдена"; exit 1; }
+  else
+    ./smoke.sh "$WEB_PORT" || { err "smoke-проверка не пройдена"; exit 1; }
+  fi
 fi
 
-WEB_PORT="$(grep -E '^WEB_PORT=' .env.prod | cut -d= -f2 || true)"; WEB_PORT="${WEB_PORT:-8090}"
-log "Готово. Веб-интерфейс: http://<адрес-сервера>:${WEB_PORT}/"
+if [ -n "$TLS" ]; then
+  log "Готово. Веб-интерфейс: https://<адрес-сервера>:${HTTPS_PORT}/ (самоподписанный сертификат — примите в браузере)"
+else
+  log "Готово. Веб-интерфейс: http://<адрес-сервера>:${WEB_PORT}/"
+fi
