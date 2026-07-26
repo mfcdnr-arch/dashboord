@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { clearToken, getHealth, getMe, getToken, type Health, type Me } from './api'
+import { clearToken, getHealth, getMe, getSetupStatus, getToken, type Health, type Me } from './api'
 import Login from './components/Login'
 import ChangePassword from './components/ChangePassword'
 import ObjectsPage from './components/ObjectsPage'
@@ -15,6 +15,7 @@ import NotificationBell from './components/NotificationBell'
 import OnboardingHint from './components/OnboardingHint'
 import ThemeToggle from './components/ThemeToggle'
 import Logo from './components/Logo'
+import SetupWizard, { isSetupDismissed } from './components/SetupWizard'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -92,12 +93,20 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [health, setHealth] = useState<Health | null>(null)
   const [section, setSection] = useState('home')
   const [openDash, setOpenDash] = useState<string | null>(null)
+  const [wizardOpen, setWizardOpen] = useState(false)
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null))
   }, [])
   const ok = health?.status === 'ok'
   const canManage = me.roles.includes('admin') || me.roles.includes('moderator') || me.roles.includes('superadmin')
   const isAdmin = me.roles.includes('admin') || me.roles.includes('superadmin')
+  // Мастер первичной настройки: показываем автоматически на «свежей установке»
+  // (ничего не заведено) администратору, если он его ещё не закрывал. Открыть
+  // вручную можно кнопкой в шапке.
+  useEffect(() => {
+    if (!isAdmin || isSetupDismissed(me.login)) return
+    getSetupStatus().then((s) => { if (s.fresh_install) setWizardOpen(true) }).catch(() => {})
+  }, [isAdmin, me.login])
   const canModerate = me.roles.some((r) => ['admin', 'moderator', 'senior_moderator'].includes(r))
   const nav = NAV.filter((n) => (!n.adminOnly || isAdmin) && (!n.modOnly || canModerate))
 
@@ -114,10 +123,20 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         </span>
         <span style={{ fontSize: 13 }}><strong>{me.full_name || me.login}</strong></span>
         {!narrow && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'var(--accent-weak-bg)', color: 'var(--accent)' }}>{me.roles.join(', ')}</span>}
+        {isAdmin && (
+          <button onClick={() => setWizardOpen(true)} title="Мастер первичной настройки"
+            style={{ height: 32, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-2)', cursor: 'pointer', fontSize: 13 }}>
+            🧭{narrow ? '' : ' Настройка'}
+          </button>
+        )}
         <NotificationBell />
         <ThemeToggle />
         <button onClick={onLogout} style={{ height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer', fontSize: 13 }}>Выйти</button>
       </header>
+      {wizardOpen && (
+        <SetupWizard me={me} onClose={() => setWizardOpen(false)}
+          onNavigate={(s) => { setWizardOpen(false); setOpenDash(null); setSection(s) }} />
+      )}
 
       <div style={{ display: 'flex', flexDirection: narrow ? 'column' : 'row', minHeight: 'calc(100vh - 55px)' }}>
         <nav style={narrow
