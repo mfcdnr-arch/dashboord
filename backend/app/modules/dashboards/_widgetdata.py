@@ -200,6 +200,25 @@ async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None
     return {"columns": cols, "rows": rows}
 
 
+async def _dataset_as_of(conn, org_id, dataset_code: str):
+    """Дата активного (не superseded) выпуска датасета — для метки свежести."""
+    d = await conn.fetchval(
+        "select reporting_period_start from dataset_releases "
+        "where organization_id=$1 and code=$2 and status<>'superseded' "
+        "order by reporting_period_start desc nulls last, created_at desc limit 1",
+        org_id, dataset_code)
+    return d.isoformat() if d else None
+
+
+async def _attach_as_of(conn, org_id, cfg: dict, result):
+    """Добавляет метку свежести as_of (дата активного выпуска) для датасетных
+    виджетов. Именованные метрики/объектные — без метки (объективны)."""
+    ds = (cfg or {}).get("dataset_code")
+    if ds and isinstance(result, dict) and "as_of" not in result:
+        result["as_of"] = await _dataset_as_of(conn, org_id, ds)
+    return result
+
+
 async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_date=None, row=None,
                               user: dict = None, skip_acl: bool = False) -> dict:
     w = await _widget_org(conn, org_id, widget_id)
@@ -229,6 +248,8 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
         except ValueError:
             pass
     result = await _compute_widget(conn, org_id, w["widget_type"], w["name"], _cfg(w), from_date, to_date, row, user=user)
+    # Свежесть данных: дата активного выпуска датасета («данные на X»).
+    await _attach_as_of(conn, org_id, _cfg(w), result)
     try:
         await cache.set(key, json.dumps(result, ensure_ascii=False), cache.WIDGET_DATA_TTL)
     except (TypeError, ValueError):
@@ -269,7 +290,8 @@ async def preview_widget(conn, org_id, widget_type: str, name: Optional[str], co
     """Предпросмотр виджета по конфигу без сохранения (для конструктора)."""
     if widget_type not in WIDGET_TYPES:
         raise DashboardError(f"Неизвестный тип виджета: {widget_type}")
-    return await _compute_widget(conn, org_id, widget_type, name or "Предпросмотр", config or {})
+    result = await _compute_widget(conn, org_id, widget_type, name or "Предпросмотр", config or {})
+    return await _attach_as_of(conn, org_id, config or {}, result)
 
 
 async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,

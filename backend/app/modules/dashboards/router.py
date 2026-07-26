@@ -43,6 +43,10 @@ class TemplateIn(BaseModel):
 
 class InstantiateIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
+    # Перепривязка кодов датасетов/метрик шаблона к кодам нового контекста
+    # (старый код → новый). Пусто — использовать коды шаблона как есть.
+    dataset_map: dict[str, str] = {}
+    metric_map: dict[str, str] = {}
 
 
 class PageIn(BaseModel):
@@ -280,12 +284,24 @@ async def list_templates(user: dict = Depends(get_current_user)):
         return await service.list_templates(conn, user["organization_id"])
 
 
+@router.get("/dashboard-templates/{template_id}/bindings")
+async def template_bindings(template_id: str, user: dict = Depends(get_current_user)):
+    """Коды датасетов/метрик, которые использует шаблон (для перепривязки при клоне)."""
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.template_bindings(conn, user["organization_id"], template_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.post("/dashboard-templates/{template_id}/instantiate", status_code=status.HTTP_201_CREATED)
 async def instantiate_template(template_id: str, body: InstantiateIn, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:
         try:
             async with conn.transaction():
-                return await service.create_from_template(conn, user["organization_id"], user["id"], template_id, body.name)
+                return await service.create_from_template(
+                    conn, user["organization_id"], user["id"], template_id, body.name,
+                    body.dataset_map, body.metric_map)
         except DashboardError as e:
             raise _bad(e)
 

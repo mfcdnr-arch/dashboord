@@ -78,10 +78,17 @@ export async function saveAsTemplate(dashboardId: string, name: string, descript
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
-export async function instantiateTemplate(templateId: string, name: string): Promise<{ dashboard_id: string }> {
+export interface TemplateBindings { datasets: string[]; metrics: string[] }
+export async function getTemplateBindings(templateId: string): Promise<TemplateBindings> {
+  const res = await fetch(`/dashboard-templates/${templateId}/bindings`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function instantiateTemplate(templateId: string, name: string,
+  datasetMap: Record<string, string> = {}, metricMap: Record<string, string> = {}): Promise<{ dashboard_id: string }> {
   const res = await fetch(`/dashboard-templates/${templateId}/instantiate`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, dataset_map: datasetMap, metric_map: metricMap }),
   })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()

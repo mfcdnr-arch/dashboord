@@ -11,6 +11,12 @@ function fmt(n: number): string {
   return Number.isInteger(n) ? n.toLocaleString('ru-RU') : n.toFixed(2)
 }
 
+// Дата актуальности данных (as_of) в формате ДД.ММ.ГГГГ.
+function fmtAsOf(iso: string): string {
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString('ru-RU')
+}
+
 const PALETTE = ['#e04e39', '#c39367', '#623b2a', '#8a5a1a', '#e0885f', '#a5563c', '#d0a97e']
 
 function chartOption(data: any): EChartsOption {
@@ -64,9 +70,16 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
           title="Сработал порог KPI-алерта">⚠ {alert.label}</div>
       )}
       {data && <Body data={data} onPick={onPick} />}
-      {data && showDrill && data.type !== 'text' && data.type !== 'image' && (
-        <button style={drillBtn} onClick={openDrill} title="Из чего собран показатель">🔍 подробнее</button>
-      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {data && showDrill && data.type !== 'text' && data.type !== 'image' && (
+          <button style={drillBtn} onClick={openDrill} title="Из чего собран показатель">🔍 подробнее</button>
+        )}
+        {data?.as_of && (
+          <span style={{ fontSize: 11, color: 'var(--text-faint)' }} title="Дата актуальности данных (активный выпуск датасета)">
+            🕓 данные на {fmtAsOf(data.as_of)}
+          </span>
+        )}
+      </div>
       {drill && <DrillModal drill={drill} onClose={() => setDrill(null)} />}
     </div>
   )

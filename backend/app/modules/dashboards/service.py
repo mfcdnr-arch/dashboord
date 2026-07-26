@@ -606,19 +606,65 @@ async def list_templates(conn, org_id) -> list:
     return [dict(r) for r in rows]
 
 
-async def create_from_template(conn, org_id, user_id, template_id: str, name: str) -> dict:
+# Ключи config, ссылающиеся на коды датасетов и метрик (для перепривязки шаблона).
+_DATASET_KEYS = ("dataset_code",)
+_METRIC_KEYS = ("metric_code", "plan_metric", "fact_metric")
+
+
+def _template_codes(spec: dict) -> dict:
+    """Какие коды датасетов/метрик использует шаблон (для перепривязки при клоне)."""
+    datasets, metrics = set(), set()
+    for page in spec.get("pages", []):
+        for w in page.get("widgets", []):
+            cfg = w.get("config", {}) or {}
+            for k in _DATASET_KEYS:
+                if cfg.get(k):
+                    datasets.add(cfg[k])
+            for k in _METRIC_KEYS:
+                if cfg.get(k):
+                    metrics.add(cfg[k])
+    return {"datasets": sorted(datasets), "metrics": sorted(metrics)}
+
+
+def _remap_config(cfg: dict, dmap: dict, mmap: dict) -> dict:
+    """Применяет карты перепривязки (старый код → новый) к config виджета."""
+    out = dict(cfg or {})
+    for k in _DATASET_KEYS:
+        if out.get(k) and out[k] in dmap:
+            out[k] = dmap[out[k]]
+    for k in _METRIC_KEYS:
+        if out.get(k) and out[k] in mmap:
+            out[k] = mmap[out[k]]
+    return out
+
+
+async def template_bindings(conn, org_id, template_id: str) -> dict:
+    """Коды датасетов/метрик, которые использует шаблон — для UI перепривязки."""
     spec = await conn.fetchval(
         "select spec from dashboard_templates where id=$1::uuid and organization_id=$2", template_id, org_id)
     if spec is None:
         raise DashboardError("Шаблон не найден")
     if isinstance(spec, str):
         spec = json.loads(spec)
+    return _template_codes(spec)
+
+
+async def create_from_template(conn, org_id, user_id, template_id: str, name: str,
+                               dataset_map: dict = None, metric_map: dict = None) -> dict:
+    spec = await conn.fetchval(
+        "select spec from dashboard_templates where id=$1::uuid and organization_id=$2", template_id, org_id)
+    if spec is None:
+        raise DashboardError("Шаблон не найден")
+    if isinstance(spec, str):
+        spec = json.loads(spec)
+    dmap, mmap = dataset_map or {}, metric_map or {}
     dash = await create_dashboard(conn, org_id, user_id, name, "Создан из шаблона", None)
     did = str(dash["id"])
     for page in spec.get("pages", []):
         p = await create_page(conn, org_id, user_id, did, page["name"], page.get("description"))
         for w in page.get("widgets", []):
-            await create_widget(conn, org_id, user_id, str(p["id"]), w["name"], w["widget_type"], w.get("config", {}),
+            cfg = _remap_config(w.get("config", {}), dmap, mmap)
+            await create_widget(conn, org_id, user_id, str(p["id"]), w["name"], w["widget_type"], cfg,
                                 {"position_x": w.get("position_x", 0), "position_y": w.get("position_y", 0),
                                  "width": w.get("width", 4), "height": w.get("height", 4)})
     return {"dashboard_id": did}

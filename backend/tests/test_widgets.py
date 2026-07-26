@@ -43,6 +43,15 @@ async def test_table(client, admin_headers, seed_dataset):
     assert len(d["rows"]) == 3
 
 
+async def test_freshness_as_of(client, admin_headers, seed_dataset):
+    """Свежесть: датасетный виджет несёт as_of = дата активного выпуска (2026-02-01);
+    именованная метрика/текст — без as_of."""
+    d = await _preview(client, admin_headers, "kpi", {"dataset_code": "t_ds", "value_field": "plan"})
+    assert d.get("as_of") == "2026-02-01"
+    t = await _preview(client, admin_headers, "text", {"heading": "Итоги"})
+    assert t.get("as_of") is None
+
+
 async def test_plan_fact(client, admin_headers, seed_dataset):
     d = await _preview(client, admin_headers, "plan_fact",
                        {"dataset_code": "t_ds", "plan_field": "plan", "fact_field": "fact"})

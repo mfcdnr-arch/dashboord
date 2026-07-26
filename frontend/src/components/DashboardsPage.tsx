@@ -4,7 +4,7 @@ import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import {
   autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deletePage, deletePreset, deleteWidget, getDashboard,
-  exportPageXlsx, getDataSources, getPageData, instantiateTemplate, listDashboardVersions, listDashboards, listObjects, listPageWidgets, listPresets,
+  exportPageXlsx, getDataSources, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listObjects, listPageWidgets, listPresets,
   listTemplates, publishDashboard, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
 } from '../api'
@@ -18,6 +18,17 @@ import { Comments } from './dashboards/Comments'
 import { AlertEditor } from './dashboards/AlertEditor'
 import { SourceCatalog, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
 import { PubBadge, WT, alertBtn, btn, btnAuto, btnGhost, crumb, dialog, editBtn, errBox, input, linkDanger, muted, overlay, presetChip, rmBtn, rowForm, rowItem, tab, tabActive, widgetCard, wtBadge } from './dashboards/shared'
+
+// Перепривязка кодов датасетов/метрик шаблона к текущему контексту (при клоне).
+type RebindState = {
+  templateId: string; name: string
+  datasets: { code: string; missing: boolean }[]
+  metrics: { code: string; missing: boolean }[]
+  availDatasets: { code: string; name: string }[]
+  availMetrics: { code: string; name: string }[]
+  datasetMap: Record<string, string>
+  metricMap: Record<string, string>
+}
 const GL = WidthProvider(GridLayout)
 
 const DASH_PAGE = 50
@@ -74,6 +85,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   const [autoObj, setAutoObj] = useState('')
   const [templates, setTemplates] = useState<DashTemplate[]>([])
   const [tpl, setTpl] = useState('')
+  const [rebind, setRebind] = useState<RebindState | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [versions, setVersions] = useState<{ version_no: number; status_code: string; created_at: string }[] | null>(null)
   const [alertWidget, setAlertWidget] = useState<Widget | null>(null)
@@ -228,8 +240,31 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
     const name = prompt('Название нового дашборда:', t ? `${t.name} (копия)` : 'Новый дашборд')
     if (!name) return
     setBusy(true); setError(null)
-    try { const r = await instantiateTemplate(tpl, name.trim()); setTpl(''); await refresh(); openDashboard(r.dashboard_id) }
-    catch (e) { fail(e) } finally { setBusy(false) }
+    try {
+      // Проверяем, есть ли в текущем контексте все коды датасетов/метрик шаблона.
+      // Если каких-то нет — открываем перепривязку, чтобы виджеты не сломались.
+      const [b, src] = await Promise.all([getTemplateBindings(tpl), getDataSources()])
+      const availDatasets = src.datasets.map((d) => ({ code: d.code, name: d.name }))
+      const availMetrics = src.metrics.map((m) => ({ code: m.code, name: m.name }))
+      const dcodes = new Set(availDatasets.map((d) => d.code))
+      const mcodes = new Set(availMetrics.map((m) => m.code))
+      const datasets = b.datasets.map((code) => ({ code, missing: !dcodes.has(code) }))
+      const metrics = b.metrics.map((code) => ({ code, missing: !mcodes.has(code) }))
+      if (!datasets.some((d) => d.missing) && !metrics.some((m) => m.missing)) {
+        const r = await instantiateTemplate(tpl, name.trim())  // все коды на месте
+        setTpl(''); await refresh(); openDashboard(r.dashboard_id)
+      } else {
+        setRebind({ templateId: tpl, name: name.trim(), datasets, metrics, availDatasets, availMetrics, datasetMap: {}, metricMap: {} })
+      }
+    } catch (e) { fail(e) } finally { setBusy(false) }
+  }
+  async function confirmRebind() {
+    if (!rebind) return
+    setBusy(true); setError(null)
+    try {
+      const r = await instantiateTemplate(rebind.templateId, rebind.name, rebind.datasetMap, rebind.metricMap)
+      setRebind(null); setTpl(''); await refresh(); openDashboard(r.dashboard_id)
+    } catch (e) { fail(e) } finally { setBusy(false) }
   }
   async function exportPdf() {
     const el = pageRef.current
@@ -433,6 +468,13 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                   ) : (
                     <input style={{ ...input, height: 30, width: 150 }} placeholder="категория" value={crossRow || ''} onChange={(e) => setCrossRow(e.target.value || null)} />
                   )}
+                  {crossRow && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--accent-weak-bg)', color: 'var(--accent)', padding: '2px 8px', borderRadius: 10, fontSize: 12 }}
+                      title="Связанная фильтрация: клик по строке/столбцу фильтрует ВСЕ виджеты страницы по этой строке. Повторный клик снимает.">
+                      🔗 связано: {crossRow}
+                      <button style={{ border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: 13 }} onClick={() => setCrossRow(null)}>✕</button>
+                    </span>
+                  )}
                   {(pFrom || pTo || crossRow) && <button style={linkDanger} onClick={() => { setPFrom(''); setPTo(''); setCrossRow(null) }}>сброс</button>}
                 </div>
               </div>
@@ -474,7 +516,8 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                         {canManage && <button style={rmBtn} onClick={() => delWidget(w)} title="Удалить">✕</button>}
                       </div>
                       <div style={{ overflow: 'auto', maxHeight: 'calc(100% - 30px)' }}>
-                        <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} row={crossRow || undefined} onPick={setCrossRow}
+                        <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} row={crossRow || undefined}
+                          onPick={(name) => setCrossRow((cur) => cur === name ? null : name)}
                           batched={!batchFailed} injData={pageData[w.id]?.data} injError={pageData[w.id]?.error} />
                       </div>
                     </div>
@@ -522,6 +565,59 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
       {kiosk && sel && (
         <KioskView dashboardName={sel.dashboard.name} pages={sel.pages} onClose={() => setKiosk(false)} />
       )}
+      {rebind && (
+        <RebindModal rebind={rebind} setRebind={setRebind} onConfirm={confirmRebind} busy={busy} />
+      )}
+    </div>
+  )
+}
+
+// ── Перепривязка шаблона: сопоставить коды датасетов/метрик шаблона с кодами
+// текущего контекста (если их нет — иначе виджеты дадут ошибку). Отсутствующие
+// коды подсвечены; для каждого — выбор из доступных или «оставить как есть». ──
+function RebindModal({ rebind, setRebind, onConfirm, busy }: {
+  rebind: RebindState; setRebind: (r: RebindState) => void; onConfirm: () => void; busy: boolean
+}) {
+  const setD = (code: string, to: string) => setRebind({ ...rebind, datasetMap: { ...rebind.datasetMap, [code]: to } })
+  const setM = (code: string, to: string) => setRebind({ ...rebind, metricMap: { ...rebind.metricMap, [code]: to } })
+  const missingUnmapped =
+    rebind.datasets.some((d) => d.missing && !rebind.datasetMap[d.code]) ||
+    rebind.metrics.some((m) => m.missing && !rebind.metricMap[m.code])
+  const row = (label: string, code: string, missing: boolean, value: string, avail: { code: string; name: string }[], on: (c: string, v: string) => void) => (
+    <div key={label + code} style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 8, alignItems: 'center', padding: '4px 0' }}>
+      <span style={{ fontSize: 13, color: missing ? 'var(--danger)' : 'var(--text-2)' }}>
+        {missing ? '⚠ ' : '✓ '}<code style={{ background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 4 }}>{code}</code>
+      </span>
+      <span style={{ color: 'var(--text-faint)' }}>→</span>
+      <select style={input} value={value} onChange={(e) => on(code, e.target.value)}>
+        <option value="">{missing ? '— выберите замену —' : 'оставить как есть'}</option>
+        {avail.map((a) => <option key={a.code} value={a.code}>{a.name} ({a.code})</option>)}
+      </select>
+    </div>
+  )
+  return (
+    <div style={overlay} onClick={() => setRebind(null as unknown as RebindState)}>
+      <div style={{ ...dialog, width: 560 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>Перепривязка шаблона</div>
+          <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={() => setRebind(null as unknown as RebindState)}>✕</button>
+        </div>
+        <p style={{ fontSize: 13, color: 'var(--text-2)', margin: '0 0 12px' }}>
+          Шаблон ссылается на коды, которых нет в текущем контексте (⚠). Сопоставьте их с существующими
+          датасетами/метриками — иначе виджеты дадут ошибку. Совпадающие (✓) можно не трогать.
+        </p>
+        {rebind.datasets.length > 0 && <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', margin: '6px 0 2px' }}>Датасеты</div>}
+        {rebind.datasets.map((d) => row('d', d.code, d.missing, rebind.datasetMap[d.code] || '', rebind.availDatasets, setD))}
+        {rebind.metrics.length > 0 && <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', margin: '10px 0 2px' }}>Метрики</div>}
+        {rebind.metrics.map((m) => row('m', m.code, m.missing, rebind.metricMap[m.code] || '', rebind.availMetrics, setM))}
+        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+          <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={() => setRebind(null as unknown as RebindState)}>Отмена</button>
+          <button style={btn} disabled={busy || missingUnmapped} onClick={onConfirm}
+            title={missingUnmapped ? 'Сначала сопоставьте все отсутствующие коды (⚠)' : ''}>
+            {busy ? 'Создание…' : 'Создать дашборд'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
