@@ -6,7 +6,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-env_get() { grep -E "^$1=" .env.prod 2>/dev/null | cut -d= -f2- | tail -1; }
+# `|| true`: без .env.prod grep выходит с кодом 2 → set -e/pipefail убил бы скрипт.
+env_get() { { grep -E "^$1=" .env.prod 2>/dev/null | cut -d= -f2- | tail -1; } || true; }
 PGUSER="$(env_get POSTGRES_USER)"; PGUSER="${PGUSER:-dashbord}"
 PGDB="$(env_get POSTGRES_DB)"; PGDB="${PGDB:-dashbord}"
 BACKUP_DIR="${BACKUP_DIR:-backups}"

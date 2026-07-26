@@ -20,7 +20,9 @@ for a in "$@"; do
 done
 
 # Пины берём из .env.prod, иначе — дефолты (синхронно с docker-compose.prod.yml).
-env_get() { grep -E "^$1=" .env.prod 2>/dev/null | cut -d= -f2- | tail -1; }
+# `|| true` обязателен: без .env.prod grep выходит с кодом 2, и set -e/pipefail
+# молча убивает скрипт (ловилось только на чистой машине).
+env_get() { { grep -E "^$1=" .env.prod 2>/dev/null | cut -d= -f2- | tail -1; } || true; }
 POSTGRES_IMAGE="${POSTGRES_IMAGE:-$(env_get POSTGRES_IMAGE)}"; POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:16-alpine}"
 REDIS_IMAGE="${REDIS_IMAGE:-$(env_get REDIS_IMAGE)}"; REDIS_IMAGE="${REDIS_IMAGE:-redis:7-alpine}"
 MINIO_IMAGE="${MINIO_IMAGE:-$(env_get MINIO_IMAGE)}"; MINIO_IMAGE="${MINIO_IMAGE:-minio/minio:RELEASE.2022-10-24T18-35-07Z}"
