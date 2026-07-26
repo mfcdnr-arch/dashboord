@@ -7,8 +7,55 @@
 """
 from __future__ import annotations
 
+import time
+
 from ...config import settings
+from ..documents import storage
 from ..notifications import service as notif
+
+
+async def heal() -> dict:
+    """Автопочинка прод-стека на уровне приложения: безопасные идемпотентные
+    восстановления. Инфраструктурный авто-рестарт упавших контейнеров делает сам
+    Docker (restart: unless-stopped в compose) — здесь то, что чинит приложение.
+
+    Действия: (1) создать бакет MinIO, если пропал (частая проблема после сброса
+    тома); (2) проверить доступность Redis. Возвращает список действий с итогом."""
+    actions = []
+
+    # (1) MinIO: гарантировать наличие бакета (idempotent — создаёт, если нет).
+    t0 = time.perf_counter()
+    try:
+        client = storage.get_client()
+        existed = client.bucket_exists(settings.minio_bucket)
+        if not existed:
+            storage.ensure_bucket()
+        actions.append({
+            "name": "MinIO: бакет документов",
+            "ok": True,
+            "result": "уже был" if existed else "создан заново",
+            "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
+        })
+    except Exception as e:
+        actions.append({"name": "MinIO: бакет документов", "ok": False, "result": f"ошибка: {e}"})
+
+    # (2) Redis: проверить связь (перезапуск сервиса — задача Docker, не приложения).
+    t0 = time.perf_counter()
+    try:
+        import redis.asyncio as aioredis
+        r = aioredis.Redis(host=settings.redis_host, port=settings.redis_port, socket_connect_timeout=2)
+        ok = bool(await r.ping())
+        await r.aclose()
+        actions.append({
+            "name": "Redis: связь",
+            "ok": ok,
+            "result": "доступен" if ok else "недоступен — проверьте контейнер",
+            "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
+        })
+    except Exception as e:
+        actions.append({"name": "Redis: связь", "ok": False, "result": f"недоступен: {e}"})
+
+    return {"actions": actions, "healthy": all(a["ok"] for a in actions)}
 
 
 async def check_freshness(conn, org_id, stale_days: int | None = None) -> dict:

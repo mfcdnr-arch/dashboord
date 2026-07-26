@@ -3,9 +3,10 @@ import { authH, errText } from './http'
 // --- Отчёты (волна B) ---
 export interface Gauge { percent: number; level: 'good' | 'warn' | 'danger'; used?: number; total?: number }
 export interface SystemReport {
+  status?: 'ok' | 'degraded'
   cpu: Gauge; memory: Gauge; disk: Gauge
   load: number[] | null; cores: number; uptime_sec: number; db_size: number | null
-  services: { name: string; ok: boolean }[]
+  services: { name: string; ok: boolean; latency_ms?: number }[]
 }
 export interface AttendanceReport {
   totals: { logins: number; failed: number; active_users: number }

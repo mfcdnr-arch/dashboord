@@ -34,19 +34,22 @@ async def system_health(conn) -> dict:
     uptime_sec = int(time.time() - psutil.boot_time())
 
     services = []
+    t0 = time.perf_counter()
     try:
         pg_ok = (await conn.fetchval("select 1")) == 1
     except Exception:
         pg_ok = False
+    pg_ms = round((time.perf_counter() - t0) * 1000, 1)
     db_size = None
     if pg_ok:
         try:
             db_size = await conn.fetchval("select pg_database_size(current_database())")
         except Exception:
             db_size = None
-    services.append({"name": "PostgreSQL", "ok": pg_ok})
+    services.append({"name": "PostgreSQL", "ok": pg_ok, "latency_ms": pg_ms})
 
     redis_ok = False
+    t0 = time.perf_counter()
     try:
         import redis.asyncio as aioredis
         r = aioredis.Redis(host=settings.redis_host, port=settings.redis_port, socket_connect_timeout=1)
@@ -54,16 +57,21 @@ async def system_health(conn) -> dict:
         await r.aclose()
     except Exception:
         redis_ok = False
-    services.append({"name": "Redis", "ok": redis_ok})
+    services.append({"name": "Redis", "ok": redis_ok, "latency_ms": round((time.perf_counter() - t0) * 1000, 1)})
 
     minio_ok = False
+    t0 = time.perf_counter()
     try:
         minio_ok = bool(storage.get_client().bucket_exists(settings.minio_bucket))
     except Exception:
         minio_ok = False
-    services.append({"name": "MinIO", "ok": minio_ok})
+    services.append({"name": "MinIO", "ok": minio_ok, "latency_ms": round((time.perf_counter() - t0) * 1000, 1)})
 
+    # Общий статус: degraded, если любой сервис недоступен или ресурс в danger.
+    res_danger = any(_level(x, 80, 92) == "danger" for x in (cpu, vm.percent, du.percent))
+    overall = "degraded" if (not all(s["ok"] for s in services) or res_danger) else "ok"
     return {
+        "status": overall,
         "cpu": {"percent": round(cpu, 1), "level": _level(cpu, 70, 90)},
         "memory": {"percent": round(vm.percent, 1), "used": vm.used, "total": vm.total, "level": _level(vm.percent, 80, 92)},
         "disk": {"percent": round(du.percent, 1), "used": du.used, "total": du.total, "level": _level(du.percent, 80, 92)},

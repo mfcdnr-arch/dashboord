@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  getAttendanceReport, getBusinessReport, getDashboardViewers, getDataQualityReport, getModerationReport, getPopularityReport, getSystemReport,
-  type AttendanceReport, type BusinessReport, type DashboardViewers, type DataQualityReport, type Gauge, type ModerationReport, type PopularityReport, type SystemReport,
+  getAttendanceReport, getBusinessReport, getDashboardViewers, getDataQualityReport, getModerationReport, getPopularityReport, getSystemReport, healSystem,
+  type AttendanceReport, type BusinessReport, type DashboardViewers, type DataQualityReport, type Gauge, type HealResult, type ModerationReport, type PopularityReport, type SystemReport,
 } from '../api'
 import EChart from './EChartLazy'
 
@@ -36,10 +36,17 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
   const [viewers, setViewers] = useState<DashboardViewers | null>(null)
   const [mod, setMod] = useState<ModerationReport | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [heal, setHeal] = useState<HealResult | null>(null)
+  const [healing, setHealing] = useState(false)
+  const canAdmin = me.roles.includes('admin') || me.roles.includes('superadmin')
 
   const loadSys = () => getSystemReport().then(setSys).catch((e) => setError((e as Error).message))
+  async function doHeal() {
+    setHealing(true); setError(null)
+    try { setHeal(await healSystem()); await loadSys() } catch (e) { setError((e as Error).message) } finally { setHealing(false) }
+  }
   useEffect(() => {
-    if (!me.roles.includes('admin')) return
+    if (!canAdmin) return
     loadSys()
     getAttendanceReport().then(setAtt).catch((e) => setError((e as Error).message))
     getPopularityReport().then(setPop).catch((e) => setError((e as Error).message))
@@ -50,7 +57,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
     return () => clearInterval(t)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!me.roles.includes('admin')) return <div style={{ color: 'var(--danger)' }}>Раздел «Отчёты» доступен только администратору.</div>
+  if (!canAdmin) return <div style={{ color: 'var(--danger)' }}>Раздел «Отчёты» доступен только администратору.</div>
 
   const maxDay = Math.max(1, ...(att?.per_day.map((d) => d.logins + d.failed) || [1]))
 
@@ -59,10 +66,19 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
       <h2 style={{ fontSize: 20, margin: '0 0 16px' }}>Отчёты</h2>
       {error && <div style={errBox}>{error}</div>}
 
-      {/* Системный мониторинг */}
-      <Section title="Системный мониторинг" hint="обновляется автоматически каждые 15 с">
+      {/* Здоровье системы + автопочинка */}
+      <Section title="Здоровье системы" hint="обновляется автоматически каждые 15 с">
         {!sys ? <span style={muted}>Загрузка…</span> : (
           <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 12, fontWeight: 600,
+                background: sys.status === 'degraded' ? 'var(--danger-bg)' : '#e8f5f0', color: sys.status === 'degraded' ? 'var(--danger)' : 'var(--success)' }}>
+                {sys.status === 'degraded' ? '⚠ Есть проблемы' : '✓ Система в норме'}
+              </span>
+              <button style={btnGhost} disabled={healing} onClick={doHeal} title="Безопасная автопочинка: бакет MinIO, связь с Redis">
+                {healing ? '⏳ Починка…' : '🔧 Починить'}
+              </button>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
               <GaugeCard title="Процессор (CPU)" g={sys.cpu} sub={`${sys.cores} ядер${sys.load ? ` · load ${sys.load.map((x) => x.toFixed(2)).join(' ')}` : ''}`} />
               <GaugeCard title="Память (RAM)" g={sys.memory} sub={`${fmtBytes(sys.memory.used)} из ${fmtBytes(sys.memory.total)}`} />
@@ -71,13 +87,26 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', fontSize: 13, color: 'var(--text-2)' }}>
               <span>Аптайм: <b>{fmtUptime(sys.uptime_sec)}</b></span>
               <span>Размер БД: <b>{fmtBytes(sys.db_size)}</b></span>
-              <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>Сервисы:
+              <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>Сервисы:
                 {sys.services.map((s) => (
                   <span key={s.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10, background: s.ok ? '#e8f5f0' : 'var(--danger-bg)', color: s.ok ? 'var(--success)' : 'var(--danger)' }}>
-                    {s.ok ? '●' : '○'} {s.name}
+                    {s.ok ? '●' : '○'} {s.name}{s.latency_ms != null && <span style={{ color: 'var(--text-faint)' }}>· {s.latency_ms} мс</span>}
                   </span>
                 ))}
               </span>
+            </div>
+            {heal && (
+              <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface-2)' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Результат починки {heal.healthy ? '✓' : '⚠'}</div>
+                {heal.actions.map((a) => (
+                  <div key={a.name} style={{ fontSize: 13, color: a.ok ? 'var(--text-2)' : 'var(--danger)', padding: '2px 0' }}>
+                    {a.ok ? '✓' : '✗'} {a.name}: {a.result}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 8 }}>
+              Автопочинка — уровень приложения (бакет MinIO, связь с Redis). Авто-рестарт упавших контейнеров выполняет Docker (restart: unless-stopped).
             </div>
           </>
         )}
@@ -342,5 +371,6 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
+const btnGhost: React.CSSProperties = { height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-2)', fontSize: 13, cursor: 'pointer' }
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px' }

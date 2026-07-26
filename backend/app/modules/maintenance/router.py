@@ -35,3 +35,10 @@ async def freshness_check(stale_days: Optional[int] = Query(None, ge=1), user: d
     async with db.acquire(user["id"]) as conn:
         async with conn.transaction():
             return await service.check_freshness(conn, user["organization_id"], stale_days)
+
+
+@router.post("/heal")
+async def heal(user: dict = Depends(admin)):
+    """Автопочинка прод-стека на уровне приложения (безопасные идемпотентные
+    восстановления: бакет MinIO, связь с Redis). admin/superadmin."""
+    return await service.heal()
