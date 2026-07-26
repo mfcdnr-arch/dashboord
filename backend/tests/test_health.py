@@ -27,6 +27,17 @@ async def test_heal_returns_actions_for_admin(client, admin_headers):
     assert any("MinIO" in n for n in names)
 
 
+async def test_prometheus_metrics_exposed(client, admin_headers):
+    """Наблюдаемость: /internal/metrics отдаёт метрики в формате Prometheus."""
+    await client.get("/health")  # сгенерировать хотя бы один запрос
+    r = await client.get("/internal/metrics")
+    assert r.status_code == 200
+    assert "text/plain" in r.headers.get("content-type", "")
+    body = r.text
+    assert "http_requests_total" in body
+    assert "http_request_duration_seconds" in body
+
+
 async def test_heal_forbidden_for_regular_user(client, admin_headers):
     roles = {x["code"]: x["id"] for x in (await client.get("/roles", headers=admin_headers)).json()}
     try:

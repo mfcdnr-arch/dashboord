@@ -17,3 +17,4 @@ charset-normalizer==3.4.0  # определение кодировки CSV
 arq==0.26.3              # фоновый воркер на Redis
 redis==5.2.1             # клиент Redis (для arq)
 psutil==6.1.1
+prometheus-client==0.21.1  # экспозиция метрик /internal/metrics (наблюдаемость)

@@ -10,7 +10,7 @@ import asyncpg
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from . import cache, db
+from . import cache, db, observability
 from .config import settings
 from .modules.auth.bootstrap import ensure_seed
 from .modules.audit.router import router as audit_router
@@ -88,6 +88,10 @@ class ClientIPMiddleware:
 
 
 app.add_middleware(ClientIPMiddleware)
+# Наблюдаемость: сбор HTTP-метрик + экспозиция Prometheus на /internal/metrics.
+app.add_middleware(observability.PrometheusMiddleware)
+app.add_api_route(observability.METRICS_PATH, observability.metrics_endpoint,
+                  methods=["GET"], include_in_schema=False, tags=["system"])
 
 # Роутеры модулей. По мере разработки сюда добавляются:
 # auth, access, objects, ingestion, metrics, dashboards, moderation,

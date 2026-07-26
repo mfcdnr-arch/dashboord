@@ -1,0 +1,28 @@
+# Prometheus — сбор метрик Dashboard (self-hosted, on-prem LAN).
+# Скрейпит: приложение (api /internal/metrics), хост (node-exporter),
+# контейнеры (cAdvisor). Prometheus сам себя тоже.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Приложение Dashboard (FastAPI) — метрики HTTP-запросов/латентности.
+  # Резолвится по имени сервиса в сети dashbord-prod_default.
+  - job_name: dashbord-api
+    metrics_path: /internal/metrics
+    static_configs:
+      - targets: ['api:8000']
+
+  # Хост-метрики (CPU/RAM/диск/сеть) сервера.
+  - job_name: node
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # Метрики контейнеров (по каждому сервису стека).
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
