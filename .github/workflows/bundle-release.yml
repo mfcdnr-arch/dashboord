@@ -1,0 +1,48 @@
+# Сборка офлайн-бандла образов НА НАСТОЯЩЕМ amd64 (раннер GitHub Actions) —
+# для машин, где кросс-сборка невозможна (arm64-Mac: quirk containerd-store
+# Docker Desktop при docker save кросс-платформенных образов).
+#
+# Результат публикуется release-ассетами частями по <2 ГБ (лимит GitHub на файл):
+#   gh release download <tag> -D bundle && cat bundle/dashbord-images.tar.part-* > dashbord-images.tar
+#
+# Запуск ТОЛЬКО вручную: Actions → «Офлайн-бандл (amd64)» → Run workflow.
+name: Офлайн-бандл (amd64)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # создание release и загрузка ассетов
+
+jobs:
+  bundle:
+    name: bundle-images.sh на amd64 → release-ассеты
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Очистка предустановленных образов (место на диске)
+        run: |
+          docker image prune -af >/dev/null
+          df -h / | tail -1
+
+      - name: Сборка бандла (все образы, вкл. мониторинг)
+        run: ./bundle-images.sh
+
+      - name: Контрольная сумма и разбиение на части <2 ГБ
+        run: |
+          sha256sum dashbord-images.tar > dashbord-images.tar.sha256
+          split -b 1900m dashbord-images.tar dashbord-images.tar.part-
+          ls -la dashbord-images.tar.part-* dashbord-images.tar.sha256
+
+      - name: Публикация release-ассетами
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="bundle-${{ github.run_id }}"
+          gh release create "$TAG" --target "${{ github.sha }}" \
+            --title "Офлайн-бандл образов ($(date +%Y-%m-%d))" \
+            --notes "dashbord-images.tar частями: скачать все part-файлы, склеить: cat dashbord-images.tar.part-* > dashbord-images.tar; проверить: sha256sum -c dashbord-images.tar.sha256. Собран на amd64 из ${{ github.sha }}."
+          gh release upload "$TAG" dashbord-images.tar.part-* dashbord-images.tar.sha256
+          echo "TAG=$TAG"
