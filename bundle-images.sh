@@ -30,19 +30,40 @@ for img in "$POSTGRES_IMAGE" "$REDIS_IMAGE" "$MINIO_IMAGE"; do
   docker pull --platform "$PLATFORM" "$img"
 done
 
-log "Сохранение в $OUT…"
-docker save -o "$OUT" \
-  dashbord-api:latest dashbord-web:latest \
-  "$POSTGRES_IMAGE" "$REDIS_IMAGE" "$MINIO_IMAGE"
+# Сохраняем КАЖДЫЙ образ в свой tar, затем упаковываем всё в один архив.
+# Почему по одному: объединённый `docker save img1 img2 …` на некоторых стеках
+# (Docker Desktop с containerd-store, смешанные платформы) падает с «content
+# digest not found»; одиночный save работает везде. Один итоговый файл — удобно
+# копировать на изолированную ВМ.
+log "Сохранение образов (по одному) → $OUT…"
+IMAGES="dashbord-api:latest dashbord-web:latest $POSTGRES_IMAGE $REDIS_IMAGE $MINIO_IMAGE"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+i=0
+for img in $IMAGES; do
+  i=$((i + 1))
+  safe="$(printf '%02d_%s' "$i" "$img" | tr '/:' '__')"
+  docker save -o "$TMP/${safe}.tar" "$img"
+done
+# Список образов для человека + автозагрузчик на целевой машине.
+printf '%s\n' $IMAGES > "$TMP/IMAGES.txt"
+cat > "$TMP/load.sh" <<'LOADER'
+#!/usr/bin/env sh
+# Загрузка образов из офлайн-бандла на целевой машине (Astra):
+#   tar -xf dashbord-images.tar && sh load.sh
+set -e
+for t in [0-9][0-9]_*.tar; do echo "load $t"; docker load -i "$t"; done
+echo "Готово. Образы загружены."
+LOADER
+tar -cf "$OUT" -C "$TMP" .
 
-# Пост-проверка целостности: tar не пуст и содержит манифест со всеми образами.
+# Пост-проверка целостности: архив не пуст и содержит все per-image tar'ы.
 log "Проверка бандла…"
 [ -s "$OUT" ] || { echo "[bundle] ОШИБКА: пустой архив $OUT"; exit 1; }
-tags="$(tar -xOf "$OUT" manifest.json 2>/dev/null | grep -o '"[^"]*:[^"]*"' | tr -d '"' | grep -E ':' || true)"
-if [ -n "$tags" ]; then
-  echo "$tags" | sed 's/^/  • /'
-else
-  echo "[bundle] ВНИМАНИЕ: не удалось прочитать манифест (проверьте вручную: docker load -i $OUT)"
-fi
+n_tar="$(tar -tf "$OUT" | grep -c '\.tar$' || true)"
+n_img="$(printf '%s\n' $IMAGES | wc -w | tr -d ' ')"
+echo "  образов в бандле: $n_tar из $n_img"
+tar -xOf "$OUT" ./IMAGES.txt 2>/dev/null | sed 's/^/  • /'
+[ "$n_tar" = "$n_img" ] || { echo "[bundle] ОШИБКА: не все образы попали в бандл"; exit 1; }
 
-log "Готово: $OUT ($(du -h "$OUT" | cut -f1)). На цели: docker load -i $(basename "$OUT")"
+log "Готово: $OUT ($(du -h "$OUT" | cut -f1)). На цели: tar -xf $(basename "$OUT") && sh load.sh"

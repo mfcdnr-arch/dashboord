@@ -37,6 +37,7 @@ MINIO_PASSWORD="$(pw)"
 JWT_SECRET="$(jwt)"
 ADMIN_PASSWORD="$(pw)"
 SUPERADMIN_PASSWORD="$(pw)"
+GRAFANA_PASSWORD="$(pw)"
 
 # Берём шаблон и подставляем секреты (строки KEY=CHANGE_ME...).
 cp .env.prod.example .env.prod
@@ -56,6 +57,7 @@ set_kv MINIO_PASSWORD "$MINIO_PASSWORD"
 set_kv JWT_SECRET "$JWT_SECRET"
 set_kv ADMIN_PASSWORD "$ADMIN_PASSWORD"
 set_kv SUPERADMIN_PASSWORD "$SUPERADMIN_PASSWORD"
+set_kv GRAFANA_PASSWORD "$GRAFANA_PASSWORD"
 
 chmod 600 .env.prod
 
