@@ -16,6 +16,8 @@ import OnboardingHint from './components/OnboardingHint'
 import ThemeToggle from './components/ThemeToggle'
 import Logo from './components/Logo'
 import SetupWizard from './components/SetupWizard'
+import ArchivePage from './components/ArchivePage'
+import { archiveMe } from './api/archive'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -68,6 +70,7 @@ const NAV = [
   { key: 'objects', label: 'Объекты', ready: true },
   { key: 'metrics', label: 'Метрики', ready: true },
   { key: 'dashboards', label: 'Дашборды', ready: true },
+  { key: 'archive', label: 'Архив', ready: true, archiveGate: true },
   { key: 'moderation', label: 'Модерация', ready: true, modOnly: true },
   { key: 'catalog', label: 'Справочники', ready: true, modOnly: true },
   { key: 'users', label: 'Пользователи', ready: true, adminOnly: true },
@@ -109,7 +112,15 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     getSetupStatus().then((s) => { if (s.fresh_install && !s.setup_dismissed) setWizardOpen(true) }).catch(() => {})
   }, [isAdmin])
   const canModerate = me.roles.some((r) => ['admin', 'moderator', 'senior_moderator'].includes(r))
-  const nav = NAV.filter((n) => (!n.adminOnly || isAdmin) && (!n.modOnly || canModerate))
+  // Раздел «Архив»: привилегированным — всегда; обычному пользователю — только
+  // по допуску, выданному администратором/модератором (спрашиваем сервер).
+  const [archiveOk, setArchiveOk] = useState(false)
+  useEffect(() => {
+    if (canModerate) { setArchiveOk(true); return }
+    archiveMe().then((r) => setArchiveOk(r.allowed)).catch(() => setArchiveOk(false))
+  }, [canModerate])
+  const nav = NAV.filter((n) => (!n.adminOnly || isAdmin) && (!n.modOnly || canModerate)
+    && (!(n as { archiveGate?: boolean }).archiveGate || archiveOk))
 
   return (
     <div style={{ fontFamily: 'var(--font-body)', minHeight: '100vh' }}>
@@ -176,6 +187,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <ReportsPage me={me} />
           ) : section === 'audit' ? (
             <AuditPage me={me} />
+          ) : section === 'archive' ? (
+            <ArchivePage canManage={canModerate} isAdmin={isAdmin} />
           ) : section === 'moderation' ? (
             <ModerationPage me={me} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'catalog' ? (

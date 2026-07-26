@@ -18,7 +18,8 @@ ENTITY_LABELS = {
     "object_acl": "Права доступа",
 }
 # Все значения enum audit_action (порядок — для фасета фильтра).
-ACTIONS = ["create", "update", "delete", "publish", "grant_access", "revoke_access", "view"]
+ACTIONS = ["create", "update", "delete", "publish", "grant_access", "revoke_access", "view",
+           "archive", "unarchive"]
 
 # Технические поля, изменение которых не считаем содержательным при вычислении
 # сводки изменённых полей (они меняются при любой правке).
@@ -139,7 +140,9 @@ def _events_where(org_id, *, actor=None, entity_type=None, entity_id=None,
 
 # Действия по-русски для выгрузки/отображения.
 ACTION_RU = {"create": "создание", "update": "изменение", "delete": "удаление",
-             "view": "просмотр", "publish": "публикация", "login": "вход"}
+             "view": "просмотр", "publish": "публикация", "login": "вход",
+             "grant_access": "выдача доступа", "revoke_access": "отзыв доступа",
+             "archive": "архивация", "unarchive": "возврат из архива"}
 
 
 async def export_events(conn, org_id, *, actor=None, entity_type=None, entity_id=None,

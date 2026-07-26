@@ -41,6 +41,13 @@ async def weekly_retention(ctx) -> None:
     await _for_each_org(maint.run_retention)
 
 
+async def monthly_auto_archive(ctx) -> None:
+    """Планировщик: 1-го числа — слепки дашбордов с флажком auto_archive
+    за прошедший месяц (идемпотентно: повторный запуск не дублирует)."""
+    from ..dashboards import _archive
+    await _for_each_org(_archive.run_monthly_auto_archive)
+
+
 async def on_startup(ctx) -> None:
     await db.connect()
 
@@ -54,6 +61,7 @@ class WorkerSettings:
     cron_jobs = [
         cron(daily_freshness, hour=7, minute=0),                 # ежедневно 07:00 — свежесть
         cron(weekly_retention, weekday="sun", hour=3, minute=0),  # вс 03:00 — ретенция
+        cron(monthly_auto_archive, day=1, hour=2, minute=0),      # 1-е число 02:00 — автоархив за прошлый месяц
     ]
     on_startup = on_startup
     on_shutdown = on_shutdown

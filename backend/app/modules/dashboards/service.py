@@ -55,7 +55,9 @@ async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
     if not visible:
         return {"total": 0, "limit": limit, "offset": offset, "items": []}
     # $1=org, $2=visible ids, $3=user (для favorites). Далее — динамические фильтры.
-    where = "d.organization_id=$1 and d.id = any($2::uuid[])"
+    # Архивные дашборды в основном списке не показываем — для них раздел «Архив»
+    # (вернуть в работу можно оттуда: «↩ Вернуть из архива»).
+    where = "d.organization_id=$1 and d.id = any($2::uuid[]) and d.publication_status <> 'archived'"
     params: list = [org_id, list(visible), user["id"]]
     if q and q.strip():
         params.append(f"%{q.strip()}%")
@@ -96,7 +98,7 @@ async def get_dashboard(conn, org_id, user: dict, dashboard_id: str) -> dict:
     if not await _can_view(conn, org_id, user, dashboard_id):
         raise DashboardError("Дашборд не найден")
     d = await conn.fetchrow(
-        "select id, name, description, publication_status, created_at from dashboards "
+        "select id, name, description, publication_status, auto_archive, created_at from dashboards "
         "where id=$1::uuid and organization_id=$2", dashboard_id, org_id,
     )
     if d is None:

@@ -52,6 +52,8 @@ export default defineConfig({
       '/catalog': 'http://localhost:8080',
       '/notifications': 'http://localhost:8080',
       '/maintenance': 'http://localhost:8080',
+      '/archive': 'http://localhost:8080',
+      '/archive-access': 'http://localhost:8080',
     },
   },
 })

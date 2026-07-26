@@ -7,6 +7,7 @@ export interface Dashboard {
   name: string
   description: string | null
   publication_status: string
+  auto_archive?: boolean
   created_at: string
   pages?: number
   is_favorite?: boolean

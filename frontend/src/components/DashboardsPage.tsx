@@ -12,6 +12,8 @@ import WidgetView from './WidgetView'
 import InfoTip from './InfoTip'
 import { WIDGET_META } from './dashboards/WidgetPicker'
 import KioskView from './KioskView'
+import ArchiveDialog from './dashboards/ArchiveDialog'
+import { archiveDashboard, setAutoArchive } from '../api/archive'
 
 import { AccessEditor } from './dashboards/AccessEditor'
 import { Comments } from './dashboards/Comments'
@@ -92,6 +94,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   const [editWidget, setEditWidget] = useState<Widget | null>(null)
   const [accessOpen, setAccessOpen] = useState(false)
   const [commentsOpen, setCommentsOpen] = useState(false)
+  const [archiveOpen, setArchiveOpen] = useState(false)
   const [presets, setPresets] = useState<DashPreset[]>([])
   const [kiosk, setKiosk] = useState(false)
 
@@ -215,6 +218,22 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   async function doUnpublish() {
     if (!sel) return
     try { await unpublishDashboard(sel.dashboard.id); setSel(await getDashboard(sel.dashboard.id)) } catch (e) { fail(e) }
+  }
+  async function toggleAutoArchive() {
+    if (!sel) return
+    try {
+      await setAutoArchive(sel.dashboard.id, !sel.dashboard.auto_archive)
+      setSel(await getDashboard(sel.dashboard.id))
+    } catch (e) { fail(e) }
+  }
+  async function doArchive(topic: string, note: string) {
+    if (!sel) return
+    try {
+      await archiveDashboard(sel.dashboard.id, topic, note)
+      setArchiveOpen(false)
+      setSel(null)          // дашборд ушёл из основного списка — в раздел «Архив»
+      await refresh()
+    } catch (e) { fail(e) }
   }
   async function loadVersions() {
     if (!sel) return
@@ -415,6 +434,12 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
             {canManage && <button style={btnGhost} onClick={saveTemplate}>Сохранить как шаблон</button>}
             {canManage && <button style={btnGhost} onClick={() => setAccessOpen(true)} title="Кто видит этот дашборд">🔒 Доступ</button>}
             <button style={btnGhost} onClick={() => setCommentsOpen(true)} title="Обсуждение дашборда">💬 Обсуждение</button>
+            {canManage && <button style={btnGhost} onClick={() => setArchiveOpen(true)} title="Слепок данных в архив; дашборд уйдёт из основного списка">📦 В архив</button>}
+            {canManage && (
+              <button style={{ ...btnGhost, ...(sel.dashboard.auto_archive ? { borderColor: 'var(--accent)', color: 'var(--accent)', background: 'var(--accent-weak-bg)' } : {}) }}
+                title="Ежемесячная автоархивация: 1-го числа система сама сохранит слепок за прошедший месяц"
+                onClick={toggleAutoArchive}>📅 автослепок {sel.dashboard.auto_archive ? 'вкл' : 'выкл'}</button>
+            )}
           </div>
           {versions && (
             <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, marginBottom: 12 }}>
@@ -557,6 +582,9 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
       )}
       {commentsOpen && sel && (
         <Comments dashboard={sel.dashboard} onClose={() => setCommentsOpen(false)} />
+      )}
+      {archiveOpen && sel && (
+        <ArchiveDialog name={sel.dashboard.name} onClose={() => setArchiveOpen(false)} onSubmit={doArchive} />
       )}
 
       {accessOpen && sel && (
