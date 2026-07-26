@@ -14,10 +14,12 @@ from ... import db
 from ...exports import to_csv, to_xlsx
 from ..auth.deps import require_roles
 from . import service
-from .service import UsersError
+from .service import UsersError, UsersForbidden
 
 router = APIRouter(tags=["users"])
-admin = require_roles("admin")
+# Управление пользователями — admin и superadmin. Разграничение действий по
+# иерархии (кто кого может трогать) — в service.py.
+manage = require_roles("admin", "superadmin")
 CSV_MEDIA = "text/csv; charset=utf-8"
 XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -27,6 +29,8 @@ def _attach(name: str) -> dict:
 
 
 def _bad(e: UsersError) -> HTTPException:
+    if isinstance(e, UsersForbidden):
+        return HTTPException(status.HTTP_403_FORBIDDEN, str(e))
     code = status.HTTP_404_NOT_FOUND if "не найден" in str(e) else status.HTTP_400_BAD_REQUEST
     return HTTPException(code, str(e))
 
@@ -65,13 +69,13 @@ class ResetPwIn(BaseModel):
 
 # --- Отделы ---
 @router.get("/departments")
-async def list_departments(user: dict = Depends(admin)):
+async def list_departments(user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         return await service.list_departments(conn, user["organization_id"])
 
 
 @router.post("/departments", status_code=status.HTTP_201_CREATED)
-async def create_department(body: DepartmentIn, user: dict = Depends(admin)):
+async def create_department(body: DepartmentIn, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         try:
             return await service.create_department(conn, user["organization_id"], body.name)
@@ -80,7 +84,7 @@ async def create_department(body: DepartmentIn, user: dict = Depends(admin)):
 
 
 @router.delete("/departments/{department_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_department(department_id: str, user: dict = Depends(admin)):
+async def delete_department(department_id: str, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         try:
             await service.delete_department(conn, user["organization_id"], department_id)
@@ -90,27 +94,27 @@ async def delete_department(department_id: str, user: dict = Depends(admin)):
 
 # --- Роли (для выбора) ---
 @router.get("/roles")
-async def list_roles(user: dict = Depends(admin)):
+async def list_roles(user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         return await service.list_roles(conn, user["organization_id"])
 
 
 # --- Аудит входов ---
 @router.get("/login-events")
-async def login_events(user: dict = Depends(admin)):
+async def login_events(user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         return await service.login_events_report(conn, user["organization_id"])
 
 
 @router.get("/login-events/export.csv")
-async def export_login_csv(user: dict = Depends(admin)):
+async def export_login_csv(user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         headers, rows = await service.login_events_export(conn, user["organization_id"])
     return Response(to_csv(headers, rows), media_type=CSV_MEDIA, headers=_attach("login-events.csv"))
 
 
 @router.get("/login-events/export.xlsx")
-async def export_login_xlsx(user: dict = Depends(admin)):
+async def export_login_xlsx(user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         headers, rows = await service.login_events_export(conn, user["organization_id"])
     return Response(to_xlsx("Журнал входов", headers, rows), media_type=XLSX_MEDIA, headers=_attach("login-events.xlsx"))
@@ -118,49 +122,58 @@ async def export_login_xlsx(user: dict = Depends(admin)):
 
 # --- Пользователи ---
 @router.get("/users")
-async def list_users(user: dict = Depends(admin), q: Optional[str] = None,
+async def list_users(user: dict = Depends(manage), q: Optional[str] = None,
                      limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
     async with db.get_pool().acquire() as conn:
         return await service.list_users(conn, user["organization_id"], q=q, limit=limit, offset=offset)
 
 
 @router.post("/users", status_code=status.HTTP_201_CREATED)
-async def create_user(body: UserIn, user: dict = Depends(admin)):
+async def create_user(body: UserIn, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         try:
             async with conn.transaction():
                 return await service.create_user(
                     conn, user["organization_id"], body.login, body.password, body.last_name,
-                    body.first_name, body.middle_name, body.email, body.department_id, body.role_ids)
+                    body.first_name, body.middle_name, body.email, body.department_id, body.role_ids, user)
         except UsersError as e:
             raise _bad(e)
 
 
 @router.patch("/users/{user_id}")
-async def update_user(user_id: str, body: UserPatch, user: dict = Depends(admin)):
+async def update_user(user_id: str, body: UserPatch, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         try:
             async with conn.transaction():
                 return await service.update_user(
                     conn, user["organization_id"], user_id, body.last_name, body.first_name,
-                    body.middle_name, body.email, body.department_id, body.role_ids)
+                    body.middle_name, body.email, body.department_id, body.role_ids, user)
         except UsersError as e:
             raise _bad(e)
 
 
 @router.post("/users/{user_id}/active")
-async def set_active(user_id: str, body: ActiveIn, user: dict = Depends(admin)):
+async def set_active(user_id: str, body: ActiveIn, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         try:
-            return await service.set_active(conn, user["organization_id"], user_id, body.is_active, user["id"])
+            return await service.set_active(conn, user["organization_id"], user_id, body.is_active, user)
         except UsersError as e:
             raise _bad(e)
 
 
 @router.post("/users/{user_id}/reset-password")
-async def reset_password(user_id: str, body: ResetPwIn, user: dict = Depends(admin)):
+async def reset_password(user_id: str, body: ResetPwIn, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         try:
-            return await service.reset_password(conn, user["organization_id"], user_id, body.password)
+            return await service.reset_password(conn, user["organization_id"], user_id, body.password, user)
+        except UsersError as e:
+            raise _bad(e)
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: str, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            return await service.delete_user(conn, user["organization_id"], user_id, user)
         except UsersError as e:
             raise _bad(e)

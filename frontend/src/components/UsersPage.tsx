@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
-  checkPassword, createDepartment, createUser, deleteDepartment, exportLoginEvents, getLoginEvents, getPasswordPolicy,
+  checkPassword, createDepartment, createUser, deleteDepartment, deleteUser, exportLoginEvents, getLoginEvents, getPasswordPolicy,
   listDepartments, listRoles, listUsers, passwordHint, resetUserPassword, setUserActive, updateUser,
   type AppUser, type Department, type LoginEventsReport, type PasswordPolicy, type Role,
 } from '../api'
@@ -11,9 +11,11 @@ function fmtDt(iso: string | null): string {
   return d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 }
 
-// Раздел «Пользователи» (только admin): справочник отделов + управление пользователями
-// (заведение с временным паролем, роли, отдел, блокировка, сброс пароля). Жёсткого
-// удаления нет — только блокировка, чтобы не терять историю/аудит.
+// Раздел «Пользователи» (admin и superadmin): справочник отделов + управление
+// пользователями (заведение с временным паролем, роли, отдел, блокировка, сброс
+// пароля, удаление). Иерархия: суперадмина может трогать только суперадмин; роль
+// superadmin выдаёт только superadmin; «удаление» гибридное (чистого — жёстко,
+// с данными — только блокировка).
 
 const USERS_PAGE = 50
 
@@ -53,9 +55,13 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
     getLoginEvents().then(setAudit).catch(fail)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!me.roles.includes('admin')) {
+  const isSuper = me.roles.includes('superadmin')
+  if (!me.roles.includes('admin') && !isSuper) {
     return <div style={{ color: 'var(--danger)' }}>Раздел «Пользователи» доступен только администратору.</div>
   }
+  // Может ли текущий актор управлять этим пользователем (иерархия ролей):
+  // суперадмина трогает только суперадмин; остальных — и admin, и superadmin.
+  const canManage = (u: AppUser) => isSuper || !u.roles.includes('superadmin')
 
   async function addDept(e: FormEvent) {
     e.preventDefault()
@@ -75,6 +81,11 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
     const pw = prompt(`Новый временный пароль для «${u.login}»\n(минимум 8 символов, обязательно буквы и цифры):`)
     if (!pw) return
     try { await resetUserPassword(u.id, pw.trim()); alert('Пароль сброшен. Пользователь сменит его при входе.') } catch (e) { fail(e) }
+  }
+  async function removeUser(u: AppUser) {
+    if (!confirm(`Удалить пользователя «${u.login}»?\n\nЖёсткое удаление возможно только если пользователь ничего не создавал. Если у него есть данные/история — используйте блокировку (сохранит аудит).`)) return
+    setError(null)
+    try { await deleteUser(u.id); reload() } catch (e) { fail(e) }
   }
 
   const roleName = (code: string) => roles.find((r) => r.code === code)?.name || code
@@ -118,18 +129,31 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
                   <td style={{ ...td, fontWeight: 600 }}>{u.login}</td>
                   <td style={td}>{u.full_name || '—'}</td>
                   <td style={td}>{u.department || '—'}</td>
-                  <td style={td}>{u.roles.length ? u.roles.map(roleName).join(', ') : '—'}</td>
+                  <td style={td}>
+                    {u.roles.length
+                      ? u.roles.map((c) => <span key={c} style={c === 'superadmin' ? superBadge : roleBadge}>{roleName(c)}</span>)
+                      : '—'}
+                  </td>
                   <td style={td}>
                     {u.is_active ? <span style={{ color: 'var(--success)' }}>активен</span> : <span style={{ color: 'var(--danger)' }}>заблокирован</span>}
                     {u.must_change_password && <span style={{ color: 'var(--warn)', marginLeft: 6 }} title="Сменит пароль при входе">· смена пароля</span>}
                   </td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>
-                    <button style={linkBtn} onClick={() => setEdit(u)}>✎ изменить</button>
-                    <button style={linkBtn} onClick={() => resetPw(u)}>🔑 пароль</button>
-                    {u.id !== me.id && (
-                      <button style={{ ...linkBtn, color: u.is_active ? 'var(--danger)' : 'var(--success)' }} onClick={() => toggleActive(u)}>
-                        {u.is_active ? '🔒 блок' : '🔓 разблок'}
-                      </button>
+                    {canManage(u) ? (
+                      <>
+                        <button style={linkBtn} onClick={() => setEdit(u)}>✎ изменить</button>
+                        <button style={linkBtn} onClick={() => resetPw(u)}>🔑 пароль</button>
+                        {u.id !== me.id && (
+                          <button style={{ ...linkBtn, color: u.is_active ? 'var(--danger)' : 'var(--success)' }} onClick={() => toggleActive(u)}>
+                            {u.is_active ? '🔒 блок' : '🔓 разблок'}
+                          </button>
+                        )}
+                        {u.id !== me.id && (
+                          <button style={{ ...linkBtn, color: 'var(--danger)' }} onClick={() => removeUser(u)} title="Удалить (жёстко — только если нет данных)">🗑 удалить</button>
+                        )}
+                      </>
+                    ) : (
+                      <span style={{ color: 'var(--text-faint)', fontSize: 12 }} title="Управлять суперадминистратором может только суперадминистратор">🔒 только суперадмин</span>
                     )}
                   </td>
                 </tr>
@@ -192,7 +216,7 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
       </Section>
 
       {(creating || edit) && (
-        <UserEditor user={edit} depts={depts} roles={roles}
+        <UserEditor user={edit} depts={depts} roles={roles} canGrantSuper={isSuper}
           onClose={() => { setCreating(false); setEdit(null) }}
           onSaved={() => { setCreating(false); setEdit(null); reload() }} />
       )}
@@ -200,9 +224,11 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
   )
 }
 
-function UserEditor({ user, depts, roles, onClose, onSaved }: {
-  user: AppUser | null; depts: Department[]; roles: Role[]; onClose: () => void; onSaved: () => void
+function UserEditor({ user, depts, roles, canGrantSuper, onClose, onSaved }: {
+  user: AppUser | null; depts: Department[]; roles: Role[]; canGrantSuper: boolean; onClose: () => void; onSaved: () => void
 }) {
+  // Роль «superadmin» в выборе показываем только тому, кто вправе её выдавать.
+  const shownRoles = roles.filter((r) => r.code !== 'superadmin' || canGrantSuper)
   const isNew = !user
   const [login, setLogin] = useState(user?.login || '')
   const [password, setPassword] = useState('')
@@ -256,8 +282,9 @@ function UserEditor({ user, depts, roles, onClose, onSaved }: {
         <div style={{ marginTop: 12 }}>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Роли</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {roles.map((r) => (
-              <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+            {shownRoles.map((r) => (
+              <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}
+                title={r.code === 'superadmin' ? 'Полный доступ ко всем пользователям, включая администраторов' : undefined}>
                 <input type="checkbox" checked={roleIds.has(r.id)} onChange={() => toggle(r.id)} />{r.name}
               </label>
             ))}
@@ -283,6 +310,8 @@ function L({ t, children }: { t: string; children: React.ReactNode }) {
 const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13 }
 const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
 const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: '0 6px 0 0' }
+const roleBadge: React.CSSProperties = { display: 'inline-block', margin: '1px 4px 1px 0', padding: '1px 8px', borderRadius: 8, background: 'var(--surface-3)', color: 'var(--text-2)', fontSize: 12 }
+const superBadge: React.CSSProperties = { ...roleBadge, background: 'var(--accent)', color: 'var(--on-accent)', fontWeight: 600 }
 const chip: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--accent-weak-bg)', color: 'var(--accent)', padding: '4px 10px', borderRadius: 12, fontSize: 13 }
 const xBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0 }
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }

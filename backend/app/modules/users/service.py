@@ -6,13 +6,75 @@
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Set
+
+import asyncpg
 
 from ..auth.security import hash_password, validate_password
 
 
 class UsersError(Exception):
     """Ошибка бизнес-логики модуля пользователей (в роутере → 400/404)."""
+
+
+class UsersForbidden(UsersError):
+    """Недостаточно прав по иерархии ролей (в роутере → 403)."""
+
+
+# --------------------------------------------------------------------------- #
+# Иерархия ролей управления пользователями
+#   superadmin (100) > admin (50) > остальные (0)
+# Правила: суперадмина может трогать только суперадмин; роль superadmin может
+# выдавать/снимать только суперадмин; нельзя оставить систему без активного
+# суперадмина («защита последнего»).
+# --------------------------------------------------------------------------- #
+SUPERADMIN = "superadmin"
+ADMIN = "admin"
+_ROLE_RANK = {SUPERADMIN: 100, ADMIN: 50}
+
+
+def _rank(roles) -> int:
+    return max((_ROLE_RANK.get(r, 0) for r in roles), default=0)
+
+
+def _can_manage(actor_roles: Set[str], target_roles: Set[str]) -> bool:
+    """Может ли актор (admin/superadmin) управлять целевым пользователем."""
+    if SUPERADMIN in target_roles:
+        return SUPERADMIN in actor_roles   # суперадмина — только суперадмин
+    return True                             # остальных — и admin, и superadmin
+
+
+async def _roles_of(conn, user_id: str) -> Set[str]:
+    rows = await conn.fetch(
+        "select r.code from user_roles ur join roles r on r.id=ur.role_id where ur.user_id=$1::uuid", user_id)
+    return {r["code"] for r in rows}
+
+
+async def _active_superadmin_count(conn, org_id) -> int:
+    return await conn.fetchval(
+        "select count(*) from users u join user_roles ur on ur.user_id=u.id "
+        "join roles r on r.id=ur.role_id "
+        "where u.organization_id=$1 and r.code=$2 and u.is_active", org_id, SUPERADMIN) or 0
+
+
+async def _guard_manage(conn, org_id, user_id: str, actor: dict) -> Set[str]:
+    """Проверяет право актора управлять пользователем; возвращает роли цели."""
+    if await _user_org(conn, org_id, user_id) is None:
+        raise UsersError("Пользователь не найден")
+    troles = await _roles_of(conn, user_id)
+    if not _can_manage(set(actor.get("roles") or []), troles):
+        raise UsersForbidden("Управлять суперадминистратором может только суперадминистратор")
+    return troles
+
+
+async def _guard_last_superadmin(conn, org_id, user_id: str, target_roles: Set[str]) -> None:
+    """Не даёт оставить систему без активного суперадмина (блок/удаление/снятие роли)."""
+    if SUPERADMIN not in target_roles:
+        return
+    active = await _active_superadmin_count(conn, org_id)
+    target_active = await conn.fetchval("select is_active from users where id=$1::uuid", user_id)
+    if active - (1 if target_active else 0) < 1:
+        raise UsersError("Нельзя оставить систему без активного суперадминистратора")
 
 
 def _full_name(last: Optional[str], first: Optional[str], middle: Optional[str]) -> Optional[str]:
@@ -98,18 +160,33 @@ async def _dept_ok(conn, org_id, department_id: Optional[str]) -> None:
         raise UsersError("Отдел не найден")
 
 
-async def _set_roles(conn, org_id, user_id: str, role_ids: List[str]) -> None:
+async def _set_roles(conn, org_id, user_id: str, role_ids: List[str],
+                     actor: dict, current_roles: Set[str]) -> None:
+    # Коды запрошенных ролей (заодно валидируем принадлежность организации).
+    new_codes: Set[str] = set()
+    for rid in role_ids or []:
+        code = await conn.fetchval(
+            "select code from roles where id=$1::uuid and organization_id=$2", rid, org_id)
+        if code is None:
+            raise UsersError("Роль не найдена")
+        new_codes.add(code)
+    actor_roles = set(actor.get("roles") or [])
+    # Эскалация: выдавать/снимать роль superadmin может только superadmin.
+    touches_superadmin = SUPERADMIN in new_codes or SUPERADMIN in current_roles
+    if touches_superadmin and SUPERADMIN not in actor_roles:
+        raise UsersForbidden("Роль «Суперадминистратор» может назначать только суперадминистратор")
+    # Защита последнего: нельзя снять superadmin с последнего активного.
+    if SUPERADMIN in current_roles and SUPERADMIN not in new_codes:
+        await _guard_last_superadmin(conn, org_id, user_id, current_roles)
     await conn.execute("delete from user_roles where user_id=$1::uuid", user_id)
     for rid in role_ids or []:
-        if not await conn.fetchval("select 1 from roles where id=$1::uuid and organization_id=$2", rid, org_id):
-            raise UsersError("Роль не найдена")
         await conn.execute(
             "insert into user_roles(user_id, role_id) values($1::uuid,$2::uuid) on conflict do nothing",
             user_id, rid)
 
 
 async def create_user(conn, org_id, login: str, password: str, last_name, first_name, middle_name,
-                      email, department_id, role_ids: List[str]) -> dict:
+                      email, department_id, role_ids: List[str], actor: dict) -> dict:
     login = (login or "").strip()
     if not login:
         raise UsersError("Укажите логин")
@@ -127,7 +204,7 @@ async def create_user(conn, org_id, login: str, password: str, last_name, first_
         "values($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid,true,true) returning id",
         org_id, login, hash_password(password), full, last_name, first_name, middle_name, email, department_id)
     uid = str(row["id"])
-    await _set_roles(conn, org_id, uid, role_ids)
+    await _set_roles(conn, org_id, uid, role_ids, actor, current_roles=set())
     return {"id": uid, "login": login}
 
 
@@ -137,9 +214,8 @@ async def _user_org(conn, org_id, user_id: str):
 
 
 async def update_user(conn, org_id, user_id: str, last_name, first_name, middle_name,
-                      email, department_id, role_ids: Optional[List[str]]) -> dict:
-    if await _user_org(conn, org_id, user_id) is None:
-        raise UsersError("Пользователь не найден")
+                      email, department_id, role_ids: Optional[List[str]], actor: dict) -> dict:
+    troles = await _guard_manage(conn, org_id, user_id, actor)
     await _dept_ok(conn, org_id, department_id)
     full = _full_name(last_name, first_name, middle_name)
     await conn.execute(
@@ -147,17 +223,40 @@ async def update_user(conn, org_id, user_id: str, last_name, first_name, middle_
         "email=$6, department_id=$7::uuid where id=$1::uuid",
         user_id, last_name, first_name, middle_name, full, email, department_id)
     if role_ids is not None:
-        await _set_roles(conn, org_id, user_id, role_ids)
+        await _set_roles(conn, org_id, user_id, role_ids, actor, current_roles=troles)
     return {"id": user_id}
 
 
-async def set_active(conn, org_id, user_id: str, active: bool, actor_id: str) -> dict:
-    if str(user_id) == str(actor_id):
+async def set_active(conn, org_id, user_id: str, active: bool, actor: dict) -> dict:
+    if str(user_id) == str(actor["id"]):
         raise UsersError("Нельзя заблокировать самого себя")
-    if await _user_org(conn, org_id, user_id) is None:
-        raise UsersError("Пользователь не найден")
+    troles = await _guard_manage(conn, org_id, user_id, actor)
+    if not active:  # блокировка суперадмина — беречь последнего
+        await _guard_last_superadmin(conn, org_id, user_id, troles)
     await conn.execute("update users set is_active=$2 where id=$1::uuid", user_id, active)
     return {"id": user_id, "is_active": active}
+
+
+async def delete_user(conn, org_id, user_id: str, actor: dict) -> dict:
+    """Гибридное удаление: жёстко удаляет только «чистого» пользователя (без
+    созданных объектов/истории). Если есть связанные данные (FK) — отказ с
+    подсказкой использовать блокировку, чтобы не терять историю/аудит."""
+    if str(user_id) == str(actor["id"]):
+        raise UsersError("Нельзя удалить самого себя")
+    troles = await _guard_manage(conn, org_id, user_id, actor)
+    await _guard_last_superadmin(conn, org_id, user_id, troles)
+    # user_roles/сессии/получатели уведомлений уходят по ON DELETE CASCADE;
+    # login_events/комментарии/actor аудита — по ON DELETE SET NULL. Остальные
+    # ссылки (created_by/uploaded_by/…) с RESTRICT — заблокируют удаление.
+    try:
+        async with conn.transaction():
+            res = await conn.execute("delete from users where id=$1::uuid and organization_id=$2", user_id, org_id)
+    except asyncpg.ForeignKeyViolationError:
+        raise UsersError("У пользователя есть созданные объекты или история действий — "
+                         "жёсткое удаление невозможно. Заблокируйте пользователя (сохранит аудит).")
+    if res.endswith("0"):
+        raise UsersError("Пользователь не найден")
+    return {"id": user_id, "deleted": True}
 
 
 async def login_events_report(conn, org_id, limit: int = 50) -> dict:
@@ -205,13 +304,12 @@ async def login_events_export(conn, org_id, limit: int = 50000):
     return headers, out
 
 
-async def reset_password(conn, org_id, user_id: str, new_password: str) -> dict:
+async def reset_password(conn, org_id, user_id: str, new_password: str, actor: dict) -> dict:
     try:
         validate_password(new_password)
     except ValueError as e:
         raise UsersError(str(e))
-    if await _user_org(conn, org_id, user_id) is None:
-        raise UsersError("Пользователь не найден")
+    await _guard_manage(conn, org_id, user_id, actor)
     await conn.execute(
         "update users set password_hash=$2, must_change_password=true where id=$1::uuid",
         user_id, hash_password(new_password))

@@ -96,8 +96,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     getHealth().then(setHealth).catch(() => setHealth(null))
   }, [])
   const ok = health?.status === 'ok'
-  const canManage = me.roles.includes('admin') || me.roles.includes('moderator')
-  const isAdmin = me.roles.includes('admin')
+  const canManage = me.roles.includes('admin') || me.roles.includes('moderator') || me.roles.includes('superadmin')
+  const isAdmin = me.roles.includes('admin') || me.roles.includes('superadmin')
   const canModerate = me.roles.some((r) => ['admin', 'moderator', 'senior_moderator'].includes(r))
   const nav = NAV.filter((n) => (!n.adminOnly || isAdmin) && (!n.modOnly || canModerate))
 

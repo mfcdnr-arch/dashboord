@@ -10,6 +10,7 @@ from .security import hash_password
 
 # code, name, can_edit_formulas, can_moderate
 SYSTEM_ROLES = [
+    ("superadmin", "Суперадминистратор", True, True),
     ("admin", "Администратор", True, True),
     ("moderator", "Модератор", True, True),
     ("senior_moderator", "Старший модератор", True, True),
@@ -37,20 +38,31 @@ async def ensure_seed() -> None:
                 org_id, code, name, can_formulas, can_moderate,
             )
 
-        admin_id = await conn.fetchval(
-            "select id from users where organization_id=$1 and login=$2",
-            org_id, settings.admin_login,
+        await _ensure_account(conn, org_id, settings.admin_login,
+                              settings.admin_password, "Администратор", ["admin"])
+        # Учётка владельца-суперадмина. Роли аддитивны: даём superadmin (права над
+        # ЛЮБЫМ пользователем, включая admin) И admin (обычный доступ ко всем
+        # разделам без правки всех require_roles). Пароль временный — смена
+        # обязательна при 1-м входе. В проде задать SUPERADMIN_PASSWORD в .env.prod.
+        await _ensure_account(conn, org_id, settings.superadmin_login,
+                              settings.superadmin_password, "Суперадминистратор", ["superadmin", "admin"])
+
+
+async def _ensure_account(conn, org_id, login: str, password: str, full_name: str, role_codes: list) -> None:
+    """Идемпотентно создаёт пользователя с указанными ролями и временным паролем."""
+    uid = await conn.fetchval(
+        "select id from users where organization_id=$1 and login=$2", org_id, login)
+    if uid is None:
+        uid = await conn.fetchval(
+            "insert into users(organization_id, login, password_hash, full_name, must_change_password) "
+            "values($1,$2,$3,$4,true) returning id",
+            org_id, login, hash_password(password), full_name,
         )
-        if admin_id is None:
-            admin_id = await conn.fetchval(
-                "insert into users(organization_id, login, password_hash, full_name, must_change_password) "
-                "values($1,$2,$3,'Администратор',true) returning id",
-                org_id, settings.admin_login, hash_password(settings.admin_password),
-            )
-            role_id = await conn.fetchval(
-                "select id from roles where organization_id=$1 and code='admin'", org_id
-            )
+    for code in role_codes:
+        role_id = await conn.fetchval(
+            "select id from roles where organization_id=$1 and code=$2", org_id, code)
+        if role_id is not None:
             await conn.execute(
                 "insert into user_roles(user_id, role_id) values($1,$2) on conflict do nothing",
-                admin_id, role_id,
+                uid, role_id,
             )

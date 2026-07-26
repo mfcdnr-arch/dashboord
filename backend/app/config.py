@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 720
     admin_login: str = "admin"
     admin_password: str = "admin"
+    # Суперадмин (владелец) — роль выше admin. Врем. пароль, смена при 1-м входе.
+    # В проде переопредели SUPERADMIN_PASSWORD в .env.prod.
+    superadmin_login: str = "superadmin"
+    superadmin_password: str = "superadmin"
 
     # Парольная политика (применяется при смене/сбросе/создании пароля пользователя;
     # НЕ применяется к первичному admin из bootstrap). Настраивается через env.

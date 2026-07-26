@@ -63,6 +63,12 @@ export async function resetUserPassword(id: string, password: string): Promise<v
   const res = await fetch(`/users/${id}/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ password }) })
   if (!res.ok) throw new Error(await errText(res))
 }
+// Гибридное удаление: жёстко удаляет только «чистого» пользователя; если есть
+// связанные данные — сервер вернёт 400 с подсказкой использовать блокировку.
+export async function deleteUser(id: string): Promise<void> {
+  const res = await fetch(`/users/${id}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
 
 export interface LoginEventsReport {
   summary: { login: string; full_name: string | null; is_active: boolean; logins: number; failed: number; last_login: string | null }[]

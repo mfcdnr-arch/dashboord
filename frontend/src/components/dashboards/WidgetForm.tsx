@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { previewWidget, widgetSuggestions, type DataSources, type MetricSource, type Widget, type WidgetSpec } from '../../api'
 import { WidgetPreviewBody } from '../WidgetView'
 import FormulaBuilder from '../FormulaBuilder'
+import { dataUriBytes, fileToEmbeddableDataUri } from '../../lib/image'
 import { DEFAULT_SIZE, F, WT, btn, btnAuto, btnGhost, sel, tab, tabActive, wtBadge } from './shared'
 import { WidgetPicker, WIDGET_META } from './WidgetPicker'
 
@@ -147,20 +148,26 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const [imgUrl, setImgUrl] = useState(cfg0.url || '')
   const [caption, setCaption] = useState(cfg0.caption || '')
   const [imgErr, setImgErr] = useState<string | null>(null)
+  const [imgBusy, setImgBusy] = useState(false)
+  const [imgKb, setImgKb] = useState<number | null>(null)  // итоговый размер встроенной картинки
   const [imgAdvanced, setImgAdvanced] = useState(false)  // ручной ввод URL — «продвинутый» режим
 
   // Загрузка картинки файлом → data-URI (встраивается в дашборд, работает офлайн).
-  // Ограничение размера, чтобы не раздувать JSON виджета в БД.
-  const IMG_MAX_KB = 512
-  function onPickImage(file: File | null) {
-    setImgErr(null)
+  // Крупные изображения сжимаются на клиенте (даунскейл + пере-кодирование),
+  // чтобы не раздувать JSON виджета и версии дашборда в БД.
+  async function onPickImage(file: File | null) {
+    setImgErr(null); setImgKb(null)
     if (!file) return
-    if (!file.type.startsWith('image/')) { setImgErr('Это не изображение'); return }
-    if (file.size > IMG_MAX_KB * 1024) { setImgErr(`Слишком большой файл (${Math.round(file.size / 1024)} КБ). Максимум ${IMG_MAX_KB} КБ — сожмите или уменьшите картинку.`); return }
-    const reader = new FileReader()
-    reader.onload = () => setImgUrl(String(reader.result || ''))
-    reader.onerror = () => setImgErr('Не удалось прочитать файл')
-    reader.readAsDataURL(file)
+    setImgBusy(true)
+    try {
+      const uri = await fileToEmbeddableDataUri(file)
+      setImgUrl(uri)
+      setImgKb(Math.round(dataUriBytes(uri) / 1024))
+    } catch (e) {
+      setImgErr((e as Error).message)
+    } finally {
+      setImgBusy(false)
+    }
   }
   const [objField, setObjField] = useState(cfg0.value_field || allNumFields[0]?.code || '')
 
@@ -272,16 +279,17 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       {isImage && (
         <>
           <div style={{ flexBasis: '100%', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-            <F t="Картинка (файл ≤ 512 КБ)">
+            <F t="Картинка (файл, крупные сжимаются)">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <label style={{ ...btnGhost, height: 34, display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
-                  🖼 Выбрать файл…
-                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => onPickImage(e.target.files?.[0] ?? null)} />
+                <label style={{ ...btnGhost, height: 34, display: 'inline-flex', alignItems: 'center', cursor: imgBusy ? 'wait' : 'pointer', opacity: imgBusy ? 0.6 : 1 }}>
+                  {imgBusy ? '⏳ Обработка…' : '🖼 Выбрать файл…'}
+                  <input type="file" accept="image/*" disabled={imgBusy} style={{ display: 'none' }} onChange={(e) => onPickImage(e.target.files?.[0] ?? null)} />
                 </label>
                 {imgUrl && (
                   <>
                     <img src={imgUrl} alt="" style={{ height: 34, maxWidth: 90, objectFit: 'contain', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)' }} />
-                    <button type="button" style={{ ...btnGhost, height: 34 }} onClick={() => { setImgUrl(''); setImgErr(null) }}>Убрать</button>
+                    {imgKb != null && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{imgKb} КБ</span>}
+                    <button type="button" style={{ ...btnGhost, height: 34 }} onClick={() => { setImgUrl(''); setImgErr(null); setImgKb(null) }}>Убрать</button>
                   </>
                 )}
               </div>
