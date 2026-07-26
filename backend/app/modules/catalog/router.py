@@ -17,7 +17,7 @@ from .service import CatalogError
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 read_roles = require_roles("admin", "moderator", "senior_moderator")
-admin = require_roles("admin")
+admin = require_roles("admin", "superadmin")
 
 
 def _bad(e: CatalogError) -> HTTPException:

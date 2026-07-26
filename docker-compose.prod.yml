@@ -93,6 +93,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:?нужно задать JWT_SECRET в .env.prod}
       ADMIN_LOGIN: ${ADMIN_LOGIN:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?нужно задать ADMIN_PASSWORD в .env.prod}
+      SUPERADMIN_LOGIN: ${SUPERADMIN_LOGIN:-superadmin}
+      SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:?нужно задать SUPERADMIN_PASSWORD в .env.prod}
     depends_on:
       migrate:
         condition: service_completed_successfully

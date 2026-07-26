@@ -83,9 +83,23 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
     try { await resetUserPassword(u.id, pw.trim()); alert('Пароль сброшен. Пользователь сменит его при входе.') } catch (e) { fail(e) }
   }
   async function removeUser(u: AppUser) {
-    if (!confirm(`Удалить пользователя «${u.login}»?\n\nЖёсткое удаление возможно только если пользователь ничего не создавал. Если у него есть данные/история — используйте блокировку (сохранит аудит).`)) return
+    if (!confirm(`Удалить пользователя «${u.login}»?\n\nЖёсткое удаление возможно только если пользователь ничего не создавал. Если у него есть данные/история — предложу заблокировать (сохранит аудит).`)) return
     setError(null)
-    try { await deleteUser(u.id); reload() } catch (e) { fail(e) }
+    try {
+      await deleteUser(u.id)
+      reload()
+    } catch (e) {
+      const msg = (e as Error).message
+      // Удаление заблокировано наличием данных → сразу предлагаем блокировку.
+      if (/заблокир/i.test(msg) && u.is_active) {
+        if (confirm(`${msg}\n\nЗаблокировать пользователя «${u.login}» вместо удаления?`)) {
+          try { await setUserActive(u.id, false); reload() } catch (e2) { fail(e2) }
+          return
+        }
+      } else {
+        fail(e)
+      }
+    }
   }
 
   const roleName = (code: string) => roles.find((r) => r.code === code)?.name || code

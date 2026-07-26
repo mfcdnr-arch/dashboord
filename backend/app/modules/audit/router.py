@@ -16,7 +16,7 @@ from . import service
 from .service import AuditError
 
 router = APIRouter(tags=["audit"])
-admin = require_roles("admin")
+admin = require_roles("admin", "superadmin")
 
 CSV_MEDIA = "text/csv; charset=utf-8"
 XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

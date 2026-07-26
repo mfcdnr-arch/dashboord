@@ -70,12 +70,32 @@ export async function fileToEmbeddableDataUri(file: File): Promise<string> {
   if (!ctx) return srcDataUrl // на всякий случай — без canvas отдаём как есть
   ctx.drawImage(img, 0, 0, w, h)
 
-  const keepAlpha = file.type === 'image/png' || file.type === 'image/gif'
-  let out = keepAlpha ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', JPEG_QUALITY)
-  if (keepAlpha) {
+  // Форматы, которые МОГУТ иметь прозрачность. Реальную прозрачность проверяем
+  // по пикселям: если альфа есть — сохраняем PNG (JPEG её бы уничтожил); если
+  // изображение фактически непрозрачно — берём меньший из JPEG/PNG.
+  const mayHaveAlpha = file.type === 'image/png' || file.type === 'image/gif' || file.type === 'image/webp'
+  const transparent = mayHaveAlpha && hasTransparency(ctx, w, h)
+  let out: string
+  if (transparent) {
+    out = canvas.toDataURL('image/png')            // прозрачность сохраняется
+  } else {
     const jpeg = canvas.toDataURL('image/jpeg', JPEG_QUALITY)
-    if (jpeg.length < out.length * 0.8) out = jpeg // ощутимо меньше — прозрачность не важна
+    const png = canvas.toDataURL('image/png')
+    out = jpeg.length <= png.length ? jpeg : png   // непрозрачное — берём компактнее
   }
   // Если по какой-то причине сжатие не помогло — берём меньший вариант.
   return out.length < srcDataUrl.length ? out : srcDataUrl
+}
+
+/** Есть ли в изображении хоть один полупрозрачный пиксель (альфа < 255). */
+function hasTransparency(ctx: CanvasRenderingContext2D, w: number, h: number): boolean {
+  try {
+    const { data } = ctx.getImageData(0, 0, w, h)
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] < 255) return true
+    }
+  } catch {
+    return true // не смогли проверить — консервативно считаем прозрачным (сохраним PNG)
+  }
+  return false
 }

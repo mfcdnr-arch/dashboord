@@ -302,7 +302,7 @@ async def save_template(dashboard_id: str, body: TemplateIn, user: dict = Depend
 # Прямая публикация без модерации — только админ (override). Модераторы
 # публикуют через одобрение заявки (POST /dashboards/{id}/moderate).
 @router.post("/dashboards/{dashboard_id}/publish")
-async def publish_dashboard(dashboard_id: str, user: dict = Depends(require_roles("admin"))):
+async def publish_dashboard(dashboard_id: str, user: dict = Depends(require_roles("admin", "superadmin"))):
     async with db.acquire(user["id"]) as conn:
         try:
             async with conn.transaction():

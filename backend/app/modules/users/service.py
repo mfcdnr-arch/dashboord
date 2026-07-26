@@ -178,8 +178,16 @@ async def _set_roles(conn, org_id, user_id: str, role_ids: List[str],
     # Защита последнего: нельзя снять superadmin с последнего активного.
     if SUPERADMIN in current_roles and SUPERADMIN not in new_codes:
         await _guard_last_superadmin(conn, org_id, user_id, current_roles)
+    # Суперадмин — надмножество admin: при выдаче superadmin автоматически
+    # добавляем и admin (иначе «чистый суперадмин» не имел бы обычного доступа).
+    final_ids = list(role_ids or [])
+    if SUPERADMIN in new_codes and ADMIN not in new_codes:
+        admin_rid = await conn.fetchval(
+            "select id from roles where organization_id=$1 and code=$2", org_id, ADMIN)
+        if admin_rid is not None and str(admin_rid) not in {str(x) for x in final_ids}:
+            final_ids.append(admin_rid)
     await conn.execute("delete from user_roles where user_id=$1::uuid", user_id)
-    for rid in role_ids or []:
+    for rid in final_ids:
         await conn.execute(
             "insert into user_roles(user_id, role_id) values($1::uuid,$2::uuid) on conflict do nothing",
             user_id, rid)

@@ -14,7 +14,7 @@ from ..auth.deps import require_roles
 from . import service
 
 router = APIRouter(prefix="/maintenance", tags=["maintenance"])
-admin = require_roles("admin")
+admin = require_roles("admin", "superadmin")
 
 
 @router.get("/retention/preview")

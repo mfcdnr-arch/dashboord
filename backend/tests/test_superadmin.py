@@ -130,6 +130,43 @@ async def test_hybrid_delete_clean_ok_and_with_data_blocked(client):
         await _cleanup(["ztest_clean", "ztest_creator"])
 
 
+async def test_granting_superadmin_auto_adds_admin(client):
+    """Выдача роли superadmin автоматически добавляет и admin (надмножество)."""
+    sa = hdr(await login(client, "superadmin", "superadmin"))
+    roles = await _role_ids(client, sa)
+    try:
+        # создаём пользователя ТОЛЬКО с ролью superadmin
+        r = await client.post("/users", json={
+            "login": "ztest_sa2", "password": "Xy345678", "role_ids": [roles["superadmin"]]}, headers=sa)
+        assert r.status_code == 201, r.text
+        # в списке у него должны быть ОБЕ роли
+        items = (await client.get("/users?q=ztest_sa2", headers=sa)).json()["items"]
+        who = next(u for u in items if u["login"] == "ztest_sa2")
+        assert "superadmin" in who["roles"] and "admin" in who["roles"], who["roles"]
+    finally:
+        await _cleanup(["ztest_sa2"])
+
+
+async def test_superadmin_can_reset_any_password(client):
+    """Суперадмин сбрасывает пароль ЛЮБОГО пользователя (в т.ч. администратора),
+    если тот забыл пароль. Проверяем на отдельном admin-пользователе, чтобы не
+    трогать сид-админа."""
+    sa = hdr(await login(client, "superadmin", "superadmin"))
+    roles = await _role_ids(client, sa)
+    try:
+        r = await client.post("/users", json={
+            "login": "ztest_forgot", "password": "Xy345678", "role_ids": [roles["admin"]]}, headers=sa)
+        assert r.status_code == 201, r.text
+        uid = r.json()["id"]
+        # суперадмин задаёт новый временный пароль администратору
+        r = await client.post(f"/users/{uid}/reset-password", json={"password": "NewPass99"}, headers=sa)
+        assert r.status_code == 200, r.text
+        # новым паролем можно войти (must_change_password не мешает выдаче токена)
+        assert await login(client, "ztest_forgot", "NewPass99")
+    finally:
+        await _cleanup(["ztest_forgot"])
+
+
 async def test_cannot_block_self(client):
     sa = hdr(await login(client, "superadmin", "superadmin"))
     sa_id = await _find_user_id(client, sa, "superadmin")
