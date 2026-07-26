@@ -15,7 +15,7 @@ import NotificationBell from './components/NotificationBell'
 import OnboardingHint from './components/OnboardingHint'
 import ThemeToggle from './components/ThemeToggle'
 import Logo from './components/Logo'
-import SetupWizard, { isSetupDismissed } from './components/SetupWizard'
+import SetupWizard from './components/SetupWizard'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -101,12 +101,13 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const canManage = me.roles.includes('admin') || me.roles.includes('moderator') || me.roles.includes('superadmin')
   const isAdmin = me.roles.includes('admin') || me.roles.includes('superadmin')
   // Мастер первичной настройки: показываем автоматически на «свежей установке»
-  // (ничего не заведено) администратору, если он его ещё не закрывал. Открыть
-  // вручную можно кнопкой в шапке.
+  // (структурно пусто) администратору, пока настройка не закрыта (серверный флаг
+  // organizations.setup_dismissed — переживает смену браузера). Открыть вручную —
+  // кнопкой «🧭 Настройка» в шапке.
   useEffect(() => {
-    if (!isAdmin || isSetupDismissed(me.login)) return
-    getSetupStatus().then((s) => { if (s.fresh_install) setWizardOpen(true) }).catch(() => {})
-  }, [isAdmin, me.login])
+    if (!isAdmin) return
+    getSetupStatus().then((s) => { if (s.fresh_install && !s.setup_dismissed) setWizardOpen(true) }).catch(() => {})
+  }, [isAdmin])
   const canModerate = me.roles.some((r) => ['admin', 'moderator', 'senior_moderator'].includes(r))
   const nav = NAV.filter((n) => (!n.adminOnly || isAdmin) && (!n.modOnly || canModerate))
 
@@ -134,7 +135,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         <button onClick={onLogout} style={{ height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer', fontSize: 13 }}>Выйти</button>
       </header>
       {wizardOpen && (
-        <SetupWizard me={me} onClose={() => setWizardOpen(false)}
+        <SetupWizard onClose={() => setWizardOpen(false)}
           onNavigate={(s) => { setWizardOpen(false); setOpenDash(null); setSection(s) }} />
       )}
 
