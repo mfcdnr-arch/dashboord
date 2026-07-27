@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { EChartsOption } from 'echarts'
 import { getWidgetData, getWidgetDrill } from '../api'
+import { chartColors, useThemeVersion } from '../theme'
 import EChart from './EChartLazy'
 
 // Отрисовка данных виджета: KPI/таблица/план-факт — HTML, столбцы/линия/круговая —
@@ -17,16 +18,17 @@ function fmtAsOf(iso: string): string {
   return isNaN(d.getTime()) ? iso : d.toLocaleDateString('ru-RU')
 }
 
-const PALETTE = ['#e04e39', '#c39367', '#623b2a', '#8a5a1a', '#e0885f', '#a5563c', '#d0a97e']
-
+// Палитра серий — из CSS-токенов темы (см. theme.css: --chart-*); при смене темы
+// Body перерисовывается (useThemeVersion) и графики пересобираются с новыми цветами.
 function chartOption(data: any): EChartsOption {
+  const C = chartColors()
   const cats: string[] = data.categories || []
   const vals: number[] = data.values || []
   if (data.type === 'pie') {
     return {
       tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
       series: [{ type: 'pie', radius: ['35%', '70%'], data: cats.map((c, i) => ({ name: c, value: vals[i] })),
-        label: { fontSize: 11 }, color: PALETTE }],
+        label: { fontSize: 11 }, color: C.palette }],
     }
   }
   const isLine = data.type === 'line'
@@ -36,7 +38,7 @@ function chartOption(data: any): EChartsOption {
     xAxis: { type: 'category', data: cats, axisLabel: { interval: 0, rotate: cats.some((c) => c.length > 6) ? 30 : 0, fontSize: 11 } },
     yAxis: { type: 'value' },
     series: [{ type: isLine ? 'line' : 'bar', data: vals, smooth: isLine,
-      itemStyle: { color: '#e04e39' }, lineStyle: { color: '#e04e39', width: 2 }, areaStyle: isLine ? { opacity: 0.08 } : undefined,
+      itemStyle: { color: C.c1 }, lineStyle: { color: C.c1, width: 2 }, areaStyle: isLine ? { opacity: 0.08 } : undefined,
       barMaxWidth: 40 }],
   }
 }
@@ -104,6 +106,8 @@ function TargetLine({ data }: { data: any }) {
 }
 
 function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) {
+  useThemeVersion() // перерисовка при смене темы: цвета серий берутся из токенов
+  const C = chartColors()
   if (data.type === 'text') {
     const align = data.align === 'center' ? 'center' : 'left'
     if (!data.heading && !data.body) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Пустая аннотация</div>
@@ -135,7 +139,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
   }
   if (data.type === 'gauge') {
     const max = data.max || 100
-    const color = data.alert?.color || '#e04e39'
+    const color = data.alert?.color || C.c1
     const opt: EChartsOption = {
       series: [{
         type: 'gauge', min: 0, max,
@@ -194,8 +198,8 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
   if (data.type === 'dynamics') {
     const periods: string[] = data.periods || []
     if (periods.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных за период</div>
-    const series: any[] = [{ type: 'line', name: 'Значение', data: data.values, smooth: true, itemStyle: { color: '#e04e39' },
-      lineStyle: { color: '#e04e39', width: 2 }, areaStyle: { opacity: 0.08 } }]
+    const series: any[] = [{ type: 'line', name: 'Значение', data: data.values, smooth: true, itemStyle: { color: C.c1 },
+      lineStyle: { color: C.c1, width: 2 }, areaStyle: { opacity: 0.08 } }]
     // Линейный тренд (наложение): прямая по концам от бэкенда, интерполируем по периодам.
     if (data.trend && periods.length >= 2) {
       const [s, e] = data.trend
@@ -233,10 +237,10 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     const series: any[] = [] // eslint-disable-line @typescript-eslint/no-explicit-any
     if (data.previous_year != null) {
       series.push({ type: 'line', name: String(data.previous_year), data: data.previous, smooth: true, symbol: 'circle', symbolSize: 5,
-        itemStyle: { color: '#c39367' }, lineStyle: { color: '#c39367', width: 2, type: 'dashed' } })
+        itemStyle: { color: C.prev }, lineStyle: { color: C.prev, width: 2, type: 'dashed' } })
     }
     series.push({ type: 'line', name: String(data.current_year), data: data.current, smooth: true, symbol: 'circle', symbolSize: 5,
-      itemStyle: { color: '#e04e39' }, lineStyle: { color: '#e04e39', width: 2.5 }, areaStyle: { opacity: 0.08 } })
+      itemStyle: { color: C.c1 }, lineStyle: { color: C.c1, width: 2.5 }, areaStyle: { opacity: 0.08 } })
     const opt: EChartsOption = {
       grid: { left: 44, right: 12, top: 12, bottom: 40 },
       tooltip: { trigger: 'axis' },
@@ -272,7 +276,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
       yAxis: { type: 'value' },
       series: (data.series || []).map((s: any, i: number) => ({
         name: s.name, type: data.viz === 'line' ? 'line' : 'bar', data: s.data,
-        smooth: data.viz === 'line', itemStyle: { color: PALETTE[i % PALETTE.length] }, barMaxWidth: 28,
+        smooth: data.viz === 'line', itemStyle: { color: C.palette[i % C.palette.length] }, barMaxWidth: 28,
       })),
     }
     return <EChart option={opt} height={230} onPick={onPick} />
@@ -290,7 +294,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
       xAxis: { type: 'category', data: cols, splitArea: { show: true }, axisLabel: { fontSize: 11, interval: 0, rotate: longX ? 30 : 0 } },
       yAxis: { type: 'category', data: rows, splitArea: { show: true }, axisLabel: { fontSize: 11, interval: 0 } },
       visualMap: { min: data.min ?? 0, max: data.max || 1, calculable: true, orient: 'horizontal', left: 'center', bottom: 0,
-        itemHeight: 80, textStyle: { fontSize: 10 }, inRange: { color: ['#faf0e9', '#e0b58f', '#e0885f', '#e04e39', '#a5563c'] } },
+        itemHeight: 80, textStyle: { fontSize: 10 }, inRange: { color: C.heat } },
       series: [{ type: 'heatmap', data: cells, label: { show: rows.length * cols.length <= 60, fontSize: 10, formatter: (p: any) => fmt(p.value[2]) },
         emphasis: { itemStyle: { shadowBlur: 6, shadowColor: 'rgba(0,0,0,0.3)' } } }],
     }
@@ -334,7 +338,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     const bars: any[] = []
     let run = 0
     vals.forEach((x) => { placeholder.push(x >= 0 ? run : run + x); bars.push({ value: Math.abs(x), itemStyle: { color: x >= 0 ? '#0f6e56' : '#a3532d' } }); run += x })
-    placeholder.push(0); bars.push({ value: total, itemStyle: { color: '#e04e39' } })
+    placeholder.push(0); bars.push({ value: total, itemStyle: { color: C.c1 } })
     const longX = catAll.some((c) => c.length > 6)
     const opt: EChartsOption = {
       grid: { left: 44, right: 12, top: 12, bottom: longX ? 56 : 40 },
@@ -359,7 +363,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
       xAxis: { type: 'category', data: cats, axisLabel: { interval: 0, rotate: longX ? 30 : 0, fontSize: 11 } },
       yAxis: { type: 'value' },
       series: [{ type: 'bar', barMaxWidth: 44, label: { show: true, position: 'top', fontSize: 11, formatter: (p: any) => fmt(p.value) },
-        data: (data.values || []).map((v: number, i: number) => ({ value: v, itemStyle: { color: PALETTE[i % PALETTE.length] } })) }],
+        data: (data.values || []).map((v: number, i: number) => ({ value: v, itemStyle: { color: C.palette[i % C.palette.length] } })) }],
     }
     return <EChart option={opt} height={220} onPick={onPick} />
   }

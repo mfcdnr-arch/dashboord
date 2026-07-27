@@ -46,6 +46,21 @@
   --brand-brown: #623b2a;
   --brand-beige: #c39367;
 
+  /* Палитра серий графиков (ECharts читает через getComputedStyle) */
+  --chart-1: #e04e39;
+  --chart-2: #c39367;
+  --chart-3: #623b2a;
+  --chart-4: #8a5a1a;
+  --chart-5: #e0885f;
+  --chart-6: #a5563c;
+  --chart-7: #d0a97e;
+  --chart-prev: #c39367;    /* «прошлый период/год» (пунктир) */
+  --chart-heat-1: #faf0e9;  /* тепловая карта: от светлого к насыщенному */
+  --chart-heat-2: #e0b58f;
+  --chart-heat-3: #e0885f;
+  --chart-heat-4: #e04e39;
+  --chart-heat-5: #a5563c;
+
   --font-body: 'PT Sans', 'Segoe UI', system-ui, -apple-system, Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-display: 'Circe', 'PT Sans', 'Segoe UI', system-ui, sans-serif;
   color-scheme: light;
@@ -83,7 +98,75 @@
   --brand-brown: #a5765a;
   --brand-beige: #d0a97e;
 
+  --chart-1: #f2664e;
+  --chart-2: #d0a97e;
+  --chart-3: #a5765a;
+  --chart-4: #e0b56a;
+  --chart-5: #e0885f;
+  --chart-6: #c96a50;
+  --chart-7: #b3a498;
+  --chart-prev: #d0a97e;
+  --chart-heat-1: #33261d;
+  --chart-heat-2: #6b4a33;
+  --chart-heat-3: #a5563c;
+  --chart-heat-4: #e04e39;
+  --chart-heat-5: #ff7c64;
+
   color-scheme: dark;
+}
+
+:root[data-theme="minek"] {
+  /* Тема «МинЭк ДНР» (Brand Book 2026 Минэкономразвития ДНР):
+   * белый — данные, синий — глубина, золото #B88C46 — точечный акцент.
+   * Фоны только белый/off-white (#F4F4F2 — «плашка светлая» брендбука);
+   * крупный текст — «титульный тёмный» #0E1730, обычный — #4A5168. */
+  --bg: #f4f4f2;
+  --surface: #ffffff;
+  --surface-2: #f7f7f5;
+  --surface-3: #eef0f4;      /* холодный сине-серый чип */
+  --surface-accent: #f6f0e4; /* лёгкий золотой тон (итоги, ховер) */
+  --accent-weak-bg: #f1e5cb; /* золотая подложка активной навигации */
+
+  --text: #0e1730;           /* титульный тёмный (не чистый чёрный) */
+  --text-2: #4a5168;         /* фирменный текст */
+  --text-muted: #8b90a1;
+  --text-faint: #c7c7c9;     /* серый 30 брендбука */
+
+  --accent: #b88c46;         /* ЗОЛОТО — подпись бренда */
+  --accent-strong: #8f6a2e;  /* золото − (ховер/нажатие, текст на белом) */
+  --on-accent: #ffffff;
+
+  --border: #e4e4e2;
+  --border-strong: #cfcfcf;  /* хэйрлайн брендбука */
+  --border-faint: #ededeb;
+
+  --danger: #b3261e;
+  --danger-bg: #fbe6e3;
+  --success: #2f7a5f;
+  --success-bg: #e6f1ec;
+  --warn: #8f6a2e;           /* золото − как «внимание» */
+  --warn-bg: #f5ecd7;
+
+  --brand-brown: #1b285c;    /* синяя плашка — вторичный цвет графики */
+  --brand-beige: #e0bb72;    /* золото + */
+
+  --chart-1: #b88c46;        /* золото — главная серия */
+  --chart-2: #1b285c;        /* синяя плашка */
+  --chart-3: #8f6a2e;        /* золото − */
+  --chart-4: #4a5168;        /* текстовый серо-синий */
+  --chart-5: #e0bb72;        /* золото + */
+  --chart-6: #16234c;        /* королевский синий */
+  --chart-7: #c7c7c9;        /* серый 30 */
+  --chart-prev: #8b90a1;     /* прошлый период — приглушённый серо-синий */
+  --chart-heat-1: #f4f4f2;
+  --chart-heat-2: #e0bb72;
+  --chart-heat-3: #b88c46;
+  --chart-heat-4: #8f6a2e;
+  --chart-heat-5: #1b285c;
+
+  --font-body: 'Golos Text', 'PT Sans', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  --font-display: 'Oswald', 'Golos Text', 'PT Sans', 'Segoe UI', system-ui, sans-serif;
+  color-scheme: light;
 }
 
 /* База: фон, цвет текста и фирменный шрифт страницы из токенов. */
