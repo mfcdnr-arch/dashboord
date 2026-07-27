@@ -1,0 +1,4 @@
+node_modules/
+shots/
+out/
+package-lock.json

@@ -20,3 +20,6 @@ Copyright (c) ParaType Ltd.
 Использование в проекте Dashboard («Мои Документы» / ГБУ «МФЦ ДНР»):
 текстовый интерфейс системы (--font-body). Заголовочный Circe — коммерческий,
 в дистрибутив НЕ включается (используется системный фолбэк на PT Sans).
+
+Шрифты Golos Text и Oswald (тема «МинЭк ДНР») также распространяются по
+SIL Open Font License 1.1: Golos Text © Paratype; Oswald © Vernon Adams et al.

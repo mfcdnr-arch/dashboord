@@ -175,3 +175,9 @@ html, body {
   color: var(--text);
   font-family: var(--font-body);
 }
+
+/* Заголовки — дисплейной гарнитурой темы (в «МинЭк» это Oswald, в темах
+ * «Мои Документы» — Circe с фолбэком на PT Sans, т.е. вид не меняется). */
+h1, h2, h3 {
+  font-family: var(--font-display);
+}
