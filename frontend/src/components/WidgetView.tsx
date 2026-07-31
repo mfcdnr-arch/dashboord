@@ -265,7 +265,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     )
   }
 
-  if (data.type === 'compare') {
+  if (data.type === 'compare' || data.type === 'cross_dataset_compare') {
     const cats: string[] = data.categories || []
     if (cats.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
     const opt: EChartsOption = {

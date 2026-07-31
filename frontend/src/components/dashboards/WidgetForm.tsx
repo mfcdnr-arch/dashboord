@@ -171,8 +171,27 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   }
   const [objField, setObjField] = useState(cfg0.value_field || allNumFields[0]?.code || '')
 
+  // Сравнение источников: список пар (датасет, поле) из РАЗНЫХ файлов + способ
+  // сопоставления категорий. Полностью выпадающими списками, без формул.
+  type CrossItem = { dataset_code: string; value_field: string; label: string }
+  const initCross: CrossItem[] = (cfg0.series as { dataset_code: string; value_field: string; label?: string }[] | undefined)
+    ?.map((s) => ({ dataset_code: s.dataset_code, value_field: s.value_field, label: s.label || '' }))
+    || [0, 1].map((i) => ({ dataset_code: sources.datasets[i]?.code || '', value_field: numFields(sources.datasets[i]?.code || '')[0]?.code || '', label: '' }))
+  const [crossSeries, setCrossSeries] = useState<CrossItem[]>(initCross)
+  const [matchBy, setMatchBy] = useState<'row_label' | 'period'>(cfg0.match_by === 'period' ? 'period' : 'row_label')
+  function updateCross(i: number, patch: Partial<CrossItem>) {
+    setCrossSeries((arr) => arr.map((it, idx) => idx === i ? { ...it, ...patch } : it))
+  }
+  function addCrossItem() {
+    setCrossSeries((arr) => [...arr, { dataset_code: sources.datasets[0]?.code || '', value_field: numFields(sources.datasets[0]?.code || '')[0]?.code || '', label: '' }])
+  }
+  function removeCrossItem(i: number) {
+    setCrossSeries((arr) => arr.length > 2 ? arr.filter((_, idx) => idx !== i) : arr)
+  }
+
   const [pickerOpen, setPickerOpen] = useState(false)
   const isObjectsCompare = type === 'objects_compare'
+  const isCrossCompare = type === 'cross_dataset_compare'
   const isText = type === 'text'
   const isImage = type === 'image'
   const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
@@ -208,6 +227,12 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     if (type === 'plan_fact') return source === 'metric' ? ((metricCode && factMetric) ? { plan_metric: metricCode, fact_metric: factMetric } : null) : ((dataset && planField && factField) ? { dataset_code: dataset, plan_field: planField, fact_field: factField } : null)
     if (type === 'table') return dataset ? { dataset_code: dataset } : null
     if (type === 'objects_compare') return objField ? { value_field: objField } : null
+    if (type === 'cross_dataset_compare') {
+      const valid = crossSeries.filter((s) => s.dataset_code && s.value_field)
+      return valid.length >= 2
+        ? { series: valid.map((s) => ({ dataset_code: s.dataset_code, value_field: s.value_field, ...(s.label.trim() ? { label: s.label.trim() } : {}) })), match_by: matchBy, viz }
+        : null
+    }
     if (type === 'compare') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields, viz } : null
     if (type === 'heatmap' || type === 'pivot') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields } : null
     if (type === 'dynamics') return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField, ...(trend ? { trend: true } : {}) } : null
@@ -364,6 +389,29 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           {allNumFields.length === 0 && <option value="">— нет числовых полей —</option>}
           {allNumFields.map((f) => <option key={f.code} value={f.code}>{f.name} ({f.code})</option>)}
         </select></F>
+      )}
+      {isCrossCompare && (
+        <div style={{ flexBasis: '100%' }}>
+          <F t="Сопоставлять"><select style={sel} value={matchBy} onChange={(e) => setMatchBy(e.target.value as 'row_label' | 'period')}>
+            <option value="row_label">По строке (одинаковые названия в разных файлах)</option>
+            <option value="period">По периоду (дата выпуска датасета)</option>
+          </select></F>
+          <F t="Вид"><select style={sel} value={viz} onChange={(e) => setViz(e.target.value)}><option value="bar">Столбцы</option><option value="line">Линии</option></select></F>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', margin: '8px 0 4px' }}>Источники (минимум 2, из разных датасетов/файлов)</div>
+          {crossSeries.map((it, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 6, flexWrap: 'wrap' }}>
+              <F t="Датасет"><select style={sel} value={it.dataset_code} onChange={(e) => { const nf = numFields(e.target.value); updateCross(i, { dataset_code: e.target.value, value_field: nf[0]?.code || '' }) }}>
+                {sources.datasets.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}
+              </select></F>
+              <F t="Поле"><select style={sel} value={it.value_field} onChange={(e) => updateCross(i, { value_field: e.target.value })}>
+                {numFields(it.dataset_code).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
+              </select></F>
+              <F t="Подпись серии (необяз.)"><input style={{ ...sel, width: 160 }} placeholder={`${it.dataset_code}.${it.value_field}`} value={it.label} onChange={(e) => updateCross(i, { label: e.target.value })} /></F>
+              <button type="button" style={{ ...btnGhost, height: 34 }} disabled={crossSeries.length <= 2} onClick={() => removeCrossItem(i)} title={crossSeries.length <= 2 ? 'Минимум 2 источника' : 'Убрать источник'}>✕</button>
+            </div>
+          ))}
+          <button type="button" style={{ ...btnAuto, height: 34 }} onClick={addCrossItem}>＋ Добавить источник</button>
+        </div>
       )}
       {type === 'gauge' && (
         <F t="Шкала, max (пусто — авто)"><input style={{ ...sel, width: 130 }} type="number" placeholder="напр. 100" value={gaugeMax} onChange={(e) => setGaugeMax(e.target.value)} /></F>

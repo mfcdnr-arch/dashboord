@@ -400,6 +400,39 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         return {"type": "objects_compare", "title": name,
                 "categories": [r["obj"] for r in rows], "values": [float(r["val"]) for r in rows]}
 
+    if t == "cross_dataset_compare":
+        # Сравнение источников: несколько РАЗНЫХ dataset_code (разных загруженных
+        # файлов) на одном графике — без формул, только выбором датасет+поле.
+        # Сопоставление по строке (row_label) или по периоду (выпуск датасета).
+        items = cfg.get("series") or []
+        if len(items) < 2:
+            raise DashboardError("Сравнение источников: укажите минимум 2 источника (датасет + поле)")
+        match_by = cfg.get("match_by") or "row_label"
+        cat_order: List[str] = []
+        seen_cat: set = set()
+        raw_series = []
+        for it in items:
+            dc, vf = it.get("dataset_code"), it.get("value_field")
+            if not dc or not vf:
+                raise DashboardError("Сравнение источников: у каждого источника укажите датасет и поле")
+            label = it.get("label") or f"{dc}.{vf}"
+            item_allowed = await allowed_rows_for_dataset(conn, org_id, user, dc) if user is not None else None
+            if match_by == "period":
+                pairs = await _dataset_period_series(conn, org_id, dc, vf, from_date, to_date, row, item_allowed)
+                vmap = dict(pairs)
+            else:
+                vmap = {p["category"]: p["value"]
+                        for p in await _dataset_series(conn, org_id, dc, vf, row, item_allowed)}
+            for c in vmap:
+                if c not in seen_cat:
+                    seen_cat.add(c)
+                    cat_order.append(c)
+            raw_series.append((label, vmap))
+        categories = sorted(cat_order)
+        series = [{"name": label, "data": [vmap.get(c) for c in categories]} for label, vmap in raw_series]
+        return {"type": "cross_dataset_compare", "title": name, "viz": cfg.get("viz", "bar"),
+                "categories": categories, "series": series, "match_by": match_by}
+
     if t == "dynamics":
         if not cfg.get("dataset_code") or not cfg.get("value_field"):
             raise DashboardError("Динамика: укажите dataset_code и value_field")
@@ -635,7 +668,7 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
             ws.append(["Месяц", str(py) if py else "пред. год", str(cy)])
             for mn, pv, cv in zip(data.get("months", []), data.get("previous", []), data.get("current", []), strict=False):
                 ws.append([mn, pv, cv])
-        elif t == "compare":
+        elif t in ("compare", "cross_dataset_compare"):
             ws = wb.create_sheet(sheet_name(name))
             series = data.get("series", [])
             cats = data.get("categories", [])

@@ -145,6 +145,47 @@ async def seed_dataset(ids):
         await conn.execute("delete from objects where name='t_obj' and organization_id=$1", ids["org"])
 
 
+@pytest_asyncio.fixture(scope="session")
+async def seed_dataset2(ids, seed_dataset):
+    """Второй датасет `t_ds2` — СВОЙ объект 't_obj2` (не 't_obj', иначе объектные
+    запросы вроде objects_compare/get_row_acl «увидят» его строки/выпуски и
+    сломают не связанные с этой фичей тесты). Для «Сравнения источников»
+    (cross_dataset_compare): строки частично пересекаются с t_ds («Паспорт»,
+    «ИНН») — проверка объединения категорий; периоды выпусков совпадают с t_ds
+    («по периоду»)."""
+    rows = ["Паспорт", "ИНН", "Загранпаспорт"]
+    vals_old = [40, 20, 5]
+    vals_new = [45, 22, 6]
+    async with db.acquire() as conn:
+        await conn.execute("delete from dataset_values where dataset_release_id in "
+                           "(select id from dataset_releases where code='t_ds2')")
+        await conn.execute("delete from dataset_releases where code='t_ds2'")
+        await conn.execute("delete from objects where name='t_obj2' and organization_id=$1", ids["org"])
+        obj = await conn.fetchval(
+            "insert into objects(organization_id,name) values($1,'t_obj2') returning id", ids["org"])
+        rel_old = await conn.fetchval(
+            "insert into dataset_releases(organization_id,code,name,status,reporting_period_start,created_by,object_id) "
+            "values($1,'t_ds2','Тест ДС2',$2,'2026-01-01',$3,$4) returning id",
+            ids["org"], "released", ids["admin"], obj)
+        rel_new = await conn.fetchval(
+            "insert into dataset_releases(organization_id,code,name,status,reporting_period_start,created_by,object_id) "
+            "values($1,'t_ds2','Тест ДС2',$2,'2026-02-01',$3,$4) returning id",
+            ids["org"], "released", ids["admin"], obj)
+        for i, r in enumerate(rows):
+            await conn.execute(
+                "insert into dataset_values(dataset_release_id,row_index,row_label,canonical_field_code,value_number) "
+                "values($1,$2,$3,'plan2',$4)", rel_old, i, r, vals_old[i])
+            await conn.execute(
+                "insert into dataset_values(dataset_release_id,row_index,row_label,canonical_field_code,value_number) "
+                "values($1,$2,$3,'plan2',$4)", rel_new, i, r, vals_new[i])
+    yield {"code": "t_ds2", "object": "t_obj2", "rows": rows, "vals_old": vals_old, "vals_new": vals_new}
+    async with db.acquire() as conn:
+        await conn.execute("delete from dataset_values where dataset_release_id in "
+                           "(select id from dataset_releases where code='t_ds2')")
+        await conn.execute("delete from dataset_releases where code='t_ds2'")
+        await conn.execute("delete from objects where name='t_obj2' and organization_id=$1", ids["org"])
+
+
 @pytest_asyncio.fixture
 async def viewer(client, ids):
     """Непривилегированный пользователь (роль `user`) + его токен. Чистится после теста."""
