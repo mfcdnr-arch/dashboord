@@ -2,11 +2,12 @@
 графические настройки-пороги (взамен правки .env + рестарт)."""
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ... import db
 from ..auth.deps import require_roles
+from . import logs_service as logs_svc
 from . import settings_service as settings_svc
 
 router = APIRouter(prefix="/system", tags=["system"])
@@ -109,3 +110,26 @@ async def put_org_settings(body: OrgSettingsIn, user: dict = Depends(setup_roles
         async with conn.transaction():
             return await settings_svc.update_org_settings(
                 conn, user["organization_id"], body.model_dump(exclude_none=True))
+
+
+@router.get("/logs")
+async def get_logs(
+    service: str,
+    minutes: int = Query(30, ge=1, le=1440),
+    limit: int = Query(200, ge=1, le=1000),
+    q: Optional[str] = Query(None, max_length=200),
+    user: dict = Depends(setup_roles),
+):
+    """Просмотр логов сервиса за окно (через Loki — уже есть в мониторинг-стеке).
+    admin/superadmin. Если Loki недоступен — понятная подсказка, не 500."""
+    try:
+        lines = await logs_svc.query_logs(service, minutes, limit, q)
+        return {"available": True, "services": list(logs_svc.KNOWN_SERVICES), "lines": lines}
+    except logs_svc.LogsUnavailable:
+        return {
+            "available": False, "services": list(logs_svc.KNOWN_SERVICES), "lines": [],
+            "hint": "Логи недоступны — мониторинг (Loki), похоже, не включён. "
+                    "Запустите docker-compose.monitoring.yml или install.sh --monitoring.",
+        }
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))

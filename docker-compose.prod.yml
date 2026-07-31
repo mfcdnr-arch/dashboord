@@ -111,6 +111,8 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?нужно задать ADMIN_PASSWORD в .env.prod}
       SUPERADMIN_LOGIN: ${SUPERADMIN_LOGIN:-superadmin}
       SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:?нужно задать SUPERADMIN_PASSWORD в .env.prod}
+      BACKUPS_DIR: /app/backups
+      OPS_TRIGGER_DIR: /app/ops-triggers
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -125,6 +127,12 @@ services:
       retries: 12
     mem_limit: 1g
     restart: unless-stopped
+    # backups/ro + ops-triggers/rw — общий том с хостом для статуса бэкапа
+    # («Здоровье» страницы «Настройки») и «Запустить сейчас» (файл-триггер,
+    # который подхватывает ops-trigger-watch.sh на хосте — см. backup-schedule.sh).
+    volumes:
+      - ./backups:/app/backups:ro
+      - ./ops-triggers:/app/ops-triggers
 
   worker:
     build: ./backend

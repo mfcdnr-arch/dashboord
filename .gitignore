@@ -5,6 +5,7 @@
 
 # Артефакты эксплуатации (бэкапы, диагностика, офлайн-бандлы образов)
 backups/
+ops-triggers/
 diag-*.tgz
 dashbord-images.tar
 *.dump

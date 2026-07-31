@@ -85,6 +85,8 @@ services:
       MINIO_USER: ${MINIO_USER:-dashbord}
       MINIO_PASSWORD: ${MINIO_PASSWORD:-dashbord123}
       APP_ENV: dev
+      BACKUPS_DIR: /app/backups
+      OPS_TRIGGER_DIR: /app/ops-triggers
     depends_on: &backend_deps
       postgres:
         condition: service_healthy
@@ -96,8 +98,12 @@ services:
       - "${API_PORT:-8080}:8000"
     # DEV: код монтируется внутрь + hot-reload — не нужно пересобирать образ
     # после каждого правки (прод-стек это НЕ использует, см. docker-compose.prod.yml).
+    # backups/ro + ops-triggers/rw — общий том с хостом для статуса бэкапа и
+    # «Запустить сейчас» (см. backend/app/modules/maintenance/backup_service.py).
     volumes:
       - ./backend/app:/app/app
+      - ./backups:/app/backups:ro
+      - ./ops-triggers:/app/ops-triggers
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
 

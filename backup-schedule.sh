@@ -17,6 +17,7 @@ TIME="${BACKUP_TIME:-$(env_get BACKUP_TIME)}"; TIME="${TIME:-03:30}"
 KEEP="${BACKUP_KEEP:-$(env_get BACKUP_KEEP)}"; KEEP="${KEEP:-7}"
 BACKUP_DIR="${BACKUP_DIR:-$(env_get BACKUP_DIR)}"; BACKUP_DIR="${BACKUP_DIR:-$REPO/backups}"
 SERVICE=dashbord-backup
+WATCH_SERVICE=dashbord-backup-watch
 ACTION="${1:-install}"
 # От чьего имени работает плановый бэкап: пользователь, вызвавший sudo (он в
 # группе docker — предпосылка установки). Иначе root-овые файлы в backups/
@@ -64,6 +65,43 @@ cron_line() {
   echo "$MM $HH * * * cd $REPO && BACKUP_KEEP=$KEEP BACKUP_DIR=$BACKUP_DIR ./backup.sh >> $BACKUP_DIR/cron.log 2>&1"
 }
 
+# Наблюдатель триггера «Запустить сейчас» из UI (см. ops-trigger-watch.sh):
+# API кладёт файл на общий том, этот процесс проверяет его раз в минуту и
+# гонит обычный backup.sh — без docker.sock и прав root у контейнера API.
+watch_service_unit() {
+  cat <<EOF
+[Unit]
+Description=Dashboard: наблюдатель триггера "Запустить бэкап сейчас" из UI
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+${RUN_AS:+User=$RUN_AS}
+WorkingDirectory=$REPO
+Environment=OPS_TRIGGER_DIR=$REPO/ops-triggers
+ExecStart=/usr/bin/env bash $REPO/ops-trigger-watch.sh
+EOF
+}
+
+watch_timer_unit() {
+  cat <<EOF
+[Unit]
+Description=Проверка триггера бэкапа из UI раз в минуту
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+watch_cron_line() {
+  echo "* * * * * cd $REPO && OPS_TRIGGER_DIR=$REPO/ops-triggers ./ops-trigger-watch.sh"
+}
+
 has_systemd() { command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; }
 need_root() { [ "$(id -u)" = 0 ] || { echo "Нужны права root: sudo ./backup-schedule.sh $ACTION"; exit 1; }; }
 
@@ -73,46 +111,56 @@ case "$ACTION" in
     if has_systemd; then
       echo "# --- /etc/systemd/system/$SERVICE.service ---"; service_unit
       echo "# --- /etc/systemd/system/$SERVICE.timer ---"; timer_unit
+      echo "# --- /etc/systemd/system/$WATCH_SERVICE.service (триггер «Запустить сейчас» из UI) ---"; watch_service_unit
+      echo "# --- /etc/systemd/system/$WATCH_SERVICE.timer ---"; watch_timer_unit
     else
-      echo "# --- crontab ---"; cron_line
+      echo "# --- crontab ---"; cron_line; watch_cron_line
     fi
     ;;
   install)
     need_root
-    mkdir -p "$BACKUP_DIR"
-    # Каталог — пользователю расписания, иначе ручной ./backup.sh без root падал бы.
-    [ "$RUN_AS" != root ] && chown "$RUN_AS" "$BACKUP_DIR" 2>/dev/null || true
+    mkdir -p "$BACKUP_DIR" "$REPO/ops-triggers"
+    # Каталоги — пользователю расписания, иначе ручной ./backup.sh без root падал бы.
+    if [ "$RUN_AS" != root ]; then
+      chown "$RUN_AS" "$BACKUP_DIR" "$REPO/ops-triggers" 2>/dev/null || true
+    fi
     if has_systemd; then
       service_unit > "/etc/systemd/system/$SERVICE.service"
       timer_unit  > "/etc/systemd/system/$SERVICE.timer"
+      watch_service_unit > "/etc/systemd/system/$WATCH_SERVICE.service"
+      watch_timer_unit  > "/etc/systemd/system/$WATCH_SERVICE.timer"
       systemctl daemon-reload
       systemctl enable --now "$SERVICE.timer"
-      echo "systemd-таймер установлен (запуск от $RUN_AS):"; systemctl list-timers "$SERVICE.timer" --no-pager || true
+      systemctl enable --now "$WATCH_SERVICE.timer"
+      echo "systemd-таймеры установлены (запуск от $RUN_AS):"
+      systemctl list-timers "$SERVICE.timer" "$WATCH_SERVICE.timer" --no-pager || true
     else
-      ( crontab -u "$RUN_AS" -l 2>/dev/null | grep -vF "$REPO/backup.sh"; cron_line ) | crontab -u "$RUN_AS" -
-      echo "cron-задача установлена (crontab $RUN_AS):"; crontab -u "$RUN_AS" -l | grep -F "$REPO/backup.sh"
+      ( crontab -u "$RUN_AS" -l 2>/dev/null | grep -vF "$REPO/backup.sh" | grep -vF "$REPO/ops-trigger-watch.sh"
+        cron_line; watch_cron_line ) | crontab -u "$RUN_AS" -
+      echo "cron-задачи установлены (crontab $RUN_AS):"; crontab -u "$RUN_AS" -l | grep -E "backup\.sh|ops-trigger-watch\.sh"
     fi
-    echo "Готово. Проверить разовый запуск: ./backup.sh"
+    echo "Готово. Проверить разовый запуск: ./backup.sh; «Запустить сейчас» из UI подхватится в течение минуты."
     ;;
   uninstall)
     need_root
     if has_systemd && [ -f "/etc/systemd/system/$SERVICE.timer" ]; then
-      systemctl disable --now "$SERVICE.timer" 2>/dev/null || true
-      rm -f "/etc/systemd/system/$SERVICE.timer" "/etc/systemd/system/$SERVICE.service"
+      systemctl disable --now "$SERVICE.timer" "$WATCH_SERVICE.timer" 2>/dev/null || true
+      rm -f "/etc/systemd/system/$SERVICE.timer" "/etc/systemd/system/$SERVICE.service" \
+            "/etc/systemd/system/$WATCH_SERVICE.timer" "/etc/systemd/system/$WATCH_SERVICE.service"
       systemctl daemon-reload
-      echo "systemd-таймер снят."
+      echo "systemd-таймеры сняты."
     else
-      crontab -u "$RUN_AS" -l 2>/dev/null | grep -vF "$REPO/backup.sh" | crontab -u "$RUN_AS" - || true
-      echo "cron-задача снята."
+      crontab -u "$RUN_AS" -l 2>/dev/null | grep -vF "$REPO/backup.sh" | grep -vF "$REPO/ops-trigger-watch.sh" | crontab -u "$RUN_AS" - || true
+      echo "cron-задачи сняты."
     fi
     ;;
   status)
     if has_systemd && [ -f "/etc/systemd/system/$SERVICE.timer" ]; then
-      systemctl list-timers "$SERVICE.timer" --no-pager || true
-      echo "--- последний запуск ---"
+      systemctl list-timers "$SERVICE.timer" "$WATCH_SERVICE.timer" --no-pager || true
+      echo "--- последний запуск бэкапа ---"
       systemctl status "$SERVICE.service" --no-pager -n 5 2>/dev/null || true
     else
-      echo "--- crontab ---"; crontab -l 2>/dev/null | grep -F "$REPO/backup.sh" || echo "(не установлено)"
+      echo "--- crontab ---"; crontab -l 2>/dev/null | grep -E "backup\.sh|ops-trigger-watch\.sh" || echo "(не установлено)"
     fi
     ;;
   *) echo "Использование: $0 {install|uninstall|status|print}"; exit 2 ;;

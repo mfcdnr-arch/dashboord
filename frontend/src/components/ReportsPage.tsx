@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  getAttendanceReport, getBusinessReport, getDashboardViewers, getDataQualityReport, getHealHistory, getModerationReport, getPopularityReport, getSystemReport, healSystem,
-  type AttendanceReport, type BusinessReport, type DashboardViewers, type DataQualityReport, type Gauge, type HealHistoryEntry, type HealResult, type ModerationReport, type PopularityReport, type SystemReport,
+  getArchiveRunStatus, getAttendanceReport, getBackupStatus, getBusinessReport, getDashboardViewers, getDataQualityReport, getHealHistory, getLogs, getModerationReport, getPopularityReport, getSystemReport, healSystem, runArchiveNow, runBackupNow,
+  type ArchiveRunStatus, type AttendanceReport, type BackupStatus, type BusinessReport, type DashboardViewers, type DataQualityReport, type Gauge, type HealHistoryEntry, type HealResult, type LogsResult, type ModerationReport, type PopularityReport, type SystemReport,
 } from '../api'
 import EChart from './EChartLazy'
 
@@ -43,6 +43,15 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
   const [heal, setHeal] = useState<HealResult | null>(null)
   const [healing, setHealing] = useState(false)
   const [healHist, setHealHist] = useState<HealHistoryEntry[] | null>(null)
+  const [logsService, setLogsService] = useState('api')
+  const [logsMinutes, setLogsMinutes] = useState(30)
+  const [logsQuery, setLogsQuery] = useState('')
+  const [logs, setLogs] = useState<LogsResult | null>(null)
+  const [logsLoading, setLogsLoading] = useState(false)
+  const [backup, setBackup] = useState<BackupStatus | null>(null)
+  const [backupRequesting, setBackupRequesting] = useState(false)
+  const [archiveStat, setArchiveStat] = useState<ArchiveRunStatus | null>(null)
+  const [archiveRunning, setArchiveRunning] = useState(false)
   const canAdmin = me.roles.includes('admin') || me.roles.includes('superadmin')
 
   const loadSys = () => getSystemReport().then(setSys).catch((e) => setError((e as Error).message))
@@ -51,10 +60,28 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
     setHealing(true); setError(null)
     try { setHeal(await healSystem()); await loadSys(); await loadHealHist() } catch (e) { setError((e as Error).message) } finally { setHealing(false) }
   }
+  async function loadLogs() {
+    setLogsLoading(true); setError(null)
+    try { setLogs(await getLogs(logsService, logsMinutes, 200, logsQuery || undefined)) }
+    catch (e) { setError((e as Error).message) } finally { setLogsLoading(false) }
+  }
+  const loadBackup = () => getBackupStatus().then(setBackup).catch((e) => setError((e as Error).message))
+  const loadArchiveStat = () => getArchiveRunStatus().then(setArchiveStat).catch((e) => setError((e as Error).message))
+  async function doBackupNow() {
+    setBackupRequesting(true); setError(null)
+    try { await runBackupNow(); await loadBackup() } catch (e) { setError((e as Error).message) } finally { setBackupRequesting(false) }
+  }
+  async function doArchiveNow() {
+    setArchiveRunning(true); setError(null)
+    try { await runArchiveNow(); await loadArchiveStat() } catch (e) { setError((e as Error).message) } finally { setArchiveRunning(false) }
+  }
   useEffect(() => {
     if (!canAdmin) return
     loadSys()
     loadHealHist()
+    loadLogs()
+    loadBackup()
+    loadArchiveStat()
     getAttendanceReport().then(setAtt).catch((e) => setError((e as Error).message))
     getPopularityReport().then(setPop).catch((e) => setError((e as Error).message))
     getModerationReport().then(setMod).catch((e) => setError((e as Error).message))
@@ -136,6 +163,98 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
             )}
           </>
         )}
+      </Section>
+
+      {/* Логи сервисов (через Loki — уже есть в мониторинг-стеке, без дублирования инфраструктуры) */}
+      <Section title="Логи сервисов" hint="через Loki; если мониторинг не включён — покажет подсказку">
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
+          <label style={{ fontSize: 12 }}>Сервис
+            <select value={logsService} onChange={(e) => setLogsService(e.target.value)}
+              style={{ display: 'block', height: 32, marginTop: 2, borderRadius: 8, border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text)' }}>
+              {(logs?.services ?? ['api', 'worker', 'web', 'postgres', 'redis', 'minio']).map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+          <label style={{ fontSize: 12 }}>За, мин
+            <input type="number" min={1} max={1440} value={logsMinutes} onChange={(e) => setLogsMinutes(Number(e.target.value) || 30)}
+              style={{ display: 'block', width: 80, height: 32, marginTop: 2, borderRadius: 8, border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text)', padding: '0 8px' }} />
+          </label>
+          <label style={{ fontSize: 12, flex: '1 1 160px' }}>Поиск по тексту
+            <input value={logsQuery} onChange={(e) => setLogsQuery(e.target.value)} placeholder="необязательно"
+              style={{ display: 'block', width: '100%', height: 32, marginTop: 2, borderRadius: 8, border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text)', padding: '0 8px' }} />
+          </label>
+          <button onClick={loadLogs} disabled={logsLoading}
+            style={{ height: 32, padding: '0 14px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-2)', cursor: 'pointer', fontSize: 13 }}>
+            {logsLoading ? '⏳ Загрузка…' : '🔎 Показать'}
+          </button>
+        </div>
+        {logs && !logs.available && (
+          <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>{logs.hint}</div>
+        )}
+        {logs && logs.available && (
+          logs.lines.length === 0
+            ? <span style={muted}>Ничего не найдено за выбранное окно.</span>
+            : (
+              <div style={{ maxHeight: 260, overflowY: 'auto', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', fontFamily: 'monospace', fontSize: 12 }}>
+                {logs.lines.map((l, i) => (
+                  <div key={i} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: '1px 0', borderBottom: i < logs.lines.length - 1 ? '1px solid var(--border)' : undefined }}>
+                    <span style={{ color: 'var(--text-faint)' }}>{new Date(l.ts_ns / 1e6).toLocaleTimeString('ru-RU')}</span> {l.line}
+                  </div>
+                ))}
+              </div>
+            )
+        )}
+      </Section>
+
+      {/* Бэкап и автоархив: статус читается с реального тома/из БД + «Запустить сейчас».
+          Бэкап физически делает хостовой backup.sh (не приложение — нет docker.sock
+          в контейнере), поэтому «сейчас» — это файл-триггер, который подхватывает
+          ops-trigger-watch.sh в течение минуты, а не мгновенное выполнение. */}
+      <Section title="Бэкап и автоархив" hint="статус — с реального диска/из БД; действие «сейчас» — не мгновенно">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Резервное копирование</div>
+            {!backup ? <span style={muted}>Загрузка…</span> : (
+              <>
+                {!backup.watcher_configured && (
+                  <div style={{ fontSize: 12, color: 'var(--text-faint)', marginBottom: 6 }}>
+                    Наблюдатель хоста не настроен — «Запустить сейчас» не будет подхвачено.
+                    Установите: <code>sudo ./backup-schedule.sh install</code>.
+                  </div>
+                )}
+                {backup.sets.length === 0
+                  ? <div style={muted}>Бэкапов ещё не было.</div>
+                  : <div style={{ fontSize: 13, marginBottom: 6 }}>Последний: <b>{fmtDt(backup.sets[0].created_at)}</b>
+                      {backup.sets[0].db_dump_bytes != null && <> · БД {fmtBytes(backup.sets[0].db_dump_bytes)}</>}
+                      {backup.sets[0].minio_tgz_bytes != null && <> · MinIO {fmtBytes(backup.sets[0].minio_tgz_bytes)}</>}
+                      <span style={{ color: 'var(--text-faint)' }}> · хранится {backup.sets.length}</span>
+                    </div>}
+                {backup.pending && <div style={{ fontSize: 12, color: 'var(--warn)', marginBottom: 6 }}>⏳ Заявка ожидает обработки хостом (до 1 мин).</div>}
+                {backup.last_manual_result && (
+                  <div style={{ fontSize: 12, color: backup.last_manual_result.ok ? 'var(--success)' : 'var(--danger)', marginBottom: 6 }}>
+                    Последний ручной запуск: {backup.last_manual_result.ok ? '✓' : '✗'} {backup.last_manual_result.message}
+                  </div>
+                )}
+                <button style={btnGhost} disabled={backupRequesting || backup.pending} onClick={doBackupNow}>
+                  {backupRequesting ? '⏳ Отправка…' : backup.pending ? '⏳ Уже в очереди' : '💾 Запустить сейчас'}
+                </button>
+              </>
+            )}
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Автоархив дашбордов</div>
+            {!archiveStat ? <span style={muted}>Загрузка…</span> : (
+              <>
+                <div style={{ fontSize: 13, marginBottom: 6 }}>
+                  {archiveStat.last_run ? <>Последний: <b>{fmtDt(archiveStat.last_run)}</b></> : <span style={muted}>Ещё не выполнялся.</span>}
+                  <span style={{ color: 'var(--text-faint)' }}> · слепков за 31 день: {archiveStat.recent_count}</span>
+                </div>
+                <button style={btnGhost} disabled={archiveRunning} onClick={doArchiveNow} title="Идемпотентно: не дублирует слепки за уже обработанный месяц">
+                  {archiveRunning ? '⏳ Выполняется…' : '📦 Запустить сейчас'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       </Section>
 
       {/* Посещаемость */}

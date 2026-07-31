@@ -66,3 +66,23 @@ export async function updateOrgSettings(patch: Partial<OrgThresholds>): Promise<
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// Просмотр логов сервиса через Loki (уже есть в мониторинг-стеке проекта).
+export interface LogLine {
+  ts_ns: number
+  line: string
+}
+export interface LogsResult {
+  available: boolean
+  services: string[]
+  lines: LogLine[]
+  hint?: string
+}
+
+export async function getLogs(service: string, minutes = 30, limit = 200, q?: string): Promise<LogsResult> {
+  const params = new URLSearchParams({ service, minutes: String(minutes), limit: String(limit) })
+  if (q) params.set('q', q)
+  const res = await fetch(`/system/logs?${params}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

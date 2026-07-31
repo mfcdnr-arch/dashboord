@@ -33,3 +33,48 @@ export async function getHealHistory(limit = 20): Promise<HealHistoryEntry[]> {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// Статус бэкапа + «Запустить сейчас» (backup.sh физически выполняется на ХОСТЕ —
+// см. backend/app/modules/maintenance/backup_service.py).
+export interface BackupSet {
+  name: string
+  created_at: string
+  db_dump_bytes: number | null
+  minio_tgz_bytes: number | null
+}
+export interface BackupStatus {
+  sets: BackupSet[]
+  pending: boolean
+  last_manual_result: { ts: string; ok: boolean; message: string } | null
+  watcher_configured: boolean
+}
+
+export async function getBackupStatus(): Promise<BackupStatus> {
+  const res = await fetch('/maintenance/backup/status', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function runBackupNow(): Promise<{ requested: boolean }> {
+  const res = await fetch('/maintenance/backup/run-now', { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+// Статус ежемесячного автоархива дашбордов + запуск вне расписания (идемпотентно).
+export interface ArchiveRunStatus {
+  last_run: string | null
+  recent_count: number
+}
+
+export async function getArchiveRunStatus(): Promise<ArchiveRunStatus> {
+  const res = await fetch('/maintenance/archive/status', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function runArchiveNow(): Promise<{ archived: number }> {
+  const res = await fetch('/maintenance/archive/run-now', { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
