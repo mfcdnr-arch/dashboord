@@ -9,7 +9,7 @@ publication_reviews / moderation_session / moderation_check_result.
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Optional
 
 from ..audit import service as audit_svc
 
@@ -94,7 +94,7 @@ async def submit_for_review(conn, org_id, user: dict, dashboard_id: str) -> dict
 
 async def cancel_review(conn, org_id, user: dict, dashboard_id: str) -> dict:
     """Отозвать заявку на проверку (инициатор или админ) → назад в черновик."""
-    d = await _dashboard(conn, org_id, dashboard_id)
+    await _dashboard(conn, org_id, dashboard_id)
     req = await _pending_request(conn, dashboard_id)
     if req is None:
         raise ModerationError("Активной заявки на проверку нет")

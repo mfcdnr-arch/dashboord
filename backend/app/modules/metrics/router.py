@@ -19,7 +19,13 @@ from pydantic import BaseModel, Field
 from ... import db
 from ..auth.deps import get_current_user, require_roles
 from .service import (
-    MetricError, create_metric, create_version, evaluate_version, list_data_sources, preview, set_status,
+    MetricError,
+    create_metric,
+    create_version,
+    evaluate_version,
+    list_data_sources,
+    preview,
+    set_status,
     update_metric,
 )
 

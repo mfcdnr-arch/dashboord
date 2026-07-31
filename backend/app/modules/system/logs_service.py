@@ -26,7 +26,8 @@ async def query_logs(service: str, minutes: int, limit: int, query: str | None) 
     expr = f'{{service="{service}"}}'
     if query:
         expr += f' |= "{query.replace(chr(34), chr(92) + chr(34))}"'
-    params = {"query": expr, "limit": limit, "start": start_ns, "end": end_ns, "direction": "backward"}
+    params: dict[str, str | int] = {
+        "query": expr, "limit": limit, "start": start_ns, "end": end_ns, "direction": "backward"}
     try:
         async with httpx.AsyncClient(timeout=5.0) as http:
             r = await http.get(f"{LOKI_URL}/loki/api/v1/query_range", params=params)

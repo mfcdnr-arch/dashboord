@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import List
 
 from ..dashboards import service as dash_svc
 from ..metrics import resolver as mr

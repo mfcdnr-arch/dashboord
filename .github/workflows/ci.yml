@@ -26,7 +26,7 @@ jobs:
         working-directory: frontend
 
   backend:
-    name: Бэкенд (компиляция)
+    name: Бэкенд (компиляция + ruff + mypy)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,8 +34,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
-      - run: pip install -r backend/requirements.txt
+      - run: pip install -r backend/requirements-dev.txt
       - run: python -m compileall -q backend/app
+      - name: ruff (стиль + реальные ошибки — F821/F401/F841 и т.п.)
+        working-directory: backend
+        run: ruff check .
+      - name: mypy (статическая типизация — страховка перед реальным железом)
+        working-directory: backend
+        run: mypy
 
   migrations:
     name: Миграции на чистой БД

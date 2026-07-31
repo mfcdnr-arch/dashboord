@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 AGG_FUNCS = {"SUM", "AVG", "COUNT", "MIN", "MAX"}
 WINDOW_FUNCS = {"RUNNING_TOTAL", "PERIOD_COMPARE", "SHARE_OF_TOTAL", "PLAN_FACT_DELTA", "PLAN_FACT_PCT", "PERCENT_OF"}
@@ -297,7 +297,7 @@ def extract_dependencies(ast: Dict[str, Any]) -> Dict[str, List[str]]:
             code = node["code"]
             if code not in metrics:
                 metrics.append(code)
-        for key, val in node.items():
+        for _key, val in node.items():
             if isinstance(val, dict):
                 walk(val)
             elif isinstance(val, list):

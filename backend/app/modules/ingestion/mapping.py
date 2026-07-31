@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import json
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from . import analyze
 
@@ -76,7 +76,7 @@ async def suggest_mapping(conn, table_id: str, object_id) -> dict:
 
 def _cast(value: str, data_type: str) -> dict:
     """Строковое значение ячейки → типизированные поля dataset_values."""
-    out = {"value_text": value if value != "" else None, "value_number": None, "value_date": None}
+    out: dict[str, Any] = {"value_text": value if value != "" else None, "value_number": None, "value_date": None}
     if data_type == "number":
         out["value_number"] = analyze.parse_number(value)
     elif data_type == "date":

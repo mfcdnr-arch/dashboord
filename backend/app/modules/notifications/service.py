@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Optional
 
 # Человекочитаемые подписи типов событий (для UI).
 EVENT_LABELS = {
@@ -91,7 +91,7 @@ async def mark_read(conn, user_id, recipient_id: str) -> None:
 
 
 async def mark_all_read(conn, user_id) -> dict:
-    res = await conn.execute(
+    await conn.execute(
         "update notification_recipients set is_read=true, read_at=now() "
         "where user_id=$1 and not is_read", user_id)
     return {"ok": True}

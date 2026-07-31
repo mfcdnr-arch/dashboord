@@ -99,19 +99,19 @@ def evaluate(ast: Dict[str, Any], resolver: Resolver) -> float:
     if t == "neg":
         return -evaluate(ast["e"], resolver)
     if t == "bin":
-        l = evaluate(ast["l"], resolver)
+        lv = evaluate(ast["l"], resolver)
         r = evaluate(ast["r"], resolver)
         op = ast["op"]
         if op == "+":
-            return l + r
+            return lv + r
         if op == "-":
-            return l - r
+            return lv - r
         if op == "*":
-            return l * r
+            return lv * r
         if op == "/":
             if r == 0:
                 raise FormulaError("Деление на ноль")
-            return l / r
+            return lv / r
         raise FormulaError(f"Неизвестная операция {op}")
     if t == "pow":
         return evaluate(ast["base"], resolver) ** evaluate(ast["exp"], resolver)

@@ -7,8 +7,6 @@
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from ..audit import service as audit_svc
 from ..notifications import service as notif_svc
 from ._base import DashboardError

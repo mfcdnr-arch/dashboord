@@ -9,25 +9,49 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from ... import cache
 from ..audit import service as audit_svc
 from ..metrics import resolver as mr
-from ..metrics.parser import FormulaError, extract_dependencies, parse
+
 # Кластеры, вынесенные из этого файла (рефактор). Реэкспортируем, чтобы внешние
 # вызовы `service.<name>` и `from .service import <name>` продолжали работать.
 from ._alerts import (  # noqa: F401
-    _ALERT_OP_TXT, _ALERT_STYLES, _alert_match, _alert_measure, _cfg, evaluate_alert,
+    _ALERT_OP_TXT,
+    _ALERT_STYLES,
+    _alert_match,
+    _alert_measure,
+    _cfg,
+    evaluate_alert,
 )
 from ._base import ANNOTATION_TYPES, WIDGET_TYPES, DashboardError  # noqa: F401
 from ._comments import add_comment, delete_comment, list_comments  # noqa: F401
+from ._rls import (  # noqa: F401
+    PRIVILEGED_ROLES,
+    _can_view,
+    _user_ctx,
+    visible_dashboard_ids,
+    visible_widget_ids,
+)
 from ._rowrls import get_row_acl, set_row_acl  # noqa: F401
-from ._rls import PRIVILEGED_ROLES, _can_view, _user_ctx, visible_dashboard_ids, visible_widget_ids  # noqa: F401
 from ._widgetdata import (  # noqa: F401
-    _best_metric_version, _compute_widget, _dataset_multi_series, _dataset_period_series,
-    _dataset_series, _dataset_table, _formula_value, _metric_value, _page_org, _widget_org,
-    compute_page_data, compute_widget_data, export_page_xlsx, list_org_alerts, preview_widget, widget_drill,
+    _best_metric_version,
+    _compute_widget,
+    _dataset_multi_series,
+    _dataset_period_series,
+    _dataset_series,
+    _dataset_table,
+    _formula_value,
+    _metric_value,
+    _page_org,
+    _widget_org,
+    compute_page_data,
+    compute_widget_data,
+    export_page_xlsx,
+    list_org_alerts,
+    preview_widget,
+    widget_drill,
 )
 
 
@@ -652,7 +676,7 @@ async def template_bindings(conn, org_id, template_id: str) -> dict:
 
 
 async def create_from_template(conn, org_id, user_id, template_id: str, name: str,
-                               dataset_map: dict = None, metric_map: dict = None) -> dict:
+                               dataset_map: Optional[dict] = None, metric_map: Optional[dict] = None) -> dict:
     spec = await conn.fetchval(
         "select spec from dashboard_templates where id=$1::uuid and organization_id=$2", template_id, org_id)
     if spec is None:

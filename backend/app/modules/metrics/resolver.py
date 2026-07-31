@@ -171,15 +171,15 @@ async def evaluate_ast(conn, org_id, ast: Dict[str, Any], _visiting: Optional[se
 
     columns: dict = {}
     for dataset, field, filt in refs["columns"]:
-        key = (dataset, field, _freeze(filt))
-        if key not in columns:
-            columns[key] = await _fetch_column(conn, org_id, dataset, field, filt)
+        col_key = (dataset, field, _freeze(filt))
+        if col_key not in columns:
+            columns[col_key] = await _fetch_column(conn, org_id, dataset, field, filt)
 
     cells: dict = {}
     for dataset, date, row, col in refs["cells"]:
-        key = (dataset, date, row, col)
-        if key not in cells:
-            cells[key] = await _fetch_cell(conn, org_id, dataset, date, row, col)
+        cell_key = (dataset, date, row, col)
+        if cell_key not in cells:
+            cells[cell_key] = await _fetch_cell(conn, org_id, dataset, date, row, col)
 
     metrics: dict = {}
     for code, version in refs["metrics"]:
@@ -188,9 +188,9 @@ async def evaluate_ast(conn, org_id, ast: Dict[str, Any], _visiting: Optional[se
 
     windows: dict = {}
     for wnode in refs.get("windows", []):
-        key = evaluator.node_key(wnode)
-        if key not in windows:
-            windows[key] = await _compute_window_series(conn, org_id, wnode, _visiting)
+        window_key = evaluator.node_key(wnode)
+        if window_key not in windows:
+            windows[window_key] = await _compute_window_series(conn, org_id, wnode, _visiting)
 
     resolver = CacheResolver(columns, cells, metrics, windows)
     return evaluator.evaluate(ast, resolver)

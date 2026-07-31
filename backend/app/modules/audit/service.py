@@ -261,7 +261,8 @@ async def _facets(conn, org_id) -> dict:
     )
     return {
         "actors": [{"id": str(a["id"]), "login": a["login"], "full_name": a["full_name"]} for a in actors],
-        "entity_types": [{"code": e["entity_type"], "label": ENTITY_LABELS.get(e["entity_type"], e["entity_type"])} for e in ets],
+        "entity_types": [
+            {"code": e["entity_type"], "label": ENTITY_LABELS.get(e["entity_type"], e["entity_type"])} for e in ets],
         "actions": ACTIONS,
     }
 

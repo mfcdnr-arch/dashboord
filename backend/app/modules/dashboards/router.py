@@ -310,7 +310,8 @@ async def instantiate_template(template_id: str, body: InstantiateIn, user: dict
 async def save_template(dashboard_id: str, body: TemplateIn, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:
         try:
-            return await service.save_as_template(conn, user["organization_id"], user["id"], dashboard_id, body.name, body.description)
+            return await service.save_as_template(
+                conn, user["organization_id"], user["id"], dashboard_id, body.name, body.description)
         except DashboardError as e:
             raise _bad(e)
 

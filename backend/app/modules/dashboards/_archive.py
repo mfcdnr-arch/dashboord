@@ -259,18 +259,18 @@ def snapshot_to_xlsx(archive: dict) -> bytes:
             elif t in ("bar", "line", "pie", "waterfall", "objects_compare"):
                 ws = wb.create_sheet(_sheet_name(wb, name))
                 ws.append(["Категория", "Значение"])
-                for c, v in zip(d.get("categories", []), d.get("values", [])):
+                for c, v in zip(d.get("categories", []), d.get("values", []), strict=False):
                     ws.append([c, v])
             elif t == "dynamics":
                 ws = wb.create_sheet(_sheet_name(wb, name))
                 ws.append(["Период", "Значение"])
-                for pr, v in zip(d.get("periods", []), d.get("values", [])):
+                for pr, v in zip(d.get("periods", []), d.get("values", []), strict=False):
                     ws.append([pr, v])
             elif t == "yoy":
                 ws = wb.create_sheet(_sheet_name(wb, name))
                 py, cy = d.get("previous_year"), d.get("current_year")
                 ws.append(["Месяц", str(py) if py else "пред. год", str(cy)])
-                for mn, pv, cv in zip(d.get("months", []), d.get("previous", []), d.get("current", [])):
+                for mn, pv, cv in zip(d.get("months", []), d.get("previous", []), d.get("current", []), strict=False):
                     ws.append([mn, pv, cv])
             elif t == "compare":
                 ws = wb.create_sheet(_sheet_name(wb, name))

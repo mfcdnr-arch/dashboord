@@ -12,14 +12,14 @@ from fastapi.responses import JSONResponse
 
 from . import cache, db, observability
 from .config import settings
-from .modules.auth.bootstrap import ensure_seed
 from .modules.audit.router import router as audit_router
+from .modules.auth.bootstrap import ensure_seed
 from .modules.auth.router import router as auth_router
 from .modules.catalog.router import router as catalog_router
 from .modules.dashboards.router import router as dashboards_router
 from .modules.documents.router import router as documents_router
-from .modules.home.router import router as home_router
 from .modules.documents.storage import ensure_bucket
+from .modules.home.router import router as home_router
 from .modules.ingestion import queue as ingestion_queue
 from .modules.ingestion.router import router as ingestion_router
 from .modules.maintenance.router import router as maintenance_router

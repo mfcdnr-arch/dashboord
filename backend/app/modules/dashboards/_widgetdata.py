@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import json
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from ... import cache
 from ..metrics import resolver as mr
@@ -146,7 +146,7 @@ async def _dataset_multi_series(conn, org_id, dataset_code: str, value_fields: L
         if lbl not in categories:
             categories.append(lbl)
         per[r["canonical_field_code"]][lbl] = float(r["value_number"])
-    series = [{"name": names.get(f, f), "data": [per[f].get(l) for l in categories]} for f in value_fields]
+    series = [{"name": names.get(f, f), "data": [per[f].get(cat) for cat in categories]} for f in value_fields]
     return {"categories": categories, "series": series}
 
 
@@ -220,7 +220,7 @@ async def _attach_as_of(conn, org_id, cfg: dict, result):
 
 
 async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_date=None, row=None,
-                              user: dict = None, skip_acl: bool = False) -> dict:
+                              user: Optional[dict] = None, skip_acl: bool = False) -> dict:
     w = await _widget_org(conn, org_id, widget_id)
     if w is None:
         raise DashboardError("Виджет не найден")
@@ -232,6 +232,7 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
     # для зрителя-по-гранту невидим (fail closed). Пропускаем при skip_acl
     # (батч-выдача уже отфильтровала виджеты по whitelist выше).
     if not skip_acl:
+        assert user is not None  # гарантировано проверкой выше (fail closed)
         allowed = await visible_widget_ids(conn, org_id, user, str(w["dashboard_id"]))
         if allowed is not None and widget_id not in allowed:
             raise DashboardError("Виджет не найден")
@@ -402,7 +403,8 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
     if t == "dynamics":
         if not cfg.get("dataset_code") or not cfg.get("value_field"):
             raise DashboardError("Динамика: укажите dataset_code и value_field")
-        series = await _dataset_period_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], from_date, to_date, row, allowed)
+        series = await _dataset_period_series(
+            conn, org_id, cfg["dataset_code"], cfg["value_field"], from_date, to_date, row, allowed)
         periods = [p for p, _ in series]
         values = [v for _, v in series]
         change = values[-1] - values[-2] if len(values) >= 2 else None
@@ -442,17 +444,22 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         # Честное сравнение — по СОПОСТАВИМЫМ месяцам (данные есть в обоих годах),
         # иначе неполный год сравнивался бы с полным.
         common = sorted(set(cur_map) & set(prev_map))
-        prev_cmp = sum(prev_map[m] for m in common) if common else None
-        cur_cmp = sum(cur_map[m] for m in common) if common else None
-        change = (cur_cmp - prev_cmp) if prev_cmp is not None else None
-        change_pct = (change / prev_cmp * 100.0) if (change is not None and prev_cmp) else None
+        if common:
+            s_prev = sum(prev_map[m] for m in common)
+            s_cur = sum(cur_map[m] for m in common)
+            diff = s_cur - s_prev
+            pct = (diff / s_prev * 100.0) if s_prev else None
+            yoy_change: Optional[float] = diff
+            yoy_change_pct: Optional[float] = pct
+        else:
+            yoy_change = yoy_change_pct = None
         return {"type": "yoy", "title": name, "months": months,
                 "current_year": cur, "previous_year": prev if prev_map else None,
                 "current": cur_vals, "previous": prev_vals,
                 "current_total": cur_total,
                 "previous_total": (sum(v for v in prev_vals if v is not None) if prev_map else None),
                 "compared_months": len(common),
-                "change": change, "change_pct": change_pct, "unit": cfg.get("unit")}
+                "change": yoy_change, "change_pct": yoy_change_pct, "unit": cfg.get("unit")}
 
     if t == "kpi":
         if cfg.get("formula"):
@@ -493,8 +500,10 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
             plan, unit = await _metric_value(conn, org_id, cfg["plan_metric"])
             fact, _ = await _metric_value(conn, org_id, cfg["fact_metric"])
         elif cfg.get("dataset_code") and cfg.get("plan_field") and cfg.get("fact_field"):
-            plan = sum(s["value"] for s in await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["plan_field"], row, allowed))
-            fact = sum(s["value"] for s in await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["fact_field"], row, allowed))
+            plan = sum(s["value"] for s in await _dataset_series(
+                conn, org_id, cfg["dataset_code"], cfg["plan_field"], row, allowed))
+            fact = sum(s["value"] for s in await _dataset_series(
+                conn, org_id, cfg["dataset_code"], cfg["fact_field"], row, allowed))
             unit = cfg.get("unit")
         else:
             raise DashboardError("План-факт: укажите plan_metric+fact_metric или dataset_code+plan_field+fact_field")
@@ -558,6 +567,7 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
     Аннотации (text/image) пропускаются. RLS: проверяется доступ к дашборду."""
     import io
     import re
+
     from openpyxl import Workbook
 
     p = await _page_org(conn, org_id, page_id)
@@ -612,18 +622,18 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
         elif t in ("bar", "line", "pie"):
             ws = wb.create_sheet(sheet_name(name))
             ws.append(["Категория", "Значение"])
-            for c, v in zip(data.get("categories", []), data.get("values", [])):
+            for c, v in zip(data.get("categories", []), data.get("values", []), strict=False):
                 ws.append([c, v])
         elif t == "dynamics":
             ws = wb.create_sheet(sheet_name(name))
             ws.append(["Период", "Значение"])
-            for pr, v in zip(data.get("periods", []), data.get("values", [])):
+            for pr, v in zip(data.get("periods", []), data.get("values", []), strict=False):
                 ws.append([pr, v])
         elif t == "yoy":
             ws = wb.create_sheet(sheet_name(name))
             py, cy = data.get("previous_year"), data.get("current_year")
             ws.append(["Месяц", str(py) if py else "пред. год", str(cy)])
-            for mn, pv, cv in zip(data.get("months", []), data.get("previous", []), data.get("current", [])):
+            for mn, pv, cv in zip(data.get("months", []), data.get("previous", []), data.get("current", []), strict=False):
                 ws.append([mn, pv, cv])
         elif t == "compare":
             ws = wb.create_sheet(sheet_name(name))
@@ -653,13 +663,13 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
         elif t == "waterfall":
             ws = wb.create_sheet(sheet_name(name))
             ws.append(["Категория", "Значение"])
-            for c, v in zip(data.get("categories", []), data.get("values", [])):
+            for c, v in zip(data.get("categories", []), data.get("values", []), strict=False):
                 ws.append([c, v])
             ws.append([data.get("total_label", "Итого"), sum(v for v in data.get("values", []) if v is not None)])
         elif t == "objects_compare":
             ws = wb.create_sheet(sheet_name(name))
             ws.append(["Подразделение", "Значение"])
-            for c, v in zip(data.get("categories", []), data.get("values", [])):
+            for c, v in zip(data.get("categories", []), data.get("values", []), strict=False):
                 ws.append([c, v])
 
     if not has_summary and len(wb.sheetnames) > 1:
