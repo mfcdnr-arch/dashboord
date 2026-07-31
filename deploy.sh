@@ -5,16 +5,18 @@
 #   cp .env.prod.example .env.prod   # и заполнить секреты
 #   ./deploy.sh
 #
-# Флаги: --no-build (не пересобирать образы), --skip-smoke (без проверки).
+# Флаги: --no-build (не пересобирать образы), --skip-smoke (без проверки),
+#        --skip-backup (не бэкапить БД перед накатом миграций при обновлении).
 set -euo pipefail
 cd "$(dirname "$0")"
 
-NO_BUILD=""; SKIP_SMOKE=""; TLS=""
+NO_BUILD=""; SKIP_SMOKE=""; TLS=""; SKIP_BACKUP=""
 for a in "$@"; do
   case "$a" in
     --no-build) NO_BUILD=1 ;;
     --skip-smoke) SKIP_SMOKE=1 ;;
     --tls) TLS=1 ;;
+    --skip-backup) SKIP_BACKUP=1 ;;
     *) echo "Неизвестный флаг: $a"; exit 2 ;;
   esac
 done
@@ -69,7 +71,27 @@ else
   log "Пропуск сборки (--no-build)"
 fi
 
-# 3. Запуск всего стека ---------------------------------------------------
+# 3. Бэкап перед миграциями (только при ОБНОВЛЕНИИ — БД от прошлого деплоя уже
+#    работает; на первой установке бэкапировать нечего, backup.sh сам увидит
+#    отсутствие контейнера). Форвард-миграции необратимы — это страховка перед
+#    накатом новых, а не автоматический откат (см. фазу 3: down-миграции для
+#    29 уже накопленных миграций признаны более рискованными, чем полезными).
+if [ -n "$SKIP_BACKUP" ]; then
+  log "Бэкап перед миграциями пропущен (--skip-backup)."
+elif docker inspect -f '{{.State.Running}}' dashbord_prod_postgres >/dev/null 2>&1; then
+  log "Обнаружена работающая БД от предыдущего деплоя — бэкап перед накатом миграций…"
+  if ./backup.sh; then
+    log "Бэкап перед миграциями создан."
+  else
+    err "Бэкап перед миграциями не удался — прерываю деплой, миграции НЕ применены."
+    err "Проверьте место на диске/backups/, либо повторите с --skip-backup осознанно."
+    exit 1
+  fi
+else
+  log "Свежая установка (БД ещё не поднята) — бэкап перед миграциями не требуется."
+fi
+
+# 4. Запуск всего стека ---------------------------------------------------
 # Порядок гарантирует compose через depends_on:
 #   postgres(healthy) → migrate(completed_successfully) → api/worker(healthy) → web.
 # Если миграции упадут — migrate завершится с ненулевым кодом, api не стартует,
@@ -80,7 +102,7 @@ if ! $COMPOSE up -d; then
   exit 1
 fi
 
-# 4. Ожидание готовности --------------------------------------------------
+# 5. Ожидание готовности --------------------------------------------------
 log "Ожидание готовности API…"
 for i in $(seq 1 30); do
   if docker inspect -f '{{.State.Health.Status}}' dashbord_prod_api 2>/dev/null | grep -q healthy; then
@@ -90,7 +112,7 @@ for i in $(seq 1 30); do
   [ "$i" = 30 ] && { err "API не стал healthy за ~90с — смотрите: $COMPOSE logs api"; exit 1; }
 done
 
-# 5. Smoke-проверка -------------------------------------------------------
+# 6. Smoke-проверка -------------------------------------------------------
 WEB_PORT="$(grep -E '^WEB_PORT=' .env.prod | cut -d= -f2 || true)"; WEB_PORT="${WEB_PORT:-8090}"
 HTTPS_PORT="$(grep -E '^HTTPS_PORT=' .env.prod | cut -d= -f2 || true)"; HTTPS_PORT="${HTTPS_PORT:-8443}"
 
