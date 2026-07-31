@@ -16,10 +16,11 @@ ENTITY_LABELS = {
     "dashboard": "Дашборд",
     "widget": "Виджет",
     "object_acl": "Права доступа",
+    "system": "Система",
 }
 # Все значения enum audit_action (порядок — для фасета фильтра).
 ACTIONS = ["create", "update", "delete", "publish", "grant_access", "revoke_access", "view",
-           "archive", "unarchive"]
+           "archive", "unarchive", "heal"]
 
 # Технические поля, изменение которых не считаем содержательным при вычислении
 # сводки изменённых полей (они меняются при любой правке).

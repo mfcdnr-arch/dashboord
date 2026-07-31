@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  getAttendanceReport, getBusinessReport, getDashboardViewers, getDataQualityReport, getModerationReport, getPopularityReport, getSystemReport, healSystem,
-  type AttendanceReport, type BusinessReport, type DashboardViewers, type DataQualityReport, type Gauge, type HealResult, type ModerationReport, type PopularityReport, type SystemReport,
+  getAttendanceReport, getBusinessReport, getDashboardViewers, getDataQualityReport, getHealHistory, getModerationReport, getPopularityReport, getSystemReport, healSystem,
+  type AttendanceReport, type BusinessReport, type DashboardViewers, type DataQualityReport, type Gauge, type HealHistoryEntry, type HealResult, type ModerationReport, type PopularityReport, type SystemReport,
 } from '../api'
 import EChart from './EChartLazy'
 
@@ -26,6 +26,10 @@ function fmtUptime(sec: number): string {
   const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60)
   return d > 0 ? `${d} д ${h} ч` : h > 0 ? `${h} ч ${m} мин` : `${m} мин`
 }
+function fmtDt(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+}
 
 export default function ReportsPage({ me }: { me: { roles: string[] } }) {
   const [sys, setSys] = useState<SystemReport | null>(null)
@@ -38,23 +42,27 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
   const [error, setError] = useState<string | null>(null)
   const [heal, setHeal] = useState<HealResult | null>(null)
   const [healing, setHealing] = useState(false)
+  const [healHist, setHealHist] = useState<HealHistoryEntry[] | null>(null)
   const canAdmin = me.roles.includes('admin') || me.roles.includes('superadmin')
 
   const loadSys = () => getSystemReport().then(setSys).catch((e) => setError((e as Error).message))
+  const loadHealHist = () => getHealHistory().then(setHealHist).catch((e) => setError((e as Error).message))
   async function doHeal() {
     setHealing(true); setError(null)
-    try { setHeal(await healSystem()); await loadSys() } catch (e) { setError((e as Error).message) } finally { setHealing(false) }
+    try { setHeal(await healSystem()); await loadSys(); await loadHealHist() } catch (e) { setError((e as Error).message) } finally { setHealing(false) }
   }
   useEffect(() => {
     if (!canAdmin) return
     loadSys()
+    loadHealHist()
     getAttendanceReport().then(setAtt).catch((e) => setError((e as Error).message))
     getPopularityReport().then(setPop).catch((e) => setError((e as Error).message))
     getModerationReport().then(setMod).catch((e) => setError((e as Error).message))
     getDataQualityReport().then(setDq).catch((e) => setError((e as Error).message))
     getBusinessReport().then(setBiz).catch((e) => setError((e as Error).message))
     const t = setInterval(loadSys, 15000) // авто-обновление мониторинга
-    return () => clearInterval(t)
+    const th = setInterval(loadHealHist, 60000) // история чинится сторожевым cron раз в 10 мин
+    return () => { clearInterval(t); clearInterval(th) }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!canAdmin) return <div style={{ color: 'var(--danger)' }}>Раздел «Отчёты» доступен только администратору.</div>
@@ -107,7 +115,25 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
             )}
             <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 8 }}>
               Автопочинка — уровень приложения (бакет MinIO, связь с Redis). Авто-рестарт упавших контейнеров выполняет Docker (restart: unless-stopped).
+              Сторожевой процесс сам проверяет статус каждые 10 мин и чинит при деградации — не только по кнопке.
             </div>
+            {healHist && healHist.length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>История починок</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflowY: 'auto' }}>
+                  {healHist.map((h) => (
+                    <div key={h.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12.5, padding: '3px 0', borderBottom: '1px solid var(--border)' }}>
+                      <span style={{ color: 'var(--text-faint)', minWidth: 118 }}>{fmtDt(h.created_at)}</span>
+                      <span style={{ padding: '1px 8px', borderRadius: 8, background: 'var(--surface-2)', color: 'var(--text-2)' }}>
+                        {h.triggered_by === 'auto' ? '🤖 авто' : `🖱 ${h.triggered_by_login ?? 'вручную'}`}
+                      </span>
+                      <span>{h.status_before} → {h.status_after}</span>
+                      <span style={{ color: h.healthy ? 'var(--success)' : 'var(--danger)' }}>{h.healthy ? '✓ починено' : '⚠ остались проблемы'}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
       </Section>

@@ -8,11 +8,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 
 from ...config import settings
+from ..audit import service as audit
 from ..documents import storage
 from ..notifications import service as notif
+from ..reports import service as reports_svc
 
 
 async def heal() -> dict:
@@ -62,6 +65,44 @@ async def heal() -> dict:
         actions.append({"name": "Redis: связь", "ok": False, "result": f"недоступен: {e}"})
 
     return {"actions": actions, "healthy": all(a["ok"] for a in actions)}
+
+
+async def heal_and_log(conn, triggered_by: str, user_id=None, user_org_id=None) -> dict:
+    """Обёртка над heal(): фиксирует статус до/после в system_heal_log (история
+    ручных и автоматических починок), при ручном запуске — плюс запись в audit_log.
+    triggered_by: 'manual' (кнопка админа) | 'auto' (сторожевой arq-cron)."""
+    before = await reports_svc.system_health(conn)
+    result = await heal()
+    after = await reports_svc.system_health(conn)
+    row_id = await conn.fetchval(
+        "insert into system_heal_log(triggered_by, triggered_by_user_id, status_before, "
+        "status_after, healthy, actions) values($1, $2::uuid, $3, $4, $5, $6::jsonb) returning id",
+        triggered_by, str(user_id) if user_id else None,
+        before["status"], after["status"], result["healthy"],
+        json.dumps(result["actions"], ensure_ascii=False))
+    if triggered_by == "manual" and user_org_id:
+        await audit.write_event(
+            conn, user_org_id, user_id, "heal", "system", str(row_id),
+            new_data={"status_before": before["status"], "status_after": after["status"],
+                      "healthy": result["healthy"]})
+    return {**result, "status_before": before["status"], "status_after": after["status"]}
+
+
+async def notify_degraded(conn, org_id, heal_result: dict) -> None:
+    """Уведомить admin/moderator организации, если автопочинка не устранила деградацию.
+    Антидубль: не чаще раза в час на организацию (иначе watchdog каждые 10 мин спамил бы)."""
+    dup = await conn.fetchval(
+        "select 1 from notification_events where organization_id=$1 and event_type='system.degraded' "
+        "and created_at > now() - interval '1 hour' limit 1", org_id)
+    if dup:
+        return
+    recipients = await notif.management_user_ids(conn, org_id)
+    if not recipients:
+        return
+    await notif.notify(
+        conn, org_id, "system.degraded", "organization", str(org_id),
+        {"actions": heal_result["actions"], "status_after": heal_result["status_after"]},
+        recipients)
 
 
 async def check_freshness(conn, org_id, stale_days: int | None = None) -> dict:
@@ -123,3 +164,18 @@ async def run_retention(conn, org_id, months: int | None = None, notify_admins: 
             conn, org_id, "data.retention", "organization", str(org_id),
             {"deleted_releases": deleted, "window_months": m}, recipients)
     return {"enabled": True, "months": m, "deleted_releases": deleted}
+
+
+async def heal_history(conn, limit: int = 20) -> list[dict]:
+    """Последние heal-события (ручные и автоматические) для UI «Здоровье системы»."""
+    rows = await conn.fetch(
+        "select sh.id, sh.triggered_by, u.login as triggered_by_login, sh.status_before, "
+        "sh.status_after, sh.healthy, sh.actions, sh.created_at from system_heal_log sh "
+        "left join users u on u.id = sh.triggered_by_user_id "
+        "order by sh.created_at desc limit $1", limit)
+    return [
+        {"id": str(r["id"]), "triggered_by": r["triggered_by"], "triggered_by_login": r["triggered_by_login"],
+         "status_before": r["status_before"], "status_after": r["status_after"], "healthy": r["healthy"],
+         "actions": json.loads(r["actions"]), "created_at": r["created_at"].isoformat()}
+        for r in rows
+    ]

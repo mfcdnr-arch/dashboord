@@ -14,6 +14,7 @@ from arq import cron
 
 from ... import db
 from ..maintenance import service as maint
+from ..reports import service as reports_svc
 from .queue import redis_settings
 from .service import run_extraction
 
@@ -48,6 +49,19 @@ async def monthly_auto_archive(ctx) -> None:
     await _for_each_org(_archive.run_monthly_auto_archive)
 
 
+async def system_watchdog(ctx) -> None:
+    """Планировщик: каждые 10 мин — если система в статусе degraded, безопасно
+    починить (heal) и залогировать; если после починки всё ещё плохо — уведомить
+    admin/moderator каждой организации (антидубль — не чаще раза в час)."""
+    async with db.get_pool().acquire() as conn:
+        health = await reports_svc.system_health(conn)
+        if health["status"] != "degraded":
+            return
+        result = await maint.heal_and_log(conn, "auto")
+        if not result["healthy"]:
+            await _for_each_org(lambda c, org_id: maint.notify_degraded(c, org_id, result))
+
+
 async def on_startup(ctx) -> None:
     await db.connect()
 
@@ -62,6 +76,7 @@ class WorkerSettings:
         cron(daily_freshness, hour=7, minute=0),                 # ежедневно 07:00 — свежесть
         cron(weekly_retention, weekday="sun", hour=3, minute=0),  # вс 03:00 — ретенция
         cron(monthly_auto_archive, day=1, hour=2, minute=0),      # 1-е число 02:00 — автоархив за прошлый месяц
+        cron(system_watchdog, minute={0, 10, 20, 30, 40, 50}),    # каждые 10 мин — сторожевая самодиагностика/самопочинка
     ]
     on_startup = on_startup
     on_shutdown = on_shutdown

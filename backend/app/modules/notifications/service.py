@@ -15,6 +15,7 @@ EVENT_LABELS = {
     "data.retention": "Очистка старых данных (ретенция)",
     "widget.created.no_explicit_access": "Новый виджет без прав доступа",
     "dashboard.comment": "Новый комментарий к дашборду",
+    "system.degraded": "Система в статусе «есть проблемы» после автопочинки",
 }
 
 

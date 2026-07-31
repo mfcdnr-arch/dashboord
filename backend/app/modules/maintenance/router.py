@@ -40,5 +40,16 @@ async def freshness_check(stale_days: Optional[int] = Query(None, ge=1), user: d
 @router.post("/heal")
 async def heal(user: dict = Depends(admin)):
     """Автопочинка прод-стека на уровне приложения (безопасные идемпотентные
-    восстановления: бакет MinIO, связь с Redis). admin/superadmin."""
-    return await service.heal()
+    восстановления: бакет MinIO, связь с Redis). admin/superadmin. Событие
+    фиксируется в истории (system_heal_log) и в журнале аудита."""
+    async with db.acquire(user["id"]) as conn:
+        async with conn.transaction():
+            return await service.heal_and_log(
+                conn, "manual", user_id=user["id"], user_org_id=user["organization_id"])
+
+
+@router.get("/heal-history")
+async def heal_history(limit: int = Query(20, ge=1, le=100), user: dict = Depends(admin)):
+    """Последние heal-события (ручные и автоматические от сторожевого arq-cron)."""
+    async with db.get_pool().acquire() as conn:
+        return await service.heal_history(conn, limit)

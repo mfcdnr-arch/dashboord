@@ -13,10 +13,12 @@ const PAGE = 50
 const ACTION_LABEL: Record<string, string> = {
   create: 'Создание', update: 'Изменение', delete: 'Удаление', publish: 'Публикация',
   grant_access: 'Выдача доступа', revoke_access: 'Отзыв доступа', view: 'Просмотр',
+  archive: 'Архивация', unarchive: 'Разархивация', heal: 'Автопочинка',
 }
 const ACTION_COLOR: Record<string, string> = {
   create: 'var(--success)', update: 'var(--warn)', delete: 'var(--danger)', publish: 'var(--accent)',
   grant_access: 'var(--success)', revoke_access: 'var(--danger)', view: 'var(--text-muted)',
+  archive: 'var(--text-muted)', unarchive: 'var(--success)', heal: 'var(--accent)',
 }
 
 function fmtDt(iso: string | null): string {

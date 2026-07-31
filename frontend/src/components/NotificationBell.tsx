@@ -17,6 +17,7 @@ function message(n: NotificationItem): string {
   if (n.event_type === 'data.stale') return `Объект «${p.object_name}»: нет новых данных ${p.days_since_upload} дн. (порог ${p.threshold_days}).`
   if (n.event_type === 'data.retention') return `Ретенция: удалено релизов — ${p.deleted_releases} (окно ${p.window_months} мес.).`
   if (n.event_type === 'widget.created.no_explicit_access') return `Новый виджет без явных прав: ${p.widget_name ?? ''}`
+  if (n.event_type === 'system.degraded') return `Автопочинка не устранила все проблемы (статус: ${p.status_after ?? 'degraded'}). Посмотрите раздел «Отчёты» → «Здоровье системы».`
   return n.label
 }
 
