@@ -1,8 +1,13 @@
-"""Системный модуль: служебная информация о БД + статус первичной настройки."""
-from fastapi import APIRouter, Depends, status
+"""Системный модуль: служебная информация о БД + статус первичной настройки +
+графические настройки-пороги (взамен правки .env + рестарт)."""
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 
 from ... import db
 from ..auth.deps import require_roles
+from . import settings_service as settings_svc
 
 router = APIRouter(prefix="/system", tags=["system"])
 setup_roles = require_roles("admin", "superadmin")
@@ -56,3 +61,51 @@ async def setup_dismiss(user: dict = Depends(setup_roles)):
     async with db.get_pool().acquire() as conn:
         await conn.execute(
             "update organizations set setup_dismissed=true where id=$1", user["organization_id"])
+
+
+class SystemSettingsIn(BaseModel):
+    login_max_attempts: Optional[int] = Field(None, ge=0, le=100)
+    login_lockout_minutes: Optional[int] = Field(None, ge=1, le=1440)
+    cpu_warn: Optional[float] = Field(None, gt=0, lt=100)
+    cpu_crit: Optional[float] = Field(None, gt=0, le=100)
+    ram_warn: Optional[float] = Field(None, gt=0, lt=100)
+    ram_crit: Optional[float] = Field(None, gt=0, le=100)
+    disk_warn: Optional[float] = Field(None, gt=0, lt=100)
+    disk_crit: Optional[float] = Field(None, gt=0, le=100)
+
+
+class OrgSettingsIn(BaseModel):
+    stale_days: Optional[int] = Field(None, ge=1, le=3650)
+    retention_months: Optional[int] = Field(None, ge=0, le=120)
+
+
+@router.get("/settings")
+async def get_settings(user: dict = Depends(setup_roles)):
+    """Эффективные пороги (системные + организации), для страницы «Настройки».
+    admin/superadmin."""
+    async with db.get_pool().acquire() as conn:
+        return {
+            "system": await settings_svc.get_system_settings(conn),
+            "org": await settings_svc.get_org_settings(conn, user["organization_id"]),
+        }
+
+
+@router.put("/settings/system")
+async def put_system_settings(body: SystemSettingsIn, user: dict = Depends(setup_roles)):
+    """Обновить системные пороги (вход/блокировка, CPU/RAM/диск). admin/superadmin."""
+    async with db.acquire(user["id"]) as conn:
+        async with conn.transaction():
+            try:
+                return await settings_svc.update_system_settings(
+                    conn, user["id"], body.model_dump(exclude_none=True))
+            except settings_svc.SettingsError as e:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+
+
+@router.put("/settings/org")
+async def put_org_settings(body: OrgSettingsIn, user: dict = Depends(setup_roles)):
+    """Обновить пороги организации (свежесть данных, ретенция). admin/superadmin."""
+    async with db.acquire(user["id"]) as conn:
+        async with conn.transaction():
+            return await settings_svc.update_org_settings(
+                conn, user["organization_id"], body.model_dump(exclude_none=True))

@@ -18,6 +18,7 @@ from ..dashboards import service as dash_svc
 from ..documents import storage
 from ..metrics import resolver as mr
 from ..metrics.parser import FormulaError
+from ..system import settings_service as settings_svc
 
 
 def _level(pct: float, warn: float, crit: float) -> str:
@@ -25,6 +26,7 @@ def _level(pct: float, warn: float, crit: float) -> str:
 
 
 async def system_health(conn) -> dict:
+    th = await settings_svc.get_system_settings(conn)
     cpu = psutil.cpu_percent(interval=0.3)
     vm = psutil.virtual_memory()
     du = psutil.disk_usage("/")
@@ -71,13 +73,20 @@ async def system_health(conn) -> dict:
     services.append({"name": "MinIO", "ok": minio_ok, "latency_ms": round((time.perf_counter() - t0) * 1000, 1)})
 
     # Общий статус: degraded, если любой сервис недоступен или ресурс в danger.
-    res_danger = any(_level(x, 80, 92) == "danger" for x in (cpu, vm.percent, du.percent))
+    # Пороги настраиваются в UI «Настройки» (system_settings), а не только в .env.
+    res_danger = any((
+        _level(cpu, th["cpu_warn"], th["cpu_crit"]) == "danger",
+        _level(vm.percent, th["ram_warn"], th["ram_crit"]) == "danger",
+        _level(du.percent, th["disk_warn"], th["disk_crit"]) == "danger",
+    ))
     overall = "degraded" if (not all(s["ok"] for s in services) or res_danger) else "ok"
     return {
         "status": overall,
-        "cpu": {"percent": round(cpu, 1), "level": _level(cpu, 70, 90)},
-        "memory": {"percent": round(vm.percent, 1), "used": vm.used, "total": vm.total, "level": _level(vm.percent, 80, 92)},
-        "disk": {"percent": round(du.percent, 1), "used": du.used, "total": du.total, "level": _level(du.percent, 80, 92)},
+        "cpu": {"percent": round(cpu, 1), "level": _level(cpu, th["cpu_warn"], th["cpu_crit"])},
+        "memory": {"percent": round(vm.percent, 1), "used": vm.used, "total": vm.total,
+                   "level": _level(vm.percent, th["ram_warn"], th["ram_crit"])},
+        "disk": {"percent": round(du.percent, 1), "used": du.used, "total": du.total,
+                 "level": _level(du.percent, th["disk_warn"], th["disk_crit"])},
         "load": load, "cores": psutil.cpu_count(), "uptime_sec": uptime_sec,
         "db_size": db_size, "services": services,
     }

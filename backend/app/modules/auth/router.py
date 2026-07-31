@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 
 from ... import db
+from ..system import settings_service as settings_svc
 from .deps import get_current_user
 from .security import create_token, hash_password, validate_password, verify_password
 
@@ -32,20 +33,21 @@ async def login(request: Request, form: OAuth2PasswordRequestForm = Depends()):
     fwd = request.headers.get("x-forwarded-for")
     ip = (fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else None)) or None
     ua = request.headers.get("user-agent")
-    from ...config import settings
     async with db.get_pool().acquire() as conn:
+        sys_settings = await settings_svc.get_system_settings(conn)
         row = await conn.fetchrow(
             "select id, organization_id, password_hash, is_active from users where login = $1",
             form.username,
         )
-        # Защита от подбора: блокировка по логину после N неудач за окно.
+        # Защита от подбора: блокировка по логину после N неудач за окно
+        # (пороги настраиваются в UI «Настройки», а не только через .env).
         locked = False
-        if settings.login_max_attempts > 0:
+        if sys_settings["login_max_attempts"] > 0:
             fails = await conn.fetchval(
                 "select count(*) from login_events where login=$1 and success=false "
                 "and created_at > now() - make_interval(mins => $2)",
-                form.username, settings.login_lockout_minutes)
-            locked = fails >= settings.login_max_attempts
+                form.username, sys_settings["login_lockout_minutes"])
+            locked = fails >= sys_settings["login_max_attempts"]
         ok = (not locked) and bool(row) and row["is_active"] and verify_password(form.password, row["password_hash"])
         await conn.execute(
             "insert into login_events(organization_id, user_id, login, ip, user_agent, success) "
@@ -56,7 +58,7 @@ async def login(request: Request, form: OAuth2PasswordRequestForm = Depends()):
     if locked:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
-            f"Слишком много неудачных попыток. Повторите через {settings.login_lockout_minutes} мин.")
+            f"Слишком много неудачных попыток. Повторите через {sys_settings['login_lockout_minutes']} мин.")
     if not ok:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный логин или пароль")
     return {"access_token": create_token(str(row["id"])), "token_type": "bearer"}

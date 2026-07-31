@@ -16,6 +16,7 @@ from ..audit import service as audit
 from ..documents import storage
 from ..notifications import service as notif
 from ..reports import service as reports_svc
+from ..system import settings_service as settings_svc
 
 
 async def heal() -> dict:
@@ -107,7 +108,9 @@ async def notify_degraded(conn, org_id, heal_result: dict) -> None:
 
 async def check_freshness(conn, org_id, stale_days: int | None = None) -> dict:
     """Создаёт уведомления по объектам с устаревшими данными. Возвращает сводку."""
-    days = stale_days if stale_days is not None else settings.stale_days
+    days = stale_days
+    if days is None:
+        days = (await settings_svc.get_org_settings(conn, org_id))["stale_days"]
     rows = await conn.fetch(
         "select o.id, o.name, max(r.created_at) as last_upload, "
         "max(r.reporting_period_start) as last_period, count(r.id) as releases "
@@ -136,7 +139,9 @@ async def check_freshness(conn, org_id, stale_days: int | None = None) -> dict:
 
 async def retention_preview(conn, org_id, months: int | None = None) -> dict:
     """Сколько релизов/значений будет удалено при ретенции (без удаления)."""
-    m = months if months is not None else settings.retention_months
+    m = months
+    if m is None:
+        m = (await settings_svc.get_org_settings(conn, org_id))["retention_months"]
     if not m or m <= 0:
         return {"enabled": False, "months": m, "releases": 0, "values": 0}
     rel = await conn.fetchval(
@@ -151,7 +156,9 @@ async def retention_preview(conn, org_id, months: int | None = None) -> dict:
 
 async def run_retention(conn, org_id, months: int | None = None, notify_admins: bool = True) -> dict:
     """Удаляет релизы датасетов старше окна (каскадом — значения/поля/связи)."""
-    m = months if months is not None else settings.retention_months
+    m = months
+    if m is None:
+        m = (await settings_svc.get_org_settings(conn, org_id))["retention_months"]
     if not m or m <= 0:
         return {"enabled": False, "deleted_releases": 0}
     res = await conn.execute(

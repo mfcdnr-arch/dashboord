@@ -11,6 +11,7 @@ import ReportsPage from './components/ReportsPage'
 import AuditPage from './components/AuditPage'
 import ModerationPage from './components/ModerationPage'
 import CatalogPage from './components/CatalogPage'
+import SettingsPage from './components/SettingsPage'
 import NotificationBell from './components/NotificationBell'
 import OnboardingHint from './components/OnboardingHint'
 import ThemeToggle from './components/ThemeToggle'
@@ -76,6 +77,7 @@ const NAV = [
   { key: 'users', label: 'Пользователи', ready: true, adminOnly: true },
   { key: 'audit', label: 'Аудит', ready: true, adminOnly: true },
   { key: 'reports', label: 'Отчёты', ready: true, adminOnly: true },
+  { key: 'settings', label: 'Настройки', ready: true, adminOnly: true },
 ]
 
 // Узкий экран (телефон/планшет): переключает боковую навигацию на верхнюю
@@ -193,6 +195,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <ModerationPage me={me} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'catalog' ? (
             <CatalogPage me={me} />
+          ) : section === 'settings' ? (
+            <SettingsPage me={me} />
           ) : (
             <div style={{ color: 'var(--text-faint)' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>
           )}
