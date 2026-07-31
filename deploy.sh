@@ -21,14 +21,6 @@ for a in "$@"; do
   esac
 done
 
-# HTTPS в LAN: генерируем самоподписанный сертификат и включаем TLS-оверлей.
-COMPOSE_FILES="-f docker-compose.prod.yml"
-if [ -n "$TLS" ]; then
-  [ -f certs/tls.crt ] || ./gen-tls.sh "${TLS_CN:-localhost}" "${TLS_SAN:-}"
-  COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.tls.yml"
-fi
-COMPOSE="docker compose $COMPOSE_FILES --env-file .env.prod"
-
 log() { printf '\033[1;34m[deploy]\033[0m %s\n' "$1"; }
 err() { printf '\033[1;31m[deploy] ОШИБКА:\033[0m %s\n' "$1" >&2; }
 env_get_port() { grep -E "^$1=" .env.prod 2>/dev/null | cut -d= -f2 || true; }
@@ -62,6 +54,19 @@ fi
 # smoke/итогового URL.
 WEB_PORT="$(env_get_port WEB_PORT)"; WEB_PORT="${WEB_PORT:-8090}"
 HTTPS_PORT="$(env_get_port HTTPS_PORT)"; HTTPS_PORT="${HTTPS_PORT:-8443}"
+
+# HTTPS в LAN: генерируем самоподписанный сертификат и включаем TLS-оверлей.
+# CN/SAN — сначала из окружения (TLS_CN=... TLS_SAN=... ./deploy.sh --tls),
+# иначе — из .env.prod (удобно один раз задать имя/IP сервера и не вводить
+# каждый раз), иначе — localhost.
+COMPOSE_FILES="-f docker-compose.prod.yml"
+if [ -n "$TLS" ]; then
+  TLS_CN="${TLS_CN:-$(env_get_port TLS_CN)}"
+  TLS_SAN="${TLS_SAN:-$(env_get_port TLS_SAN)}"
+  [ -f certs/tls.crt ] || ./gen-tls.sh "${TLS_CN:-localhost}" "${TLS_SAN:-}"
+  COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.tls.yml"
+fi
+COMPOSE="docker compose $COMPOSE_FILES --env-file .env.prod"
 
 # Урок ВМ из проекта DS: сбитые часы → apt/подписи/сборка ломаются. Пробуем
 # исправить сами (self-heal при установке), не просто предупреждаем.
