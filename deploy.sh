@@ -31,6 +31,7 @@ COMPOSE="docker compose $COMPOSE_FILES --env-file .env.prod"
 
 log() { printf '\033[1;34m[deploy]\033[0m %s\n' "$1"; }
 err() { printf '\033[1;31m[deploy] ОШИБКА:\033[0m %s\n' "$1" >&2; }
+env_get_port() { grep -E "^$1=" .env.prod 2>/dev/null | cut -d= -f2 || true; }
 
 # 1. Предусловия ----------------------------------------------------------
 log "Проверка предусловий…"
@@ -56,12 +57,63 @@ if grep -q "CHANGE_ME" .env.prod; then
   err "в .env.prod остались значения CHANGE_ME — задайте реальные секреты (или удалите .env.prod и запустите снова для авто-генерации)"; exit 1
 fi
 
-# Урок ВМ из проекта DS: сбитые часы → apt/подписи/сборка ломаются. Предупредим.
+# Порты — после того, как .env.prod точно существует (свежесгенерирован выше
+# или уже был). Нужны и для предполётной проверки занятости (ниже), и для
+# smoke/итогового URL.
+WEB_PORT="$(env_get_port WEB_PORT)"; WEB_PORT="${WEB_PORT:-8090}"
+HTTPS_PORT="$(env_get_port HTTPS_PORT)"; HTTPS_PORT="${HTTPS_PORT:-8443}"
+
+# Урок ВМ из проекта DS: сбитые часы → apt/подписи/сборка ломаются. Пробуем
+# исправить сами (self-heal при установке), не просто предупреждаем.
 if command -v timedatectl >/dev/null 2>&1; then
   if ! timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -q yes; then
-    log "ВНИМАНИЕ: время системы не синхронизировано (NTP). При офлайн-сборке образов возможны сбои проверки подписей."
+    log "Время системы не синхронизировано (NTP) — пробую включить синхронизацию…"
+    if timedatectl set-ntp true 2>/dev/null; then
+      sleep 2
+      if timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -q yes; then
+        log "NTP включён и синхронизирован."
+      else
+        log "ВНИМАНИЕ: включил NTP, но синхронизация ещё не подтверждена (нужно время). При офлайн-сборке образов возможны сбои проверки подписей."
+      fi
+    else
+      log "ВНИМАНИЕ: не удалось включить NTP автоматически (нет прав/systemd-timesyncd?). При офлайн-сборке образов возможны сбои проверки подписей."
+    fi
   fi
 fi
+
+# Малый объём ОЗУ — предупреждение (advisory, не блокирует), как и NTP выше:
+# Postgres+Redis+MinIO+API+worker+nginx на слабой машине рискуют упасть в OOM.
+if [ -f /proc/meminfo ]; then
+  MEM_KB="$(awk '/^MemTotal:/{print $2}' /proc/meminfo)"
+  MEM_GB=$(( ${MEM_KB:-0} / 1024 / 1024 ))
+  if [ "$MEM_GB" -lt 4 ]; then
+    log "ВНИМАНИЕ: обнаружено ~${MEM_GB} ГБ ОЗУ. Рекомендуется от 4 ГБ (Postgres+Redis+MinIO+API+worker+nginx) — возможны сбои под нагрузкой."
+  fi
+fi
+
+# Предполётная проверка занятости портов: явная понятная ошибка ДО docker
+# compose up, а не запутанное "bind: address already in use" из глубины Docker.
+# Свой же контейнер от прошлого деплоя (dashbord_prod_*) на этом порту — не
+# конфликт, compose его пересоздаст; посторонний Docker-контейнер или процесс
+# хоста на этом порту — конфликт, останавливаем деплой с понятной подсказкой.
+check_port_free() {
+  local port="$1" label="$2"
+  local holder
+  holder="$(docker ps --format '{{.Names}}\t{{.Ports}}' 2>/dev/null | awk -F'\t' -v p=":${port}->" '$2 ~ p {print $1}' | head -1)"
+  if [ -n "$holder" ]; then
+    case "$holder" in
+      dashbord_prod_*) return 0 ;;
+      *) err "Порт $port ($label) уже занят Docker-контейнером «$holder» (не нашим). Остановите его или измените ${label}_PORT в .env.prod."; exit 1 ;;
+    esac
+  fi
+  if command -v lsof >/dev/null 2>&1 && lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+    err "Порт $port ($label) уже занят процессом на хосте (не Docker). Освободите его или измените ${label}_PORT в .env.prod."
+    exit 1
+  fi
+}
+log "Проверка занятости портов ($WEB_PORT${TLS:+, $HTTPS_PORT})…"
+check_port_free "$WEB_PORT" WEB
+[ -n "$TLS" ] && check_port_free "$HTTPS_PORT" HTTPS
 
 # 2. Сборка образов -------------------------------------------------------
 if [ -z "$NO_BUILD" ]; then
@@ -103,18 +155,33 @@ if ! $COMPOSE up -d; then
 fi
 
 # 5. Ожидание готовности --------------------------------------------------
+wait_api_healthy() {
+  local tries="$1"
+  for i in $(seq 1 "$tries"); do
+    if docker inspect -f '{{.State.Health.Status}}' dashbord_prod_api 2>/dev/null | grep -q healthy; then
+      return 0
+    fi
+    sleep 3
+  done
+  return 1
+}
 log "Ожидание готовности API…"
-for i in $(seq 1 30); do
-  if docker inspect -f '{{.State.Health.Status}}' dashbord_prod_api 2>/dev/null | grep -q healthy; then
-    break
+if ! wait_api_healthy 30; then
+  # Автопочинка при установке: контейнер иногда не поднимается с первого раза
+  # (гонка при инициализации, временная недоступность зависимости) — один
+  # автоматический перезапуск и повторное ожидание, прежде чем сдаться.
+  log "API не стал healthy за ~90с — пробую самопочинку (перезапуск api/worker)…"
+  $COMPOSE restart api worker || true
+  if ! wait_api_healthy 20; then
+    err "API так и не стал healthy после перезапуска — смотрите: $COMPOSE logs api"
+    exit 1
   fi
-  sleep 3
-  [ "$i" = 30 ] && { err "API не стал healthy за ~90с — смотрите: $COMPOSE logs api"; exit 1; }
-done
+  log "Самопочинка помогла — API поднялся после перезапуска."
+fi
 
 # 6. Smoke-проверка -------------------------------------------------------
-WEB_PORT="$(grep -E '^WEB_PORT=' .env.prod | cut -d= -f2 || true)"; WEB_PORT="${WEB_PORT:-8090}"
-HTTPS_PORT="$(grep -E '^HTTPS_PORT=' .env.prod | cut -d= -f2 || true)"; HTTPS_PORT="${HTTPS_PORT:-8443}"
+# (WEB_PORT/HTTPS_PORT уже прочитаны в начале скрипта — используются и для
+# предполётной проверки портов, и здесь.)
 
 # Дождаться, пока nginx начнёт принимать соединения: web стартует последним,
 # и на быстрой машине smoke иначе прилетает раньше bind'а порта (гонка).
