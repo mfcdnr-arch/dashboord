@@ -103,6 +103,18 @@ async function nav(page, label) {
   catch { await page.getByRole('button', { name: label, exact: true }).first().click({ force: true }).catch(() => fails.push('nav ' + label)); }
   await page.waitForTimeout(1100);
 }
+// Скриншот КОНКРЕТНОГО блока Section по заголовку h3 (а не всего viewport) —
+// на «Отчётах» несколько Section помещаются в один экран, скролл-к-заголовку
+// давал бы почти одинаковые кадры для соседних разделов.
+async function shotSection(page, headingText, name) {
+  try {
+    const el = page.locator(`h3:text-is("${headingText}")`).first().locator('xpath=../..');
+    await el.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(500);
+    await el.screenshot({ path: OUT + name + '.png' });
+    console.log('OK ' + name);
+  } catch (e) { fails.push(name + ': ' + e.message.split('\n')[0]); }
+}
 
 (async () => {
   prepUsers();
@@ -173,6 +185,14 @@ async function nav(page, label) {
   await nav(page, 'Пользователи'); await shot(page, '16_users', { full: true });
   await nav(page, 'Аудит'); await shot(page, '17_audit', { full: true });
   await nav(page, 'Отчёты'); await shot(page, '18_reports', { full: true, wait: 2000 });
+
+  // Отчёты: точечные кадры новых разделов (полный скрин выше — общий вид,
+  // эти — блок целиком, а не весь экран, иначе соседние разделы дублируются).
+  await shotSection(page, 'История починок', '18b_reports_healhist');
+  await shotSection(page, 'Логи сервисов', '18c_reports_logs');
+  await shotSection(page, 'Бэкап и автоархив', '18d_reports_backup');
+
+  await nav(page, 'Настройки'); await shot(page, '21_settings', { full: true, wait: 1200 });
 
   // Темы: тёмная и «МинЭк»
   try {
