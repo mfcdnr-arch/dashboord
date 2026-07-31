@@ -394,7 +394,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         <div style={{ flexBasis: '100%' }}>
           <F t="Сопоставлять"><select style={sel} value={matchBy} onChange={(e) => setMatchBy(e.target.value as 'row_label' | 'period')}>
             <option value="row_label">По строке (одинаковые названия в разных файлах)</option>
-            <option value="period">По периоду (дата выпуска датасета)</option>
+            <option value="period">По периоду (по месяцу выпуска)</option>
           </select></F>
           <F t="Вид"><select style={sel} value={viz} onChange={(e) => setViz(e.target.value)}><option value="bar">Столбцы</option><option value="line">Линии</option></select></F>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', margin: '8px 0 4px' }}>Источники (минимум 2, из разных датасетов/файлов)</div>
@@ -457,7 +457,11 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
               <F t="С даты"><input type="date" style={sel} value={ownFrom} onChange={(e) => setOwnFrom(e.target.value)} /></F>
               <F t="По дату"><input type="date" style={sel} value={ownTo} onChange={(e) => setOwnTo(e.target.value)} /></F>
               <F t="Строка">{(() => {
-                const rows = sources.datasets.find((d) => d.code === dataset)?.rows || []
+                // Для «Сравнения источников» строки берём из ВЫБРАННЫХ источников
+                // (не из общего `dataset` — он для этого типа виджета не используется).
+                const rows = isCrossCompare
+                  ? Array.from(new Set(crossSeries.flatMap((s) => sources.datasets.find((d) => d.code === s.dataset_code)?.rows || [])))
+                  : sources.datasets.find((d) => d.code === dataset)?.rows || []
                 return rows.length
                   ? <select style={sel} value={ownRow} onChange={(e) => setOwnRow(e.target.value)}><option value="">— все строки —</option>{rows.map((r) => <option key={r} value={r}>{r}</option>)}</select>
                   : <input style={sel} value={ownRow} onChange={(e) => setOwnRow(e.target.value)} placeholder="напр. Паспорт" />

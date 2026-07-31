@@ -403,7 +403,9 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
     if t == "cross_dataset_compare":
         # Сравнение источников: несколько РАЗНЫХ dataset_code (разных загруженных
         # файлов) на одном графике — без формул, только выбором датасет+поле.
-        # Сопоставление по строке (row_label) или по периоду (выпуск датасета).
+        # Сопоставление по строке (row_label) или по периоду (месяц выпуска —
+        # бакетирование по YYYY-MM, а не точная дата: у разных файлов выпуски
+        # редко датируются день-в-день, месяц — устойчивый общий знаменатель).
         items = cfg.get("series") or []
         if len(items) < 2:
             raise DashboardError("Сравнение источников: укажите минимум 2 источника (датасет + поле)")
@@ -411,6 +413,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         cat_order: List[str] = []
         seen_cat: set = set()
         raw_series = []
+        sources_meta = []  # свежесть каждого источника — единой даты у виджета нет
         for it in items:
             dc, vf = it.get("dataset_code"), it.get("value_field")
             if not dc or not vf:
@@ -419,7 +422,10 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
             item_allowed = await allowed_rows_for_dataset(conn, org_id, user, dc) if user is not None else None
             if match_by == "period":
                 pairs = await _dataset_period_series(conn, org_id, dc, vf, from_date, to_date, row, item_allowed)
-                vmap = dict(pairs)
+                vmap: Dict[str, float] = {}
+                for period, val in pairs:
+                    bucket = period[:7] if len(period) >= 7 else period  # YYYY-MM
+                    vmap[bucket] = vmap.get(bucket, 0.0) + val
             else:
                 vmap = {p["category"]: p["value"]
                         for p in await _dataset_series(conn, org_id, dc, vf, row, item_allowed)}
@@ -428,10 +434,11 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
                     seen_cat.add(c)
                     cat_order.append(c)
             raw_series.append((label, vmap))
+            sources_meta.append({"label": label, "dataset_code": dc, "as_of": await _dataset_as_of(conn, org_id, dc)})
         categories = sorted(cat_order)
         series = [{"name": label, "data": [vmap.get(c) for c in categories]} for label, vmap in raw_series]
         return {"type": "cross_dataset_compare", "title": name, "viz": cfg.get("viz", "bar"),
-                "categories": categories, "series": series, "match_by": match_by}
+                "categories": categories, "series": series, "match_by": match_by, "sources": sources_meta}
 
     if t == "dynamics":
         if not cfg.get("dataset_code") or not cfg.get("value_field"):

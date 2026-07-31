@@ -81,6 +81,11 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
             🕓 данные на {fmtAsOf(data.as_of)}
           </span>
         )}
+        {data?.sources && (
+          <span style={{ fontSize: 11, color: 'var(--text-faint)' }} title="У виджета несколько источников — единой даты свежести нет, у каждого своя">
+            🕓 {data.sources.map((s: any) => `${s.label}: ${s.as_of ? fmtAsOf(s.as_of) : '—'}`).join(' · ')}
+          </span>
+        )}
       </div>
       {drill && <DrillModal drill={drill} onClose={() => setDrill(null)} />}
     </div>

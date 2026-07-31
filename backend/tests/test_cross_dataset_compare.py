@@ -51,7 +51,8 @@ async def test_custom_labels(client, admin_headers, seed_dataset, seed_dataset2)
     assert names == {"Первый", "Второй"}
 
 
-async def test_period_match(client, admin_headers, seed_dataset, seed_dataset2):
+async def test_period_match_buckets_by_month(client, admin_headers, seed_dataset, seed_dataset2):
+    """Сопоставление «по периоду» — по месяцу (YYYY-MM), не по точной дате выпуска."""
     r = await _preview(client, admin_headers, {
         "match_by": "period",
         "series": [
@@ -62,11 +63,71 @@ async def test_period_match(client, admin_headers, seed_dataset, seed_dataset2):
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["match_by"] == "period"
-    assert d["categories"] == ["2026-01-01", "2026-02-01"]
+    assert d["categories"] == ["2026-01", "2026-02"]
     s1 = next(s for s in d["series"] if s["name"] == "t_ds.plan")
     s2 = next(s for s in d["series"] if s["name"] == "t_ds2.plan2")
     assert s1["data"] == [165.0, 180.0]  # старый выпуск: (100-5)+(50-5)+(30-5); новый: 100+50+30
     assert s2["data"] == [65.0, 73.0]  # vals_old / vals_new суммы
+
+
+async def test_period_match_survives_misaligned_release_days(client, admin_headers, ids, seed_dataset):
+    """Раньше сопоставление «по периоду» было по точной дате выпуска — источники
+    с выпусками не день-в-день (обычная ситуация для разных файлов) не совпадали
+    ни по одной категории. Теперь бакет — месяц, так что 2026-01-15 (источник Б)
+    и 2026-01-01 (t_ds) попадают в одну категорию "2026-01"."""
+    async with db.acquire() as conn:
+        await conn.execute("delete from dataset_values where dataset_release_id in "
+                           "(select id from dataset_releases where code='ztest_misaligned')")
+        await conn.execute("delete from dataset_releases where code='ztest_misaligned'")
+        rel_jan = await conn.fetchval(
+            "insert into dataset_releases(organization_id,code,name,status,reporting_period_start,created_by) "
+            "values($1,'ztest_misaligned','М',$2,'2026-01-15',$3) returning id",
+            ids["org"], "released", ids["admin"])
+        rel_feb = await conn.fetchval(
+            "insert into dataset_releases(organization_id,code,name,status,reporting_period_start,created_by) "
+            "values($1,'ztest_misaligned','М',$2,'2026-02-20',$3) returning id",
+            ids["org"], "released", ids["admin"])
+        await conn.execute(
+            "insert into dataset_values(dataset_release_id,row_index,row_label,canonical_field_code,value_number) "
+            "values($1,0,'X','v',10)", rel_jan)
+        await conn.execute(
+            "insert into dataset_values(dataset_release_id,row_index,row_label,canonical_field_code,value_number) "
+            "values($1,0,'X','v',20)", rel_feb)
+    try:
+        r = await _preview(client, admin_headers, {
+            "match_by": "period",
+            "series": [
+                {"dataset_code": "t_ds", "value_field": "plan"},
+                {"dataset_code": "ztest_misaligned", "value_field": "v"},
+            ],
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["categories"] == ["2026-01", "2026-02"]
+        s2 = next(s for s in d["series"] if s["name"] == "ztest_misaligned.v")
+        assert s2["data"] == [10.0, 20.0]  # выровнялось по месяцу, а не по дню выпуска
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from dataset_values where dataset_release_id in "
+                               "(select id from dataset_releases where code='ztest_misaligned')")
+            await conn.execute("delete from dataset_releases where code='ztest_misaligned'")
+
+
+async def test_sources_freshness_reported_per_source(client, admin_headers, seed_dataset, seed_dataset2):
+    """Единой даты «свежести» у виджета с несколькими источниками нет — вместо
+    этого в ответе список sources с as_of на каждый источник отдельно."""
+    r = await _preview(client, admin_headers, {
+        "series": [
+            {"dataset_code": "t_ds", "value_field": "plan", "label": "A"},
+            {"dataset_code": "t_ds2", "value_field": "plan2", "label": "B"},
+        ],
+    })
+    assert r.status_code == 200, r.text
+    sources = {s["label"]: s for s in r.json()["sources"]}
+    assert sources["A"]["dataset_code"] == "t_ds"
+    assert sources["A"]["as_of"] == "2026-02-01"
+    assert sources["B"]["dataset_code"] == "t_ds2"
+    assert sources["B"]["as_of"] == "2026-02-01"
 
 
 async def test_requires_at_least_two_sources(client, admin_headers, seed_dataset):
