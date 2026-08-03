@@ -394,6 +394,9 @@ async def export_page_xlsx(page_id: str, user: dict = Depends(get_current_user))
             data = await service.export_page_xlsx(conn, user["organization_id"], user, page_id)
         except DashboardError as e:
             raise _bad(e)
+        # Для отчёта активности пользователя (волна B) — кто что выгружал.
+        await audit_svc.write_event(conn, user["organization_id"], user["id"], "export",
+                                    "dashboard_page", page_id, new_data={"format": "xlsx"})
     return Response(
         content=data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

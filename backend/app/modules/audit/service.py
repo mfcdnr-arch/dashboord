@@ -20,7 +20,7 @@ ENTITY_LABELS = {
 }
 # Все значения enum audit_action (порядок — для фасета фильтра).
 ACTIONS = ["create", "update", "delete", "publish", "grant_access", "revoke_access", "view",
-           "archive", "unarchive", "heal"]
+           "archive", "unarchive", "heal", "export"]
 
 # Технические поля, изменение которых не считаем содержательным при вычислении
 # сводки изменённых полей (они меняются при любой правке).
@@ -143,7 +143,7 @@ def _events_where(org_id, *, actor=None, entity_type=None, entity_id=None,
 ACTION_RU = {"create": "создание", "update": "изменение", "delete": "удаление",
              "view": "просмотр", "publish": "публикация", "login": "вход",
              "grant_access": "выдача доступа", "revoke_access": "отзыв доступа",
-             "archive": "архивация", "unarchive": "возврат из архива"}
+             "archive": "архивация", "unarchive": "возврат из архива", "export": "выгрузка"}
 
 
 async def export_events(conn, org_id, *, actor=None, entity_type=None, entity_id=None,
@@ -307,3 +307,35 @@ async def get_event(conn, org_id, event_id: str) -> dict:
         "created_at": r["created_at"],
         "diff": diff,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Доступ к аудиту для роли admin (волна B, 2026-07-31): superadmin видит аудит
+# ВСЕГДА без гранта; admin — только если superadmin выдал доступ явно
+# (audit_access_grants). Не org-scoped: грант привязан к пользователю.
+# --------------------------------------------------------------------------- #
+async def has_audit_access(conn, user_id) -> bool:
+    return bool(await conn.fetchval(
+        "select 1 from audit_access_grants where user_id=$1::uuid", user_id))
+
+
+async def grant_audit_access(conn, granter_id, user_id: str) -> dict:
+    row = await conn.fetchrow(
+        "insert into audit_access_grants(user_id, granted_by) values($1::uuid, $2::uuid) "
+        "on conflict (user_id) do update set granted_by=$2::uuid, granted_at=now() "
+        "returning user_id, granted_at", user_id, granter_id)
+    return {"user_id": str(row["user_id"]), "granted_at": row["granted_at"]}
+
+
+async def revoke_audit_access(conn, user_id: str) -> None:
+    await conn.execute("delete from audit_access_grants where user_id=$1::uuid", user_id)
+
+
+async def list_audit_access(conn, org_id) -> list[dict]:
+    """Пользователи организации с явным доступом к аудиту (для UI суперадмина)."""
+    rows = await conn.fetch(
+        "select g.user_id, g.granted_at, u.login, u.full_name "
+        "from audit_access_grants g join users u on u.id=g.user_id "
+        "where u.organization_id=$1 order by u.login", org_id)
+    return [{"user_id": str(r["user_id"]), "login": r["login"], "full_name": r["full_name"],
+            "granted_at": r["granted_at"]} for r in rows]

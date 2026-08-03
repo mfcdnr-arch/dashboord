@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from ... import db
 from ...exports import to_csv, to_xlsx
+from ..audit.router import audit_reader
 from ..auth.deps import require_roles
 from . import service
 from .service import UsersError, UsersForbidden
@@ -99,22 +100,31 @@ async def list_roles(user: dict = Depends(manage)):
         return await service.list_roles(conn, user["organization_id"])
 
 
-# --- Аудит входов ---
+@router.get("/users/{user_id}/activity")
+async def get_user_activity(user_id: str, user: dict = Depends(audit_reader)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            return await service.user_activity(conn, user["organization_id"], user_id)
+        except UsersError as e:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+
+
+# --- Аудит входов --- (доступ как у /audit: superadmin всегда, admin — по гранту)
 @router.get("/login-events")
-async def login_events(user: dict = Depends(manage)):
+async def login_events(user: dict = Depends(audit_reader)):
     async with db.get_pool().acquire() as conn:
         return await service.login_events_report(conn, user["organization_id"])
 
 
 @router.get("/login-events/export.csv")
-async def export_login_csv(user: dict = Depends(manage)):
+async def export_login_csv(user: dict = Depends(audit_reader)):
     async with db.get_pool().acquire() as conn:
         headers, rows = await service.login_events_export(conn, user["organization_id"])
     return Response(to_csv(headers, rows), media_type=CSV_MEDIA, headers=_attach("login-events.csv"))
 
 
 @router.get("/login-events/export.xlsx")
-async def export_login_xlsx(user: dict = Depends(manage)):
+async def export_login_xlsx(user: dict = Depends(audit_reader)):
     async with db.get_pool().acquire() as conn:
         headers, rows = await service.login_events_export(conn, user["organization_id"])
     return Response(to_xlsx("Журнал входов", headers, rows), media_type=XLSX_MEDIA, headers=_attach("login-events.xlsx"))

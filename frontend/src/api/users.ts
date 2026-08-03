@@ -80,3 +80,22 @@ export async function getLoginEvents(): Promise<LoginEventsReport> {
   return res.json()
 }
 
+
+// Сводный отчёт активности пользователя (волна B): входы, действия из аудита,
+// комментарии — доступ как у /audit (superadmin всегда, admin — по гранту).
+export interface UserActivityEvent {
+  id: string; action: string; entity_type: string; entity_id: string
+  entity_name: string | null; created_at: string; changed_fields: string[]
+}
+export interface UserActivity {
+  user: { id: string; login: string; full_name: string | null; is_active: boolean }
+  login_count: number
+  logins: { ip: string | null; user_agent: string | null; success: boolean; created_at: string }[]
+  events: UserActivityEvent[]
+  comments: { id: string; body: string; created_at: string; dashboard_id: string; dashboard_name: string }[]
+}
+export async function getUserActivity(userId: string): Promise<UserActivity> {
+  const res = await fetch(`/users/${userId}/activity`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

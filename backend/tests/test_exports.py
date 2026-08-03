@@ -1,9 +1,25 @@
-"""Выгрузка журналов в CSV/XLSX (admin): аудит действий и журнал входов."""
+"""Выгрузка журналов в CSV/XLSX (admin): аудит действий и журнал входов.
+
+Волна B: доступ к аудиту/журналу входов для роли admin (не superadmin) теперь
+требует явного гранта (audit_access_grants) — выдаём его сид-admin'у на время
+этого файла (autouse), иначе все тесты ниже стали бы падать 403. Сам механизм
+гранта/отзыва и негативные сценарии — в test_audit_access.py."""
 import pytest
+import pytest_asyncio
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
+from conftest import hdr, login
+
 XLSX_SIG = b"PK\x03\x04"  # zip-сигнатура (xlsx — это zip)
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _grant_admin_audit_access(client, ids):
+    sa = hdr(await login(client, "superadmin", "superadmin"))
+    await client.post(f"/audit/access/{ids['admin']}", headers=sa)
+    yield
+    await client.delete(f"/audit/access/{ids['admin']}", headers=sa)
 
 
 async def test_audit_csv(client, admin_headers):

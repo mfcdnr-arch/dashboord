@@ -5,7 +5,7 @@ import 'react-resizable/css/styles.css'
 import {
   autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deletePage, deletePreset, deleteWidget, getDashboard,
   exportPageXlsx, getDataSources, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listObjects, listPageWidgets, listPresets,
-  listTemplates, publishDashboard, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
+  listTemplates, logClientExport, publishDashboard, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
 } from '../api'
 import WidgetView from './WidgetView'
@@ -322,6 +322,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
         rendered += h; first = false
       }
       pdf.save(`${sel.dashboard.name} — ${page.name}.pdf`)
+      logClientExport('dashboard', sel.dashboard.id, 'pdf')
     } catch (e) { fail(e) } finally { setExporting(false) }
   }
   async function exportPng() {
@@ -333,6 +334,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
       const canvas = await html2canvas(el, { scale: 2, backgroundColor: surfaceColor(), useCORS: true })
       const a = document.createElement('a')
       a.href = canvas.toDataURL('image/png'); a.download = `${sel.dashboard.name} — ${page.name}.png`; a.click()
+      logClientExport('dashboard', sel.dashboard.id, 'png')
     } catch (e) { fail(e) } finally { setExporting(false) }
   }
   async function exportExcel() {

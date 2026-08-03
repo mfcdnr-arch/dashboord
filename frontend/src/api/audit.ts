@@ -77,3 +77,28 @@ export async function getAuditEvent(id: string): Promise<AuditDetail> {
   return res.json()
 }
 
+
+// Логирование выгрузки, сгенерированной на клиенте (PDF/PNG — без своего
+// серверного эндпоинта); xlsx логируется автоматически на сервере.
+export async function logClientExport(entityType: string, entityId: string, format: string): Promise<void> {
+  await fetch('/audit/log-export', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ entity_type: entityType, entity_id: entityId, format }),
+  }).catch(() => {}) // best-effort: не мешаем экспорту, если лог не записался
+}
+
+// --- Доступ admin→аудит (управляет только superadmin) ---
+export interface AuditAccessRow { user_id: string; login: string; full_name: string | null; granted_at: string }
+export async function listAuditAccess(): Promise<AuditAccessRow[]> {
+  const res = await fetch('/audit/access', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function grantAuditAccess(userId: string): Promise<void> {
+  const res = await fetch(`/audit/access/${userId}`, { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
+export async function revokeAuditAccess(userId: string): Promise<void> {
+  const res = await fetch(`/audit/access/${userId}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}

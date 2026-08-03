@@ -10,6 +10,7 @@ from typing import List, Optional, Set
 
 import asyncpg
 
+from ..audit import service as audit_svc
 from ..auth.security import hash_password, validate_password
 
 
@@ -310,6 +311,38 @@ async def login_events_export(conn, org_id, limit: int = 50000):
         "успех" if r["success"] else "неудача",
     ] for r in rows]
     return headers, out
+
+
+async def user_activity(conn, org_id, user_id: str, limit: int = 100) -> dict:
+    """Сводный отчёт активности ОДНОГО пользователя (волна B, «личный кабинет»):
+    входы, действия из аудита (в т.ч. просмотры дашбордов и выгрузки),
+    оставленные комментарии — в одном месте вместо трёх разных экранов."""
+    target = await conn.fetchrow(
+        "select id, login, full_name, is_active from users where id=$1::uuid and organization_id=$2",
+        user_id, org_id)
+    if target is None:
+        raise UsersError("Пользователь не найден")
+    logins = await conn.fetch(
+        "select ip, user_agent, success, created_at from login_events "
+        "where user_id=$1::uuid order by created_at desc limit $2", user_id, limit)
+    login_count = await conn.fetchval(
+        "select count(*) from login_events where user_id=$1::uuid and success", user_id)
+    events = await audit_svc.list_events(conn, org_id, actor=user_id, include_views=True, limit=limit)
+    comments = await conn.fetch(
+        "select c.id, c.body, c.created_at, c.dashboard_id, d.name as dashboard_name "
+        "from dashboard_comments c join dashboards d on d.id=c.dashboard_id "
+        "where c.user_id=$1::uuid order by c.created_at desc limit $2", user_id, limit)
+    return {
+        "user": {"id": str(target["id"]), "login": target["login"],
+                "full_name": target["full_name"], "is_active": target["is_active"]},
+        "login_count": login_count,
+        "logins": [{"ip": r["ip"], "user_agent": r["user_agent"], "success": r["success"],
+                   "created_at": r["created_at"]} for r in logins],
+        "events": events["items"],
+        "comments": [{"id": str(r["id"]), "body": r["body"], "created_at": r["created_at"],
+                     "dashboard_id": str(r["dashboard_id"]), "dashboard_name": r["dashboard_name"]}
+                    for r in comments],
+    }
 
 
 async def reset_password(conn, org_id, user_id: str, new_password: str, actor: dict) -> dict:
