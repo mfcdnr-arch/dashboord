@@ -16,6 +16,9 @@ EVENT_LABELS = {
     "widget.created.no_explicit_access": "Новый виджет без прав доступа",
     "dashboard.comment": "Новый комментарий к дашборду",
     "system.degraded": "Система в статусе «есть проблемы» после автопочинки",
+    "appeal.created": "Новое обращение пользователя",
+    "appeal.message": "Новое сообщение в обращении",
+    "appeal.replied": "Ответ на ваше обращение",
 }
 
 

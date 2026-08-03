@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from ... import db
 from ...exports import to_csv, to_xlsx
 from ..audit.router import audit_reader
-from ..auth.deps import require_roles
+from ..auth.deps import get_current_user, require_roles
 from . import service
 from .service import UsersError, UsersForbidden
 
@@ -98,6 +98,17 @@ async def delete_department(department_id: str, user: dict = Depends(manage)):
 async def list_roles(user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         return await service.list_roles(conn, user["organization_id"])
+
+
+@router.get("/users/me/activity")
+async def get_my_activity(user: dict = Depends(get_current_user)):
+    """Своя активность — личный кабинет (волна C). В отличие от
+    /users/{id}/activity ниже, доступ не через audit_reader (это не аудит
+    ЧУЖИХ действий) — любой смотрит только себя. ВАЖНО: регистрировать ДО
+    параметризованного /users/{user_id}/activity, иначе Starlette матчит
+    "me" как user_id и уводит на 403 audit_reader раньше, чем сюда."""
+    async with db.get_pool().acquire() as conn:
+        return await service.user_activity(conn, user["organization_id"], user["id"])
 
 
 @router.get("/users/{user_id}/activity")

@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 from . import cache, db, observability
 from .config import settings
+from .modules.appeals.router import router as appeals_router
 from .modules.audit.router import router as audit_router
 from .modules.auth.bootstrap import ensure_seed
 from .modules.auth.router import router as auth_router
@@ -111,6 +112,7 @@ app.include_router(reports_router)
 app.include_router(catalog_router)
 app.include_router(notifications_router)
 app.include_router(maintenance_router)
+app.include_router(appeals_router)
 
 
 @app.get("/health", tags=["system"])

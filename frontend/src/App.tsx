@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { clearToken, getHealth, getMe, getSetupStatus, getToken, type Health, type Me } from './api'
+import { clearToken, getAppealsStats, getHealth, getMe, getSetupStatus, getToken, type Health, type Me } from './api'
 import Login from './components/Login'
 import ChangePassword from './components/ChangePassword'
 import ObjectsPage from './components/ObjectsPage'
@@ -12,6 +12,8 @@ import AuditPage from './components/AuditPage'
 import ModerationPage from './components/ModerationPage'
 import CatalogPage from './components/CatalogPage'
 import SettingsPage from './components/SettingsPage'
+import ProfilePage from './components/ProfilePage'
+import AppealsPage from './components/AppealsPage'
 import NotificationBell from './components/NotificationBell'
 import OnboardingHint from './components/OnboardingHint'
 import ThemeToggle from './components/ThemeToggle'
@@ -73,11 +75,13 @@ const NAV = [
   { key: 'dashboards', label: 'Дашборды', ready: true },
   { key: 'archive', label: 'Архив', ready: true, archiveGate: true },
   { key: 'moderation', label: 'Модерация', ready: true, modOnly: true },
+  { key: 'appeals', label: 'Обращения', ready: true, modOnly: true },
   { key: 'catalog', label: 'Справочники', ready: true, modOnly: true },
   { key: 'users', label: 'Пользователи', ready: true, adminOnly: true },
   { key: 'audit', label: 'Аудит', ready: true, adminOnly: true },
   { key: 'reports', label: 'Отчёты', ready: true, adminOnly: true },
   { key: 'settings', label: 'Настройки', ready: true, adminOnly: true },
+  { key: 'profile', label: 'Кабинет', ready: true },
 ]
 
 // Узкий экран (телефон/планшет): переключает боковую навигацию на верхнюю
@@ -121,6 +125,17 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     if (canModerate) { setArchiveOk(true); return }
     archiveMe().then((r) => setArchiveOk(r.allowed)).catch(() => setArchiveOk(false))
   }, [canModerate])
+  // Значок «сколько обращений ждут ответа» у пункта «Обращения» (только staff).
+  // Обновляется по таймеру И при каждом переходе между разделами — иначе после
+  // ответа/закрытия обращения счётчик «застревал» до 60 секунд.
+  const [appealsOpen, setAppealsOpen] = useState(0)
+  useEffect(() => {
+    if (!canModerate) return
+    const load = () => getAppealsStats().then((s) => setAppealsOpen(s.open)).catch(() => {})
+    load()
+    const t = setInterval(load, 60000)
+    return () => clearInterval(t)
+  }, [canModerate, section])
   const nav = NAV.filter((n) => (!n.adminOnly || isAdmin) && (!n.modOnly || canModerate)
     && (!(n as { archiveGate?: boolean }).archiveGate || archiveOk))
 
@@ -169,6 +184,11 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
               }}
             >
               {n.label}{!n.ready && <span style={{ fontSize: 11 }}> · в разработке</span>}
+              {n.key === 'appeals' && appealsOpen > 0 && (
+                <span style={{ marginLeft: 6, fontSize: 11, padding: '1px 6px', borderRadius: 9, background: 'var(--danger)', color: 'var(--on-accent)' }}>
+                  {appealsOpen > 99 ? '99+' : appealsOpen}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -193,10 +213,14 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <ArchivePage canManage={canModerate} isAdmin={isAdmin} />
           ) : section === 'moderation' ? (
             <ModerationPage me={me} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
+          ) : section === 'appeals' ? (
+            <AppealsPage />
           ) : section === 'catalog' ? (
             <CatalogPage me={me} />
           ) : section === 'settings' ? (
             <SettingsPage me={me} />
+          ) : section === 'profile' ? (
+            <ProfilePage me={me} />
           ) : (
             <div style={{ color: 'var(--text-faint)' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>
           )}

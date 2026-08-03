@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 
 from ... import db
+from ..appeals import service as appeals_svc
 from ..system import settings_service as settings_svc
 from .deps import get_current_user
 from .security import create_token, hash_password, validate_password, verify_password
@@ -15,6 +16,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 class ChangePasswordIn(BaseModel):
     new_password: str = Field(min_length=1, max_length=200)
+
+
+class BlockedAppealIn(BaseModel):
+    login: str = Field(min_length=1, max_length=100)
+    message: str = Field(min_length=1, max_length=4000)
 
 
 @router.get("/password-policy")
@@ -48,7 +54,11 @@ async def login(request: Request, form: OAuth2PasswordRequestForm = Depends()):
                 "and created_at > now() - make_interval(mins => $2)",
                 form.username, sys_settings["login_lockout_minutes"])
             locked = fails >= sys_settings["login_max_attempts"]
-        ok = (not locked) and bool(row) and row["is_active"] and verify_password(form.password, row["password_hash"])
+        # Пароль верен независимо от is_active — иначе посторонний, не зная
+        # пароля, мог бы узнать, что чужой аккаунт заблокирован (перебором логинов).
+        pwd_ok = (not locked) and bool(row) and verify_password(form.password, row["password_hash"])
+        blocked = pwd_ok and not row["is_active"]
+        ok = pwd_ok and row["is_active"]
         await conn.execute(
             "insert into login_events(organization_id, user_id, login, ip, user_agent, success) "
             "values($1,$2,$3,$4,$5,$6)",
@@ -59,9 +69,23 @@ async def login(request: Request, form: OAuth2PasswordRequestForm = Depends()):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             f"Слишком много неудачных попыток. Повторите через {sys_settings['login_lockout_minutes']} мин.")
+    if blocked:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, {
+            "code": "account_blocked",
+            "message": "Учётная запись заблокирована администратором. Опишите проблему — обращение будет передано.",
+        })
     if not ok:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный логин или пароль")
     return {"access_token": create_token(str(row["id"])), "token_type": "bearer"}
+
+
+@router.post("/blocked-appeal", status_code=status.HTTP_204_NO_CONTENT)
+async def blocked_appeal(body: BlockedAppealIn):
+    """Обращение от заблокированного аккаунта — БЕЗ авторизации (войти он не
+    может). Ответ одинаков независимо от того, найден ли логин — иначе можно
+    было бы перебором логинов узнавать, какие учётки существуют."""
+    async with db.acquire() as conn:
+        await appeals_svc.create_appeal_by_login(conn, body.login, body.message)
 
 
 @router.post("/change-password")
@@ -81,9 +105,20 @@ async def change_password(data: ChangePasswordIn, user: dict = Depends(get_curre
 @router.get("/me")
 async def me(user: dict = Depends(get_current_user)):
     async with db.get_pool().acquire() as conn:
+        # code — для гейтинга прав на фронте (App.tsx), name — человекочитаемо
+        # для профиля. Отдаём оба сразу: GET /roles (каталог) доступен только
+        # admin/superadmin, обычный пользователь иначе не смог бы перевести
+        # собственные роли в профиле.
         roles = await conn.fetch(
-            "select r.code from user_roles ur join roles r on r.id = ur.role_id "
+            "select r.code, r.name from user_roles ur join roles r on r.id = ur.role_id "
             "where ur.user_id = $1",
+            user["id"],
+        )
+        # Доп. поля — для личного кабинета (профиль), не только для гейтинга ролей.
+        extra = await conn.fetchrow(
+            "select u.email, u.last_name, u.first_name, u.middle_name, u.created_at, "
+            "d.name as department_name "
+            "from users u left join departments d on d.id = u.department_id where u.id = $1",
             user["id"],
         )
     return {
@@ -92,4 +127,11 @@ async def me(user: dict = Depends(get_current_user)):
         "full_name": user["full_name"],
         "must_change_password": user["must_change_password"],
         "roles": [r["code"] for r in roles],
+        "role_names": [r["name"] for r in roles],
+        "email": extra["email"],
+        "last_name": extra["last_name"],
+        "first_name": extra["first_name"],
+        "middle_name": extra["middle_name"],
+        "department_name": extra["department_name"],
+        "created_at": extra["created_at"],
     }

@@ -99,3 +99,10 @@ export async function getUserActivity(userId: string): Promise<UserActivity> {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// Своя активность — личный кабинет (волна C), без грантов аудита.
+export async function getMyActivity(): Promise<UserActivity> {
+  const res = await fetch('/users/me/activity', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

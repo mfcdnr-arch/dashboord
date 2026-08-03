@@ -40,6 +40,10 @@ export function checkPassword(pw: string, p: PasswordPolicy, login?: string): st
   return null
 }
 
+// Ошибка входа с кодом (сейчас только 'account_blocked' — заблокированный
+// аккаунт, см. Login.tsx: показывает форму обращения вместо обычной ошибки).
+export interface LoginError extends Error { code?: string }
+
 export async function login(username: string, password: string): Promise<string> {
   const body = new URLSearchParams({ username, password })
   const res = await fetch('/auth/login', {
@@ -47,7 +51,16 @@ export async function login(username: string, password: string): Promise<string>
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
   })
-  if (!res.ok) throw new Error('Неверный логин или пароль')
+  if (!res.ok) {
+    let detail: unknown = null
+    try { detail = (await res.json()).detail } catch { /* нет тела/не JSON */ }
+    const isObj = detail && typeof detail === 'object'
+    const message = isObj ? (detail as { message?: string }).message
+      : typeof detail === 'string' ? detail : 'Неверный логин или пароль'
+    const err: LoginError = new Error(message || 'Неверный логин или пароль')
+    if (isObj) err.code = (detail as { code?: string }).code
+    throw err
+  }
   const data = await res.json()
   return data.access_token as string
 }
@@ -58,6 +71,13 @@ export interface Me {
   full_name: string | null
   must_change_password: boolean
   roles: string[]
+  role_names: string[]
+  email: string | null
+  last_name: string | null
+  first_name: string | null
+  middle_name: string | null
+  department_name: string | null
+  created_at: string
 }
 
 export async function getMe(token: string): Promise<Me> {

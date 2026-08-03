@@ -17,6 +17,7 @@ ENTITY_LABELS = {
     "widget": "Виджет",
     "object_acl": "Права доступа",
     "system": "Система",
+    "appeal": "Обращение",
 }
 # Все значения enum audit_action (порядок — для фасета фильтра).
 ACTIONS = ["create", "update", "delete", "publish", "grant_access", "revoke_access", "view",

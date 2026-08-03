@@ -54,6 +54,7 @@ export default defineConfig({
       '/maintenance': 'http://localhost:8080',
       '/archive': 'http://localhost:8080',
       '/archive-access': 'http://localhost:8080',
+      '/appeals': 'http://localhost:8080',
     },
   },
 })

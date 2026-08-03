@@ -18,6 +18,8 @@ function message(n: NotificationItem): string {
   if (n.event_type === 'data.retention') return `Ретенция: удалено релизов — ${p.deleted_releases} (окно ${p.window_months} мес.).`
   if (n.event_type === 'widget.created.no_explicit_access') return `Новый виджет без явных прав: ${p.widget_name ?? ''}`
   if (n.event_type === 'system.degraded') return `Автопочинка не устранила все проблемы (статус: ${p.status_after ?? 'degraded'}). Посмотрите раздел «Отчёты» → «Здоровье системы».`
+  if (n.event_type === 'appeal.created' || n.event_type === 'appeal.message') return `${p.author ?? ''}: ${p.snippet ?? ''}`
+  if (n.event_type === 'appeal.replied') return `${p.author ?? 'Администратор'} ответил на ваше обращение: ${p.snippet ?? ''}`
   return n.label
 }
 

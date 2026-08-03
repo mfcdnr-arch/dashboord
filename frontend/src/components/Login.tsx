@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { login, setToken } from '../api'
+import { login, setToken, submitBlockedAppeal, type LoginError } from '../api'
 import Logo from './Logo'
 
 // Стартовая страница входа. Двухпанельная: слева — о портале, справа — форма.
@@ -35,6 +35,7 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [blockedMsg, setBlockedMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const narrow = useNarrow()
 
@@ -42,15 +43,41 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
     e.preventDefault()
     setBusy(true)
     setError(null)
+    setBlockedMsg(null)
     try {
       const token = await login(username.trim(), password)
       setToken(token)
       onLogin(token)
     } catch (err) {
-      setError((err as Error).message)
+      const le = err as LoginError
+      if (le.code === 'account_blocked') setBlockedMsg(le.message)
+      else setError(le.message)
     } finally {
       setBusy(false)
     }
+  }
+
+  if (blockedMsg) {
+    return (
+      <div style={{ ...page, flexDirection: narrow ? 'column' : 'row' }}>
+        <div style={{ ...hero, padding: narrow ? '32px 24px' : '56px 52px', minHeight: narrow ? undefined : '100vh' }}>
+          <div style={heroInner}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: narrow ? 20 : 40 }}>
+              <Logo size={48} radius={12} border={false} />
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: 0.3 }}>Dashboard</div>
+                <div style={{ fontSize: 12, opacity: 0.8 }}>{BRAND.orgShort}</div>
+              </div>
+            </div>
+            <h1 style={{ fontSize: narrow ? 22 : 30, lineHeight: 1.2, margin: '0 0 14px', fontWeight: 800 }}>Учётная запись заблокирована</h1>
+            <p style={{ fontSize: 14, lineHeight: 1.55, opacity: 0.92, maxWidth: 480 }}>{blockedMsg}</p>
+          </div>
+        </div>
+        <div style={{ ...formSide, padding: narrow ? '28px 24px 44px' : 24, minHeight: narrow ? undefined : '100vh' }}>
+          <BlockedAppealForm login={username.trim()} onBack={() => setBlockedMsg(null)} />
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -110,6 +137,55 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
           </div>
         </form>
       </div>
+    </div>
+  )
+}
+
+// Форма обращения без входа (login уже недоступен для входа — заблокирован).
+function BlockedAppealForm({ login: userLogin, onBack }: { login: string; onBack: () => void }) {
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [sent, setSent] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function send() {
+    if (!message.trim()) return
+    setBusy(true); setErr(null)
+    try { await submitBlockedAppeal(userLogin, message.trim()); setSent(true) }
+    catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={card}>
+      {sent ? (
+        <>
+          <h2 style={{ fontSize: 18, margin: '0 0 8px' }}>Обращение отправлено</h2>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 20px' }}>
+            Администратор получит уведомление и рассмотрит вашу заявку.
+          </p>
+          <button style={button} onClick={onBack}>Назад ко входу</button>
+        </>
+      ) : (
+        <>
+          <h2 style={{ fontSize: 18, margin: '0 0 4px' }}>Написать администратору</h2>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 16px' }}>
+            Опишите проблему — обращение будет направлено администратору системы.
+          </p>
+          <label style={label}>Логин</label>
+          <input style={{ ...input, background: 'var(--surface-2)' }} value={userLogin} disabled />
+          <label style={label}>Сообщение</label>
+          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4}
+            style={{ ...input, height: 'auto', padding: '8px 12px', resize: 'vertical', fontFamily: 'inherit' }} />
+          {err && <div style={errBox}>{err}</div>}
+          <button style={{ ...button, opacity: busy || !message.trim() ? 0.6 : 1 }} disabled={busy || !message.trim()} onClick={send}>
+            {busy ? 'Отправка…' : 'Отправить'}
+          </button>
+          <button type="button" onClick={onBack}
+            style={{ border: 'none', background: 'none', color: 'var(--text-faint)', cursor: 'pointer', fontSize: 12, marginTop: 12 }}>
+            ← Назад ко входу
+          </button>
+        </>
+      )}
     </div>
   )
 }
