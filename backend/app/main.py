@@ -29,6 +29,7 @@ from .modules.moderation.router import router as moderation_router
 from .modules.notifications.router import router as notifications_router
 from .modules.objects.router import router as objects_router
 from .modules.reports.router import router as reports_router
+from .modules.showcases.router import router as showcases_router
 from .modules.system.router import router as system_router
 from .modules.users.router import router as users_router
 
@@ -113,6 +114,7 @@ app.include_router(catalog_router)
 app.include_router(notifications_router)
 app.include_router(maintenance_router)
 app.include_router(appeals_router)
+app.include_router(showcases_router)
 
 
 @app.get("/health", tags=["system"])

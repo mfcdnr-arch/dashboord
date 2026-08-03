@@ -13,6 +13,7 @@ import ModerationPage from './components/ModerationPage'
 import CatalogPage from './components/CatalogPage'
 import SettingsPage from './components/SettingsPage'
 import ProfilePage from './components/ProfilePage'
+import ShowcasesPage from './components/ShowcasesPage'
 import AppealsPage from './components/AppealsPage'
 import NotificationBell from './components/NotificationBell'
 import OnboardingHint from './components/OnboardingHint'
@@ -73,6 +74,7 @@ const NAV = [
   { key: 'objects', label: 'Объекты', ready: true },
   { key: 'metrics', label: 'Метрики', ready: true },
   { key: 'dashboards', label: 'Дашборды', ready: true },
+  { key: 'showcases', label: 'Витрины', ready: true },
   { key: 'archive', label: 'Архив', ready: true, archiveGate: true },
   { key: 'moderation', label: 'Модерация', ready: true, modOnly: true },
   { key: 'appeals', label: 'Обращения', ready: true, modOnly: true },
@@ -208,6 +210,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <MetricsPage canManage={canManage} />
           ) : section === 'dashboards' ? (
             <DashboardsPage canManage={canManage} isAdmin={isAdmin} initialDashboardId={openDash} />
+          ) : section === 'showcases' ? (
+            <ShowcasesPage canManage={canManage} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'users' ? (
             <UsersPage me={me} />
           ) : section === 'reports' ? (
