@@ -54,6 +54,8 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   const [dashTotal, setDashTotal] = useState(0)
   const [query, setQuery] = useState('')
   const [favOnly, setFavOnly] = useState(false)
+  const [dashFrom, setDashFrom] = useState('')
+  const [dashTo, setDashTo] = useState('')
   const [sel, setSel] = useState<{ dashboard: Dashboard; pages: DashPage[] } | null>(null)
   const [page, setPage] = useState<DashPage | null>(null)
   const [widgets, setWidgets] = useState<Widget[]>([])
@@ -89,6 +91,19 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   const [tpl, setTpl] = useState('')
   const [rebind, setRebind] = useState<RebindState | null>(null)
   const [editMode, setEditMode] = useState(false)
+  // Свёрнутые виджеты (видимость тела скрыта, чтобы страница не была бесконечно
+  // длинной) — предпочтение хранится локально в браузере, не на сервере.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('dashbord_collapsed_widgets') || '[]')) } catch { return new Set() }
+  })
+  function toggleCollapse(id: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      localStorage.setItem('dashbord_collapsed_widgets', JSON.stringify([...next]))
+      return next
+    })
+  }
   const [versions, setVersions] = useState<{ version_no: number; status_code: string; created_at: string }[] | null>(null)
   const [alertWidget, setAlertWidget] = useState<Widget | null>(null)
   const [editWidget, setEditWidget] = useState<Widget | null>(null)
@@ -101,15 +116,15 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   const fail = (e: unknown) => setError((e as Error).message)
   // Защита от гонки ответов: применяем только результат последнего запроса.
   const dashSeq = useRef(0)
-  const loadDashboards = (q: string, fav: boolean) => {
+  const loadDashboards = (q: string, fav: boolean, fromD = dashFrom, toD = dashTo) => {
     const seq = ++dashSeq.current
-    return listDashboards(q, fav, DASH_PAGE, 0)
+    return listDashboards(q, fav, DASH_PAGE, 0, fromD, toD)
       .then((p) => { if (seq === dashSeq.current) { setDashboards(p.items); setDashTotal(p.total) } }).catch(fail)
   }
   const refresh = () => loadDashboards(query, favOnly)
   async function loadMoreDash() {
     const seq = ++dashSeq.current
-    try { const p = await listDashboards(query, favOnly, DASH_PAGE, dashboards.length); if (seq === dashSeq.current) { setDashboards((prev) => [...prev, ...p.items]); setDashTotal(p.total) } } catch (e) { fail(e) }
+    try { const p = await listDashboards(query, favOnly, DASH_PAGE, dashboards.length, dashFrom, dashTo); if (seq === dashSeq.current) { setDashboards((prev) => [...prev, ...p.items]); setDashTotal(p.total) } } catch (e) { fail(e) }
   }
   async function toggleFav(e: React.MouseEvent, d: Dashboard) {
     e.stopPropagation()
@@ -117,7 +132,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   }
 
   // Список — по поиску/фильтру избранного с дебаунсом (он же начальная загрузка).
-  useEffect(() => { const t = setTimeout(() => loadDashboards(query, favOnly), 250); return () => clearTimeout(t) }, [query, favOnly]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const t = setTimeout(() => loadDashboards(query, favOnly), 250); return () => clearTimeout(t) }, [query, favOnly, dashFrom, dashTo]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] }))
     listObjects().then(setObjects).catch(() => {})
@@ -386,12 +401,17 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
             </div>
           )}
           <div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-              <input style={{ ...input, flex: 1 }} placeholder="🔍 Поиск дашборда по названию…" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+              <input style={{ ...input, flex: 1, minWidth: 200 }} placeholder="🔍 Поиск дашборда по названию или странице…" value={query} onChange={(e) => setQuery(e.target.value)} />
               <button style={favOnly ? { ...tab, ...tabActive } : tab} onClick={() => setFavOnly((v) => !v)} title="Показать только избранные">★ Избранное</button>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>
+                изменён с <input type="date" style={{ ...input, width: 140 }} value={dashFrom} onChange={(e) => setDashFrom(e.target.value)} />
+                по <input type="date" style={{ ...input, width: 140 }} value={dashTo} onChange={(e) => setDashTo(e.target.value)} />
+              </label>
+              {(dashFrom || dashTo) && <button style={tab} onClick={() => { setDashFrom(''); setDashTo('') }} title="Сбросить фильтр по дате">✕ дата</button>}
             </div>
             {dashboards.length === 0 ? (
-              <div style={muted}>{query.trim() || favOnly ? 'Ничего не найдено.' : 'Пока нет дашбордов.'}</div>
+              <div style={muted}>{query.trim() || favOnly || dashFrom || dashTo ? 'Ничего не найдено.' : 'Пока нет дашбордов.'}</div>
             ) : (
               <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
                 {dashboards.map((d, i) => (
@@ -402,8 +422,12 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                         {d.is_favorite ? '★' : '☆'}
                       </button>
                       {d.name}
+                      {!!d.comments_count && <span title={`Комментариев: ${d.comments_count}`} style={{ fontSize: 12, color: 'var(--accent)' }}>💬{d.comments_count}</span>}
                     </span>
-                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>страниц: {d.pages ?? 0} · {d.publication_status}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      страниц: {d.pages ?? 0} · {d.publication_status}
+                      {d.updated_at && ` · изменён ${new Date(d.updated_at).toLocaleDateString('ru-RU')}`}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -422,6 +446,11 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
           {/* Публикация и версии */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
             <PubBadge status={sel.dashboard.publication_status} />
+            <span style={{ fontSize: 12, color: 'var(--text-faint)' }} title="Дата создания / последнего изменения дашборда">
+              создан {new Date(sel.dashboard.created_at).toLocaleDateString('ru-RU')}
+              {sel.dashboard.updated_at && sel.dashboard.updated_at !== sel.dashboard.created_at
+                ? ` · изменён ${new Date(sel.dashboard.updated_at).toLocaleDateString('ru-RU')}` : ''}
+            </span>
             {canManage && sel.dashboard.publication_status === 'draft' && <button style={btn} onClick={doSubmitReview}>Отправить на проверку</button>}
             {canManage && isAdmin && sel.dashboard.publication_status === 'draft' && <button style={btnGhost} onClick={doPublish} title="Публикация без модерации (админ)">Опубликовать без проверки</button>}
             {canManage && sel.dashboard.publication_status === 'review' && <button style={btnGhost} onClick={doCancelReview}>Отозвать заявку</button>}
@@ -433,7 +462,14 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
             {page && <button style={btnGhost} disabled={exporting} onClick={exportPng} title="Снимок страницы в PNG">⤓ PNG</button>}
             {canManage && <button style={btnGhost} onClick={saveTemplate}>Сохранить как шаблон</button>}
             {canManage && <button style={btnGhost} onClick={() => setAccessOpen(true)} title="Кто видит этот дашборд">🔒 Доступ</button>}
-            <button style={btnGhost} onClick={() => setCommentsOpen(true)} title="Обсуждение дашборда">💬 Обсуждение</button>
+            <button
+              style={sel.dashboard.comments_count
+                ? { ...btnGhost, borderColor: 'var(--accent)', color: 'var(--accent)', background: 'var(--accent-weak-bg)', fontWeight: 600 }
+                : btnGhost}
+              onClick={() => setCommentsOpen(true)}
+              title={sel.dashboard.comments_count ? `Есть обсуждение: ${sel.dashboard.comments_count} коммент.` : 'Обсуждение дашборда (пока нет комментариев)'}>
+              {sel.dashboard.comments_count ? `💬 Обсуждение (${sel.dashboard.comments_count})` : '💬 Обсуждение'}
+            </button>
             {canManage && <button style={btnGhost} onClick={() => setArchiveOpen(true)} title="Слепок данных в архив; дашборд уйдёт из основного списка">📦 В архив</button>}
             {canManage && (
               <button style={{ ...btnGhost, ...(sel.dashboard.auto_archive ? { borderColor: 'var(--accent)', color: 'var(--accent)', background: 'var(--accent-weak-bg)' } : {}) }}
@@ -524,10 +560,17 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                   isDraggable={canManage && editMode} isResizable={canManage && editMode}
                   draggableHandle=".wdrag" compactType="vertical"
                   onDragStop={(_l, _o, n) => persistItem(n)} onResizeStop={(_l, _o, n) => persistItem(n)}
-                  layout={widgets.map((w) => ({ i: w.id, x: w.position_x || 0, y: w.position_y || 0, w: w.width || 4, h: w.height || 4 }))}>
+                  layout={widgets.map((w) => ({
+                    i: w.id, x: w.position_x || 0, y: w.position_y || 0, w: w.width || 4,
+                    h: collapsed.has(w.id) ? 1 : (w.height || 4),
+                    isDraggable: canManage && editMode && !collapsed.has(w.id),
+                    isResizable: canManage && editMode && !collapsed.has(w.id),
+                  }))}>
                   {widgets.map((w) => (
                     <div key={w.id} style={{ ...widgetCard, height: '100%', overflow: 'hidden', outline: editMode ? '1px dashed var(--text-faint)' : 'none' }}>
                       <div className={editMode ? 'wdrag' : ''} style={{ display: 'flex', alignItems: 'center', marginBottom: 8, cursor: editMode ? 'move' : 'default' }}>
+                        <button style={{ ...editBtn, cursor: 'pointer' }} onClick={() => toggleCollapse(w.id)}
+                          title={collapsed.has(w.id) ? 'Развернуть виджет' : 'Свернуть виджет'}>{collapsed.has(w.id) ? '▸' : '▾'}</button>
                         <div style={{ fontSize: 13, fontWeight: 600 }}>{w.name}</div>
                         <span style={wtBadge}>{WT.find((x) => x.v === w.widget_type)?.t || w.widget_type}</span>
                         <span style={{ marginLeft: 6 }}>
@@ -540,11 +583,13 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                         )}
                         {canManage && <button style={rmBtn} onClick={() => delWidget(w)} title="Удалить">✕</button>}
                       </div>
-                      <div style={{ overflow: 'auto', maxHeight: 'calc(100% - 30px)' }}>
-                        <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} row={crossRow || undefined}
-                          onPick={(name) => setCrossRow((cur) => cur === name ? null : name)}
-                          batched={!batchFailed} injData={pageData[w.id]?.data} injError={pageData[w.id]?.error} />
-                      </div>
+                      {!collapsed.has(w.id) && (
+                        <div style={{ overflow: 'auto', maxHeight: 'calc(100% - 30px)' }}>
+                          <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} row={crossRow || undefined}
+                            onPick={(name) => setCrossRow((cur) => cur === name ? null : name)}
+                            batched={!batchFailed} injData={pageData[w.id]?.data} injError={pageData[w.id]?.error} />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </GL>
@@ -581,7 +626,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
         </div>
       )}
       {commentsOpen && sel && (
-        <Comments dashboard={sel.dashboard} onClose={() => setCommentsOpen(false)} />
+        <Comments dashboard={sel.dashboard} onClose={() => { setCommentsOpen(false); getDashboard(sel.dashboard.id).then(setSel).catch(() => {}) }} />
       )}
       {archiveOpen && sel && (
         <ArchiveDialog name={sel.dashboard.name} onClose={() => setArchiveOpen(false)} onSubmit={doArchive} />

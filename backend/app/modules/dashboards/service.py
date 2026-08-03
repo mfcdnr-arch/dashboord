@@ -69,10 +69,13 @@ async def create_dashboard(conn, org_id, user_id, name: str, description: Option
 
 
 async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
-                          fav_only: bool = False, limit: int = 50, offset: int = 0) -> dict:
+                          fav_only: bool = False, limit: int = 50, offset: int = 0,
+                          from_date: Optional[str] = None, to_date: Optional[str] = None) -> dict:
     """Постранично: {total, limit, offset, items}. Видимость через RLS
-    (visible_dashboard_ids). q — поиск по названию (ilike), fav_only — только избранные.
-    Избранные всегда сверху; поиск/фильтр применяются на сервере (не только к странице)."""
+    (visible_dashboard_ids). q — поиск по названию дашборда ИЛИ названию его
+    страницы (ilike); from_date/to_date — по дате последнего изменения
+    (updated_at); fav_only — только избранные. Избранные всегда сверху;
+    поиск/фильтр применяются на сервере (не только к странице)."""
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
     visible = await visible_dashboard_ids(conn, org_id, user)
@@ -85,15 +88,21 @@ async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
     params: list = [org_id, list(visible), user["id"]]
     if q and q.strip():
         params.append(f"%{q.strip()}%")
-        where += f" and d.name ilike ${len(params)}"
+        where += (f" and (d.name ilike ${len(params)} or exists ("
+                  f"select 1 from dashboard_pages p2 where p2.dashboard_id=d.id and p2.name ilike ${len(params)}))")
+    if from_date:
+        params.append(from_date); where += f" and d.updated_at::date >= ${len(params)}::text::date"
+    if to_date:
+        params.append(to_date); where += f" and d.updated_at::date <= ${len(params)}::text::date"
     fav_join = "join" if fav_only else "left join"
     total = await conn.fetchval(
         f"select count(*) from dashboards d "
         f"{fav_join} dashboard_favorites f on f.dashboard_id=d.id and f.user_id=$3 "
         f"where {where}", *params)
     rows = await conn.fetch(
-        "select d.id, d.name, d.description, d.publication_status, d.created_at, "
+        "select d.id, d.name, d.description, d.publication_status, d.created_at, d.updated_at, "
         "(select count(*) from dashboard_pages p where p.dashboard_id=d.id) as pages, "
+        "(select count(*) from dashboard_comments c where c.dashboard_id=d.id) as comments_count, "
         "(f.dashboard_id is not null) as is_favorite "
         f"from dashboards d {fav_join} dashboard_favorites f on f.dashboard_id=d.id and f.user_id=$3 "
         f"where {where} order by is_favorite desc, d.name "
@@ -122,8 +131,9 @@ async def get_dashboard(conn, org_id, user: dict, dashboard_id: str) -> dict:
     if not await _can_view(conn, org_id, user, dashboard_id):
         raise DashboardError("Дашборд не найден")
     d = await conn.fetchrow(
-        "select id, name, description, publication_status, auto_archive, created_at from dashboards "
-        "where id=$1::uuid and organization_id=$2", dashboard_id, org_id,
+        "select id, name, description, publication_status, auto_archive, created_at, updated_at, "
+        "(select count(*) from dashboard_comments c where c.dashboard_id=dashboards.id) as comments_count "
+        "from dashboards where id=$1::uuid and organization_id=$2", dashboard_id, org_id,
     )
     if d is None:
         raise DashboardError("Дашборд не найден")

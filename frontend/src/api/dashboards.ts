@@ -9,7 +9,9 @@ export interface Dashboard {
   publication_status: string
   auto_archive?: boolean
   created_at: string
+  updated_at?: string
   pages?: number
+  comments_count?: number
   is_favorite?: boolean
 }
 export async function setDashboardFavorite(id: string, on: boolean): Promise<void> {
@@ -28,10 +30,12 @@ export interface Widget {
   config: Record<string, unknown>
 }
 
-export async function listDashboards(q = '', fav = false, limit = 50, offset = 0): Promise<Page<Dashboard>> {
+export async function listDashboards(q = '', fav = false, limit = 50, offset = 0, fromDate = '', toDate = ''): Promise<Page<Dashboard>> {
   const p = new URLSearchParams({ limit: String(limit), offset: String(offset) })
   if (q.trim()) p.set('q', q.trim())
   if (fav) p.set('fav', 'true')
+  if (fromDate) p.set('from_date', fromDate)
+  if (toDate) p.set('to_date', toDate)
   const res = await fetch(`/dashboards?${p}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()

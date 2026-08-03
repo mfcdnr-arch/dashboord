@@ -40,11 +40,13 @@ export const archiveMe = () => get<{ allowed: boolean }>('/archive/me')
 export const archiveMonths = () => get<ArchiveMonth[]>('/archive/months')
 export const archiveTopics = () => get<string[]>('/archive/topics')
 
-export function listArchive(month?: string, q?: string, topic?: string): Promise<ArchiveItem[]> {
+export function listArchive(month?: string, q?: string, topic?: string, fromDate?: string, toDate?: string): Promise<ArchiveItem[]> {
   const p = new URLSearchParams()
   if (month) p.set('month', month)
   if (q) p.set('q', q)
   if (topic) p.set('topic', topic)
+  if (fromDate) p.set('from_date', fromDate)
+  if (toDate) p.set('to_date', toDate)
   const qs = p.toString()
   return get(`/archive${qs ? `?${qs}` : ''}`)
 }

@@ -103,10 +103,12 @@ async def auto_build(body: AutoIn, user: dict = Depends(manage)):
 @router.get("/dashboards")
 async def list_dashboards(user: dict = Depends(get_current_user), q: Optional[str] = None,
                           fav: bool = False, limit: int = Query(50, ge=1, le=200),
-                          offset: int = Query(0, ge=0)):
+                          offset: int = Query(0, ge=0),
+                          from_date: Optional[str] = None, to_date: Optional[str] = None):
     async with db.acquire(user["id"]) as conn:
         return await service.list_dashboards(conn, user["organization_id"], user,
-                                             q=q, fav_only=fav, limit=limit, offset=offset)
+                                             q=q, fav_only=fav, limit=limit, offset=offset,
+                                             from_date=from_date, to_date=to_date)
 
 
 @router.get("/dashboards/{dashboard_id}")
@@ -563,10 +565,12 @@ async def archive_topics(user: dict = Depends(get_current_user)):
 
 @router.get("/archive")
 async def archive_list(user: dict = Depends(get_current_user), month: Optional[str] = None,
-                       q: Optional[str] = None, topic: Optional[str] = None):
+                       q: Optional[str] = None, topic: Optional[str] = None,
+                       from_date: Optional[str] = None, to_date: Optional[str] = None):
     async with db.acquire(user["id"]) as conn:
         try:
-            return await _archive.list_archive(conn, user["organization_id"], user, month, q, topic)
+            return await _archive.list_archive(conn, user["organization_id"], user, month, q, topic,
+                                               from_date=from_date, to_date=to_date)
         except DashboardError as e:
             raise HTTPException(status_code=403, detail=str(e))
 

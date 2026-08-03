@@ -187,7 +187,8 @@ async def topics(conn, org_id, user: dict) -> List[str]:
 
 
 async def list_archive(conn, org_id, user: dict, month: Optional[str] = None,
-                       q: Optional[str] = None, topic: Optional[str] = None) -> List[dict]:
+                       q: Optional[str] = None, topic: Optional[str] = None,
+                       from_date: Optional[str] = None, to_date: Optional[str] = None) -> List[dict]:
     await _ensure_view(conn, org_id, user)
     where = "a.organization_id=$1"
     params: list = [org_id]
@@ -195,9 +196,15 @@ async def list_archive(conn, org_id, user: dict, month: Optional[str] = None,
         params.append(month); where += f" and a.archive_month=${len(params)}"
     if q and q.strip():
         params.append(f"%{q.strip()}%")
-        where += f" and (a.dashboard_name ilike ${len(params)} or a.topic ilike ${len(params)})"
+        where += (f" and (a.dashboard_name ilike ${len(params)} or a.topic ilike ${len(params)} or exists ("
+                  f"select 1 from jsonb_array_elements(a.snapshot->'pages') pg "
+                  f"where pg->>'name' ilike ${len(params)}))")
     if topic:
         params.append(topic); where += f" and a.topic=${len(params)}"
+    if from_date:
+        params.append(from_date); where += f" and a.archived_at::date >= ${len(params)}::text::date"
+    if to_date:
+        params.append(to_date); where += f" and a.archived_at::date <= ${len(params)}::text::date"
     rows = await conn.fetch(
         "select a.id, a.dashboard_id, a.dashboard_name, a.topic, a.note, a.archive_month, "
         "a.auto, a.archived_at, u.full_name as archived_by_name, "

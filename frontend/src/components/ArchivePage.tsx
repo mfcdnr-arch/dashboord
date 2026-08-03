@@ -24,6 +24,8 @@ export default function ArchivePage({ canManage, isAdmin }: { canManage: boolean
   const [month, setMonth] = useState<string>('')
   const [topic, setTopic] = useState<string>('')
   const [q, setQ] = useState('')
+  const [archFrom, setArchFrom] = useState('')
+  const [archTo, setArchTo] = useState('')
   const [items, setItems] = useState<ArchiveItem[]>([])
   const [opened, setOpened] = useState<ArchiveFull | null>(null)
   const [page, setPage] = useState(0)
@@ -32,10 +34,11 @@ export default function ArchivePage({ canManage, isAdmin }: { canManage: boolean
 
   const reload = useCallback(() => {
     setErr(null)
-    Promise.all([archiveMonths(), archiveTopics(), listArchive(month || undefined, q || undefined, topic || undefined)])
+    Promise.all([archiveMonths(), archiveTopics(),
+      listArchive(month || undefined, q || undefined, topic || undefined, archFrom || undefined, archTo || undefined)])
       .then(([m, t, it]) => { setMonths(m); setTopics(t); setItems(it) })
       .catch((e) => setErr((e as Error).message))
-  }, [month, q, topic])
+  }, [month, q, topic, archFrom, archTo])
   useEffect(() => { const t = setTimeout(reload, 250); return () => clearTimeout(t) }, [reload])
 
   const open = (id: string) => { setPage(0); getArchive(id).then(setOpened).catch((e) => setErr((e as Error).message)) }
@@ -102,11 +105,16 @@ export default function ArchivePage({ canManage, isAdmin }: { canManage: boolean
         {canManage && <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={() => setAccessOpen(true)}>🔑 Доступ к архиву</button>}
       </div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        <input style={{ ...input, flex: 1, minWidth: 220 }} placeholder="🔍 Поиск по названию или теме…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input style={{ ...input, flex: 1, minWidth: 220 }} placeholder="🔍 Поиск по названию, теме или странице…" value={q} onChange={(e) => setQ(e.target.value)} />
         <select style={sel} value={topic} onChange={(e) => setTopic(e.target.value)}>
           <option value="">Все темы</option>
           {topics.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>
+          архивирован с <input type="date" style={{ ...input, width: 140 }} value={archFrom} onChange={(e) => setArchFrom(e.target.value)} />
+          по <input type="date" style={{ ...input, width: 140 }} value={archTo} onChange={(e) => setArchTo(e.target.value)} />
+        </label>
+        {(archFrom || archTo) && <button style={btnGhost} onClick={() => { setArchFrom(''); setArchTo('') }}>✕ дата</button>}
       </div>
       {err && <div style={errBox}>{err}</div>}
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>

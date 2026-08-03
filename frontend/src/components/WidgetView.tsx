@@ -110,9 +110,41 @@ function TargetLine({ data }: { data: any }) {
   )
 }
 
+type SortState = { col: string; dir: 1 | -1 } | null
+
+// Сортировка по клику на заголовок столбца (3 состояния: ▲ → ▼ → сброс) + поиск
+// по значениям — общее для table/pivot (виджеты становятся длинными без этого).
+function sortRows<T extends Record<string, unknown>>(rows: T[], sort: SortState, getVal: (r: T, col: string) => unknown): T[] {
+  if (!sort) return rows
+  const { col, dir } = sort
+  return [...rows].sort((a, b) => {
+    const av = getVal(a, col); const bv = getVal(b, col)
+    if (av == null && bv == null) return 0
+    if (av == null) return 1
+    if (bv == null) return -1
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir
+    return String(av).localeCompare(String(bv), 'ru') * dir
+  })
+}
+function toggleSort(setSort: (f: (s: SortState) => SortState) => void, col: string) {
+  setSort((s) => (s && s.col === col ? (s.dir === 1 ? { col, dir: -1 } : null) : { col, dir: 1 }))
+}
+function sortArrow(sort: SortState, col: string): string {
+  return sort?.col === col ? (sort.dir === 1 ? ' ▲' : ' ▼') : ''
+}
+const searchInput: React.CSSProperties = {
+  height: 30, padding: '0 10px', borderRadius: 6, border: '1px solid var(--border)',
+  background: 'var(--surface)', color: 'var(--text)', fontSize: 12, width: 220, marginBottom: 8,
+}
+const sortableTh: React.CSSProperties = { cursor: 'pointer', userSelect: 'none' }
+
 function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) {
   useThemeVersion() // перерисовка при смене темы: цвета серий берутся из токенов
   const C = chartColors()
+  const [tableSearch, setTableSearch] = useState('')
+  const [tableSort, setTableSort] = useState<SortState>(null)
+  const [pivotSearch, setPivotSearch] = useState('')
+  const [pivotSort, setPivotSort] = useState<SortState>(null)
   if (data.type === 'text') {
     const align = data.align === 'center' ? 'center' : 'left'
     if (!data.heading && !data.body) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Пустая аннотация</div>
@@ -185,18 +217,32 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     )
   }
   if (data.type === 'table') {
+    const cols: string[] = data.columns || []
+    let rows: any[] = data.rows || []
+    if (tableSearch.trim()) {
+      const s = tableSearch.trim().toLowerCase()
+      rows = rows.filter((r) => String(r.row ?? '').toLowerCase().includes(s) || cols.some((c) => String(r[c] ?? '').toLowerCase().includes(s)))
+    }
+    rows = sortRows(rows, tableSort, (r, c) => (c === '__row' ? r.row : r[c]))
     return (
-      <div style={{ overflowX: 'auto' }}>
+      <div>
+        <input style={searchInput} placeholder="🔍 Поиск по таблице…" value={tableSearch} onChange={(e) => setTableSearch(e.target.value)} />
+        <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
-          <thead><tr><th style={th}>Строка</th>{data.columns.map((c: string) => <th key={c} style={th}>{c}</th>)}</tr></thead>
+          <thead><tr>
+            <th style={{ ...th, ...sortableTh }} onClick={() => toggleSort(setTableSort, '__row')}>Строка{sortArrow(tableSort, '__row')}</th>
+            {cols.map((c: string) => <th key={c} style={{ ...th, ...sortableTh }} onClick={() => toggleSort(setTableSort, c)}>{c}{sortArrow(tableSort, c)}</th>)}
+          </tr></thead>
           <tbody>
-            {data.rows.map((r: any, i: number) => (
+            {rows.length === 0 && <tr><td style={td} colSpan={cols.length + 1}>Ничего не найдено</td></tr>}
+            {rows.map((r: any, i: number) => (
               <tr key={i}><td style={{ ...td, fontWeight: 600 }}>{r.row}</td>
-                {data.columns.map((c: string) => <td key={c} style={td}>{typeof r[c] === 'number' ? fmt(r[c]) : (r[c] ?? '—')}</td>)}
+                {cols.map((c: string) => <td key={c} style={td}>{typeof r[c] === 'number' ? fmt(r[c]) : (r[c] ?? '—')}</td>)}
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     )
   }
@@ -309,14 +355,27 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
 
   if (data.type === 'pivot') {
     const cols: string[] = data.columns || []
-    const rows: any[] = data.rows || []
+    let rows: any[] = data.rows || []
     if (rows.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
     const totCell: React.CSSProperties = { ...td, fontWeight: 700, background: 'var(--surface-accent)' }
+    if (pivotSearch.trim()) {
+      const s = pivotSearch.trim().toLowerCase()
+      rows = rows.filter((r) => String(r.row ?? '').toLowerCase().includes(s) || (r.values || []).some((v: unknown) => String(v ?? '').toLowerCase().includes(s)))
+    }
+    const pivotVal = (r: any, col: string) => (col === '__row' ? r.row : col === '__total' ? r.total : r.values[Number(col)])
+    rows = sortRows(rows, pivotSort, pivotVal)
     return (
-      <div style={{ overflowX: 'auto' }}>
+      <div>
+        <input style={searchInput} placeholder="🔍 Поиск по сводной…" value={pivotSearch} onChange={(e) => setPivotSearch(e.target.value)} />
+        <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
-          <thead><tr><th style={th}>Строка</th>{cols.map((c) => <th key={c} style={th}>{c}</th>)}<th style={{ ...th, color: 'var(--accent)' }}>Итого</th></tr></thead>
+          <thead><tr>
+            <th style={{ ...th, ...sortableTh }} onClick={() => toggleSort(setPivotSort, '__row')}>Строка{sortArrow(pivotSort, '__row')}</th>
+            {cols.map((c, ci) => <th key={c} style={{ ...th, ...sortableTh }} onClick={() => toggleSort(setPivotSort, String(ci))}>{c}{sortArrow(pivotSort, String(ci))}</th>)}
+            <th style={{ ...th, ...sortableTh, color: 'var(--accent)' }} onClick={() => toggleSort(setPivotSort, '__total')}>Итого{sortArrow(pivotSort, '__total')}</th>
+          </tr></thead>
           <tbody>
+            {rows.length === 0 && <tr><td style={td} colSpan={cols.length + 2}>Ничего не найдено</td></tr>}
             {rows.map((r, i) => (
               <tr key={i}><td style={{ ...td, fontWeight: 600 }}>{r.row}</td>
                 {cols.map((_, ci) => <td key={ci} style={{ ...td, textAlign: 'right' }}>{typeof r.values[ci] === 'number' ? fmt(r.values[ci]) : '—'}</td>)}
@@ -329,6 +388,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
             <td style={{ ...totCell, textAlign: 'right', color: 'var(--accent)' }}>{fmt(data.grand_total)}</td>
           </tr></tfoot>
         </table>
+        </div>
       </div>
     )
   }
