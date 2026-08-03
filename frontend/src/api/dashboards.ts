@@ -13,6 +13,9 @@ export interface Dashboard {
   pages?: number
   comments_count?: number
   is_favorite?: boolean
+  folder_id?: string | null
+  folder_name?: string | null
+  object_name?: string | null
 }
 export async function setDashboardFavorite(id: string, on: boolean): Promise<void> {
   const res = await fetch(`/dashboards/${id}/favorite`, { method: on ? 'POST' : 'DELETE', headers: authH() })
@@ -30,13 +33,23 @@ export interface Widget {
   config: Record<string, unknown>
 }
 
-export async function listDashboards(q = '', fav = false, limit = 50, offset = 0, fromDate = '', toDate = ''): Promise<Page<Dashboard>> {
+export async function listDashboards(q = '', fav = false, limit = 50, offset = 0, fromDate = '', toDate = '', folderId = ''): Promise<Page<Dashboard>> {
   const p = new URLSearchParams({ limit: String(limit), offset: String(offset) })
   if (q.trim()) p.set('q', q.trim())
   if (fav) p.set('fav', 'true')
   if (fromDate) p.set('from_date', fromDate)
   if (toDate) p.set('to_date', toDate)
+  if (folderId) p.set('folder_id', folderId)
   const res = await fetch(`/dashboards?${p}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+// Переместить дашборд в папку («банк отделов», волна D); null — убрать из папки.
+export async function moveDashboardToFolder(id: string, folderId: string | null): Promise<{ folder_id: string | null }> {
+  const res = await fetch(`/dashboards/${id}/folder`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ folder_id: folderId }),
+  })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }

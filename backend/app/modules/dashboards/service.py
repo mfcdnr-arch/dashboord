@@ -70,12 +70,14 @@ async def create_dashboard(conn, org_id, user_id, name: str, description: Option
 
 async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
                           fav_only: bool = False, limit: int = 50, offset: int = 0,
-                          from_date: Optional[str] = None, to_date: Optional[str] = None) -> dict:
+                          from_date: Optional[str] = None, to_date: Optional[str] = None,
+                          folder_id: Optional[str] = None) -> dict:
     """Постранично: {total, limit, offset, items}. Видимость через RLS
     (visible_dashboard_ids). q — поиск по названию дашборда ИЛИ названию его
     страницы (ilike); from_date/to_date — по дате последнего изменения
-    (updated_at); fav_only — только избранные. Избранные всегда сверху;
-    поиск/фильтр применяются на сервере (не только к странице)."""
+    (updated_at); fav_only — только избранные; folder_id — фильтр «банк
+    отделов» (волна D): пусто=все, 'none'=без папки, иначе конкретная папка.
+    Избранные всегда сверху; поиск/фильтр применяются на сервере."""
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
     visible = await visible_dashboard_ids(conn, org_id, user)
@@ -94,6 +96,10 @@ async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
         params.append(from_date); where += f" and d.updated_at::date >= ${len(params)}::text::date"
     if to_date:
         params.append(to_date); where += f" and d.updated_at::date <= ${len(params)}::text::date"
+    if folder_id == "none":
+        where += " and d.folder_id is null"
+    elif folder_id:
+        params.append(folder_id); where += f" and d.folder_id=${len(params)}::uuid"
     fav_join = "join" if fav_only else "left join"
     total = await conn.fetchval(
         f"select count(*) from dashboards d "
@@ -101,15 +107,34 @@ async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
         f"where {where}", *params)
     rows = await conn.fetch(
         "select d.id, d.name, d.description, d.publication_status, d.created_at, d.updated_at, "
+        "d.folder_id, fo.name as folder_name, ob.name as object_name, "
         "(select count(*) from dashboard_pages p where p.dashboard_id=d.id) as pages, "
         "(select count(*) from dashboard_comments c where c.dashboard_id=d.id) as comments_count, "
         "(f.dashboard_id is not null) as is_favorite "
         f"from dashboards d {fav_join} dashboard_favorites f on f.dashboard_id=d.id and f.user_id=$3 "
+        "left join folders fo on fo.id=d.folder_id left join objects ob on ob.id=fo.object_id "
         f"where {where} order by is_favorite desc, d.name "
         f"limit ${len(params) + 1} offset ${len(params) + 2}",
         *params, limit, offset,
     )
     return {"total": total, "limit": limit, "offset": offset, "items": [dict(r) for r in rows]}
+
+
+async def set_folder(conn, org_id, dashboard_id: str, folder_id: Optional[str]) -> dict:
+    """Переместить дашборд в папку («банк отделов», волна D) или убрать из
+    папки (folder_id=None). Папка должна принадлежать той же организации."""
+    exists = await conn.fetchval(
+        "select 1 from dashboards where id=$1::uuid and organization_id=$2", dashboard_id, org_id)
+    if not exists:
+        raise DashboardError("Дашборд не найден")
+    if folder_id:
+        ok = await conn.fetchval(
+            "select 1 from folders where id=$1::uuid and organization_id=$2", folder_id, org_id)
+        if not ok:
+            raise DashboardError("Папка не найдена")
+    await conn.execute(
+        "update dashboards set folder_id=$2::uuid, updated_at=now() where id=$1::uuid", dashboard_id, folder_id)
+    return {"folder_id": folder_id}
 
 
 async def set_favorite(conn, org_id, user: dict, dashboard_id: str, on: bool) -> dict:
@@ -131,9 +156,11 @@ async def get_dashboard(conn, org_id, user: dict, dashboard_id: str) -> dict:
     if not await _can_view(conn, org_id, user, dashboard_id):
         raise DashboardError("Дашборд не найден")
     d = await conn.fetchrow(
-        "select id, name, description, publication_status, auto_archive, created_at, updated_at, "
-        "(select count(*) from dashboard_comments c where c.dashboard_id=dashboards.id) as comments_count "
-        "from dashboards where id=$1::uuid and organization_id=$2", dashboard_id, org_id,
+        "select d.id, d.name, d.description, d.publication_status, d.auto_archive, d.created_at, d.updated_at, "
+        "d.folder_id, fo.name as folder_name, ob.name as object_name, "
+        "(select count(*) from dashboard_comments c where c.dashboard_id=d.id) as comments_count "
+        "from dashboards d left join folders fo on fo.id=d.folder_id left join objects ob on ob.id=fo.object_id "
+        "where d.id=$1::uuid and d.organization_id=$2", dashboard_id, org_id,
     )
     if d is None:
         raise DashboardError("Дашборд не найден")

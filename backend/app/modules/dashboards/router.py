@@ -104,11 +104,25 @@ async def auto_build(body: AutoIn, user: dict = Depends(manage)):
 async def list_dashboards(user: dict = Depends(get_current_user), q: Optional[str] = None,
                           fav: bool = False, limit: int = Query(50, ge=1, le=200),
                           offset: int = Query(0, ge=0),
-                          from_date: Optional[str] = None, to_date: Optional[str] = None):
+                          from_date: Optional[str] = None, to_date: Optional[str] = None,
+                          folder_id: Optional[str] = None):
     async with db.acquire(user["id"]) as conn:
         return await service.list_dashboards(conn, user["organization_id"], user,
                                              q=q, fav_only=fav, limit=limit, offset=offset,
-                                             from_date=from_date, to_date=to_date)
+                                             from_date=from_date, to_date=to_date, folder_id=folder_id)
+
+
+class FolderMoveIn(BaseModel):
+    folder_id: Optional[str] = None
+
+
+@router.post("/dashboards/{dashboard_id}/folder")
+async def move_dashboard(dashboard_id: str, body: FolderMoveIn, user: dict = Depends(manage)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.set_folder(conn, user["organization_id"], dashboard_id, body.folder_id)
+        except DashboardError as e:
+            raise _bad(e)
 
 
 @router.get("/dashboards/{dashboard_id}")

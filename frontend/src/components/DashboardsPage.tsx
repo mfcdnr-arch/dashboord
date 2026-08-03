@@ -4,9 +4,9 @@ import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import {
   autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deletePage, deletePreset, deleteWidget, getDashboard,
-  exportPageXlsx, getDataSources, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listObjects, listPageWidgets, listPresets,
-  listTemplates, logClientExport, publishDashboard, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
-  type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
+  exportPageXlsx, getDataSources, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listFolders, listObjects, listPageWidgets, listPresets,
+  listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
+  type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Folder, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
 } from '../api'
 import WidgetView from './WidgetView'
 import InfoTip from './InfoTip'
@@ -56,6 +56,12 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   const [favOnly, setFavOnly] = useState(false)
   const [dashFrom, setDashFrom] = useState('')
   const [dashTo, setDashTo] = useState('')
+  // Фильтр списка по папке («банк отделов», волна D): Объект → Папка; '' = все,
+  // folderFilter='none' = без папки.
+  const [filterObjId, setFilterObjId] = useState('')
+  const [filterFolders, setFilterFolders] = useState<Folder[]>([])
+  const [folderFilter, setFolderFilter] = useState('')
+  const [moveDash, setMoveDash] = useState<Dashboard | null>(null)
   const [sel, setSel] = useState<{ dashboard: Dashboard; pages: DashPage[] } | null>(null)
   const [page, setPage] = useState<DashPage | null>(null)
   const [widgets, setWidgets] = useState<Widget[]>([])
@@ -116,23 +122,38 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   const fail = (e: unknown) => setError((e as Error).message)
   // Защита от гонки ответов: применяем только результат последнего запроса.
   const dashSeq = useRef(0)
-  const loadDashboards = (q: string, fav: boolean, fromD = dashFrom, toD = dashTo) => {
+  const loadDashboards = (q: string, fav: boolean, fromD = dashFrom, toD = dashTo, folderF = folderFilter) => {
     const seq = ++dashSeq.current
-    return listDashboards(q, fav, DASH_PAGE, 0, fromD, toD)
+    return listDashboards(q, fav, DASH_PAGE, 0, fromD, toD, folderF)
       .then((p) => { if (seq === dashSeq.current) { setDashboards(p.items); setDashTotal(p.total) } }).catch(fail)
   }
   const refresh = () => loadDashboards(query, favOnly)
   async function loadMoreDash() {
     const seq = ++dashSeq.current
-    try { const p = await listDashboards(query, favOnly, DASH_PAGE, dashboards.length, dashFrom, dashTo); if (seq === dashSeq.current) { setDashboards((prev) => [...prev, ...p.items]); setDashTotal(p.total) } } catch (e) { fail(e) }
+    try { const p = await listDashboards(query, favOnly, DASH_PAGE, dashboards.length, dashFrom, dashTo, folderFilter); if (seq === dashSeq.current) { setDashboards((prev) => [...prev, ...p.items]); setDashTotal(p.total) } } catch (e) { fail(e) }
   }
   async function toggleFav(e: React.MouseEvent, d: Dashboard) {
     e.stopPropagation()
     try { await setDashboardFavorite(d.id, !d.is_favorite); refresh() } catch (e) { fail(e) }
   }
+  async function doMoveFolder(folderId: string | null) {
+    if (!moveDash) return
+    try {
+      await moveDashboardToFolder(moveDash.id, folderId)
+      const movedId = moveDash.id
+      setMoveDash(null)
+      if (sel && sel.dashboard.id === movedId) setSel(await getDashboard(movedId))
+      await refresh()
+    } catch (e) { fail(e) }
+  }
 
   // Список — по поиску/фильтру избранного с дебаунсом (он же начальная загрузка).
-  useEffect(() => { const t = setTimeout(() => loadDashboards(query, favOnly), 250); return () => clearTimeout(t) }, [query, favOnly, dashFrom, dashTo]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const t = setTimeout(() => loadDashboards(query, favOnly), 250); return () => clearTimeout(t) }, [query, favOnly, dashFrom, dashTo, folderFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Папки фильтра зависят от выбранного объекта.
+  useEffect(() => {
+    if (!filterObjId) { setFilterFolders([]); return }
+    listFolders(filterObjId).then(setFilterFolders).catch(() => setFilterFolders([]))
+  }, [filterObjId])
   useEffect(() => {
     getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] }))
     listObjects().then(setObjects).catch(() => {})
@@ -412,8 +433,31 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
               </label>
               {(dashFrom || dashTo) && <button style={tab} onClick={() => { setDashFrom(''); setDashTo('') }} title="Сбросить фильтр по дате">✕ дата</button>}
             </div>
+            {objects.length > 0 && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>📁 Папка:</span>
+                <select style={{ ...input, height: 32 }} value={filterObjId}
+                  onChange={(e) => { setFilterObjId(e.target.value); setFolderFilter('') }}>
+                  <option value="">все объекты</option>
+                  {objects.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+                {filterObjId && (
+                  <select style={{ ...input, height: 32 }} value={folderFilter} onChange={(e) => setFolderFilter(e.target.value)}>
+                    <option value="">все папки объекта</option>
+                    {filterFolders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                  </select>
+                )}
+                <button style={folderFilter === 'none' ? { ...tab, ...tabActive } : tab}
+                  onClick={() => { setFilterObjId(''); setFolderFilter((v) => (v === 'none' ? '' : 'none')) }}>
+                  без папки
+                </button>
+                {(filterObjId || folderFilter) && (
+                  <button style={tab} onClick={() => { setFilterObjId(''); setFolderFilter('') }} title="Сбросить фильтр по папке">✕ папка</button>
+                )}
+              </div>
+            )}
             {dashboards.length === 0 ? (
-              <div style={muted}>{query.trim() || favOnly || dashFrom || dashTo ? 'Ничего не найдено.' : 'Пока нет дашбордов.'}</div>
+              <div style={muted}>{query.trim() || favOnly || dashFrom || dashTo || folderFilter ? 'Ничего не найдено.' : 'Пока нет дашбордов.'}</div>
             ) : (
               <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
                 {dashboards.map((d, i) => (
@@ -425,6 +469,11 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                       </button>
                       {d.name}
                       {!!d.comments_count && <span title={`Комментариев: ${d.comments_count}`} style={{ fontSize: 12, color: 'var(--accent)' }}>💬{d.comments_count}</span>}
+                      {d.folder_name && (
+                        <span title={`${d.object_name ?? ''} / ${d.folder_name}`} style={{ fontSize: 11, padding: '1px 8px', borderRadius: 9, background: 'var(--surface-3)', color: 'var(--text-2)' }}>
+                          📁 {d.folder_name}
+                        </span>
+                      )}
                     </span>
                     <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                       страниц: {d.pages ?? 0} · {d.publication_status}
@@ -463,6 +512,12 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
             {page && <button style={btnGhost} disabled={exporting} onClick={exportExcel} title="Данные страницы в Excel">⤓ Excel</button>}
             {page && <button style={btnGhost} disabled={exporting} onClick={exportPng} title="Снимок страницы в PNG">⤓ PNG</button>}
             {canManage && <button style={btnGhost} onClick={saveTemplate}>Сохранить как шаблон</button>}
+            {canManage && objects.length > 0 && (
+              <button style={btnGhost} onClick={() => setMoveDash(sel.dashboard)}
+                title="Разместить дашборд в папке объекта (банк отделов)">
+                📁 {sel.dashboard.folder_name ? `${sel.dashboard.object_name}/${sel.dashboard.folder_name}` : 'Без папки'}
+              </button>
+            )}
             {canManage && <button style={btnGhost} onClick={() => setAccessOpen(true)} title="Кто видит этот дашборд">🔒 Доступ</button>}
             <button
               style={sel.dashboard.comments_count
@@ -643,6 +698,10 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
       {rebind && (
         <RebindModal rebind={rebind} setRebind={setRebind} onConfirm={confirmRebind} busy={busy} />
       )}
+      {moveDash && (
+        <FolderMoveDialog dashboard={moveDash} objects={objects} onClose={() => setMoveDash(null)}
+          onMove={doMoveFolder} onClear={() => doMoveFolder(null)} />
+      )}
     </div>
   )
 }
@@ -691,6 +750,48 @@ function RebindModal({ rebind, setRebind, onConfirm, busy }: {
             title={missingUnmapped ? 'Сначала сопоставьте все отсутствующие коды (⚠)' : ''}>
             {busy ? 'Создание…' : 'Создать дашборд'}
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Переместить дашборд в папку объекта («банк отделов», волна D) ──
+function FolderMoveDialog({ dashboard, objects, onClose, onMove, onClear }: {
+  dashboard: Dashboard; objects: Obj[]; onClose: () => void
+  onMove: (folderId: string) => void; onClear: () => void
+}) {
+  const [objId, setObjId] = useState('')
+  const [folders, setFolders] = useState<Folder[]>([])
+  const [folderId, setFolderId] = useState('')
+  useEffect(() => {
+    if (!objId) { setFolders([]); return }
+    listFolders(objId).then(setFolders).catch(() => setFolders([]))
+  }, [objId])
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={{ ...dialog, width: 420 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>📁 Папка дашборда «{dashboard.name}»</div>
+          <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 14px' }}>
+          {dashboard.folder_name ? `Сейчас в: ${dashboard.object_name} / ${dashboard.folder_name}` : 'Сейчас без папки.'}
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+          <select style={input} value={objId} onChange={(e) => { setObjId(e.target.value); setFolderId('') }}>
+            <option value="">выберите объект…</option>
+            {objects.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+          <select style={input} value={folderId} onChange={(e) => setFolderId(e.target.value)} disabled={!objId}>
+            <option value="">выберите папку…</option>
+            {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {dashboard.folder_name && <button style={linkDanger} onClick={onClear}>убрать из папки</button>}
+          <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={onClose}>Отмена</button>
+          <button style={btn} disabled={!folderId} onClick={() => onMove(folderId)}>Сохранить</button>
         </div>
       </div>
     </div>
