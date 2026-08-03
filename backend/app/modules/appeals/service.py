@@ -54,6 +54,9 @@ async def create_appeal(conn, org_id, user: dict, subject: Optional[str], body: 
             conn, org_id, "appeal.created", "appeal", str(row["id"]),
             {"author": user.get("full_name") or user.get("login"), "subject": subject, "snippet": body[:140]},
             mgmt)
+    await audit_svc.write_event(
+        conn, org_id, user["id"], "create", "appeal", str(row["id"]),
+        new_data={"subject": subject, "snippet": body[:200]})
     return {"id": str(row["id"]), "created_at": row["created_at"]}
 
 
@@ -81,6 +84,11 @@ async def create_appeal_by_login(conn, login: str, body: str) -> None:
             conn, row["organization_id"], "appeal.created", "appeal", str(ap["id"]),
             {"author": row["full_name"] or login, "subject": "Аккаунт заблокирован", "snippet": body[:140]},
             mgmt)
+    # Актор — сам заблокированный пользователь (найден по логину); JWT у него
+    # нет, но личность установлена достоверно (совпал логин).
+    await audit_svc.write_event(
+        conn, row["organization_id"], row["id"], "create", "appeal", str(ap["id"]),
+        new_data={"subject": "Аккаунт заблокирован", "snippet": body[:200], "via": "blocked_login"})
 
 
 def _row_to_summary(r) -> dict:
@@ -186,6 +194,9 @@ async def add_message(conn, org_id, user: dict, appeal_id: str, body: str) -> di
             await notif_svc.notify(
                 conn, org_id, "appeal.message", "appeal", appeal_id,
                 {"author": user.get("full_name") or user.get("login"), "snippet": body[:140]}, mgmt)
+    await audit_svc.write_event(
+        conn, org_id, user["id"], "update", "appeal", appeal_id,
+        old_data={"status": ap["status"]}, new_data={"status": new_status, "is_staff": is_staff, "snippet": body[:200]})
     return {"id": str(row["id"]), "created_at": row["created_at"], "status": new_status}
 
 

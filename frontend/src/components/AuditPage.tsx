@@ -167,7 +167,7 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
 }
 
 function Row({ it, onOpen }: { it: AuditItem; onOpen: () => void }) {
-  const et = it.entity_type === 'dashboard' ? 'Дашборд' : it.entity_type === 'widget' ? 'Виджет' : it.entity_type === 'object_acl' ? 'Права' : it.entity_type
+  const et = it.entity_type === 'dashboard' ? 'Дашборд' : it.entity_type === 'widget' ? 'Виджет' : it.entity_type === 'object_acl' ? 'Права' : it.entity_type === 'appeal' ? 'Обращение' : it.entity_type
   return (
     <tr>
       <td style={{ ...td, whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{fmtDt(it.created_at)}</td>
@@ -187,7 +187,7 @@ function fmtVal(v: unknown): string {
 }
 
 function DetailModal({ d, onClose }: { d: AuditDetail; onClose: () => void }) {
-  const et = d.entity_type === 'dashboard' ? 'Дашборд' : d.entity_type === 'widget' ? 'Виджет' : d.entity_type === 'object_acl' ? 'Права доступа' : d.entity_type
+  const et = d.entity_type === 'dashboard' ? 'Дашборд' : d.entity_type === 'widget' ? 'Виджет' : d.entity_type === 'object_acl' ? 'Права доступа' : d.entity_type === 'appeal' ? 'Обращение' : d.entity_type
   const changed = d.diff.filter((f) => f.changed)
   return (
     <div style={overlay} onClick={onClose}>

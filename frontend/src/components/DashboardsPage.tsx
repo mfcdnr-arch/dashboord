@@ -8,6 +8,7 @@ import {
   listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Folder, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
 } from '../api'
+import { folderLabel, folderTree } from '../lib/folderTree'
 import WidgetView from './WidgetView'
 import InfoTip from './InfoTip'
 import { WIDGET_META } from './dashboards/WidgetPicker'
@@ -61,7 +62,10 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   const [filterObjId, setFilterObjId] = useState('')
   const [filterFolders, setFilterFolders] = useState<Folder[]>([])
   const [folderFilter, setFolderFilter] = useState('')
-  const [moveDash, setMoveDash] = useState<Dashboard | null>(null)
+  // Диалог «в какую папку»: обслуживает и одиночное перемещение (из открытого
+  // дашборда), и массовое (из списка, по чекбоксам) — ids содержит 1 или N.
+  const [folderTarget, setFolderTarget] = useState<{ ids: string[]; label: string; currentPath?: string | null } | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [sel, setSel] = useState<{ dashboard: Dashboard; pages: DashPage[] } | null>(null)
   const [page, setPage] = useState<DashPage | null>(null)
   const [widgets, setWidgets] = useState<Widget[]>([])
@@ -137,14 +141,23 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
     try { await setDashboardFavorite(d.id, !d.is_favorite); refresh() } catch (e) { fail(e) }
   }
   async function doMoveFolder(folderId: string | null) {
-    if (!moveDash) return
+    if (!folderTarget) return
+    const ids = folderTarget.ids
     try {
-      await moveDashboardToFolder(moveDash.id, folderId)
-      const movedId = moveDash.id
-      setMoveDash(null)
-      if (sel && sel.dashboard.id === movedId) setSel(await getDashboard(movedId))
+      for (const id of ids) await moveDashboardToFolder(id, folderId)
+      setFolderTarget(null)
+      setSelectedIds(new Set())
+      if (sel && ids.includes(sel.dashboard.id)) setSel(await getDashboard(sel.dashboard.id))
       await refresh()
     } catch (e) { fail(e) }
+  }
+  function toggleSelect(e: React.MouseEvent, id: string) {
+    e.stopPropagation()
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
   }
 
   // Список — по поиску/фильтру избранного с дебаунсом (он же начальная загрузка).
@@ -444,7 +457,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                 {filterObjId && (
                   <select style={{ ...input, height: 32 }} value={folderFilter} onChange={(e) => setFolderFilter(e.target.value)}>
                     <option value="">все папки объекта</option>
-                    {filterFolders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                    {folderTree(filterFolders).map((f) => <option key={f.id} value={f.id}>{folderLabel(f)}</option>)}
                   </select>
                 )}
                 <button style={folderFilter === 'none' ? { ...tab, ...tabActive } : tab}
@@ -456,6 +469,16 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                 )}
               </div>
             )}
+            {canManage && objects.length > 0 && selectedIds.size > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '8px 12px', borderRadius: 10, background: 'var(--accent-weak-bg)' }}>
+                <span style={{ fontSize: 13, color: 'var(--accent)' }}>Выбрано: {selectedIds.size}</span>
+                <button style={btnAuto}
+                  onClick={() => setFolderTarget({ ids: [...selectedIds], label: `дашбордов: ${selectedIds.size}` })}>
+                  📁 Переместить в папку
+                </button>
+                <button style={{ ...tab, marginLeft: 'auto' }} onClick={() => setSelectedIds(new Set())}>Снять выделение</button>
+              </div>
+            )}
             {dashboards.length === 0 ? (
               <div style={muted}>{query.trim() || favOnly || dashFrom || dashTo || folderFilter ? 'Ничего не найдено.' : 'Пока нет дашбордов.'}</div>
             ) : (
@@ -463,6 +486,10 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                 {dashboards.map((d, i) => (
                   <div key={d.id} onClick={() => openDashboard(d.id)} style={{ ...rowItem, borderTop: i ? '1px solid var(--border-faint)' : 'none' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+                      {canManage && objects.length > 0 && (
+                        <input type="checkbox" checked={selectedIds.has(d.id)} onClick={(e) => toggleSelect(e, d.id)} onChange={() => {}}
+                          title="Выбрать для массового действия" style={{ cursor: 'pointer' }} />
+                      )}
                       <button onClick={(e) => toggleFav(e, d)} title={d.is_favorite ? 'Убрать из избранного' : 'В избранное'}
                         style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: d.is_favorite ? '#e0a800' : 'var(--border-strong)', padding: 0, lineHeight: 1 }}>
                         {d.is_favorite ? '★' : '☆'}
@@ -513,7 +540,11 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
             {page && <button style={btnGhost} disabled={exporting} onClick={exportPng} title="Снимок страницы в PNG">⤓ PNG</button>}
             {canManage && <button style={btnGhost} onClick={saveTemplate}>Сохранить как шаблон</button>}
             {canManage && objects.length > 0 && (
-              <button style={btnGhost} onClick={() => setMoveDash(sel.dashboard)}
+              <button style={btnGhost}
+                onClick={() => setFolderTarget({
+                  ids: [sel.dashboard.id], label: sel.dashboard.name,
+                  currentPath: sel.dashboard.folder_name ? `${sel.dashboard.object_name}/${sel.dashboard.folder_name}` : null,
+                })}
                 title="Разместить дашборд в папке объекта (банк отделов)">
                 📁 {sel.dashboard.folder_name ? `${sel.dashboard.object_name}/${sel.dashboard.folder_name}` : 'Без папки'}
               </button>
@@ -698,8 +729,8 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
       {rebind && (
         <RebindModal rebind={rebind} setRebind={setRebind} onConfirm={confirmRebind} busy={busy} />
       )}
-      {moveDash && (
-        <FolderMoveDialog dashboard={moveDash} objects={objects} onClose={() => setMoveDash(null)}
+      {folderTarget && (
+        <FolderMoveDialog target={folderTarget} objects={objects} onClose={() => setFolderTarget(null)}
           onMove={doMoveFolder} onClear={() => doMoveFolder(null)} />
       )}
     </div>
@@ -757,8 +788,8 @@ function RebindModal({ rebind, setRebind, onConfirm, busy }: {
 }
 
 // ── Переместить дашборд в папку объекта («банк отделов», волна D) ──
-function FolderMoveDialog({ dashboard, objects, onClose, onMove, onClear }: {
-  dashboard: Dashboard; objects: Obj[]; onClose: () => void
+function FolderMoveDialog({ target, objects, onClose, onMove, onClear }: {
+  target: { ids: string[]; label: string; currentPath?: string | null }; objects: Obj[]; onClose: () => void
   onMove: (folderId: string) => void; onClear: () => void
 }) {
   const [objId, setObjId] = useState('')
@@ -768,15 +799,19 @@ function FolderMoveDialog({ dashboard, objects, onClose, onMove, onClear }: {
     if (!objId) { setFolders([]); return }
     listFolders(objId).then(setFolders).catch(() => setFolders([]))
   }, [objId])
+  const bulk = target.ids.length > 1
   return (
     <div style={overlay} onClick={onClose}>
       <div style={{ ...dialog, width: 420 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>📁 Папка дашборда «{dashboard.name}»</div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>
+            📁 {bulk ? `Папка для ${target.label}` : `Папка дашборда «${target.label}»`}
+          </div>
           <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
         </div>
         <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 14px' }}>
-          {dashboard.folder_name ? `Сейчас в: ${dashboard.object_name} / ${dashboard.folder_name}` : 'Сейчас без папки.'}
+          {bulk ? 'Папка будет установлена у всех выбранных дашбордов.'
+            : target.currentPath ? `Сейчас в: ${target.currentPath}` : 'Сейчас без папки.'}
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
           <select style={input} value={objId} onChange={(e) => { setObjId(e.target.value); setFolderId('') }}>
@@ -785,11 +820,11 @@ function FolderMoveDialog({ dashboard, objects, onClose, onMove, onClear }: {
           </select>
           <select style={input} value={folderId} onChange={(e) => setFolderId(e.target.value)} disabled={!objId}>
             <option value="">выберите папку…</option>
-            {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+            {folderTree(folders).map((f) => <option key={f.id} value={f.id}>{folderLabel(f)}</option>)}
           </select>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {dashboard.folder_name && <button style={linkDanger} onClick={onClear}>убрать из папки</button>}
+          {(bulk || target.currentPath) && <button style={linkDanger} onClick={onClear}>{bulk ? 'убрать у всех' : 'убрать из папки'}</button>}
           <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={onClose}>Отмена</button>
           <button style={btn} disabled={!folderId} onClick={() => onMove(folderId)}>Сохранить</button>
         </div>

@@ -126,15 +126,20 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     archiveMe().then((r) => setArchiveOk(r.allowed)).catch(() => setArchiveOk(false))
   }, [canModerate])
   // Значок «сколько обращений ждут ответа» у пункта «Обращения» (только staff).
-  // Обновляется по таймеру И при каждом переходе между разделами — иначе после
-  // ответа/закрытия обращения счётчик «застревал» до 60 секунд.
+  // Best-effort, не real-time (полноценный push через WebSocket/SSE был бы
+  // избыточен для масштаба МФЦ) — но обновляется часто и по актуальным поводам:
+  // по таймеру, при переходе между разделами и при возврате на вкладку/в фокус
+  // (частая ситуация — свернули, кто-то ответил, вернулись).
   const [appealsOpen, setAppealsOpen] = useState(0)
   useEffect(() => {
     if (!canModerate) return
     const load = () => getAppealsStats().then((s) => setAppealsOpen(s.open)).catch(() => {})
     load()
-    const t = setInterval(load, 60000)
-    return () => clearInterval(t)
+    const t = setInterval(load, 20000)
+    const onVisible = () => { if (document.visibilityState === 'visible') load() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', load)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('focus', load) }
   }, [canModerate, section])
   const nav = NAV.filter((n) => (!n.adminOnly || isAdmin) && (!n.modOnly || canModerate)
     && (!(n as { archiveGate?: boolean }).archiveGate || archiveOk))

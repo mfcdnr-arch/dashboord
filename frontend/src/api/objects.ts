@@ -47,11 +47,11 @@ export async function listFolders(objectId: string): Promise<Folder[]> {
   return res.json()
 }
 
-export async function createFolder(objectId: string, name: string): Promise<Folder> {
+export async function createFolder(objectId: string, name: string, parentFolderId?: string | null): Promise<Folder> {
   const res = await fetch(`/objects/${objectId}/folders`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authH() },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, parent_folder_id: parentFolderId || null }),
   })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()

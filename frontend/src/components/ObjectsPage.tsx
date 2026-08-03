@@ -3,6 +3,7 @@ import {
   createFolder, createObject, listDocuments, listFolders, listObjects, uploadDocument,
   type Doc, type Folder, type Obj,
 } from '../api'
+import { folderLabel, folderTree } from '../lib/folderTree'
 import ExtractionPage from './ExtractionPage'
 import RowAclEditor from './RowAclEditor'
 
@@ -21,6 +22,7 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
 
   const [newObj, setNewObj] = useState('')
   const [newFolder, setNewFolder] = useState('')
+  const [newFolderParent, setNewFolderParent] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [date, setDate] = useState('')
   const [busy, setBusy] = useState(false)
@@ -40,6 +42,7 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
     setOpenDoc(null)
     setDocs([])
     setDocsTotal(0)
+    setNewFolderParent('')
     try {
       setFolders(await listFolders(o.id))
     } catch (e) {
@@ -106,8 +109,8 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
     setBusy(true)
     setError(null)
     try {
-      await createFolder(obj.id, newFolder.trim())
-      setNewFolder('')
+      await createFolder(obj.id, newFolder.trim(), newFolderParent || null)
+      setNewFolder(''); setNewFolderParent('')
       setFolders(await listFolders(obj.id))
     } catch (e) {
       fail(e)
@@ -161,6 +164,13 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
         <Section title={`Папки объекта «${obj.name}»`}>
           <form onSubmit={addFolder} style={rowForm}>
             <input style={input} placeholder="Название папки" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} />
+            {folders.length > 0 && (
+              <select style={input} value={newFolderParent} onChange={(e) => setNewFolderParent(e.target.value)}
+                title="Вложить в существующую папку (необязательно)">
+                <option value="">— верхний уровень —</option>
+                {folderTree(folders).map((f) => <option key={f.id} value={f.id}>{folderLabel(f)}</option>)}
+              </select>
+            )}
             <button style={btn} disabled={busy || !newFolder.trim()}>＋ Папка</button>
             {canManage && (
               <button type="button" style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent)' }}
@@ -170,7 +180,7 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
             )}
           </form>
           <List
-            items={folders.map((f) => ({ id: f.id, title: f.name, sub: '', onClick: () => openFolder(f) }))}
+            items={folderTree(folders).map((f) => ({ id: f.id, title: folderLabel(f), sub: '', onClick: () => openFolder(f) }))}
             empty="В объекте пока нет папок"
           />
         </Section>

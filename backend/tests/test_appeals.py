@@ -36,12 +36,25 @@ async def test_appeal_create_reply_close_flow(client, admin_headers, viewer):
         r = await client.get("/appeals/stats", headers=admin_headers)
         assert r.json()["open"] >= 1
 
+        # создание обращения попадает в аудит (актор — автор, entity_type=appeal)
+        async with db.acquire() as conn:
+            row = await conn.fetchrow(
+                "select action, actor_user_id from audit_log where entity_type='appeal' and entity_id=$1::uuid "
+                "and action='create'", aid)
+        assert row is not None and str(row["actor_user_id"]) == viewer["id"]
+
         # admin отвечает → статус answered, viewer получает уведомление appeal.replied
         r = await client.post(f"/appeals/{aid}/messages", headers=admin_headers, json={"body": "Проверяем"})
         assert r.status_code == 201
         assert r.json()["status"] == "answered"
         r = await client.get("/notifications", headers=viewer["headers"])
         assert any(n["event_type"] == "appeal.replied" and n["entity_id"] == aid for n in r.json()["items"])
+
+        # ответ staff тоже в аудите (action=update, новый статус в new_data)
+        async with db.acquire() as conn:
+            n_updates = await conn.fetchval(
+                "select count(*) from audit_log where entity_type='appeal' and entity_id=$1::uuid and action='update'", aid)
+        assert n_updates >= 1
 
         # viewer читает тред целиком (2 сообщения, в порядке создания)
         r = await client.get(f"/appeals/{aid}", headers=viewer["headers"])
@@ -112,6 +125,14 @@ async def test_blocked_account_login_and_appeal(client, admin_headers, ids):
         r = await client.get("/appeals", headers=admin_headers)
         items = [i for i in r.json()["items"] if i["author"] == login_name]
         assert len(items) == 1 and items[0]["subject"] == "Аккаунт заблокирован"
+
+        # аудит: актор — сам заблокированный пользователь (личность установлена по логину)
+        async with db.acquire() as conn:
+            audit_row = await conn.fetchrow(
+                "select actor_user_id from audit_log where entity_type='appeal' and entity_id=$1::uuid and action='create'",
+                items[0]["id"])
+        assert audit_row is not None and str(audit_row["actor_user_id"]) == str(uid)
+
         await _purge_appeal(items[0]["id"])
 
         # несуществующий логин — тоже 204, без утечки (никакого обращения не создаётся)
