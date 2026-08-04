@@ -1,0 +1,182 @@
+"""Низкоуровневое чтение данных для виджетов (вынесено из _widgetdata.py).
+
+Метрики (лучшая версия/значение), формулы виджета, серии/таблицы датасета
+(активный выпуск / по периодам / несколько полей), свежесть выпуска. Никакой
+диспетчеризации по типу виджета — только чтение из БД. Используется
+_widgetcalc (расчёт по типу) и _widgetdata (оркестрация/кэш/RLS).
+"""
+from __future__ import annotations
+
+import json
+from typing import Dict, List
+
+from ..metrics import resolver as mr
+from ..metrics.parser import FormulaError, parse
+from ._base import DashboardError
+
+
+async def _widget_org(conn, org_id, widget_id: str):
+    return await conn.fetchrow(
+        "select w.* from widgets w where w.id=$1::uuid and w.organization_id=$2", widget_id, org_id)
+
+
+async def _page_org(conn, org_id, page_id: str):
+    return await conn.fetchrow(
+        "select p.id, p.dashboard_id from dashboard_pages p join dashboards d on d.id=p.dashboard_id "
+        "where p.id=$1::uuid and d.organization_id=$2", page_id, org_id)
+
+
+async def _best_metric_version(conn, org_id, code: str):
+    # приоритет версии: одобренная → проверенная → любая (черновик не берётся вперёд проверенной)
+    return await conn.fetchrow(
+        "select m.name, m.info_text, m.description, mv.formula_expression, mv.formula_ast, mv.unit, mv.version_no, mv.status "
+        "from metrics m join metric_versions mv on mv.metric_id=m.id "
+        "where m.organization_id=$1 and m.code=$2 "
+        "order by (case mv.status when 'approved' then 0 when 'validated' then 1 else 2 end), "
+        "mv.version_no desc limit 1",
+        org_id, code,
+    )
+
+
+async def _formula_value(conn, org_id, formula: str):
+    """Вычисление произвольной формулы виджета (без сохранённой метрики)."""
+    try:
+        ast = parse(formula)
+        return await mr.evaluate_ast(conn, org_id, ast)
+    except FormulaError as e:
+        raise DashboardError(str(e))
+
+
+async def _metric_value(conn, org_id, code: str):
+    row = await _best_metric_version(conn, org_id, code)
+    if row is None:
+        raise DashboardError(f"Метрика '{code}' не найдена")
+    ast = row["formula_ast"]
+    if isinstance(ast, str):
+        ast = json.loads(ast)
+    try:
+        value = await mr.evaluate_ast(conn, org_id, ast)
+    except FormulaError as e:
+        raise DashboardError(str(e))
+    return value, row["unit"]
+
+
+def _row_acl_clause(params: list, allowed) -> str:
+    """Добавляет фильтр по разрешённым строкам (row-level RLS) к запросу
+    dataset_values. allowed=None — без фильтра; set — whitelist row_label
+    (пустой набор → ни одной строки)."""
+    if allowed is None:
+        return ""
+    params.append(list(allowed))
+    return f" and row_label = any(${len(params)}::text[])"
+
+
+async def _dataset_series(conn, org_id, dataset_code: str, value_field: str, row=None, allowed=None):
+    rel = await mr._active_release(conn, org_id, dataset_code)
+    if rel is None:
+        raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
+    params: list = [rel, value_field, row]
+    acl = _row_acl_clause(params, allowed)
+    rows = await conn.fetch(
+        "select row_label, value_number from dataset_values "
+        "where dataset_release_id=$1 and canonical_field_code=$2 and value_number is not null "
+        f"and ($3::text is null or row_label=$3){acl} order by row_index", *params,
+    )
+    return [{"category": r["row_label"], "value": float(r["value_number"])} for r in rows]
+
+
+async def _dataset_multi_series(conn, org_id, dataset_code: str, value_fields: List[str], row=None, allowed=None) -> dict:
+    """Несколько серий по одному датасету: категории=строки, серия=каждое поле."""
+    rel = await mr._active_release(conn, org_id, dataset_code)
+    if rel is None:
+        raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
+    names = {r["code"]: r["name"] for r in await conn.fetch(
+        "select drf.canonical_field_code as code, coalesce(cf.name, drf.canonical_field_code) as name "
+        "from dataset_release_fields drf "
+        "left join canonical_fields cf on cf.code=drf.canonical_field_code "
+        "  and cf.object_id=(select object_id from dataset_releases where id=$1) "
+        "where drf.dataset_release_id=$1", rel)}
+    params: list = [rel, value_fields, row]
+    acl = _row_acl_clause(params, allowed)
+    rows = await conn.fetch(
+        "select row_index, row_label, canonical_field_code, value_number from dataset_values "
+        "where dataset_release_id=$1 and canonical_field_code = any($2::text[]) and value_number is not null "
+        f"and ($3::text is null or row_label=$3){acl} order by row_index", *params)
+    categories: List[str] = []
+    per: Dict[str, Dict[str, float]] = {f: {} for f in value_fields}
+    for r in rows:
+        lbl = r["row_label"]
+        if lbl not in categories:
+            categories.append(lbl)
+        per[r["canonical_field_code"]][lbl] = float(r["value_number"])
+    series = [{"name": names.get(f, f), "data": [per[f].get(cat) for cat in categories]} for f in value_fields]
+    return {"categories": categories, "series": series}
+
+
+async def _dataset_period_series(conn, org_id, dataset_code: str, value_field: str,
+                                from_date=None, to_date=None, row=None, allowed=None):
+    """Ряд по периодам: для каждого активного выпуска датасета — сумма поля (динамика)."""
+    rels = await conn.fetch(
+        "select id, reporting_period_start from dataset_releases "
+        "where organization_id=$1 and code=$2 and status <> 'superseded' "
+        "and ($3::text is null or reporting_period_start >= $3::text::date) "
+        "and ($4::text is null or reporting_period_start <= $4::text::date) "
+        "order by reporting_period_start nulls last",
+        org_id, dataset_code, from_date, to_date,
+    )
+    if not rels:
+        raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
+    out = []
+    for r in rels:
+        params: list = [r["id"], value_field, row]
+        acl = _row_acl_clause(params, allowed)
+        s = await conn.fetchval(
+            "select coalesce(sum(value_number),0) from dataset_values "
+            f"where dataset_release_id=$1 and canonical_field_code=$2 and ($3::text is null or row_label=$3){acl}",
+            *params)
+        period = r["reporting_period_start"].isoformat() if r["reporting_period_start"] else "—"
+        out.append((period, float(s)))
+    return out
+
+
+async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None):
+    rel = await mr._active_release(conn, org_id, dataset_code)
+    if rel is None:
+        raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
+    fields = await conn.fetch(
+        "select distinct canonical_field_code from dataset_values where dataset_release_id=$1 "
+        "order by canonical_field_code", rel)
+    cols = [f["canonical_field_code"] for f in fields]
+    params: list = [rel, row]
+    acl = _row_acl_clause(params, allowed)
+    vals = await conn.fetch(
+        "select row_index, row_label, canonical_field_code, value_text, value_number "
+        f"from dataset_values where dataset_release_id=$1 and ($2::text is null or row_label=$2){acl} "
+        "order by row_index", *params)
+    by_row: Dict[int, dict] = {}
+    for v in vals:
+        r = by_row.setdefault(v["row_index"], {"__row__": v["row_label"]})
+        r[v["canonical_field_code"]] = (
+            float(v["value_number"]) if v["value_number"] is not None else v["value_text"])
+    rows = [{"row": by_row[i].get("__row__"), **{c: by_row[i].get(c) for c in cols}}
+            for i in sorted(by_row)]
+    return {"columns": cols, "rows": rows}
+
+
+async def _dataset_as_of(conn, org_id, dataset_code: str):
+    """Дата активного (не superseded) выпуска датасета — для метки свежести."""
+    d = await conn.fetchval(
+        "select reporting_period_start from dataset_releases "
+        "where organization_id=$1 and code=$2 and status<>'superseded' "
+        "order by reporting_period_start desc nulls last, created_at desc limit 1",
+        org_id, dataset_code)
+    return d.isoformat() if d else None
+
+
+async def _attach_as_of(conn, org_id, cfg: dict, result):
+    """Добавляет метку свежести as_of (дата активного выпуска) для датасетных
+    виджетов. Именованные метрики/объектные — без метки (объективны)."""
+    ds = (cfg or {}).get("dataset_code")
+    if ds and isinstance(result, dict) and "as_of" not in result:
+        result["as_of"] = await _dataset_as_of(conn, org_id, ds)
+    return result

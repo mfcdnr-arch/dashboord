@@ -35,9 +35,17 @@ from ._rls import (  # noqa: F401
     visible_widget_ids,
 )
 from ._rowrls import get_row_acl, set_row_acl  # noqa: F401
+from ._widgetcalc import _compute_widget  # noqa: F401
 from ._widgetdata import (  # noqa: F401
+    compute_page_data,
+    compute_widget_data,
+    list_org_alerts,
+    preview_widget,
+    widget_drill,
+)
+from ._widgetexport import export_page_xlsx  # noqa: F401
+from ._widgetsources import (  # noqa: F401
     _best_metric_version,
-    _compute_widget,
     _dataset_multi_series,
     _dataset_period_series,
     _dataset_series,
@@ -46,12 +54,6 @@ from ._widgetdata import (  # noqa: F401
     _metric_value,
     _page_org,
     _widget_org,
-    compute_page_data,
-    compute_widget_data,
-    export_page_xlsx,
-    list_org_alerts,
-    preview_widget,
-    widget_drill,
 )
 
 
