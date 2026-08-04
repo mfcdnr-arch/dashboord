@@ -53,3 +53,24 @@ async def test_double_submit_rejected(client, admin_headers, draft_dashboard):
     await client.post(f"/dashboards/{draft_dashboard}/submit-review", headers=admin_headers)
     r = await client.post(f"/dashboards/{draft_dashboard}/submit-review", headers=admin_headers)
     assert r.status_code == 400  # уже на проверке
+
+
+async def test_admin_override_publish_closes_pending_request(client, admin_headers, moderator_user,
+                                                             draft_dashboard):
+    """Прямая публикация админом закрывает висящую заявку на проверку.
+
+    Регрессия (финальный аудит): заявка оставалась pending_moderation навсегда —
+    висела в очереди модератора и в /reports/moderation, а повторное «Одобрить»
+    перезаписывало version_no версией на момент отправки на проверку.
+    """
+    await client.post(f"/dashboards/{draft_dashboard}/submit-review", headers=admin_headers)
+    r = await client.post(f"/dashboards/{draft_dashboard}/publish", headers=admin_headers)
+    assert r.status_code == 200, r.text
+
+    r = await client.get("/moderation/queue", headers=admin_headers)
+    assert draft_dashboard not in [x["dashboard_id"] for x in r.json()]
+
+    # и «Одобрить» после override больше не проходит (нечего одобрять)
+    r = await client.post(f"/dashboards/{draft_dashboard}/moderate", headers=moderator_user["headers"],
+                          json={"decision": "approve"})
+    assert r.status_code == 400, r.text

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import GridLayout, { WidthProvider, type Layout } from 'react-grid-layout'
+import GridLayout, { type Layout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import {
@@ -8,6 +8,7 @@ import {
   listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Folder, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
 } from '../api'
+import { useContainerWidth } from '../lib/useWidth'
 import WidgetView from './WidgetView'
 import InfoTip from './InfoTip'
 import { WIDGET_META } from './dashboards/WidgetPicker'
@@ -24,7 +25,6 @@ import { RebindModal, type RebindState } from './dashboards/RebindModal'
 import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
 import { PubBadge, WT, alertBtn, btn, btnGhost, crumb, dialog, editBtn, errBox, input, linkDanger, muted, overlay, presetChip, rmBtn, tab, tabActive, widgetCard, wtBadge } from './dashboards/shared'
 
-const GL = WidthProvider(GridLayout)
 
 const DASH_PAGE = 50
 
@@ -114,6 +114,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [presets, setPresets] = useState<DashPreset[]>([])
   const [kiosk, setKiosk] = useState(false)
+  const [gridRef, gridWidth] = useContainerWidth<HTMLDivElement>()
 
   const fail = (e: unknown) => setError((e as Error).message)
   // Защита от гонки ответов: применяем только результат последнего запроса.
@@ -540,9 +541,14 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                 <span style={{ fontSize: 12, color: 'var(--text-faint)', marginLeft: 4 }}>клик по столбцу/сектору тоже задаёт «Строку»</span>
               </div>
 
-              {/* Сетка виджетов (drag-drop в режиме раскладки) */}
-              {widgets.length === 0 ? <div style={muted}>На странице пока нет виджетов.</div> : (
-                <GL className="layout" cols={12} rowHeight={40} margin={[12, 12]}
+              {/* Сетка виджетов (drag-drop в режиме раскладки). Ширина сетки —
+                  ФАКТИЧЕСКАЯ ширина контейнера (useContainerWidth), а не 1280px
+                  по умолчанию из WidthProvider: колонка контента ограничена
+                  max-width, и сетка выезжала за неё — на странице дашборда
+                  появлялась горизонтальная прокрутка, правый виджет обрезался. */}
+              <div ref={gridRef}>
+              {widgets.length === 0 ? <div style={muted}>На странице пока нет виджетов.</div> : gridWidth !== undefined && (
+                <GridLayout className="layout" width={gridWidth} cols={12} rowHeight={40} margin={[12, 12]}
                   isDraggable={canManage && editMode} isResizable={canManage && editMode}
                   draggableHandle=".wdrag" compactType="vertical"
                   onDragStop={(_l, _o, n) => persistItem(n)} onResizeStop={(_l, _o, n) => persistItem(n)}
@@ -578,8 +584,9 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                       )}
                     </div>
                   ))}
-                </GL>
+                </GridLayout>
               )}
+              </div>
 
               {canManage && sources && (
                 <div style={{ marginTop: 20 }}>

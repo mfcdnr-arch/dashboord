@@ -636,9 +636,18 @@ async def publish(conn, org_id, user_id, dashboard_id: str) -> dict:
     await conn.execute(
         "update dashboards set publication_status='published', published_by=$2, published_at=now(), "
         "version_no=$3, updated_at=now() where id=$1::uuid", dashboard_id, user_id, vno)
+    # Прямая публикация админом (override) закрывает висящую заявку на проверку.
+    # Иначе заявка навсегда остаётся в очереди модератора и в /reports/moderation
+    # как pending, а последующее «Одобрить» откатило бы дашборд на версию,
+    # зафиксированную в момент отправки на проверку (перезапись version_no).
+    closed = await conn.fetchval(
+        "with upd as (update publication_requests set status='cancelled', resolved_at=now() "
+        "where dashboard_id=$1::uuid and status='pending_moderation' returning 1) "
+        "select count(*) from upd", dashboard_id)
     await audit_svc.write_event(
         conn, org_id, user_id, "publish", "dashboard", dashboard_id,
-        new_data={"version_no": vno, "publication_status": "published"})
+        new_data={"version_no": vno, "publication_status": "published",
+                  **({"review_request_cancelled": True} if closed else {})})
     return {"publication_status": "published", "version_no": vno}
 
 

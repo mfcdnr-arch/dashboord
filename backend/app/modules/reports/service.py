@@ -12,6 +12,7 @@ import json
 import time
 
 import psutil
+from fastapi.concurrency import run_in_threadpool
 
 from ...config import settings
 from ..dashboards import service as dash_svc
@@ -27,7 +28,10 @@ def _level(pct: float, warn: float, crit: float) -> str:
 
 async def system_health(conn) -> dict:
     th = await settings_svc.get_system_settings(conn)
-    cpu = psutil.cpu_percent(interval=0.3)
+    # cpu_percent(interval=...) СИНХРОННО спит указанное время. В корутине это
+    # блокирует весь event loop процесса API: пока админ открывает «Здоровье
+    # системы», запросы остальных пользователей стоят. Уносим замер в поток.
+    cpu = await run_in_threadpool(psutil.cpu_percent, 0.3)
     vm = psutil.virtual_memory()
     du = psutil.disk_usage("/")
     try:

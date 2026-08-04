@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from datetime import date
 from typing import Optional
 
@@ -66,7 +67,11 @@ async def upload_document(
     reporting_period_end: Optional[date] = Form(None),
     user: dict = Depends(manage),
 ):
-    filename = file.filename or "file"
+    # Имя файла приходит от клиента: берём ТОЛЬКО базовое имя. Иначе браузер или
+    # самодельный клиент может прислать «../../evil.xlsx», и такие сегменты уедут
+    # в ключ объекта MinIO (minio-py их отвергает — получался сырой 500, а строка
+    # documents к тому моменту уже была вставлена → «документ без версии»).
+    filename = os.path.basename((file.filename or "file").replace("\\", "/")).strip() or "file"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in ALLOWED:
         raise HTTPException(
@@ -81,24 +86,34 @@ async def upload_document(
     async with db.get_pool().acquire() as conn:
         if not await _folder_in_org(conn, folder_id, user["organization_id"]):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Папка не найдена")
-        doc = await conn.fetchrow(
-            "insert into documents(organization_id, folder_id, original_filename, source_type, "
-            "reporting_period_start, reporting_period_end, period_confirmed_by, period_confirmed_at, uploaded_by) "
-            "values($1,$2::uuid,$3,$4::document_source_type,$5,$6,$7,now(),$7) returning id",
-            user["organization_id"], folder_id, filename, ext,
-            reporting_period_start, reporting_period_end, user["id"],
-        )
-        doc_id = doc["id"]
-        object_name = f"{folder_id}/{doc_id}/v1/{filename}"
-        storage_path = await run_in_threadpool(
-            storage.put_object, object_name, content,
-            file.content_type or "application/octet-stream",
-        )
-        ver = await conn.fetchrow(
-            "insert into document_versions(document_id, version_no, storage_path, checksum, file_size_bytes, uploaded_by) "
-            "values($1,1,$2,$3,$4,$5) returning id",
-            doc_id, storage_path, checksum, len(content), user["id"],
-        )
+        # Одна транзакция на документ + версию + запись в хранилище: сбой записи
+        # в MinIO не должен оставлять в БД «документ без версии» (такой документ
+        # виден в списке, но его нельзя ни скачать, ни отправить на распознавание).
+        async with conn.transaction():
+            doc = await conn.fetchrow(
+                "insert into documents(organization_id, folder_id, original_filename, source_type, "
+                "reporting_period_start, reporting_period_end, period_confirmed_by, period_confirmed_at, uploaded_by) "
+                "values($1,$2::uuid,$3,$4::document_source_type,$5,$6,$7,now(),$7) returning id",
+                user["organization_id"], folder_id, filename, ext,
+                reporting_period_start, reporting_period_end, user["id"],
+            )
+            doc_id = doc["id"]
+            object_name = f"{folder_id}/{doc_id}/v1/{filename}"
+            try:
+                storage_path = await run_in_threadpool(
+                    storage.put_object, object_name, content,
+                    file.content_type or "application/octet-stream",
+                )
+            except Exception as e:  # хранилище недоступно/отвергло имя объекта
+                raise HTTPException(
+                    status.HTTP_502_BAD_GATEWAY,
+                    f"Не удалось сохранить файл в хранилище: {e}",
+                )
+            ver = await conn.fetchrow(
+                "insert into document_versions(document_id, version_no, storage_path, checksum, file_size_bytes, uploaded_by) "
+                "values($1,1,$2,$3,$4,$5) returning id",
+                doc_id, storage_path, checksum, len(content), user["id"],
+            )
     return {
         "id": str(doc_id),
         "original_filename": filename,

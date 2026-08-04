@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
-import GridLayout, { WidthProvider, type Layout } from 'react-grid-layout'
+import GridLayout, { type Layout } from 'react-grid-layout'
 import { listPageWidgets, type DashPage, type Widget } from '../api'
+import { useContainerWidth } from '../lib/useWidth'
 import WidgetView from './WidgetView'
 
 // Режим-витрина / киоск: полноэкранный показ дашборда для ТВ в холле МФЦ.
 // Автопрокрутка страниц по таймеру, пауза, ручная навигация (стрелки/пробел),
 // часы, авто-обновление данных. Выход — Esc или кнопка. Только просмотр.
 
-const GL = WidthProvider(GridLayout)
 const INTERVALS = [10, 15, 20, 30, 60]
 
 export default function KioskView({ dashboardName, pages, onClose }: {
@@ -21,6 +21,7 @@ export default function KioskView({ dashboardName, pages, onClose }: {
   const [secs, setSecs] = useState(15)
   const [now, setNow] = useState(new Date())
   const [reloadKey, setReloadKey] = useState(0)
+  const [gridRef, gridWidth] = useContainerWidth<HTMLDivElement>()
 
   // Полный экран (лучшая попытка — жест клика уже был) + предзагрузка всех страниц
   useEffect(() => {
@@ -87,13 +88,14 @@ export default function KioskView({ dashboardName, pages, onClose }: {
         </div>
       )}
 
-      <div style={{ flex: 1, overflow: 'auto', padding: '4px 16px 16px' }}>
+      <div ref={gridRef} style={{ flex: 1, overflow: 'auto', padding: '4px 16px 16px' }}>
         {widgets.length === 0 ? (
           <div style={{ color: '#94a3b8', textAlign: 'center', marginTop: 80, fontSize: 18 }}>
             {page ? 'Загрузка страницы…' : 'На дашборде нет страниц'}
           </div>
-        ) : (
-          <GL className="layout" cols={12} rowHeight={60} margin={[16, 16]} isDraggable={false} isResizable={false} layout={layout} compactType="vertical">
+        ) : gridWidth !== undefined && (
+          <GridLayout className="layout" width={gridWidth} cols={12} rowHeight={60} margin={[16, 16]}
+            isDraggable={false} isResizable={false} layout={layout} compactType="vertical">
             {widgets.map((w) => (
               <div key={w.id} style={card}>
                 <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>{w.name}</div>
@@ -102,7 +104,7 @@ export default function KioskView({ dashboardName, pages, onClose }: {
                 </div>
               </div>
             ))}
-          </GL>
+          </GridLayout>
         )}
       </div>
     </div>
