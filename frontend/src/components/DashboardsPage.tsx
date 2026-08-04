@@ -19,7 +19,7 @@ import { archiveDashboard, setAutoArchive } from '../api/archive'
 import { AccessEditor } from './dashboards/AccessEditor'
 import { Comments } from './dashboards/Comments'
 import { AlertEditor } from './dashboards/AlertEditor'
-import { SourceCatalog, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
+import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
 import { PubBadge, WT, alertBtn, btn, btnAuto, btnGhost, crumb, dialog, editBtn, errBox, input, linkDanger, muted, overlay, presetChip, rmBtn, rowForm, rowItem, tab, tabActive, widgetCard, wtBadge } from './dashboards/shared'
 
 // Перепривязка кодов датасетов/метрик шаблона к текущему контексту (при клоне).
@@ -688,6 +688,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                   <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>Добавить виджет</h3>
                   <SourceCatalog sources={sources} />
                   {sources.datasets.length > 0 && <SuggestPanel datasets={sources.datasets} onAdd={addWidgetsBatch} />}
+                  <SuggestMetricsPanel dashboardId={sel.dashboard.id} />
                   <WidgetForm sources={sources} onCreate={addWidget} />
                 </div>
               )}

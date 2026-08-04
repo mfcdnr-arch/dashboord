@@ -28,6 +28,7 @@ from .service import (
     set_status,
     update_metric,
 )
+from .suggestions import suggest_derived_metrics
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 manage = require_roles("admin", "moderator")
@@ -102,6 +103,16 @@ async def data_sources(user: dict = Depends(manage)):
     Определён ДО /{metric_id}, иначе тот перехватит путь."""
     async with db.get_pool().acquire() as conn:
         return await list_data_sources(conn, user["organization_id"])
+
+
+@router.get("/suggestions")
+async def metric_suggestions(dashboard_id: str, user: dict = Depends(manage)):
+    """Рекомендательная система, часть B: производные метрики (разница/доля/
+    период-к-периоду/год-к-году/накопительный итог/план-факт/отклонение от
+    цели) — область: метрики дашборда + метрики объекта, к которому дашборд
+    привязан папкой. Определён ДО /{metric_id}, иначе тот перехватит путь."""
+    async with db.get_pool().acquire() as conn:
+        return await suggest_derived_metrics(conn, user["organization_id"], dashboard_id)
 
 
 @router.get("/{metric_id}")

@@ -1,5 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { previewWidget, widgetSuggestions, type DataSources, type MetricSource, type Widget, type WidgetSpec } from '../../api'
+import {
+  createMetric, createVersion, metricSuggestions, previewWidget, widgetSuggestions,
+  type DataSources, type MetricSource, type MetricSuggestion, type Widget, type WidgetSpec,
+} from '../../api'
 import { WidgetPreviewBody } from '../WidgetView'
 import FormulaBuilder from '../FormulaBuilder'
 import { dataUriBytes, fileToEmbeddableDataUri } from '../../lib/image'
@@ -111,6 +114,86 @@ export function SuggestPanel({ datasets, onAdd }: { datasets: DataSources['datas
             <input type="checkbox" checked={chosen.has(i)} onChange={() => toggle(i)} />
             {s.name}
             <span style={{ ...wtBadge, marginLeft: 4 }}>{WT.find((x) => x.v === s.widget_type)?.t || s.widget_type}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const METRIC_TYPE_LABEL: Record<string, string> = {
+  diff: 'Разница', share: 'Доля', period_compare: 'Период-к-периоду', yoy: 'Год к году',
+  running_total: 'Накопительный итог', plan_fact: 'План/факт', deviation: 'Отклонение от цели',
+}
+
+// ── Рекомендательная система, часть B (2026-08-04): предложения ПРОИЗВОДНЫХ
+// метрик (разница/доля/период-к-периоду/год-к-году/накопительный итог/план-
+// факт-пара/отклонение от цели) на основе метрик, уже используемых на этом
+// дашборде и в объекте, к которому он привязан папкой. Принятое предложение
+// создаётся как метрика-ЧЕРНОВИК (обычный цикл проверки draft→validated→
+// approved) — само по себе на дашборд НЕ добавляется. ──
+export function SuggestMetricsPanel({ dashboardId }: { dashboardId: string }) {
+  const [specs, setSpecs] = useState<MetricSuggestion[]>([])
+  const [candidatesCount, setCandidatesCount] = useState(0)
+  const [chosen, setChosen] = useState<Set<number>>(new Set())
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [done, setDone] = useState<number | null>(null)
+
+  function load() {
+    setErr(null); setDone(null); setSpecs([]); setChosen(new Set())
+    metricSuggestions(dashboardId)
+      .then((r) => { setSpecs(r.specs); setCandidatesCount(r.candidates_count); setChosen(new Set(r.specs.map((_, i) => i))) })
+      .catch((e) => setErr((e as Error).message))
+  }
+  useEffect(() => { if (open) load() }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  const toggle = (i: number) => setChosen((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n })
+
+  async function add() {
+    const picked = specs.filter((_, i) => chosen.has(i))
+    if (!picked.length) return
+    setBusy(true); setErr(null)
+    try {
+      for (const s of picked) {
+        const m = await createMetric(s.code, s.name)
+        await createVersion(m.id, { formula: s.formula, unit: s.unit || undefined })
+      }
+      setDone(picked.length)
+      load()
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+
+  if (!open) {
+    return (
+      <button style={{ ...btnAuto, height: 34, marginBottom: 12, marginLeft: 8 }} onClick={() => setOpen(true)}>
+        💡 Предложить метрики
+      </button>
+    )
+  }
+  return (
+    <div style={{ border: '1px solid var(--border-strong)', borderRadius: 10, padding: 12, marginBottom: 12, background: 'var(--surface-2)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>Предложения производных метрик</span>
+        <button style={{ ...btn, height: 34 }} disabled={busy || chosen.size === 0} onClick={add}>{busy ? 'Добавление…' : `＋ Добавить как черновики (${chosen.size})`}</button>
+        <button style={{ ...btnGhost, height: 34 }} onClick={() => setOpen(false)}>Скрыть</button>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>область: метрики дашборда + объекта</span>
+      </div>
+      {err && <div style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 6 }}>{err}</div>}
+      {done != null && <div style={{ color: 'var(--success)', fontSize: 12, marginBottom: 6 }}>Добавлено {done} черновиков — проверьте и одобрите в разделе «Метрики».</div>}
+      {candidatesCount > 0 && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Метрик в области предложений: {candidatesCount}.</div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {specs.length === 0 && !err && (
+          <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
+            {candidatesCount === 0 ? 'На этом дашборде (и в его объекте) пока нет метрик — предлагать не от чего.' : 'Новых предложений нет — похоже, всё уже построено.'}
+          </span>
+        )}
+        {specs.map((s, i) => (
+          <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', background: chosen.has(i) ? 'var(--accent-weak-bg)' : 'var(--surface)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={chosen.has(i)} onChange={() => toggle(i)} />
+            <span style={{ ...wtBadge, flexShrink: 0 }}>{METRIC_TYPE_LABEL[s.type] || s.type}</span>
+            <span>{s.name}</span>
+            <code style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto' }}>{s.formula}</code>
           </label>
         ))}
       </div>

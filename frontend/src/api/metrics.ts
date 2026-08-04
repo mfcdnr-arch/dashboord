@@ -113,3 +113,18 @@ export async function getDataSources(): Promise<DataSources> {
   return res.json()
 }
 
+// Рекомендательная система, часть B (2026-08-04): предложения производных метрик.
+export interface MetricSuggestion {
+  type: string  // diff | share | period_compare | yoy | running_total | plan_fact | deviation
+  name: string
+  formula: string
+  unit: string | null
+  based_on: string[]
+  code: string  // черновой уникальный код — используется при принятии предложения
+}
+export async function metricSuggestions(dashboardId: string): Promise<{ specs: MetricSuggestion[]; candidates_count: number }> {
+  const res = await fetch(`/metrics/suggestions?dashboard_id=${encodeURIComponent(dashboardId)}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
