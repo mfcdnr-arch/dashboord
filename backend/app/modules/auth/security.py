@@ -23,8 +23,15 @@ def validate_password(password: str, login: str | None = None) -> None:
     pw = password or ""
     if len(pw) < settings.password_min_length:
         raise ValueError(f"Пароль слишком короткий: минимум {settings.password_min_length} символов")
-    if len(pw) > 200:
-        raise ValueError("Пароль слишком длинный (максимум 200 символов)")
+    # bcrypt по устройству учитывает только первые 72 БАЙТА пароля и молча
+    # отбрасывает остальное: пользователь думал бы, что длинный пароль надёжнее,
+    # а по факту проверялась бы лишь его отсечённая часть. Кириллица в UTF-8 —
+    # 2 байта на символ, поэтому предел ≈36 русских символов. Лучше честно
+    # отказать, чем тихо усечь.
+    if len(pw.encode("utf-8")) > 72:
+        raise ValueError(
+            "Пароль слишком длинный: максимум 72 байта "
+            "(≈72 латинских или ≈36 кириллических символов) — ограничение алгоритма bcrypt")
     if settings.password_require_complexity and (
         not any(c.isalpha() for c in pw) or not any(c.isdigit() for c in pw)
     ):
@@ -47,15 +54,24 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def create_token(subject: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=settings.jwt_expire_minutes)
+    # iat нужен для отзыва: токены, выданные ДО смены пароля, отвергаются
+    # (см. users.password_changed_at, миграция 033).
     return jwt.encode(
-        {"sub": subject, "exp": expire}, settings.jwt_secret, algorithm="HS256"
+        {"sub": subject, "exp": expire, "iat": now}, settings.jwt_secret, algorithm="HS256"
     )
 
 
 def decode_token(token: str) -> str | None:
+    """Совместимая форма: только subject (id пользователя) либо None."""
+    payload = decode_token_payload(token)
+    return payload.get("sub") if payload else None
+
+
+def decode_token_payload(token: str) -> dict | None:
+    """Полезная нагрузка токена (sub/exp/iat) либо None, если токен невалиден."""
     try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
-        return payload.get("sub")
+        return jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
     except jwt.PyJWTError:
         return None

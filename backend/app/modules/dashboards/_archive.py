@@ -27,8 +27,8 @@ PRIVILEGED = {"admin", "superadmin", "moderator", "senior_moderator"}
 
 async def can_view_archive(conn, org_id, user: dict) -> bool:
     """Раздел видят привилегированные роли всегда; остальные — по допуску.
-    get_current_user не наполняет user["roles"] (это делает require_roles) —
-    при отсутствии дочитываем роли из БД."""
+    Роли приходят из get_current_user; фолбэк на запрос к БД оставлен для
+    вызовов с «сырым» user (фоновые задачи, тесты)."""
     roles = user.get("roles")
     if roles is None:
         rows = await conn.fetch(

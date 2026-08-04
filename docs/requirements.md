@@ -29,10 +29,10 @@
 ## 2a. ВАЖНО: в папке уже есть проработанный дизайн (обнаружено 2026-07-11)
 
 Предыдущая сессия оставила реальные артефакты (не черновики), которые надо использовать как основу:
-- **SQL-схемы (PostgreSQL 16):** `widget_permissions_full.sql` (orgs/users/roles/folders/dashboards/widgets/versions + ACL-слой securable_objects/object_acl + рекурсивная `fn_resolve_access` + кэш + уведомления + аудит-триггеры), `lifecycle_schema.sql` (documents→extraction→dataset_releases→metrics→widget_versions→publication), `rbac_visibility_schema_v2.sql` (access_grants dashboard/widget), `abac_dataset_release_fields.sql` (ABAC-теги), `moderation_state_machine.sql` (полный жизненный цикл + reason codes + transition rules + SLA + вторая проверка), `lineage_query.sql`.
+- **SQL-схемы (PostgreSQL 16)** (артефакты проектирования, перенесены в `docs/Проектирование/` — рабочая схема живёт в `db/migrations/`): `widget_permissions_full.sql` (orgs/users/roles/folders/dashboards/widgets/versions + ACL-слой securable_objects/object_acl + рекурсивная `fn_resolve_access` + кэш + уведомления + аудит-триггеры), `lifecycle_schema.sql` (documents→extraction→dataset_releases→metrics→widget_versions→publication), `rbac_visibility_schema_v2.sql` (access_grants dashboard/widget), `abac_dataset_release_fields.sql` (ABAC-теги), `moderation_state_machine.sql` (полный жизненный цикл + reason codes + transition rules + SLA + вторая проверка), `lineage_query.sql`.
 - **Формулы:** `formula_dsl_grammar.ebnf` (DSL: SUM/AVG/RUNNING_TOTAL/PERIOD_COMPARE/PLAN_FACT/SHARE_OF_TOTAL), `cycle_detection.py` (детектор циклов + topo-sort).
 - **Диаграммы:** `er_diagram.mmd`, `lifecycle_er_diagram.mmd`.
-- **Модуль доступа:** `access-control-module/*.ts` — **на NestJS** (портируем на Python).
+- **Модуль доступа:** прототип на NestJS (`access-control-module/*.ts`) **удалён 2026-08-04** — порт на Python выполнен и живёт в `backend/app/modules/dashboards/_rls.py` (RLS дашбордов/виджетов) и `_rowrls.py` (RLS строк).
 - **docx:** «Идея Дашборда» (авторское видение), «Реестр архитектурных решений», «ответы_проектирование», опросник.
 - **Дубликат папки:** `/Users/denis/Dashbord Pref` — копия/бэкап, НЕ трогаем. Рабочая — `/Users/denis/Dashbord`.
 - «Архив из 26 документов» (упомянут в docx) на диск НЕ распакован — физически его нет.

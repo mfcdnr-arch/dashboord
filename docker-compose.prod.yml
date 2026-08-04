@@ -113,6 +113,9 @@ services:
       SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:?нужно задать SUPERADMIN_PASSWORD в .env.prod}
       BACKUPS_DIR: /app/backups
       OPS_TRIGGER_DIR: /app/ops-triggers
+      # Число процессов uvicorn (см. backend/Dockerfile). 2 — по умолчанию;
+      # на машине с 8+ ГБ ОЗУ и 4+ ядрами разумно 4.
+      API_WORKERS: ${API_WORKERS:-2}
     depends_on:
       migrate:
         condition: service_completed_successfully

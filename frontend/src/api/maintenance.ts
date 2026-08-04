@@ -61,6 +61,50 @@ export async function runBackupNow(): Promise<{ requested: boolean }> {
   return res.json()
 }
 
+// Ретенция (окно хранения данных). Удаление НЕОБРАТИМО, поэтому в UI сначала
+// предпросмотр: что именно уйдёт и какие дашборды останутся без данных.
+export interface RetentionItem {
+  id: string
+  code: string
+  name: string
+  object_name: string | null
+  status: string
+  period: string | null
+  values_count: number
+}
+export interface RetentionPreview {
+  enabled: boolean
+  months: number | null
+  releases: number
+  values: number
+  items: RetentionItem[]
+  items_limit: number
+  affected_dashboards?: string[]
+}
+
+export async function getRetentionPreview(months?: number): Promise<RetentionPreview> {
+  const q = months ? `?months=${months}` : ''
+  const res = await fetch(`/maintenance/retention/preview${q}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function runRetention(months?: number): Promise<{ enabled: boolean; months?: number; deleted_releases: number }> {
+  const q = months ? `?months=${months}` : ''
+  const res = await fetch(`/maintenance/retention/run${q}`, { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+// Проверка свежести данных вне расписания: рассылает уведомления по объектам,
+// где давно не было новых данных.
+export async function checkFreshness(staleDays?: number): Promise<{ stale_objects: number; notifications_created: number }> {
+  const q = staleDays ? `?stale_days=${staleDays}` : ''
+  const res = await fetch(`/maintenance/freshness/check${q}`, { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 // Статус ежемесячного автоархива дашбордов + запуск вне расписания (идемпотентно).
 export interface ArchiveRunStatus {
   last_run: string | null

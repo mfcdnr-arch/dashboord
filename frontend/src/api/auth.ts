@@ -1,3 +1,5 @@
+import { setToken } from './http'
+
 // Аутентификация и здоровье API.
 
 export interface Health {
@@ -88,6 +90,9 @@ export async function getMe(token: string): Promise<Me> {
   return res.json()
 }
 
+// Смена пароля отзывает ВСЕ ранее выданные токены пользователя (сервер пишет
+// users.password_changed_at). Поэтому эндпоинт возвращает свежий токен — его
+// нужно сразу сохранить, иначе следующий же запрос получит 401.
 export async function changePassword(token: string, newPassword: string): Promise<void> {
   const res = await fetch('/auth/change-password', {
     method: 'POST',
@@ -98,4 +103,6 @@ export async function changePassword(token: string, newPassword: string): Promis
     const err = await res.json().catch(() => ({}))
     throw new Error(typeof err.detail === 'string' ? err.detail : 'Ошибка смены пароля')
   }
+  const body = await res.json().catch(() => ({}))
+  if (body?.access_token) setToken(body.access_token)
 }

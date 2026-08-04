@@ -26,12 +26,28 @@ def _level(pct: float, warn: float, crit: float) -> str:
     return "danger" if pct >= crit else ("warn" if pct >= warn else "good")
 
 
+# Замер CPU занимает 0.3 с реального времени. Страницу «Здоровье системы»
+# открывают и обновляют несколько администраторов сразу, плюс сторожевой cron —
+# держим короткий общий кэш, чтобы не пересэмплировать на каждый запрос.
+_CPU_TTL_SEC = 5.0
+_cpu_cache: dict = {"value": None, "ts": 0.0}
+
+
+async def _cpu_percent() -> float:
+    now = time.monotonic()
+    if _cpu_cache["value"] is not None and (now - _cpu_cache["ts"]) < _CPU_TTL_SEC:
+        return _cpu_cache["value"]
+    # cpu_percent(interval=...) СИНХРОННО спит указанное время — в корутине это
+    # заблокировало бы event loop процесса API целиком. Уносим замер в поток.
+    value = await run_in_threadpool(psutil.cpu_percent, 0.3)
+    _cpu_cache["value"] = value
+    _cpu_cache["ts"] = time.monotonic()
+    return value
+
+
 async def system_health(conn) -> dict:
     th = await settings_svc.get_system_settings(conn)
-    # cpu_percent(interval=...) СИНХРОННО спит указанное время. В корутине это
-    # блокирует весь event loop процесса API: пока админ открывает «Здоровье
-    # системы», запросы остальных пользователей стоят. Уносим замер в поток.
-    cpu = await run_in_threadpool(psutil.cpu_percent, 0.3)
+    cpu = await _cpu_percent()
     vm = psutil.virtual_memory()
     du = psutil.disk_usage("/")
     try:

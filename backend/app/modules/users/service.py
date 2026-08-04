@@ -351,7 +351,10 @@ async def reset_password(conn, org_id, user_id: str, new_password: str, actor: d
     except ValueError as e:
         raise UsersError(str(e))
     await _guard_manage(conn, org_id, user_id, actor)
+    # password_changed_at отзывает ранее выданные токены этого пользователя
+    # (миграция 033): сброс пароля админом = «выкинуть из всех сессий».
     await conn.execute(
-        "update users set password_hash=$2, must_change_password=true where id=$1::uuid",
+        "update users set password_hash=$2, must_change_password=true, password_changed_at=date_trunc('second', now()) "
+        "where id=$1::uuid",
         user_id, hash_password(new_password))
     return {"id": user_id}

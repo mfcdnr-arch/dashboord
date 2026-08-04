@@ -25,7 +25,12 @@ async def query_logs(service: str, minutes: int, limit: int, query: str | None) 
     start_ns = end_ns - minutes * 60 * 1_000_000_000
     expr = f'{{service="{service}"}}'
     if query:
-        expr += f' |= "{query.replace(chr(34), chr(92) + chr(34))}"'
+        # Строка ищется как есть (LogQL |=), но её нужно корректно закавычить:
+        # экранируем СНАЧАЛА обратный слэш, потом кавычку — иначе `\` из ввода
+        # съедал бы закрывающую кавычку, Loki отвечал 400, и пользователь видел
+        # «мониторинг не включён» вместо подсказки про некорректный запрос.
+        escaped = query.replace("\\", "\\\\").replace('"', '\\"')
+        expr += f' |= "{escaped}"'
     params: dict[str, str | int] = {
         "query": expr, "limit": limit, "start": start_ns, "end": end_ns, "direction": "backward"}
     try:

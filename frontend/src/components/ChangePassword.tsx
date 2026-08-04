@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { changePassword, checkPassword, getPasswordPolicy, passwordHint, type PasswordPolicy } from '../api'
+import { changePassword, checkPassword, getPasswordPolicy, getToken, passwordHint, type PasswordPolicy } from '../api'
 import Logo from './Logo'
 
 export default function ChangePassword({
@@ -7,7 +7,7 @@ export default function ChangePassword({
   onDone,
 }: {
   token: string
-  onDone: () => void
+  onDone: (token: string) => void
 }) {
   const [pw1, setPw1] = useState('')
   const [pw2, setPw2] = useState('')
@@ -29,7 +29,9 @@ export default function ChangePassword({
     setBusy(true)
     try {
       await changePassword(token, pw1)
-      onDone()
+      // changePassword сохранил НОВЫЙ токен (старые отозваны сменой пароля) —
+      // дальше работаем с ним, иначе следующий запрос получит 401.
+      onDone(getToken() || token)
     } catch (err) {
       setError((err as Error).message)
     } finally {

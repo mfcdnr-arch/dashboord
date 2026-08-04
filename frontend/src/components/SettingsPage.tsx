@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  getSettings, updateOrgSettings, updateSystemSettings,
-  type AllSettings, type OrgThresholds, type SystemThresholds,
+  checkFreshness, getRetentionPreview, getSettings, runRetention, updateOrgSettings, updateSystemSettings,
+  type AllSettings, type OrgThresholds, type RetentionPreview, type SystemThresholds,
 } from '../api'
 
 // Раздел «Настройки» (admin/superadmin): пороги, которые раньше менялись только
@@ -31,6 +31,18 @@ export default function SettingsPage({ me }: { me: { roles: string[] } }) {
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [savingSys, setSavingSys] = useState(false)
   const [savingOrg, setSavingOrg] = useState(false)
+  const [freshBusy, setFreshBusy] = useState(false)
+  const [freshResult, setFreshResult] = useState<string | null>(null)
+
+  async function doFreshness() {
+    setFreshBusy(true); setError(null); setFreshResult(null)
+    try {
+      const r = await checkFreshness()
+      setFreshResult(r.stale_objects === 0
+        ? 'Все объекты обновляются в срок.'
+        : `Объектов без свежих данных: ${r.stale_objects}; уведомлений отправлено: ${r.notifications_created}.`)
+    } catch (e) { setError((e as Error).message) } finally { setFreshBusy(false) }
+  }
 
   const load = () => getSettings().then((d) => {
     setData(d); setSysForm(sysToForm(d.system)); setOrgForm(orgToForm(d.org))
@@ -77,7 +89,14 @@ export default function SettingsPage({ me }: { me: { roles: string[] } }) {
           </Field>
         </div>
         <button style={btn} disabled={savingOrg} onClick={saveOrg}>{savingOrg ? 'Сохранение…' : 'Сохранить'}</button>
+        <button style={{ ...btnGhost, marginLeft: 8 }} disabled={freshBusy} onClick={doFreshness}
+          title="Разослать уведомления по объектам, где давно не было новых данных (обычно это делает планировщик)">
+          {freshBusy ? 'Проверка…' : '🕓 Проверить свежесть сейчас'}
+        </button>
+        {freshResult && <span style={{ ...muted, marginLeft: 8 }}>{freshResult}</span>}
       </Section>
+
+      <RetentionSection savedMonths={data.org.retention_months} />
 
       <Section title="Системные пороги" hint="один сервер на инсталляцию — вход и здоровье системы">
         <div style={grid2}>
@@ -123,6 +142,108 @@ export default function SettingsPage({ me }: { me: { roles: string[] } }) {
   )
 }
 
+// Ретенция удаляет данные НЕОБРАТИМО, поэтому здесь сначала предпросмотр
+// («что именно уйдёт»), и только потом — запуск с подтверждением. Раньше и то,
+// и другое было доступно только через API (curl), без интерфейса.
+function RetentionSection({ savedMonths }: { savedMonths: number }) {
+  const [preview, setPreview] = useState<RetentionPreview | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [running, setRunning] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [done, setDone] = useState<string | null>(null)
+  const [confirm, setConfirm] = useState(false)
+
+  async function load() {
+    setBusy(true); setErr(null); setDone(null)
+    try { setPreview(await getRetentionPreview()) } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+  useEffect(() => { load() }, [savedMonths]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function doRun() {
+    setRunning(true); setErr(null)
+    try {
+      const r = await runRetention()
+      setDone(`Удалено выпусков: ${r.deleted_releases}.`)
+      setConfirm(false)
+      await load()
+    } catch (e) { setErr((e as Error).message) } finally { setRunning(false) }
+  }
+
+  return (
+    <Section title="Хранение данных (ретенция)" hint="что будет удалено по окну хранения — до удаления">
+      {err && <div style={errBox}>{err}</div>}
+      {done && <div style={okBox}>{done}</div>}
+      {busy && !preview && <span style={muted}>Загрузка предпросмотра…</span>}
+      {preview && !preview.enabled && (
+        <div style={muted}>Ретенция выключена (окно хранения = 0) — старые данные не удаляются.</div>
+      )}
+      {preview && preview.enabled && (
+        <>
+          <div style={{ fontSize: 14, marginBottom: 8 }}>
+            Окно хранения: <b>{preview.months} мес.</b> Под удаление попадает{' '}
+            <b style={{ color: preview.releases ? 'var(--danger)' : 'inherit' }}>{preview.releases}</b>{' '}
+            выпуск(ов) данных и <b>{preview.values}</b> значений.
+          </div>
+          {preview.releases === 0 && <div style={muted}>Сейчас удалять нечего — все данные внутри окна хранения.</div>}
+          {!!preview.affected_dashboards?.length && (
+            <div style={{ ...warnBox }}>
+              ⚠ После удаления останутся без данных дашборды: {preview.affected_dashboards.join(', ')}
+              {preview.affected_dashboards.length >= 20 ? ' …' : ''}
+            </div>
+          )}
+          {!!preview.items.length && (
+            <div style={{ maxHeight: 260, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 10 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr>
+                    {['Период', 'Объект', 'Датасет', 'Значений'].map((h) => (
+                      <th key={h} style={th}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.items.map((it) => (
+                    <tr key={it.id}>
+                      <td style={td}>{it.period || '—'}</td>
+                      <td style={td}>{it.object_name || '—'}</td>
+                      <td style={td}>{it.name} <span style={{ color: 'var(--text-faint)' }}>({it.code})</span></td>
+                      <td style={{ ...td, textAlign: 'right' }}>{it.values_count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {preview.releases > preview.items.length && (
+                <div style={{ ...muted, padding: '6px 10px' }}>
+                  Показаны первые {preview.items.length} из {preview.releases} — остальные будут удалены так же.
+                </div>
+              )}
+            </div>
+          )}
+          <button style={btnGhost} disabled={busy} onClick={load}>{busy ? 'Обновление…' : '↻ Обновить предпросмотр'}</button>
+          {preview.releases > 0 && !confirm && (
+            <button style={{ ...btnDanger, marginLeft: 8 }} onClick={() => setConfirm(true)}>
+              🗑 Удалить сейчас…
+            </button>
+          )}
+          {confirm && (
+            <span style={{ marginLeft: 8 }}>
+              <span style={{ fontSize: 13, color: 'var(--danger)', marginRight: 8 }}>
+                Удалить {preview.releases} выпуск(ов) безвозвратно?
+              </span>
+              <button style={btnDanger} disabled={running} onClick={doRun}>{running ? 'Удаление…' : 'Да, удалить'}</button>
+              <button style={{ ...btnGhost, marginLeft: 6 }} disabled={running} onClick={() => setConfirm(false)}>Отмена</button>
+            </span>
+          )}
+          <div style={{ ...muted, marginTop: 8 }}>
+            Обычно ретенция выполняется планировщиком (воскресенье, 03:00). Ручной запуск нужен, например,
+            перед первым включением окна хранения. Перед удалением убедитесь, что есть свежая резервная копия.
+          </div>
+        </>
+      )}
+    </Section>
+  )
+}
+
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <label style={{ display: 'block' }}>
@@ -151,3 +272,8 @@ const okBox: React.CSSProperties = { background: 'var(--success-bg)', color: 'va
 const grid2: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 12 }
 const inp: React.CSSProperties = { width: '100%', height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text)', fontSize: 14 }
 const btn: React.CSSProperties = { height: 34, padding: '0 16px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }
+const btnGhost: React.CSSProperties = { height: 34, padding: '0 14px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer', fontSize: 13 }
+const btnDanger: React.CSSProperties = { height: 34, padding: '0 14px', border: '1px solid var(--danger)', borderRadius: 8, background: 'var(--danger-bg)', color: 'var(--danger)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }
+const warnBox: React.CSSProperties = { background: 'var(--warn-bg)', color: 'var(--warn)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 10 }
+const th: React.CSSProperties = { textAlign: 'left', fontSize: 12, fontWeight: 600, padding: '6px 10px', borderBottom: '1px solid var(--border)', background: 'var(--surface-alt, transparent)', position: 'sticky', top: 0 }
+const td: React.CSSProperties = { padding: '5px 10px', borderBottom: '1px solid var(--border-faint)' }

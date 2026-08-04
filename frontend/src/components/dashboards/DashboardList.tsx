@@ -103,7 +103,18 @@ export function DashboardList({
         ) : (
           <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
             {dashboards.map((d, i) => (
-              <div key={d.id} onClick={() => openDashboard(d.id)} style={{ ...rowItem, borderTop: i ? '1px solid var(--border-faint)' : 'none' }}>
+              // Строка списка — интерактивный элемент: без role/tabindex её нельзя
+              // было открыть с клавиатуры (важно для доступности госсистемы).
+              // Вложенные кнопки (★, чекбокс) сохраняют свои обработчики и
+              // останавливают всплытие сами.
+              <div key={d.id} role="button" tabIndex={0}
+                aria-label={`Открыть дашборд «${d.name}»`}
+                onClick={() => openDashboard(d.id)}
+                onKeyDown={(e) => {
+                  if (e.target !== e.currentTarget) return
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDashboard(d.id) }
+                }}
+                style={{ ...rowItem, borderTop: i ? '1px solid var(--border-faint)' : 'none' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
                   {canManage && objects.length > 0 && (
                     <input type="checkbox" checked={selectedIds.has(d.id)} onClick={(e) => toggleSelect(e, d.id)} onChange={() => {}}

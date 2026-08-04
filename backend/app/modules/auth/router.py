@@ -95,11 +95,15 @@ async def change_password(data: ChangePasswordIn, user: dict = Depends(get_curre
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     async with db.get_pool().acquire() as conn:
+        # password_changed_at отзывает ВСЕ ранее выданные токены (миграция 033),
+        # включая текущий — поэтому сразу выдаём новый, чтобы пользователь не
+        # получил 401 на следующем же запросе после смены пароля.
         await conn.execute(
-            "update users set password_hash = $1, must_change_password = false where id = $2",
+            "update users set password_hash = $1, must_change_password = false, "
+            "password_changed_at = date_trunc('second', now()) where id = $2",
             hash_password(data.new_password), user["id"],
         )
-    return {"status": "ok"}
+    return {"status": "ok", "access_token": create_token(str(user["id"])), "token_type": "bearer"}
 
 
 @router.get("/me")

@@ -57,9 +57,12 @@ export default function App() {
 
   if (!token) return <Login onLogin={onLogin} />
   if (loading) return <Centered>Загрузка…</Centered>
-  if (me?.must_change_password) return <ChangePassword token={token} onDone={() => loadMe(token)} />
+  if (me?.must_change_password) return <ChangePassword token={token} onDone={(t) => { setToken(t); loadMe(t) }} />
   return <Shell me={me!} onLogout={onLogout} />
 }
+
+// Разделы, которым нужна вся ширина экрана (сетка виджетов), а не колонка чтения.
+const WIDE_SECTIONS = new Set(['dashboards', 'showcases', 'archive'])
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (
@@ -200,7 +203,11 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ))}
         </nav>
 
-        <main style={{ flex: 1, padding: narrow ? 12 : 24, maxWidth: narrow ? '100%' : 900, minWidth: 0 }}>
+        {/* Ширина колонки контента. Текстовые/табличные разделы читаются лучше в
+            узкой колонке (900px — комфортная длина строки), но ДАШБОРДЫ и ВИТРИНЫ —
+            это плотная сетка виджетов: на 900px из 12 колонок сетки получаются
+            узкие карточки, а на мониторе 1920 половина экрана простаивала. */}
+        <main style={{ flex: 1, padding: narrow ? 12 : 24, maxWidth: narrow ? '100%' : (WIDE_SECTIONS.has(section) ? 1600 : 900), minWidth: 0 }}>
           <OnboardingHint section={section} roles={me.roles} userKey={me.login} />
           {section === 'home' ? (
             <HomePage me={me} canManage={canManage} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />

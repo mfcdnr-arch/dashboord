@@ -13,7 +13,6 @@ from typing import List, Optional
 
 from ... import cache
 from ..audit import service as audit_svc
-from ..metrics import resolver as mr
 
 # Кластеры, вынесенные из этого файла (рефактор). Реэкспортируем, чтобы внешние
 # вызовы `service.<name>` и `from .service import <name>` продолжали работать.
@@ -35,6 +34,21 @@ from ._rls import (  # noqa: F401
     visible_widget_ids,
 )
 from ._rowrls import get_row_acl, set_row_acl  # noqa: F401
+from ._suggest import (  # noqa: F401
+    _dataset_numeric_fields,
+    _existing_widget_signatures,
+    _spec_signature,
+    auto_build,
+    suggest_widgets,
+)
+from ._templates import (  # noqa: F401
+    _remap_config,
+    _template_codes,
+    create_from_template,
+    list_templates,
+    save_as_template,
+    template_bindings,
+)
 from ._widgetcalc import _compute_widget  # noqa: F401
 from ._widgetdata import (  # noqa: F401
     compute_page_data,
@@ -468,141 +482,6 @@ async def delete_preset(conn, org_id, dashboard_id: str, preset_id: str) -> None
         raise DashboardError("Пресет не найден")
 
 
-# --------------------------------------------------------------------------- #
-# Авто-сборка дашборда из объекта (rule-based, не ИИ)
-# --------------------------------------------------------------------------- #
-async def _dataset_numeric_fields(conn, org_id, dataset_code: str) -> List[dict]:
-    rel = await mr._active_release(conn, org_id, dataset_code)
-    if rel is None:
-        return []
-    rows = await conn.fetch(
-        "select drf.canonical_field_code as code, coalesce(cf.name, drf.canonical_field_code) as name "
-        "from dataset_release_fields drf "
-        "left join canonical_fields cf on cf.code=drf.canonical_field_code "
-        "  and cf.object_id=(select object_id from dataset_releases where id=$1) "
-        "where drf.dataset_release_id=$1 and coalesce(cf.data_type,'text')='number' "
-        "order by drf.canonical_field_code", rel)
-    return [dict(r) for r in rows]
-
-
-def _spec_signature(widget_type: str, cfg: dict):
-    """Ключ дедупликации предложения: тип + датасет + набор полей (без учёта
-    порядка/названия виджета) — «то же самое», даже если названо иначе."""
-    if widget_type == "plan_fact":
-        fields = tuple(sorted(x for x in (cfg.get("plan_field"), cfg.get("fact_field")) if x))
-    elif cfg.get("value_fields"):
-        fields = tuple(sorted(cfg["value_fields"]))
-    elif cfg.get("value_field"):
-        fields = (cfg["value_field"],)
-    else:
-        fields = ()
-    return (widget_type, cfg.get("dataset_code"), fields)
-
-
-async def _existing_widget_signatures(conn, org_id, dataset_code: str) -> set:
-    """Волна «рекомендации»: сигнатуры УЖЕ построенных виджетов по этому
-    датасету — ОРГАНИЗАЦИОННО-широкий поиск (не только текущий дашборд), т.к.
-    dataset_code однозначно принадлежит одному объекту — так предложения не
-    повторяют то, что уже собрано где угодно для этого же объекта/датасета."""
-    rows = await conn.fetch(
-        "select widget_type, config from widgets where organization_id=$1 and config->>'dataset_code'=$2",
-        org_id, dataset_code)
-    return {_spec_signature(r["widget_type"], _cfg(r)) for r in rows}
-
-
-async def suggest_widgets(conn, org_id, dataset_code: str) -> dict:
-    """Подсказки «что собрать» под датасет: готовые спецификации виджетов
-    (KPI по каждому числовому полю, график по строкам, динамика при >1 периода,
-    сравнение/план-факт при ≥2 полях, таблица-первичка). Пользователь выбирает.
-    Delta-aware (рекомендательная система, 2026-08-04): то, что уже построено
-    для этого датасета — где угодно в организации — из предложений убирается,
-    чтобы не предлагать заново то же самое."""
-    fields = await _dataset_numeric_fields(conn, org_id, dataset_code)
-    if not fields:
-        raise DashboardError("У датасета нет числовых полей — сначала распознайте документ")
-    dsname = await conn.fetchval(
-        "select max(name) from dataset_releases where organization_id=$1 and code=$2 and status<>'superseded'",
-        org_id, dataset_code) or dataset_code
-    periods = await conn.fetchval(
-        "select count(distinct reporting_period_start) from dataset_releases "
-        "where organization_id=$1 and code=$2 and status<>'superseded'", org_id, dataset_code) or 0
-
-    specs: List[dict] = []
-    for f in fields:
-        specs.append({"name": f"Σ {f['name']}", "widget_type": "kpi",
-                      "config": {"dataset_code": dataset_code, "value_field": f["code"]}, "width": 3, "height": 3})
-    f0 = fields[0]
-    specs.append({"name": f"{f0['name']} по строкам", "widget_type": "bar",
-                  "config": {"dataset_code": dataset_code, "value_field": f0["code"]}, "width": 5, "height": 6})
-    specs.append({"name": f"Водопад: {f0['name']}", "widget_type": "waterfall",
-                  "config": {"dataset_code": dataset_code, "value_field": f0["code"]}, "width": 6, "height": 6})
-    if periods > 1:
-        specs.append({"name": f"Динамика: {f0['name']}", "widget_type": "dynamics",
-                      "config": {"dataset_code": dataset_code, "value_field": f0["code"]}, "width": 6, "height": 6})
-    if len(fields) >= 2:
-        specs.append({"name": "Сравнение полей", "widget_type": "compare",
-                      "config": {"dataset_code": dataset_code, "value_fields": [f["code"] for f in fields[:4]], "viz": "bar"},
-                      "width": 6, "height": 7})
-        specs.append({"name": "Тепловая карта", "widget_type": "heatmap",
-                      "config": {"dataset_code": dataset_code, "value_fields": [f["code"] for f in fields[:6]]},
-                      "width": 6, "height": 7})
-        specs.append({"name": "Сводная таблица", "widget_type": "pivot",
-                      "config": {"dataset_code": dataset_code, "value_fields": [f["code"] for f in fields[:6]]},
-                      "width": 6, "height": 6})
-        specs.append({"name": f"План/факт: {fields[0]['name']} / {fields[1]['name']}", "widget_type": "plan_fact",
-                      "config": {"dataset_code": dataset_code, "plan_field": fields[0]["code"], "fact_field": fields[1]["code"]},
-                      "width": 4, "height": 5})
-    specs.append({"name": f"{dsname}: таблица", "widget_type": "table",
-                  "config": {"dataset_code": dataset_code}, "width": 6, "height": 6})
-
-    existing = await _existing_widget_signatures(conn, org_id, dataset_code)
-    delta = [s for s in specs if _spec_signature(s["widget_type"], s["config"]) not in existing]
-    return {"specs": delta, "total_candidates": len(specs), "already_built": len(specs) - len(delta)}
-
-
-async def auto_build(conn, org_id, user_id, object_id: str, name=None) -> dict:
-    """Собирает черновик дашборда по объекту: на каждый датасет объекта — KPI,
-    столбчатый график, динамику (если >1 периода) и таблицу-первичку."""
-    obj = await conn.fetchrow(
-        "select id, name from objects where id=$1::uuid and organization_id=$2", object_id, org_id)
-    if obj is None:
-        raise DashboardError("Объект не найден")
-    ds = await conn.fetch(
-        "select code, max(name) as name, count(distinct reporting_period_start) as periods "
-        "from dataset_releases where organization_id=$1 and object_id=$2::uuid and status<>'superseded' "
-        "group by code order by max(created_at) desc", org_id, object_id)
-    if not ds:
-        raise DashboardError("У объекта нет выпущенных датасетов — сначала распознайте документ")
-
-    dash = await create_dashboard(conn, org_id, user_id, name or f"Дашборд «{obj['name']}»",
-                                  f"Авто-сборка по объекту «{obj['name']}»", None)
-    did = str(dash["id"])
-    page = await create_page(conn, org_id, user_id, did, "Обзор", None)
-    pid = str(page["id"])
-
-    n, y = 0, 0
-    for d in ds:
-        code, dsname = d["code"], (d["name"] or d["code"])
-        fields = await _dataset_numeric_fields(conn, org_id, code)
-        if not fields:
-            continue
-        f0 = fields[0]
-        await create_widget(conn, org_id, user_id, pid, f"{dsname}: Σ {f0['name']}", "kpi",
-                            {"dataset_code": code, "value_field": f0["code"]},
-                            {"position_x": 0, "position_y": y, "width": 3, "height": 3}); n += 1
-        await create_widget(conn, org_id, user_id, pid, f"{dsname}: {f0['name']} по строкам", "bar",
-                            {"dataset_code": code, "value_field": f0["code"]},
-                            {"position_x": 3, "position_y": y, "width": 5, "height": 6}); n += 1
-        if (d["periods"] or 0) > 1:
-            await create_widget(conn, org_id, user_id, pid, f"{dsname}: динамика {f0['name']}", "dynamics",
-                                {"dataset_code": code, "value_field": f0["code"]},
-                                {"position_x": 8, "position_y": y, "width": 4, "height": 6}); n += 1
-        await create_widget(conn, org_id, user_id, pid, f"{dsname}: таблица", "table",
-                            {"dataset_code": code},
-                            {"position_x": 0, "position_y": y + 6, "width": 6, "height": 6}); n += 1
-        y += 12
-    return {"dashboard_id": did, "page_id": pid, "widgets": n}
-
 
 # --------------------------------------------------------------------------- #
 # Версии и публикация дашборда
@@ -686,90 +565,3 @@ async def restore_version(conn, org_id, user_id, dashboard_id: str, version_no: 
                                 {"position_x": w.get("position_x", 0), "position_y": w.get("position_y", 0),
                                  "width": w.get("width", 4), "height": w.get("height", 4)})
     return {"restored_version": version_no, "pages": len(snap.get("pages", []))}
-
-
-# --------------------------------------------------------------------------- #
-# Шаблоны дашбордов
-# --------------------------------------------------------------------------- #
-async def save_as_template(conn, org_id, user_id, dashboard_id: str, name: str, description=None) -> dict:
-    if not await _owns_dashboard(conn, org_id, dashboard_id):
-        raise DashboardError("Дашборд не найден")
-    if await conn.fetchval("select 1 from dashboard_templates where organization_id=$1 and name=$2", org_id, name):
-        raise DashboardError("Шаблон с таким именем уже есть")
-    spec = await _snapshot(conn, dashboard_id)
-    row = await conn.fetchrow(
-        "insert into dashboard_templates(organization_id, name, description, spec, created_by) "
-        "values($1,$2,$3,$4::jsonb,$5) returning id, name",
-        org_id, name, description, json.dumps(spec, ensure_ascii=False), user_id)
-    return {"id": str(row["id"]), "name": row["name"]}
-
-
-async def list_templates(conn, org_id) -> list:
-    rows = await conn.fetch(
-        "select id, name, description, created_at from dashboard_templates "
-        "where organization_id=$1 order by name", org_id)
-    return [dict(r) for r in rows]
-
-
-# Ключи config, ссылающиеся на коды датасетов и метрик (для перепривязки шаблона).
-_DATASET_KEYS = ("dataset_code",)
-_METRIC_KEYS = ("metric_code", "plan_metric", "fact_metric")
-
-
-def _template_codes(spec: dict) -> dict:
-    """Какие коды датасетов/метрик использует шаблон (для перепривязки при клоне)."""
-    datasets, metrics = set(), set()
-    for page in spec.get("pages", []):
-        for w in page.get("widgets", []):
-            cfg = w.get("config", {}) or {}
-            for k in _DATASET_KEYS:
-                if cfg.get(k):
-                    datasets.add(cfg[k])
-            for k in _METRIC_KEYS:
-                if cfg.get(k):
-                    metrics.add(cfg[k])
-    return {"datasets": sorted(datasets), "metrics": sorted(metrics)}
-
-
-def _remap_config(cfg: dict, dmap: dict, mmap: dict) -> dict:
-    """Применяет карты перепривязки (старый код → новый) к config виджета."""
-    out = dict(cfg or {})
-    for k in _DATASET_KEYS:
-        if out.get(k) and out[k] in dmap:
-            out[k] = dmap[out[k]]
-    for k in _METRIC_KEYS:
-        if out.get(k) and out[k] in mmap:
-            out[k] = mmap[out[k]]
-    return out
-
-
-async def template_bindings(conn, org_id, template_id: str) -> dict:
-    """Коды датасетов/метрик, которые использует шаблон — для UI перепривязки."""
-    spec = await conn.fetchval(
-        "select spec from dashboard_templates where id=$1::uuid and organization_id=$2", template_id, org_id)
-    if spec is None:
-        raise DashboardError("Шаблон не найден")
-    if isinstance(spec, str):
-        spec = json.loads(spec)
-    return _template_codes(spec)
-
-
-async def create_from_template(conn, org_id, user_id, template_id: str, name: str,
-                               dataset_map: Optional[dict] = None, metric_map: Optional[dict] = None) -> dict:
-    spec = await conn.fetchval(
-        "select spec from dashboard_templates where id=$1::uuid and organization_id=$2", template_id, org_id)
-    if spec is None:
-        raise DashboardError("Шаблон не найден")
-    if isinstance(spec, str):
-        spec = json.loads(spec)
-    dmap, mmap = dataset_map or {}, metric_map or {}
-    dash = await create_dashboard(conn, org_id, user_id, name, "Создан из шаблона", None)
-    did = str(dash["id"])
-    for page in spec.get("pages", []):
-        p = await create_page(conn, org_id, user_id, did, page["name"], page.get("description"))
-        for w in page.get("widgets", []):
-            cfg = _remap_config(w.get("config", {}), dmap, mmap)
-            await create_widget(conn, org_id, user_id, str(p["id"]), w["name"], w["widget_type"], cfg,
-                                {"position_x": w.get("position_x", 0), "position_y": w.get("position_y", 0),
-                                 "width": w.get("width", 4), "height": w.get("height", 4)})
-    return {"dashboard_id": did}

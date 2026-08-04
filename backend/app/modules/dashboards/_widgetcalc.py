@@ -81,8 +81,30 @@ def _detect_anomalies(periods: list, values: list, threshold: float = 2.0) -> li
     return out
 
 
+def _normalize_cfg(cfg: dict) -> dict:
+    """Сглаживает историческое расхождение ключей конфигурации виджетов.
+
+    Одни типы описывают поле как `value_field` (одно поле: kpi/bar/line/pie/…),
+    другие — как `value_fields` (набор: compare/heatmap/pivot). Пользователи и
+    внешние вызовы API регулярно путают формы, получая «укажите value_fields»
+    на, казалось бы, заполненной форме. Принимаем обе и достраиваем недостающую,
+    не меняя того, что хранится в БД.
+    """
+    if not isinstance(cfg, dict):
+        return cfg
+    one, many = cfg.get("value_field"), cfg.get("value_fields")
+    if one and not many:
+        cfg = {**cfg, "value_fields": [one]}
+    elif many and not one:
+        first = many[0] if isinstance(many, (list, tuple)) and many else None
+        if first:
+            cfg = {**cfg, "value_field": first}
+    return cfg
+
+
 async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
                           from_date=None, to_date=None, row=None, user=None) -> dict:
+    cfg = _normalize_cfg(cfg)
     # Виджетный фильтр (переопределение глобального): если у виджета задан
     # собственный фильтр (filter_scope='own'), он игнорирует фильтр страницы.
     if cfg.get("filter_scope") == "own":

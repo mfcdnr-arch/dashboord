@@ -137,13 +137,22 @@ async def check_freshness(conn, org_id, stale_days: int | None = None) -> dict:
     return {"stale_objects": stale, "notifications_created": created}
 
 
+PREVIEW_ITEMS_LIMIT = 100
+
+
 async def retention_preview(conn, org_id, months: int | None = None) -> dict:
-    """Сколько релизов/значений будет удалено при ретенции (без удаления)."""
+    """Что именно будет удалено при ретенции (без удаления).
+
+    Возвращает не только счётчики, но и ПОИМЕНОВАННЫЙ список выпусков (объект,
+    код/название датасета, период, число значений) — администратор должен видеть
+    в интерфейсе, что уходит, ДО необратимого удаления. Список ограничен
+    PREVIEW_ITEMS_LIMIT, счётчики — по всей выборке.
+    """
     m = months
     if m is None:
         m = (await settings_svc.get_org_settings(conn, org_id))["retention_months"]
     if not m or m <= 0:
-        return {"enabled": False, "months": m, "releases": 0, "values": 0}
+        return {"enabled": False, "months": m, "releases": 0, "values": 0, "items": [], "items_limit": PREVIEW_ITEMS_LIMIT}
     rel = await conn.fetchval(
         "select count(*) from dataset_releases where organization_id=$1 "
         "and reporting_period_start < (current_date - make_interval(months => $2))", org_id, m)
@@ -151,7 +160,34 @@ async def retention_preview(conn, org_id, months: int | None = None) -> dict:
         "select count(*) from dataset_values v join dataset_releases r on r.id=v.dataset_release_id "
         "where r.organization_id=$1 and r.reporting_period_start < (current_date - make_interval(months => $2))",
         org_id, m)
-    return {"enabled": True, "months": m, "releases": rel, "values": val}
+    rows = await conn.fetch(
+        "select r.id, r.code, r.name, r.reporting_period_start, r.status, o.name as object_name, "
+        "(select count(*) from dataset_values v where v.dataset_release_id=r.id) as values_count "
+        "from dataset_releases r left join objects o on o.id = r.object_id "
+        "where r.organization_id=$1 and r.reporting_period_start < (current_date - make_interval(months => $2)) "
+        "order by r.reporting_period_start, r.code limit $3",
+        org_id, m, PREVIEW_ITEMS_LIMIT)
+    items = [
+        {"id": str(r["id"]), "code": r["code"], "name": r["name"], "object_name": r["object_name"],
+         "status": r["status"],
+         "period": r["reporting_period_start"].isoformat() if r["reporting_period_start"] else None,
+         "values_count": r["values_count"]}
+        for r in rows
+    ]
+    # Дашборды, которые ссылаются на удаляемые датасеты, — предупреждение: после
+    # ретенции их виджеты останутся без данных (сами дашборды не удаляются).
+    codes = sorted({i["code"] for i in items})
+    affected = []
+    if codes:
+        affected_rows = await conn.fetch(
+            "select distinct d.name from widgets w "
+            "join dashboard_pages p on p.id = w.page_id "
+            "join dashboards d on d.id = p.dashboard_id "
+            "where d.organization_id=$1 and w.config->>'dataset_code' = any($2::text[]) order by d.name limit 20",
+            org_id, codes)
+        affected = [r["name"] for r in affected_rows]
+    return {"enabled": True, "months": m, "releases": rel, "values": val,
+            "items": items, "items_limit": PREVIEW_ITEMS_LIMIT, "affected_dashboards": affected}
 
 
 async def run_retention(conn, org_id, months: int | None = None, notify_admins: bool = True) -> dict:
