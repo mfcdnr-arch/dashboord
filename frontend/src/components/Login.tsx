@@ -15,11 +15,61 @@ const BRAND = {
 }
 
 const FEATURES: { icon: string; title: string; text: string }[] = [
-  { icon: '📊', title: 'Дашборды и показатели', text: 'KPI, план-факт и динамика в наглядных панелях — картина по услугам и подразделениям на одном экране.' },
-  { icon: '🔍', title: 'Прозрачность данных', text: 'По каждому показателю видно, из чего он собран: формула, источник, первичные строки.' },
-  { icon: '📈', title: 'Аналитика для решений', text: 'Сравнение периодов и подразделений, тренды, цели и бенчмарки — основа управленческих решений.' },
-  { icon: '📄', title: 'Отчёты и выгрузки', text: 'Готовые отчёты, экспорт в Excel/PDF и журналы аудита — для контроля и отчётности.' },
+  { icon: 'dashboards', title: 'Дашборды и показатели', text: 'KPI, план-факт и динамика в наглядных панелях — картина по услугам и подразделениям на одном экране.' },
+  { icon: 'transparency', title: 'Прозрачность данных', text: 'По каждому показателю видно, из чего он собран: формула, источник, первичные строки.' },
+  { icon: 'analytics', title: 'Аналитика для решений', text: 'Сравнение периодов и подразделений, тренды, цели и бенчмарки — основа управленческих решений.' },
+  { icon: 'access', title: 'Ролевой доступ и модерация', text: 'Каждый видит только своё; публикация дашборда — только после проверки модератором.' },
+  { icon: 'reports', title: 'Отчёты и выгрузки', text: 'Готовые отчёты, экспорт в Excel/PDF/PNG, витрины из нескольких дашбордов и журналы аудита.' },
+  { icon: 'suggest', title: 'Рекомендации и аномалии', text: 'Система сама подсказывает недостающие показатели и отмечает выбросы на графиках.' },
 ]
+
+// Иллюстрации-иконки (белые линии — для тёмной гео-панели входа)
+const ICON_BOX: React.CSSProperties = { width: 26, height: 26, flexShrink: 0 }
+const W = 'rgba(255,255,255,0.92)'
+const FEATURE_ICONS: Record<string, React.ReactNode> = {
+  dashboards: (
+    <svg style={ICON_BOX} viewBox="0 0 26 26">
+      <rect x="2" y="2" width="10" height="10" rx="1.5" fill="none" stroke={W} strokeWidth="1.6" />
+      <rect x="14" y="2" width="10" height="6" rx="1.5" fill="none" stroke={W} strokeWidth="1.6" />
+      <rect x="2" y="14" width="6" height="10" rx="1.5" fill="none" stroke={W} strokeWidth="1.6" />
+      <rect x="10" y="14" width="14" height="10" rx="1.5" fill="none" stroke={W} strokeWidth="1.6" />
+    </svg>
+  ),
+  transparency: (
+    <svg style={ICON_BOX} viewBox="0 0 26 26">
+      <rect x="3" y="14" width="3.5" height="7" fill={W} />
+      <rect x="9" y="9" width="3.5" height="12" fill={W} />
+      <circle cx="18" cy="8" r="5" fill="none" stroke={W} strokeWidth="1.6" />
+      <line x1="21.5" y1="11.5" x2="24.5" y2="14.5" stroke={W} strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  ),
+  analytics: (
+    <svg style={ICON_BOX} viewBox="0 0 26 26">
+      <polyline points="2,20 9,12 14,16 24,4" fill="none" stroke={W} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="17,4 24,4 24,11" fill="none" stroke={W} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  access: (
+    <svg style={ICON_BOX} viewBox="0 0 26 26">
+      <path d="M13 2 L23 6 V12 C23 19 18 23 13 25 C8 23 3 19 3 12 V6 Z" fill="none" stroke={W} strokeWidth="1.6" />
+      <path d="M8.5 13 L11.5 16.5 L18 9" fill="none" stroke={W} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  reports: (
+    <svg style={ICON_BOX} viewBox="0 0 26 26">
+      <rect x="4" y="2" width="14" height="18" rx="1.5" fill="none" stroke={W} strokeWidth="1.6" />
+      <line x1="7.5" y1="7" x2="14.5" y2="7" stroke={W} strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="7.5" y1="11" x2="14.5" y2="11" stroke={W} strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M16 16 L22 16 L22 22 M22 16 L15 23" fill="none" stroke={W} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  suggest: (
+    <svg style={ICON_BOX} viewBox="0 0 26 26">
+      <path d="M13 3a6.5 6.5 0 0 0-4 11.7c.8.6 1.3 1.5 1.3 2.5v1.3h5.4v-1.3c0-1 .5-1.9 1.3-2.5A6.5 6.5 0 0 0 13 3Z" fill="none" stroke={W} strokeWidth="1.6" />
+      <line x1="10.3" y1="22" x2="15.7" y2="22" stroke={W} strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  ),
+}
 
 function useNarrow(max = 900): boolean {
   const [n, setN] = useState(() => typeof window !== 'undefined' && window.innerWidth <= max)
@@ -97,17 +147,21 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
             {BRAND.portal}<br />
             <span style={{ color: '#ffe0a3' }}>для управленческих решений</span>
           </h1>
-          <p style={{ fontSize: narrow ? 14 : 16, lineHeight: 1.55, opacity: 0.92, margin: '0 0 28px', maxWidth: 520 }}>
+          <p style={{ fontSize: narrow ? 14 : 16, lineHeight: 1.55, opacity: 0.92, margin: '0 0 8px', maxWidth: 560 }}>
             Единое пространство данных {BRAND.orgShort}: показатели работы центра, услуги, нагрузка и
             качество обслуживания — собраны, проверены и представлены так, чтобы решения принимались
             на основе фактов, а не догадок.
+          </p>
+          <p style={{ fontSize: narrow ? 12.5 : 13.5, lineHeight: 1.5, opacity: 0.78, margin: '0 0 28px', maxWidth: 560 }}>
+            15 типов виджетов, drill-down до первичных строк, ролевой доступ и модерация публикаций,
+            архив данных за прошлые периоды и экспорт в Excel/PDF.
           </p>
 
           {!narrow && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, maxWidth: 620 }}>
               {FEATURES.map((f) => (
                 <div key={f.title} style={featCard}>
-                  <div style={{ fontSize: 22, marginBottom: 6 }}>{f.icon}</div>
+                  <div style={{ marginBottom: 8 }}>{FEATURE_ICONS[f.icon]}</div>
                   <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 3 }}>{f.title}</div>
                   <div style={{ fontSize: 12.5, lineHeight: 1.45, opacity: 0.85 }}>{f.text}</div>
                 </div>
