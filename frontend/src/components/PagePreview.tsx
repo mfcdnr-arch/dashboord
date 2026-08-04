@@ -9,14 +9,21 @@ const GL = WidthProvider(GridLayout)
 
 // Компактный READ-ONLY рендер одной страницы дашборда — переиспользуется в
 // витринах (волна E), чтобы показать сразу НЕСКОЛЬКО ЦЕЛЫХ дашбордов на одном
-// экране. Без редактирования/раскладки — только просмотр виджетов с данными
-// (батч-запрос, как в DashboardsPage).
-export default function PagePreview({ pageId }: { pageId: string }) {
-  const [widgets, setWidgets] = useState<Widget[] | null>(null)
-  const [pageData, setPageData] = useState<Record<string, PageWidgetData>>({})
+// экране. Без редактирования/раскладки — только просмотр виджетов с данными.
+// Данные можно передать пропом (батч GET /showcases/{id}/data — 1 запрос на
+// ВСЮ витрину вместо N самостоятельных фетчей на панель); без пропа
+// компонент дофетчивает сам (страница дашборда вне витрины).
+export default function PagePreview({ pageId, injWidgets, injPageData }: {
+  pageId: string
+  injWidgets?: Widget[]
+  injPageData?: Record<string, PageWidgetData>
+}) {
+  const [widgets, setWidgets] = useState<Widget[] | null>(injWidgets ?? null)
+  const [pageData, setPageData] = useState<Record<string, PageWidgetData>>(injPageData ?? {})
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (injWidgets) { setWidgets(injWidgets); setPageData(injPageData ?? {}); setError(null); return }
     let cancelled = false
     setWidgets(null); setPageData({}); setError(null)
     listPageWidgets(pageId)
@@ -31,7 +38,7 @@ export default function PagePreview({ pageId }: { pageId: string }) {
       })
       .catch(() => { /* виджеты дофетчат сами через WidgetView, если батч упал */ })
     return () => { cancelled = true }
-  }, [pageId])
+  }, [pageId, injWidgets, injPageData])
 
   if (error) return <div style={{ color: 'var(--danger)', fontSize: 13, padding: 12 }}>{error}</div>
   if (!widgets) return <div style={{ color: 'var(--text-faint)', fontSize: 13, padding: 12 }}>Загрузка…</div>

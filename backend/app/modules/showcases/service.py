@@ -9,6 +9,7 @@
 показываются — как и остальная RLS в проекте, не палим их существование."""
 from __future__ import annotations
 
+from ..dashboards import service as dashboards_service
 from ..dashboards._rls import _can_view, visible_dashboard_ids
 
 MAX_NAME = 200
@@ -47,16 +48,20 @@ async def _get_or_404(conn, org_id, showcase_id: str):
     return row
 
 
-async def get_showcase(conn, org_id, user: dict, showcase_id: str) -> dict:
-    s = await _get_or_404(conn, org_id, showcase_id)
+async def _visible_items(conn, org_id, user: dict, showcase_id: str) -> list:
+    """Элементы витрины, отфильтрованные RLS дашбордов; с папкой/объектом
+    (та же связь folders->objects, что и в dashboards.list_dashboards —
+    без неё «Состав» асимметричен списку дашбордов волны D)."""
     visible = await visible_dashboard_ids(conn, org_id, user)
     rows = await conn.fetch(
         "select i.id, i.dashboard_id, i.position, d.name as dashboard_name, "
+        "fo.name as folder_name, ob.name as object_name, "
         "(select p.id from dashboard_pages p where p.dashboard_id=d.id "
         " order by p.position, p.created_at limit 1) as page_id, "
         "(select p.name from dashboard_pages p where p.dashboard_id=d.id "
         " order by p.position, p.created_at limit 1) as page_name "
         "from showcase_items i join dashboards d on d.id=i.dashboard_id "
+        "left join folders fo on fo.id=d.folder_id left join objects ob on ob.id=fo.object_id "
         "where i.showcase_id=$1::uuid order by i.position, i.created_at", showcase_id)
     items = []
     for r in rows:
@@ -65,11 +70,44 @@ async def get_showcase(conn, org_id, user: dict, showcase_id: str) -> dict:
         items.append({
             "id": str(r["id"]), "dashboard_id": str(r["dashboard_id"]), "position": r["position"],
             "dashboard_name": r["dashboard_name"],
+            "folder_name": r["folder_name"], "object_name": r["object_name"],
             "page_id": str(r["page_id"]) if r["page_id"] else None,
             "page_name": r["page_name"],
         })
+    return items
+
+
+async def get_showcase(conn, org_id, user: dict, showcase_id: str) -> dict:
+    s = await _get_or_404(conn, org_id, showcase_id)
+    items = await _visible_items(conn, org_id, user, showcase_id)
     return {"id": str(s["id"]), "name": s["name"], "created_at": s["created_at"],
             "updated_at": s["updated_at"], "items": items}
+
+
+async def get_showcase_data(conn, org_id, user: dict, showcase_id: str) -> dict:
+    """Данные ВСЕХ панелей витрины ОДНИМ вызовом (перф: было N параллельных
+    getPageData с фронта — теперь один батч, переиспользующий тот же
+    compute_page_data, что и обычная страница дашборда)."""
+    s = await _get_or_404(conn, org_id, showcase_id)
+    items = await _visible_items(conn, org_id, user, showcase_id)
+    out = []
+    for it in items:
+        entry = {"id": it["id"], "dashboard_id": it["dashboard_id"], "page_id": it["page_id"]}
+        if it["page_id"] is None:
+            entry["widgets"] = []
+            entry["data"] = {}
+        else:
+            try:
+                wlist = await dashboards_service.list_page_widgets(conn, org_id, it["page_id"], user)
+                pdata = await dashboards_service.compute_page_data(conn, org_id, it["page_id"], user)
+                entry["widgets"] = wlist["widgets"]
+                entry["data"] = {w["id"]: w for w in pdata["widgets"]}
+            except dashboards_service.DashboardError as e:
+                entry["widgets"] = []
+                entry["data"] = {}
+                entry["error"] = str(e)
+        out.append(entry)
+    return {"id": str(s["id"]), "name": s["name"], "items": out}
 
 
 async def delete_showcase(conn, org_id, showcase_id: str) -> None:
@@ -105,22 +143,19 @@ async def remove_item(conn, org_id, showcase_id: str, item_id: str) -> None:
     await conn.execute("update showcases set updated_at=now() where id=$1::uuid", showcase_id)
 
 
-async def reorder_item(conn, org_id, showcase_id: str, item_id: str, direction: str) -> None:
+async def reorder_items(conn, org_id, showcase_id: str, item_ids: list) -> None:
+    """Задать ПОЛНЫЙ порядок элементов витрины одним вызовом (замена
+    покомпонентного swap up/down — тот же эндпоинт обслуживает и кнопки
+    ▲/▼ на фронте [пересчитавшие массив целиком], и drag-and-drop)."""
     await _get_or_404(conn, org_id, showcase_id)
-    if direction not in ("up", "down"):
-        raise ShowcasesError("Недопустимое направление")
-    items = await conn.fetch(
-        "select id, position from showcase_items where showcase_id=$1::uuid order by position, created_at",
-        showcase_id)
-    ids = [str(r["id"]) for r in items]
-    if item_id not in ids:
-        raise ShowcasesError("Элемент витрины не найден")
-    idx = ids.index(item_id)
-    swap_idx = idx - 1 if direction == "up" else idx + 1
-    if swap_idx < 0 or swap_idx >= len(ids):
-        return  # уже на краю — молча ничего не делаем
-    a, b = items[idx], items[swap_idx]
+    existing = await conn.fetch(
+        "select id from showcase_items where showcase_id=$1::uuid", showcase_id)
+    existing_ids = {str(r["id"]) for r in existing}
+    if set(item_ids) != existing_ids or len(item_ids) != len(existing_ids):
+        raise ShowcasesError("Список элементов не совпадает с составом витрины")
     async with conn.transaction():
-        await conn.execute("update showcase_items set position=$2 where id=$1::uuid", a["id"], b["position"])
-        await conn.execute("update showcase_items set position=$2 where id=$1::uuid", b["id"], a["position"])
+        for pos, item_id in enumerate(item_ids):
+            await conn.execute(
+                "update showcase_items set position=$2 where id=$1::uuid and showcase_id=$3::uuid",
+                item_id, pos, showcase_id)
     await conn.execute("update showcases set updated_at=now() where id=$1::uuid", showcase_id)

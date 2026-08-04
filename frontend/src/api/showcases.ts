@@ -2,6 +2,7 @@
 // экране. НЕ путать с «📺 Витрина» (KioskView) в дашборде — тот слайд-шоу
 // СТРАНИЦ ОДНОГО дашборда.
 import { authH, errText } from './http'
+import type { PageWidgetData, Widget } from './dashboards'
 
 export interface ShowcaseSummary {
   id: string
@@ -14,6 +15,8 @@ export interface ShowcaseItem {
   id: string
   dashboard_id: string
   dashboard_name: string
+  folder_name: string | null
+  object_name: string | null
   page_id: string | null
   page_name: string | null
   position: number
@@ -24,6 +27,19 @@ export interface ShowcaseDetail {
   created_at: string
   updated_at: string
   items: ShowcaseItem[]
+}
+export interface ShowcaseDataItem {
+  id: string
+  dashboard_id: string
+  page_id: string | null
+  widgets: Widget[]
+  data: Record<string, PageWidgetData>
+  error?: string
+}
+export interface ShowcaseData {
+  id: string
+  name: string
+  items: ShowcaseDataItem[]
 }
 
 export async function listShowcases(): Promise<ShowcaseSummary[]> {
@@ -66,10 +82,16 @@ export async function removeShowcaseItem(id: string, itemId: string): Promise<vo
   if (!res.ok) throw new Error(await errText(res))
 }
 
-export async function reorderShowcaseItem(id: string, itemId: string, direction: 'up' | 'down'): Promise<void> {
+export async function reorderShowcaseItems(id: string, itemIds: string[]): Promise<void> {
   const res = await fetch(`/showcases/${id}/reorder`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
-    body: JSON.stringify({ item_id: itemId, direction }),
+    body: JSON.stringify({ item_ids: itemIds }),
   })
   if (!res.ok) throw new Error(await errText(res))
+}
+
+export async function getShowcaseData(id: string): Promise<ShowcaseData> {
+  const res = await fetch(`/showcases/${id}/data`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
 }

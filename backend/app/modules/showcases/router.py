@@ -5,6 +5,8 @@
 service.get_showcase)."""
 from __future__ import annotations
 
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
@@ -31,8 +33,7 @@ class ItemIn(BaseModel):
 
 
 class ReorderIn(BaseModel):
-    item_id: str
-    direction: str
+    item_ids: List[str]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -87,10 +88,19 @@ async def remove_item(showcase_id: str, item_id: str, user: dict = Depends(manag
 
 
 @router.post("/{showcase_id}/reorder")
-async def reorder_item(showcase_id: str, body: ReorderIn, user: dict = Depends(manage)):
+async def reorder_items(showcase_id: str, body: ReorderIn, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:
         try:
-            await service.reorder_item(conn, user["organization_id"], showcase_id, body.item_id, body.direction)
+            await service.reorder_items(conn, user["organization_id"], showcase_id, body.item_ids)
             return {"ok": True}
+        except ShowcasesError as e:
+            raise _bad(e)
+
+
+@router.get("/{showcase_id}/data")
+async def get_showcase_data(showcase_id: str, user: dict = Depends(get_current_user)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.get_showcase_data(conn, user["organization_id"], user, showcase_id)
         except ShowcasesError as e:
             raise _bad(e)

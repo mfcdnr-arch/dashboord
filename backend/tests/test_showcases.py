@@ -5,6 +5,8 @@
 запрет дубликата, доступ на запись только staff."""
 import pytest
 
+from app import db
+
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 from conftest import purge_dashboard
@@ -13,7 +15,10 @@ from conftest import purge_dashboard
 async def test_showcase_crud_and_reorder(client, admin_headers, viewer):
     d1 = (await client.post("/dashboards", headers=admin_headers, json={"name": "ztest_sc_d1"})).json()["id"]
     d2 = (await client.post("/dashboards", headers=admin_headers, json={"name": "ztest_sc_d2"})).json()["id"]
+    obj = (await client.post("/objects", headers=admin_headers, json={"name": "ztest_sc_obj"})).json()
+    folder = (await client.post(f"/objects/{obj['id']}/folders", headers=admin_headers, json={"name": "ztest_sc_folder"})).json()
     try:
+        await client.post(f"/dashboards/{d1}/folder", headers=admin_headers, json={"folder_id": folder["id"]})
         await client.post(f"/dashboards/{d1}/pages", headers=admin_headers, json={"name": "Обзор"})
         await client.post(f"/dashboards/{d1}/grants", headers=admin_headers, json={"grantee_type": "user", "user_id": viewer["id"]})
         await client.post(f"/dashboards/{d1}/publish", headers=admin_headers)
@@ -43,12 +48,29 @@ async def test_showcase_crud_and_reorder(client, admin_headers, viewer):
         items = r.json()["items"]
         assert [it["dashboard_id"] for it in items] == [d1, d2]
         assert items[0]["page_name"] == "Обзор" and items[0]["page_id"]
+        # d1 — в папке, d2 — без папки (проверка folder_name/object_name на элементе)
+        assert items[0]["folder_name"] == "ztest_sc_folder" and items[0]["object_name"] == "ztest_sc_obj"
+        assert items[1]["folder_name"] is None
 
-        # реордер: d2 выше d1
-        r = await client.post(f"/showcases/{sid}/reorder", headers=admin_headers, json={"item_id": item2, "direction": "up"})
+        # реордер: полный порядок одним вызовом — d2 выше d1
+        r = await client.post(f"/showcases/{sid}/reorder", headers=admin_headers, json={"item_ids": [item2, item1]})
         assert r.status_code == 200
         items = (await client.get(f"/showcases/{sid}", headers=admin_headers)).json()["items"]
         assert [it["dashboard_id"] for it in items] == [d2, d1]
+
+        # набор item_ids не совпадает с составом — 400
+        r = await client.post(f"/showcases/{sid}/reorder", headers=admin_headers, json={"item_ids": [item2]})
+        assert r.status_code == 400
+
+        # батч-данные всех панелей витрины одним запросом
+        r = await client.get(f"/showcases/{sid}/data", headers=admin_headers)
+        assert r.status_code == 200
+        data_items = r.json()["items"]
+        assert [it["dashboard_id"] for it in data_items] == [d2, d1]
+        d1_entry = next(it for it in data_items if it["dashboard_id"] == d1)
+        assert d1_entry["page_id"] and "widgets" in d1_entry and "data" in d1_entry
+        d2_entry = next(it for it in data_items if it["dashboard_id"] == d2)
+        assert d2_entry["page_id"] is None and d2_entry["widgets"] == []  # d2 без страниц
 
         # убрать элемент
         assert (await client.delete(f"/showcases/{sid}/items/{item1}", headers=admin_headers)).status_code == 204
@@ -61,6 +83,9 @@ async def test_showcase_crud_and_reorder(client, admin_headers, viewer):
     finally:
         await purge_dashboard(d1)
         await purge_dashboard(d2)
+        async with db.acquire() as conn:
+            await conn.execute("delete from folders where id=$1::uuid", folder["id"])
+            await conn.execute("delete from objects where id=$1::uuid", obj["id"])
 
 
 async def test_showcase_hides_inaccessible_dashboard(client, admin_headers, viewer):
