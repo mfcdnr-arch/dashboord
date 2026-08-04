@@ -205,6 +205,9 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   // Цель/бенчмарк (kpi/gauge) и линейный тренд (dynamics).
   const [target, setTarget] = useState<string>(cfg0.target != null ? String(cfg0.target) : '')
   const [trend, setTrend] = useState<boolean>(!!cfg0.trend)
+  // Волна F: обнаружение аномалий (без ИИ — отклонение от линии тренда в σ).
+  const [anomalies, setAnomalies] = useState<boolean>(!!cfg0.anomalies)
+  const [anomalyThreshold, setAnomalyThreshold] = useState<string>(cfg0.anomaly_threshold != null ? String(cfg0.anomaly_threshold) : '2')
 
   // Свой фильтр виджета (переопределение глобального фильтра страницы).
   const [ownFilter, setOwnFilter] = useState<boolean>(cfg0.filter_scope === 'own')
@@ -235,7 +238,11 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     }
     if (type === 'compare') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields, viz } : null
     if (type === 'heatmap' || type === 'pivot') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields } : null
-    if (type === 'dynamics') return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField, ...(trend ? { trend: true } : {}) } : null
+    if (type === 'dynamics') return (dataset && valueField) ? {
+      dataset_code: dataset, value_field: valueField,
+      ...(trend ? { trend: true } : {}),
+      ...(anomalies ? { anomalies: true, anomaly_threshold: Number(anomalyThreshold) || 2 } : {}),
+    } : null
     return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null // bar/line/pie/yoy
   }
 
@@ -420,9 +427,19 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         <F t="Цель (пусто — нет)"><input style={{ ...sel, width: 130 }} type="number" placeholder="напр. 200" value={target} onChange={(e) => setTarget(e.target.value)} /></F>
       )}
       {type === 'dynamics' && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }} title="Наложить линию линейного тренда (метод наименьших квадратов)">
-          <input type="checkbox" checked={trend} onChange={(e) => setTrend(e.target.checked)} />Линия тренда
-        </label>
+        <>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }} title="Наложить линию линейного тренда (метод наименьших квадратов)">
+            <input type="checkbox" checked={trend} onChange={(e) => setTrend(e.target.checked)} />Линия тренда
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }} title="Отметить точки, отклонившиеся от линии тренда больше чем на N стандартных отклонений (простая статистика, без ИИ)">
+            <input type="checkbox" checked={anomalies} onChange={(e) => setAnomalies(e.target.checked)} />Отмечать аномалии
+          </label>
+          {anomalies && (
+            <F t="Порог, σ">
+              <input style={{ ...sel, width: 70 }} type="number" min="0.5" step="0.5" value={anomalyThreshold} onChange={(e) => setAnomalyThreshold(e.target.value)} />
+            </F>
+          )}
+        </>
       )}
       {usesMulti && (
         <>

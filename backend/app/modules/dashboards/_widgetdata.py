@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import statistics
 from typing import Any, Dict, List, Optional
 
 from ... import cache
@@ -49,7 +50,33 @@ def _linear_trend(values: list) -> Optional[dict]:
         return None
     b = (n * sxy - sx * sy) / denom
     a = (sy - b * sx) / n
-    return {"slope": b, "endpoints": [a, a + b * (len(values) - 1)]}
+    return {"slope": b, "endpoints": [a, a + b * (len(values) - 1)], "intercept": a}
+
+
+def _detect_anomalies(periods: list, values: list, threshold: float = 2.0) -> list:
+    """Волна F: простое обнаружение аномалий БЕЗ ИИ — точки ряда, отклонившиеся
+    от линии линейного тренда (метод наименьших квадратов, та же `_linear_trend`,
+    что и для наложения на график) больше чем на `threshold` стандартных
+    отклонений остатков. Нужно ≥3 точек (на 2 точках тренд проходит точно через
+    обе, остатков нет — «аномалий» не бывает по определению)."""
+    n = len(values)
+    if n < 3 or any(v is None for v in values):
+        return []
+    trend = _linear_trend(values)
+    if not trend:
+        return []
+    a, b = trend["intercept"], trend["slope"]
+    residuals = [values[i] - (a + b * i) for i in range(n)]
+    std = statistics.pstdev(residuals)
+    if std == 0:
+        return []
+    out = []
+    for i, r in enumerate(residuals):
+        dev = r / std
+        if abs(dev) > threshold:
+            out.append({"index": i, "period": periods[i] if i < len(periods) else None,
+                        "value": values[i], "expected": round(a + b * i, 2), "deviation": round(dev, 2)})
+    return out
 
 
 async def _widget_org(conn, org_id, widget_id: str):
@@ -455,6 +482,10 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
             tr = _linear_trend(values)
             if tr:
                 res["trend"], res["trend_slope"] = tr["endpoints"], tr["slope"]
+        if cfg.get("anomalies"):
+            threshold = float(cfg.get("anomaly_threshold") or 2.0)
+            res["anomaly_threshold"] = threshold
+            res["anomalies"] = _detect_anomalies(periods, values, threshold)
         res["alert"] = evaluate_alert("dynamics", cfg, res)
         return res
 
@@ -666,9 +697,10 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
                 ws.append([c, v])
         elif t == "dynamics":
             ws = wb.create_sheet(sheet_name(name))
-            ws.append(["Период", "Значение"])
-            for pr, v in zip(data.get("periods", []), data.get("values", []), strict=False):
-                ws.append([pr, v])
+            anomaly_idx = {a["index"] for a in data.get("anomalies", [])}
+            ws.append(["Период", "Значение", "Аномалия"])
+            for i, (pr, v) in enumerate(zip(data.get("periods", []), data.get("values", []), strict=False)):
+                ws.append([pr, v, "⚠" if i in anomaly_idx else ""])
         elif t == "yoy":
             ws = wb.create_sheet(sheet_name(name))
             py, cy = data.get("previous_year"), data.get("current_year")

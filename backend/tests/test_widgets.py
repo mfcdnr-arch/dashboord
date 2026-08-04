@@ -145,6 +145,44 @@ async def test_dynamics_trend(client, admin_headers, seed_dataset):
     assert d["trend"] == [165, 180]
 
 
+async def test_dynamics_anomalies(client, admin_headers, seed_dataset, ids):
+    """Волна F: простое обнаружение аномалий (без ИИ) — точка ряда, резко
+    отклонившаяся от линии линейного тренда. Продолжаем ряд seed_dataset
+    (165, 180) почти линейно (195, 210), затем один явный выброс (1000, 240)."""
+    from app import db
+    extra = [("2026-03-01", 195), ("2026-04-01", 210), ("2026-05-01", 1000), ("2026-06-01", 240)]
+    rel_ids = []
+    async with db.acquire() as conn:
+        for period, v in extra:
+            rel = await conn.fetchval(
+                "insert into dataset_releases(organization_id,code,name,status,reporting_period_start,created_by) "
+                "values($1,'t_ds','Тест ДС','released',$2::text::date,$3) returning id", ids["org"], period, ids["admin"])
+            rel_ids.append(rel)
+            await conn.execute(
+                "insert into dataset_values(dataset_release_id,row_index,row_label,canonical_field_code,value_number) "
+                "values($1,0,'r','plan',$2)", rel, v)
+    try:
+        d = await _preview(client, admin_headers, "dynamics",
+                           {"dataset_code": "t_ds", "value_field": "plan", "anomalies": True})
+        assert d["anomaly_threshold"] == 2.0
+        assert len(d["values"]) == 6
+        anomalies = d["anomalies"]
+        assert len(anomalies) == 1
+        assert anomalies[0]["period"] == "2026-05-01"
+        assert anomalies[0]["value"] == 1000
+        assert anomalies[0]["deviation"] > 2
+
+        # с завышенным порогом та же точка уже не считается аномалией
+        d2 = await _preview(client, admin_headers, "dynamics",
+                            {"dataset_code": "t_ds", "value_field": "plan", "anomalies": True, "anomaly_threshold": 100})
+        assert d2["anomalies"] == []
+    finally:
+        async with db.acquire() as conn:
+            for rel in rel_ids:
+                await conn.execute("delete from dataset_values where dataset_release_id=$1", rel)
+                await conn.execute("delete from dataset_releases where id=$1", rel)
+
+
 async def test_objects_compare(client, admin_headers, seed_dataset):
     d = await _preview(client, admin_headers, "objects_compare", {"value_field": "plan"})
     assert d["type"] == "objects_compare"

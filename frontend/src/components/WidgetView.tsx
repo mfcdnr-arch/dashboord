@@ -259,10 +259,19 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
       series.push({ type: 'line', name: 'Тренд', data: line, smooth: false, symbol: 'none',
         lineStyle: { color: '#c69b2f', width: 2, type: 'dashed' } })
     }
+    // Волна F: точки, отклонившиеся от тренда больше чем на N σ — красные маркеры поверх ряда.
+    const anomalies: { index: number; period: string; value: number; expected: number; deviation: number }[] = data.anomalies || []
+    if (anomalies.length > 0) {
+      series.push({
+        type: 'scatter', name: 'Аномалии', symbol: 'circle', symbolSize: 12,
+        itemStyle: { color: 'var(--danger)', borderColor: '#fff', borderWidth: 1 },
+        data: anomalies.map((a) => [a.index, a.value]),
+      })
+    }
     const opt: EChartsOption = {
       grid: { left: 44, right: 12, top: 12, bottom: 40 },
       tooltip: { trigger: 'axis' },
-      legend: data.trend ? { bottom: 0, textStyle: { fontSize: 10 }, itemHeight: 8 } : undefined,
+      legend: (data.trend || anomalies.length > 0) ? { bottom: 0, textStyle: { fontSize: 10 }, itemHeight: 8 } : undefined,
       xAxis: { type: 'category', data: periods, axisLabel: { rotate: 30, fontSize: 11 } },
       yAxis: { type: 'value' },
       series,
@@ -270,12 +279,17 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     const ch = data.change
     return (
       <div>
-        <EChart option={opt} height={data.trend ? 196 : 180} />
+        <EChart option={opt} height={(data.trend || anomalies.length > 0) ? 196 : 180} />
         {ch != null && (
           <div style={{ fontSize: 13, marginTop: 4 }}>
             К пред. периоду: <b style={{ color: ch >= 0 ? 'var(--success)' : 'var(--danger)' }}>{ch >= 0 ? '↑ +' : '↓ '}{fmt(ch)}{data.change_pct != null ? ` (${fmt(data.change_pct)}%)` : ''}</b>
             {data.trend_slope != null && <span style={{ marginLeft: 10, color: 'var(--warn)' }}>тренд: <b>{data.trend_slope >= 0 ? '↗ рост' : '↘ спад'}</b> ({fmt(data.trend_slope)}/период)</span>}
           </div>
+        )}
+        {data.anomaly_threshold != null && (
+          anomalies.length > 0
+            ? <div style={{ fontSize: 12, marginTop: 4, color: 'var(--danger)' }}>⚠ {anomalies.length} {anomalies.length === 1 ? 'аномалия' : 'аномалии(й)'}: {anomalies.map((a) => a.period).join(', ')}</div>
+            : <div style={{ fontSize: 12, marginTop: 4, color: 'var(--text-muted)' }}>Аномалий не обнаружено (порог {data.anomaly_threshold}σ)</div>
         )}
       </div>
     )
