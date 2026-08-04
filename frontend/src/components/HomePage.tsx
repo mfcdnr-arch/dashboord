@@ -6,6 +6,54 @@ import {
 
 const KIND_ICON: Record<string, string> = { dataset: '📄', metric: '📐', dashboard: '📊' }
 
+// ── Иллюстрации блока «О системе» (тема-независимые, через CSS-переменные) ───
+const iconBox: React.CSSProperties = { width: 40, height: 40, flexShrink: 0 }
+const FEATURE_ICONS: Record<string, React.ReactNode> = {
+  builder: (
+    <svg style={iconBox} viewBox="0 0 40 40">
+      <rect x="4" y="4" width="14" height="14" rx="2" fill="none" stroke="var(--accent)" strokeWidth="2" />
+      <rect x="22" y="4" width="14" height="9" rx="2" fill="none" stroke="var(--accent)" strokeWidth="2" />
+      <rect x="4" y="22" width="9" height="14" rx="2" fill="none" stroke="var(--accent)" strokeWidth="2" />
+      <rect x="17" y="22" width="19" height="14" rx="2" fill="none" stroke="var(--accent)" strokeWidth="2" />
+    </svg>
+  ),
+  transparency: (
+    <svg style={iconBox} viewBox="0 0 40 40">
+      <rect x="6" y="20" width="5" height="10" fill="var(--chart-2)" />
+      <rect x="14" y="14" width="5" height="16" fill="var(--chart-2)" />
+      <rect x="22" y="18" width="5" height="12" fill="var(--chart-2)" />
+      <circle cx="28" cy="12" r="7" fill="none" stroke="var(--accent)" strokeWidth="2" />
+      <line x1="33" y1="17" x2="38" y2="22" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
+  ),
+  access: (
+    <svg style={iconBox} viewBox="0 0 40 40">
+      <path d="M20 4 L34 9 V19 C34 28 28 34 20 37 C12 34 6 28 6 19 V9 Z" fill="none" stroke="var(--accent)" strokeWidth="2" />
+      <path d="M14 20 L18 24 L27 14" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  suggest: (
+    <svg style={iconBox} viewBox="0 0 40 40">
+      <path d="M20 6a10 10 0 0 0-6 18c1.2 1 2 2.4 2 4v2h8v-2c0-1.6.8-3 2-4a10 10 0 0 0-6-18Z" fill="none" stroke="var(--accent)" strokeWidth="2" />
+      <line x1="16" y1="34" x2="24" y2="34" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  ),
+  archive: (
+    <svg style={iconBox} viewBox="0 0 40 40">
+      <rect x="6" y="10" width="28" height="8" rx="2" fill="none" stroke="var(--accent)" strokeWidth="2" />
+      <rect x="8" y="18" width="24" height="16" rx="2" fill="none" stroke="var(--accent)" strokeWidth="2" />
+      <line x1="16" y1="24" x2="24" y2="24" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  ),
+}
+const FEATURES: { icon: string; title: string; text: string }[] = [
+  { icon: 'builder', title: 'Конструктор дашбордов', text: 'Готовые шаблоны, drag-and-drop сетка и 15 типов виджетов — от KPI до тепловых карт и сводных таблиц.' },
+  { icon: 'transparency', title: 'Прозрачность показателей', text: 'У каждого KPI — формула, источники данных и раскрытие вглубь до первичных строк.' },
+  { icon: 'access', title: 'Ролевой доступ и модерация', text: 'Гибкие права на уровне дашборда и строк данных; публикация — только после проверки модератором.' },
+  { icon: 'suggest', title: 'Рекомендации и аномалии', text: 'Система подсказывает недостающие виджеты и метрики и отмечает выбросы на графиках динамики.' },
+  { icon: 'archive', title: 'Архив, экспорт, витрины', text: 'Помесячные снимки данных, выгрузка в Excel/PDF/PNG и витрины из нескольких дашбордов на одном экране.' },
+]
+
 function fmt(n: number | null): string {
   if (n == null || !isFinite(n)) return '—'
   return Number.isInteger(n) ? n.toLocaleString('ru-RU') : n.toFixed(2)
@@ -63,6 +111,26 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
           {now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {now.toLocaleTimeString('ru-RU')}
         </div>
       </div>
+
+      {/* О системе */}
+      <Section title="О системе">
+        <p style={{ margin: '0 0 14px', fontSize: 14, color: 'var(--text-2)', maxWidth: 760, lineHeight: 1.5 }}>
+          «Дашборд» — платформа для мониторинга ключевых показателей МФЦ ДНР: наглядные интерактивные дашборды,
+          прозрачная методика расчёта каждого значения и удобные инструменты для модераторов и руководителей —
+          от загрузки данных до принятия управленческих решений.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+          {FEATURES.map((f) => (
+            <div key={f.icon} style={featureCard}>
+              {FEATURE_ICONS[f.icon]}
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 3 }}>{f.title}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>{f.text}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
 
       {/* Счётчики */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 24 }}>
@@ -190,6 +258,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 const counter: React.CSSProperties = { minWidth: 96, border: '1px solid var(--border)', borderRadius: 12, padding: '12px 16px', textAlign: 'center' }
+const featureCard: React.CSSProperties = { display: 'flex', gap: 10, alignItems: 'flex-start', border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'var(--surface)' }
 const kpiCard: React.CSSProperties = { border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'var(--surface)' }
 const pageChip: React.CSSProperties = { border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', padding: '6px 10px', fontSize: 13, cursor: 'pointer', color: 'var(--accent)' }
 const sel: React.CSSProperties = { height: 34, padding: '0 8px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, background: 'var(--surface)' }
