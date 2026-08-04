@@ -483,10 +483,38 @@ async def _dataset_numeric_fields(conn, org_id, dataset_code: str) -> List[dict]
     return [dict(r) for r in rows]
 
 
-async def suggest_widgets(conn, org_id, dataset_code: str) -> List[dict]:
+def _spec_signature(widget_type: str, cfg: dict):
+    """Ключ дедупликации предложения: тип + датасет + набор полей (без учёта
+    порядка/названия виджета) — «то же самое», даже если названо иначе."""
+    if widget_type == "plan_fact":
+        fields = tuple(sorted(x for x in (cfg.get("plan_field"), cfg.get("fact_field")) if x))
+    elif cfg.get("value_fields"):
+        fields = tuple(sorted(cfg["value_fields"]))
+    elif cfg.get("value_field"):
+        fields = (cfg["value_field"],)
+    else:
+        fields = ()
+    return (widget_type, cfg.get("dataset_code"), fields)
+
+
+async def _existing_widget_signatures(conn, org_id, dataset_code: str) -> set:
+    """Волна «рекомендации»: сигнатуры УЖЕ построенных виджетов по этому
+    датасету — ОРГАНИЗАЦИОННО-широкий поиск (не только текущий дашборд), т.к.
+    dataset_code однозначно принадлежит одному объекту — так предложения не
+    повторяют то, что уже собрано где угодно для этого же объекта/датасета."""
+    rows = await conn.fetch(
+        "select widget_type, config from widgets where organization_id=$1 and config->>'dataset_code'=$2",
+        org_id, dataset_code)
+    return {_spec_signature(r["widget_type"], _cfg(r)) for r in rows}
+
+
+async def suggest_widgets(conn, org_id, dataset_code: str) -> dict:
     """Подсказки «что собрать» под датасет: готовые спецификации виджетов
     (KPI по каждому числовому полю, график по строкам, динамика при >1 периода,
-    сравнение/план-факт при ≥2 полях, таблица-первичка). Пользователь выбирает."""
+    сравнение/план-факт при ≥2 полях, таблица-первичка). Пользователь выбирает.
+    Delta-aware (рекомендательная система, 2026-08-04): то, что уже построено
+    для этого датасета — где угодно в организации — из предложений убирается,
+    чтобы не предлагать заново то же самое."""
     fields = await _dataset_numeric_fields(conn, org_id, dataset_code)
     if not fields:
         raise DashboardError("У датасета нет числовых полей — сначала распознайте документ")
@@ -524,7 +552,10 @@ async def suggest_widgets(conn, org_id, dataset_code: str) -> List[dict]:
                       "width": 4, "height": 5})
     specs.append({"name": f"{dsname}: таблица", "widget_type": "table",
                   "config": {"dataset_code": dataset_code}, "width": 6, "height": 6})
-    return specs
+
+    existing = await _existing_widget_signatures(conn, org_id, dataset_code)
+    delta = [s for s in specs if _spec_signature(s["widget_type"], s["config"]) not in existing]
+    return {"specs": delta, "total_candidates": len(specs), "already_built": len(specs) - len(delta)}
 
 
 async def auto_build(conn, org_id, user_id, object_id: str, name=None) -> dict:

@@ -59,19 +59,22 @@ export function SourceCatalog({ sources }: { sources: DataSources }) {
   )
 }
 
-// ── Подсказки «что собрать»: система предлагает виджеты под выбранный датасет ──
+// ── Подсказки «что собрать»: система предлагает виджеты под выбранный датасет.
+// Delta-aware (2026-08-04): то, что уже построено где-либо в организации для
+// этого же датасета (= того же объекта), в предложениях не повторяется. ──
 export function SuggestPanel({ datasets, onAdd }: { datasets: DataSources['datasets']; onAdd: (specs: WidgetSpec[]) => Promise<void> }) {
   const [dc, setDc] = useState(datasets[0]?.code || '')
   const [specs, setSpecs] = useState<WidgetSpec[]>([])
+  const [alreadyBuilt, setAlreadyBuilt] = useState(0)
   const [chosen, setChosen] = useState<Set<number>>(new Set())
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(false)
 
   function load(code: string) {
-    setErr(null); setSpecs([]); setChosen(new Set())
+    setErr(null); setSpecs([]); setAlreadyBuilt(0); setChosen(new Set())
     if (!code) return
-    widgetSuggestions(code).then((s) => { setSpecs(s); setChosen(new Set(s.map((_, i) => i))) }).catch((e) => setErr((e as Error).message))
+    widgetSuggestions(code).then((r) => { setSpecs(r.specs); setAlreadyBuilt(r.already_built); setChosen(new Set(r.specs.map((_, i) => i))) }).catch((e) => setErr((e as Error).message))
   }
   useEffect(() => { if (open && dc) load(dc) }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = (i: number) => setChosen((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n })
@@ -85,7 +88,7 @@ export function SuggestPanel({ datasets, onAdd }: { datasets: DataSources['datas
   if (!open) {
     return (
       <button style={{ ...btnAuto, height: 34, marginBottom: 12 }} onClick={() => setOpen(true)}>
-        ✨ Предложить виджеты под датасет
+        💡 Предложить ещё
       </button>
     )
   }
@@ -100,8 +103,9 @@ export function SuggestPanel({ datasets, onAdd }: { datasets: DataSources['datas
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>отметьте нужные предложения</span>
       </div>
       {err && <div style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 6 }}>{err}</div>}
+      {alreadyBuilt > 0 && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Показаны только недостающие — {alreadyBuilt} {alreadyBuilt === 1 ? 'вариант' : 'вариантов'} уже построен(о) для этого датасета.</div>}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {specs.length === 0 && !err && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Нет предложений.</span>}
+        {specs.length === 0 && !err && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{alreadyBuilt > 0 ? 'Всё уже построено — новых предложений нет.' : 'Нет предложений.'}</span>}
         {specs.map((s, i) => (
           <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, border: '1px solid var(--border)', borderRadius: 8, padding: '5px 10px', background: chosen.has(i) ? 'var(--accent-weak-bg)' : 'var(--surface)', cursor: 'pointer' }}>
             <input type="checkbox" checked={chosen.has(i)} onChange={() => toggle(i)} />

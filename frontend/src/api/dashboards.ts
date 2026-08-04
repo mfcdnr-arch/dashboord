@@ -196,7 +196,8 @@ export async function deletePreset(dashboardId: string, presetId: string): Promi
   if (!res.ok) throw new Error(await errText(res))
 }
 export interface WidgetSpec { name: string; widget_type: string; config: Record<string, unknown>; width: number; height: number }
-export async function widgetSuggestions(datasetCode: string): Promise<WidgetSpec[]> {
+export interface WidgetSuggestions { specs: WidgetSpec[]; total_candidates: number; already_built: number }
+export async function widgetSuggestions(datasetCode: string): Promise<WidgetSuggestions> {
   const res = await fetch(`/widgets/suggestions?dataset_code=${encodeURIComponent(datasetCode)}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
