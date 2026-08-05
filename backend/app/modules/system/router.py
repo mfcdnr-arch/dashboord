@@ -15,8 +15,15 @@ setup_roles = require_roles("admin", "superadmin")
 
 
 @router.get("/info")
-async def info():
-    """Сводка по БД: число таблиц и наличие ключевых объектов (для самодиагностики)."""
+async def info(user: dict = Depends(setup_roles)):
+    """Сводка по БД: число таблиц и наличие ключевых объектов (для самодиагностики).
+
+    Только admin/superadmin: эндпоинт раскрывает внутреннее устройство схемы
+    (сколько таблиц, есть ли функция разрешения доступа) — постороннему это
+    знать незачем. Раньше отвечал без токена (финальный аудит, сквозная проверка
+    всех 160 операций на обязательность авторизации). Живость системы наружу
+    отдаёт /health, он и остаётся публичным.
+    """
     async with db.get_pool().acquire() as conn:
         tables = await conn.fetchval(
             "select count(*) from information_schema.tables "
