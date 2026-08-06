@@ -71,7 +71,8 @@ if [ -n "$MONITORING" ]; then
   log "Поднимаю наблюдаемость (Prometheus/Grafana/Loki)…"
   if docker compose -f docker-compose.monitoring.yml --env-file .env.prod up -d; then
     GRAFANA_PORT="$(grep -E '^GRAFANA_PORT=' .env.prod | cut -d= -f2 || true)"
-    log "Grafana: http://<адрес-сервера>:${GRAFANA_PORT:-3000} (логин admin, пароль GRAFANA_PASSWORD из .env.prod)"
+    GRAFANA_PW="$(grep -E '^GRAFANA_PASSWORD=' .env.prod | cut -d= -f2 || true)"
+    log "Grafana: http://<адрес-сервера>:${GRAFANA_PORT:-3000} — логин admin, пароль ${GRAFANA_PW:-<см. GRAFANA_PASSWORD в .env.prod>}"
   else
     err "наблюдаемость не поднялась (основной стек работает). Повторить: docker compose -f docker-compose.monitoring.yml --env-file .env.prod up -d"
   fi
@@ -90,4 +91,4 @@ if [ -n "$AUTOBACKUP" ]; then
   fi
 fi
 
-log "Установка завершена. Веб-интерфейс и временные пароли — см. вывод выше."
+log "Установка завершена. Адрес входа и учётки — в рамке выше (запишите их)."
