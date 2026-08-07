@@ -3,7 +3,7 @@ import GridLayout, { type Layout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import {
-  autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deletePage, deletePreset, deleteWidget, getDashboard,
+  autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deleteDashboard, deletePage, deletePreset, deleteWidget, getDashboard,
   exportPageXlsx, getDataSources, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listFolders, listObjects, listPageWidgets, listPresets,
   listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Folder, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
@@ -261,6 +261,25 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
     if (!sel) return
     try { await unpublishDashboard(sel.dashboard.id); setSel(await getDashboard(sel.dashboard.id)) } catch (e) { fail(e) }
   }
+  async function doDeleteDashboard() {
+    if (!sel) return
+    if (!confirm(
+      `Удалить дашборд «${sel.dashboard.name}»?\n\n` +
+      'Вместе с ним удалятся его страницы, виджеты, права доступа и комментарии. ' +
+      'Слепки в архиве сохранятся. Действие необратимо.')) return
+    // Гасим прошлую ошибку: иначе после удачного удаления наверху остаётся
+    // висеть предыдущий отказ («…снимите с публикации») — читается так, будто
+    // и эта попытка провалилась.
+    setError(null)
+    try {
+      await deleteDashboard(sel.dashboard.id)
+      setSel(null)                       // вернуться к списку — дашборда больше нет
+      await refresh()
+    } catch (e) {
+      fail(e)
+    }
+  }
+
   async function toggleAutoArchive() {
     if (!sel) return
     try {
@@ -462,6 +481,15 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
               <button style={{ ...btnGhost, ...(sel.dashboard.auto_archive ? { borderColor: 'var(--accent)', color: 'var(--accent)', background: 'var(--accent-weak-bg)' } : {}) }}
                 title="Ежемесячная автоархивация: 1-го числа система сама сохранит слепок за прошедший месяц"
                 onClick={toggleAutoArchive}>📅 автослепок {sel.dashboard.auto_archive ? 'вкл' : 'выкл'}</button>
+            )}
+            {/* Удаление — крайним и отдельным цветом: соседство с «В архив» не
+                должно провоцировать промах, это разные по последствиям вещи. */}
+            {canManage && (
+              <button style={{ ...btnGhost, marginLeft: 'auto', borderColor: 'var(--danger)', color: 'var(--danger)' }}
+                onClick={doDeleteDashboard}
+                title="Удалить дашборд со страницами и виджетами (слепки в архиве сохранятся)">
+                🗑 Удалить
+              </button>
             )}
           </div>
           {versions && (

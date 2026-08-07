@@ -120,6 +120,10 @@ export async function unpublishDashboard(id: string): Promise<void> {
   const res = await fetch(`/dashboards/${id}/unpublish`, { method: 'POST', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
 }
+export async function deleteDashboard(id: string): Promise<void> {
+  const res = await fetch(`/dashboards/${id}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
 export async function listDashboardVersions(id: string): Promise<{ version_no: number; status_code: string; created_at: string }[]> {
   const res = await fetch(`/dashboards/${id}/versions`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))

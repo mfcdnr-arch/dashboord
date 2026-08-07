@@ -200,6 +200,61 @@ async def _assert_editable(conn, dashboard_id) -> None:
         raise DashboardError("Дашборд на проверке — правки заблокированы; отзовите заявку, чтобы изменить")
 
 
+async def delete_dashboard(conn, org_id, user: dict, dashboard_id: str) -> None:
+    """Удаление дашборда целиком — пока он не «в работе».
+
+    Страницы, виджеты, версии, заявки на публикацию, гранты доступа, избранное,
+    пресеты фильтров и комментарии уходят каскадом. Слепки архива НЕ теряются:
+    `dashboard_archives.dashboard_id` объявлен `on delete set null`, снимок
+    данных живёт в jsonb и переживает удаление исходного дашборда — так и было
+    задумано (архив на то и архив).
+
+    Три стоп-фактора: опубликован, отправлен на проверку, входит в витрину.
+    Все три означают, что дашборд кто-то видит прямо сейчас, — молча убирать
+    его из-под пользователей нельзя, поэтому объясняем, что сделать сначала.
+    """
+    d = await conn.fetchrow(
+        "select name, publication_status, created_by from dashboards "
+        "where id=$1::uuid and organization_id=$2", dashboard_id, org_id)
+    if d is None:
+        raise DashboardError("Дашборд не найден")
+
+    # Чужой дашборд удаляет только админ; модератор — свой (он его и создавал).
+    roles = set(user.get("roles") or ())
+    if not roles & {"admin", "superadmin"} and str(d["created_by"]) != str(user["id"]):
+        raise DashboardError("Недостаточно прав: чужой дашборд может удалить только администратор")
+
+    if d["publication_status"] == "published":
+        raise DashboardError("Дашборд опубликован — удаление отменено. Сначала снимите его с публикации.")
+    if d["publication_status"] == "review":
+        raise DashboardError("Дашборд отправлен на проверку — удаление отменено. Сначала отзовите заявку.")
+
+    shows = await conn.fetch(
+        "select s.name from showcase_items i join showcases s on s.id=i.showcase_id "
+        "where i.dashboard_id=$1::uuid order by s.name", dashboard_id)
+    if shows:
+        names = ", ".join(f"«{r['name']}»" for r in shows)
+        raise DashboardError(
+            f"Дашборд входит в витрины ({names}) — удаление отменено. Сначала уберите его оттуда.")
+
+    async with conn.transaction():
+        # securable_objects связан с дашбордом и виджетами ЛОГИЧЕСКИМ ключом
+        # (FK нет) — каскад его не заберёт, чистим сами; привязанные object_acl
+        # уйдут каскадом от securable_objects.
+        await conn.execute(
+            "delete from securable_objects where (object_type='dashboard' and object_id=$1::uuid) "
+            "or (object_type='widget' and object_id in (select id from widgets where dashboard_id=$1::uuid))",
+            dashboard_id)
+        # Уведомления по дашборду тоже без FK — адресаты уйдут каскадом от события.
+        await conn.execute(
+            "delete from notification_events where entity_type='dashboard' and entity_id=$1::uuid",
+            dashboard_id)
+        # Запись в журнал аудита сделает триггер trg_audit_dashboards (актор — из
+        # GUC app.current_user_id, её проставляет db.acquire(user_id)); вручную
+        # событие не пишем, иначе в журнале будет дубль.
+        await conn.execute("delete from dashboards where id=$1::uuid", dashboard_id)
+
+
 # --------------------------------------------------------------------------- #
 # Страницы
 # --------------------------------------------------------------------------- #

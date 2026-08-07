@@ -115,6 +115,15 @@ async def get_dashboard(dashboard_id: str, user: dict = Depends(get_current_user
         return result
 
 
+@router.delete("/dashboards/{dashboard_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_dashboard(dashboard_id: str, user: dict = Depends(manage)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            await service.delete_dashboard(conn, user["organization_id"], user, dashboard_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.post("/dashboards/{dashboard_id}/favorite")
 async def add_favorite(dashboard_id: str, user: dict = Depends(get_current_user)):
     async with db.acquire(user["id"]) as conn:
