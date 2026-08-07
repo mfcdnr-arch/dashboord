@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { elideMiddle } from '../lib/text'
 
 /**
  * Лист документа «как в оригинале» с выбором мышью.
@@ -146,7 +147,7 @@ export default function SheetGrid(props: Props) {
                   {fname && !off && (
                     <button type="button" style={nameBtn} title={`Переименовать: ${fname}`}
                       onClick={() => props.onRenameCol(c)}>
-                      {fname}
+                      {elideMiddle(fname, 34)}
                     </button>
                   )}
                 </th>

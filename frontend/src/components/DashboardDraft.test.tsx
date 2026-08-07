@@ -1,5 +1,37 @@
 import { describe, expect, it } from 'vitest'
-import { aggregate, parseNum } from './DashboardDraft'
+import { aggregate, labelsAreUseful, parseNum } from './DashboardDraft'
+import { elideMiddle } from '../lib/text'
+
+describe('elideMiddle', () => {
+  it('сохраняет хвост — в нём различие показателей', () => {
+    const a = 'Количество обращений за результатом оказания услуг в МФЦ · Факт · нарастающим итогом'
+    const b = 'Количество обращений за результатом оказания услуг в МФЦ · Факт · за отчётную неделю'
+    const [ea, eb] = [elideMiddle(a, 50), elideMiddle(b, 50)]
+    expect(ea).not.toBe(eb)
+    expect(ea.endsWith('нарастающим итогом')).toBe(true)
+    expect(eb.endsWith('за отчётную неделю')).toBe(true)
+    expect(ea.length).toBeLessThanOrEqual(50)
+  })
+
+  it('короткие имена не трогает', () => {
+    expect(elideMiddle('Доля обращений, %', 50)).toBe('Доля обращений, %')
+  })
+})
+
+describe('labelsAreUseful', () => {
+  it('названия районов годятся в подписи графика', () => {
+    expect(labelsAreUseful([['Донецк', '1'], ['Макеевка', '2']], 0)).toBe(true)
+  })
+
+  it('«№ п/п» не годится — график выродится в безымянные столбики', () => {
+    expect(labelsAreUseful([['1', '10'], ['2', '20']], 0)).toBe(false)
+  })
+
+  it('одна строка или одинаковые подписи — тоже не годятся', () => {
+    expect(labelsAreUseful([['Донецк', '1']], 0)).toBe(false)
+    expect(labelsAreUseful([['Итого', '1'], ['Итого', '2']], 0)).toBe(false)
+  })
+})
 
 describe('parseNum', () => {
   it('читает числа так же, как бэкенд', () => {

@@ -155,6 +155,25 @@ def detect_data_rect(rows: List[List[str]], merges: Sequence[Rect] = ()) -> Rect
     return (start, 0, height - 1, width - 1)
 
 
+def is_numbering_row(row: List[str]) -> bool:
+    """Строка нумерации граф: «1 2 3 4 …» под шапкой.
+
+    Обязательный элемент госформ. Раньше она уезжала в данные, потому что
+    `guess_header_rows` останавливается на первой строке с числами — и первая
+    строка датасета выглядела как «3, 4» вместо реальных значений.
+    """
+    values = [c.strip() for c in row if c.strip()]
+    if len(values) < 3:
+        return False
+    numbers: List[int] = []
+    for v in values:
+        n = parse_number(v)
+        if n is None or n != int(n):
+            return False
+        numbers.append(int(n))
+    return numbers == list(range(1, len(numbers) + 1))
+
+
 def guess_header_rows(rows: List[List[str]], rect: Optional[Rect] = None) -> int:
     """Сколько верхних строк ОБЛАСТИ ДАННЫХ — шапка.
 
@@ -174,7 +193,12 @@ def guess_header_rows(rows: List[List[str]], rect: Optional[Rect] = None) -> int
         if any(_is_number(c) for c in row):
             break
         header += 1
-    return max(1, header) if len(area) > 1 else 0
+    header = max(1, header) if len(area) > 1 else 0
+    # Строка нумерации граф идёт сразу под шапкой и состоит из чисел, поэтому
+    # цикл выше на ней и останавливается. Забираем её в шапку отдельно.
+    if header < len(area) and is_numbering_row(area[header]):
+        header += 1
+    return header
 
 
 def _compose_header(header_rows: List[List[str]], col: int) -> str:
@@ -200,7 +224,9 @@ def analyze_columns(
     if not rows:
         return []
     r1, c1, r2, c2 = rect or (0, 0, len(rows) - 1, max(len(r) for r in rows) - 1)
-    headers = rows[r1 : r1 + header_rows]
+    # Нумерация граф относится к шапке (в данные её пускать нельзя), но в имя
+    # показателя добавлять нечего — иначе получим «… · 3».
+    headers = [h for h in rows[r1 : r1 + header_rows] if not is_numbering_row(h)]
     data = rows[r1 + header_rows : r2 + 1]
     columns: List[ColumnInfo] = []
     for c in range(c1, c2 + 1):

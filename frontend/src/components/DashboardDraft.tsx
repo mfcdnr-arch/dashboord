@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import EChartLazy from './EChartLazy'
 import { chartColors, useThemeVersion } from '../theme'
+import { elideMiddle } from '../lib/text'
 import type { FieldSuggestion } from '../api'
 
 /**
@@ -27,7 +28,7 @@ interface Props {
 /** Строка → число: разрядные пробелы, десятичная запятая, проценты. */
 export function parseNum(s: string | undefined): number | null {
   if (!s) return null
-  let t = s.replace(/[\s  ]/g, '').replace('%', '')
+  let t = s.replace(/[\s  ]/g, '').replace('%', '')
   if ((t.match(/,/g) || []).length === 1 && !t.includes('.')) t = t.replace(',', '.')
   else t = t.replace(/,/g, '')
   const n = Number(t)
@@ -51,6 +52,20 @@ export function aggregate(name: string, nums: number[]): { value: number; kind: 
   return { value: nums.reduce((a, b) => a + b, 0), kind: 'сумма' }
 }
 
+/**
+ * Годятся ли названия строк как подписи на графике.
+ *
+ * В формах-приложениях слева стоит «№ п/п», и график «по строкам» выродится
+ * в безымянные столбики. Тогда осмысленный разрез — сами показатели.
+ */
+export function labelsAreUseful(rows: string[][], labelColumn: number | null): boolean {
+  if (labelColumn === null || rows.length < 2) return false
+  const values = rows.map((r) => (r[labelColumn] || '').trim()).filter(Boolean)
+  const distinct = new Set(values)
+  if (distinct.size < 2) return false
+  return ![...distinct].every((v) => parseNum(v) !== null)
+}
+
 export default function DashboardDraft({ columns, rows, labelColumn, names, totalRows }: Props) {
   useThemeVersion() // цвета серий берутся из токенов темы — перерисовать при её смене
   const nameOf = (c: FieldSuggestion) => names[c.column_index] ?? c.field_name
@@ -61,10 +76,9 @@ export default function DashboardDraft({ columns, rows, labelColumn, names, tota
   const [pickIdx, setPick] = useState<number | null>(null)
   const shown = numeric.find((c) => c.column_index === pickIdx) || numeric[0] || null
 
-  const labels = useMemo(
-    () => rows.map((r, i) => (labelColumn !== null ? (r[labelColumn] || '').trim() : '') || `Строка ${i + 1}`),
-    [rows, labelColumn],
-  )
+  const useful = useMemo(() => labelsAreUseful(rows, labelColumn), [rows, labelColumn])
+  const [byRowsChoice, setByRows] = useState<boolean | null>(null)
+  const byRows = byRowsChoice ?? useful
 
   if (!numeric.length) {
     return (
@@ -78,55 +92,100 @@ export default function DashboardDraft({ columns, rows, labelColumn, names, tota
   }
 
   const colors = chartColors().palette
-  const values = shown ? rows.map((r) => parseNum(r[shown.column_index]) ?? 0) : []
   const single = rows.length === 1
+
+  // Значения карточек считаем один раз: они же идут в график «по показателям».
+  const totals = numeric.map((c) => {
+    const nums = rows.map((r) => parseNum(r[c.column_index])).filter((n): n is number => n !== null)
+    return { col: c, nums, ...aggregate(nameOf(c), nums) }
+  })
+
+  const rowLabels = rows.map((r, i) => (labelColumn !== null ? (r[labelColumn] || '').trim() : '') || `Строка ${i + 1}`)
+  const chart = byRows && shown
+    ? {
+        title: `${nameOf(shown)} — по строкам отчёта`,
+        labels: rowLabels,
+        values: rows.map((r) => parseNum(r[shown.column_index]) ?? 0),
+        full: rowLabels,
+      }
+    : {
+        title: 'Показатели отчёта',
+        labels: totals.map((t) => elideMiddle(nameOf(t.col), 60)),
+        values: totals.map((t) => t.value),
+        full: totals.map((t) => nameOf(t.col)),
+      }
 
   return (
     <div style={box}>
       {/* KPI-карточки: то, во что превращается каждый выбранный числовой столбец */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: single ? 0 : 16 }}>
-        {numeric.map((c, i) => {
-          const nums = rows.map((r) => parseNum(r[c.column_index])).filter((n): n is number => n !== null)
-          const agg = aggregate(nameOf(c), nums)
-          const active = shown?.column_index === c.column_index
+        {totals.map((t, i) => {
+          const active = shown?.column_index === t.col.column_index && byRows
+          const full = nameOf(t.col)
           return (
             <button
-              key={c.column_index}
+              key={t.col.column_index}
               type="button"
-              onClick={() => setPick(c.column_index)}
-              title={single ? 'Значение показателя' : 'Показать этот показатель на графике'}
+              onClick={() => setPick(t.col.column_index)}
+              title={full}
               style={{
                 ...card,
                 // Именно border целиком, а не borderColor поверх: React ругается
                 // на смешивание сокращённого и обычного свойства при перерисовке.
-                border: `1px solid ${active && !single ? 'var(--accent)' : 'var(--border)'}`,
-                cursor: single ? 'default' : 'pointer',
+                border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                cursor: single || !byRows ? 'default' : 'pointer',
               }}
             >
-              <span style={{ ...cardTitle, color: colors[i % colors.length] }}>{nameOf(c)}</span>
-              <span style={cardValue}>{fmt(single ? (nums[0] ?? 0) : agg.value)}</span>
-              <span style={cardSub}>{single ? 'значение' : `${agg.kind} по ${nums.length} строк.`}</span>
+              <span style={{ ...cardTitle, color: colors[i % colors.length] }}>{elideMiddle(full, 110)}</span>
+              <span style={cardValue}>{fmt(single ? (t.nums[0] ?? 0) : t.value)}</span>
+              <span style={cardSub}>{single ? 'значение' : `${t.kind} по ${t.nums.length} строк.`}</span>
             </button>
           )
         })}
       </div>
 
-      {!single && shown && (
+      {!single && (
         <>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
-            {nameOf(shown)} — по строкам отчёта
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{chart.title}</span>
+            {useful && (
+              <span style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+                <button type="button" style={{ ...tab, ...(byRows ? tabActive : {}) }} onClick={() => setByRows(true)}>
+                  по строкам
+                </button>
+                <button type="button" style={{ ...tab, ...(!byRows ? tabActive : {}) }} onClick={() => setByRows(false)}>
+                  по показателям
+                </button>
+              </span>
+            )}
           </div>
           <EChartLazy
-            height={Math.max(200, Math.min(420, labels.length * 26 + 60))}
+            height={Math.max(200, Math.min(560, chart.labels.length * 30 + 60))}
             option={{
-              grid: { left: 8, right: 16, top: 10, bottom: 8, containLabel: true },
-              tooltip: { trigger: 'axis' },
+              grid: { left: 8, right: 24, top: 10, bottom: 8, containLabel: true },
+              // Подпись в подсказке — ПОЛНАЯ: на оси имя может не поместиться,
+              // а различие показателей часто именно в хвосте.
+              tooltip: {
+                trigger: 'axis',
+                formatter: (p: any) => {
+                  const it = Array.isArray(p) ? p[0] : p
+                  return `${chart.full[it.dataIndex]}<br/><b>${fmt(it.value)}</b>`
+                },
+              },
               xAxis: { type: 'value' },
-              yAxis: { type: 'category', data: labels, inverse: true, axisLabel: { width: 210, overflow: 'truncate' } },
-              series: [{ type: 'bar', data: values, itemStyle: { color: colors[0] }, barMaxWidth: 22 }],
+              yAxis: {
+                type: 'category', data: chart.labels, inverse: true,
+                axisLabel: { width: 300, overflow: 'break', lineHeight: 14, fontSize: 11 },
+              },
+              series: [{
+                type: 'bar', data: chart.values, barMaxWidth: 22,
+                itemStyle: byRows
+                  ? { color: colors[0] }
+                  : { color: (p: any) => colors[p.dataIndex % colors.length] },
+              }],
             }}
           />
-          {totalRows > rows.length && (
+          {byRows && totalRows > rows.length && (
             <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>
               Показаны первые {rows.length} строк из {totalRows}.
             </div>
@@ -141,13 +200,19 @@ const box: React.CSSProperties = {
   border: '1px solid var(--border)', borderRadius: 12, padding: 14, background: 'var(--surface)',
 }
 const card: React.CSSProperties = {
-  display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, minWidth: 150, maxWidth: 260,
+  display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, minWidth: 170, maxWidth: 300,
   border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', background: 'var(--bg)', textAlign: 'left',
 }
 const cardTitle: React.CSSProperties = {
-  fontSize: 11, fontWeight: 600, lineHeight: 1.25,
-  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+  fontSize: 11, fontWeight: 600, lineHeight: 1.3, whiteSpace: 'normal',
 }
 const cardValue: React.CSSProperties = { fontSize: 22, fontWeight: 700, color: 'var(--text)' }
 const cardSub: React.CSSProperties = { fontSize: 11, color: 'var(--text-faint)' }
 const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 13 }
+const tab: React.CSSProperties = {
+  border: '1px solid var(--border)', borderRadius: 8, background: 'transparent',
+  color: 'var(--text-muted)', fontSize: 12, padding: '3px 10px', cursor: 'pointer',
+}
+const tabActive: React.CSSProperties = {
+  border: '1px solid var(--accent)', background: 'var(--accent-weak-bg)', color: 'var(--accent)',
+}

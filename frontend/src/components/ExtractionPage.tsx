@@ -4,6 +4,7 @@ import {
   type CellPick, type Doc, type ExtractionJob, type FieldMap, type LayoutPreview, type ReleaseResult,
 } from '../api'
 import DashboardDraft from './DashboardDraft'
+import { elideMiddle } from '../lib/text'
 import InfoTip from './InfoTip'
 import SheetGrid, { colName, fillMerges, type PickedCell, type Rect } from './SheetGrid'
 
@@ -510,11 +511,10 @@ function FieldsPanel({ preview, previewing, transposed, excluded, names, types, 
               <span style={{ width: 30 }}>
                 <input type="checkbox" checked={on} onChange={() => onToggle(c.column_index)} />
               </span>
-              {/* Полный путь по шапке — только для сверки с файлом, поэтому
-                  зажат в две строки: иначе список показателей растягивается
-                  на весь экран и «Что получится» уезжает из поля зрения. */}
-              <span style={{ flex: 1, fontSize: 12, color: 'var(--text-muted)', ...clamp2 }} title={c.source_header}>
-                {c.source_header}
+              {/* Полный путь по шапке — для сверки с файлом. Сокращаем середину,
+                  а не хвост: у составных заголовков различие как раз в конце. */}
+              <span style={{ flex: 1, fontSize: 12, color: 'var(--text-muted)' }} title={c.source_header}>
+                {elideMiddle(c.source_header, 130)}
               </span>
               <span style={{ flex: 1 }}>
                 <input id={`field-name-${c.column_index}`} style={{ ...input, width: '95%', height: 30 }}
@@ -695,9 +695,6 @@ const hintBox: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
   background: 'var(--warn-bg)', color: 'var(--warn)', fontSize: 13,
   padding: '8px 12px', borderRadius: 8, margin: '0 0 14px',
-}
-const clamp2: React.CSSProperties = {
-  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
 }
 const outHead: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '5px 9px', background: 'var(--accent-weak-bg)', color: 'var(--accent)', whiteSpace: 'nowrap', fontSize: 12 }
 const outCell: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '5px 9px', whiteSpace: 'nowrap' }

@@ -143,6 +143,45 @@ def test_data_rows_skips_excluded(parsed):
     assert [r[0] for r in rows] == ["Донецк", "Горловка"]
 
 
+def test_column_numbering_row_is_header_not_data():
+    """Строка нумерации граф «1 2 3» — обязательный элемент госформ.
+
+    Раньше `guess_header_rows` останавливался на ней (в ней же числа!), и она
+    уезжала в данные: первая строка датасета выглядела как «2, 3» вместо
+    реальных значений. В имя показателя номер графы попадать тоже не должен.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws["A1"] = "Субъект"
+    ws["B1"] = "Записались"
+    ws["C1"] = "Обратились"
+    ws["A2"], ws["B2"], ws["C2"] = 1, 2, 3          # нумерация граф
+    ws["A3"], ws["B3"], ws["C3"] = "Донецк", 7078, 16
+    ws["A4"], ws["B4"], ws["C4"] = "Макеевка", 3120, 9
+    buf = io.BytesIO()
+    wb.save(buf)
+    tbl = parsers.parse(buf.getvalue(), "xlsx").tables[0]
+
+    rect = analyze.detect_data_rect(tbl.rows, tbl.merges)
+    filled = parsers.fill_merges(tbl.rows, tbl.merges)
+    header_rows = analyze.guess_header_rows(filled, rect)
+    assert header_rows == 2, "заголовок + строка нумерации граф"
+
+    cols = analyze.analyze_columns(filled, header_rows, rect)
+    assert [c.source_header for c in cols] == ["Субъект", "Записались", "Обратились"]
+
+    area = mapping.analysis_grid(tbl.rows, tbl.merges, rect, "columns")
+    assert [r[0] for r in mapping.data_rows(area, header_rows)] == ["Донецк", "Макеевка"]
+
+
+def test_numbering_row_needs_consecutive_numbers():
+    """Обычная строка данных с числами нумерацией граф не считается."""
+    assert analyze.is_numbering_row(["1", "2", "3", "4"])
+    assert not analyze.is_numbering_row(["1", "2", "5"])       # пропуск
+    assert not analyze.is_numbering_row(["7078", "16", "41"])  # значения
+    assert not analyze.is_numbering_row(["1", "2"])            # слишком коротко
+
+
 def test_footer_rows_have_no_numbers(parsed):
     """Подвал документа (согласующие, исполнитель) распознаётся как строки без чисел.
 
