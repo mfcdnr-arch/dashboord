@@ -6,6 +6,9 @@
 set -eu
 cd "$(dirname "$0")"
 
+# HTTP-клиент: curl, а если его нет (базовая Astra) — python3. См. http-lib.sh.
+. ./http-lib.sh
+
 COMPOSE="docker compose -f docker-compose.prod.yml"
 env_get() { grep -E "^$1=" .env.prod 2>/dev/null | cut -d= -f2- | tail -1; }
 WEB_PORT="$(env_get WEB_PORT)"; WEB_PORT="${WEB_PORT:-8090}"
@@ -37,7 +40,7 @@ done
 save inspect-api.txt sh -c "docker inspect -f '{{json .State.Health}}' dashbord_prod_api 2>/dev/null | (command -v python3 >/dev/null && python3 -m json.tool || cat)"
 
 # /health через nginx
-save health.json sh -c "curl -sf -m 5 http://localhost:$WEB_PORT/health || echo 'health недоступен'"
+save health.json sh -c ". ./http-lib.sh; http_body http://localhost:$WEB_PORT/health 5 || echo 'health недоступен'"
 
 # Применённые миграции
 save migrations.txt docker exec dashbord_prod_postgres psql -U "$PGUSER" -d "$PGDB" -c "select filename, applied_at from schema_migrations order by filename"

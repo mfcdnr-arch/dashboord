@@ -25,9 +25,14 @@ log() { printf '\033[1;34m[deploy]\033[0m %s\n' "$1"; }
 err() { printf '\033[1;31m[deploy] ОШИБКА:\033[0m %s\n' "$1" >&2; }
 env_get_port() { grep -E "^$1=" .env.prod 2>/dev/null | cut -d= -f2 || true; }
 
+# HTTP-клиент для ожидания веб-прокси и smoke: curl, а если его нет (базовая
+# Astra Linux) — python3. См. http-lib.sh.
+. ./http-lib.sh
+
 # 1. Предусловия ----------------------------------------------------------
 log "Проверка предусловий…"
 command -v docker >/dev/null || { err "docker не установлен"; exit 1; }
+http_client_available || { err "нужен curl или python3 — нечем проверить готовность стека."; exit 1; }
 docker compose version >/dev/null 2>&1 || { err "нужен docker compose v2 (плагин docker-compose-plugin)"; exit 1; }
 # service_completed_successfully и ожидание условий depends_on требуют Compose v2+.
 CV="$(docker compose version --short 2>/dev/null | sed 's/^v//')"
@@ -120,6 +125,33 @@ log "Проверка занятости портов ($WEB_PORT${TLS:+, $HTTPS_
 check_port_free "$WEB_PORT" WEB
 [ -n "$TLS" ] && check_port_free "$HTTPS_PORT" HTTPS
 
+# Каталоги-источники bind-монтирования (docker-compose.prod.yml: ./backups:ro,
+# ./ops-triggers). Оба в .gitignore, значит в поставку из `git archive` не
+# попадают (пустые каталоги git не хранит) — и Docker создаёт их сам, от ROOT,
+# потому что демон работает под root. После этого backup.sh, ночной таймер и
+# кнопка «Запустить сейчас» из UI (все работают от обычного пользователя)
+# получают «Отказано в доступе», а повторный deploy.sh падает на бэкапе перед
+# миграциями. Создаём заранее от себя; если каталог уже успел появиться от
+# root — чиним владельца (самолечение, а не отказ с невнятной ошибкой).
+ensure_dir_writable() {
+  local d="$1"
+  [ -d "$d" ] || mkdir -p "$d"
+  if [ -w "$d" ]; then return 0; fi
+  log "Каталог $d недоступен на запись (создан Docker от root?) — исправляю владельца…"
+  if [ "$(id -u)" = 0 ]; then
+    chown -R "$(id -u):$(id -g)" "$d" 2>/dev/null || true
+  elif sudo -n true 2>/dev/null; then
+    sudo chown -R "$(id -u):$(id -g)" "$d" 2>/dev/null || true
+  fi
+  if [ -w "$d" ]; then return 0; fi
+  err "Каталог $d недоступен на запись (чужой владелец или права)."
+  err "Выполните: sudo chown -R \$(id -u):\$(id -g) $(pwd)/$d — и повторите запуск."
+  exit 1
+}
+log "Проверка рабочих каталогов (backups, ops-triggers)…"
+ensure_dir_writable backups
+ensure_dir_writable ops-triggers
+
 # 2. Сборка образов -------------------------------------------------------
 if [ -z "$NO_BUILD" ]; then
   log "Сборка образов (api, web)…"
@@ -200,7 +232,7 @@ fi
 if [ -n "$TLS" ]; then WAIT_URL="https://localhost:${HTTPS_PORT}/"; else WAIT_URL="http://localhost:${WEB_PORT}/"; fi
 log "Ожидание готовности веб-прокси…"
 for i in $(seq 1 30); do
-  code="$(curl -ks -o /dev/null -w '%{http_code}' -m 3 "$WAIT_URL" || true)"
+  code="$(http_code "$WAIT_URL" 3)"
   [ "$code" != "000" ] && break
   sleep 1
   [ "$i" = 30 ] && { err "веб-прокси не отвечает на $WAIT_URL за ~30с — смотрите: $COMPOSE logs web"; exit 1; }
