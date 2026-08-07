@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import {
-  createFolder, createObject, listDocuments, listFolders, listObjects, uploadDocument,
+  createFolder, createObject, deleteFolder, deleteObject, listDocuments, listFolders, listObjects,
+  updateFolder, updateObject, uploadDocument,
   type Doc, type Folder, type Obj,
 } from '../api'
 import { folderLabel, folderTree } from '../lib/folderTree'
@@ -18,6 +19,8 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
   const [docsTotal, setDocsTotal] = useState(0)
   const [openDoc, setOpenDoc] = useState<Doc | null>(null)
   const [rowAclObj, setRowAclObj] = useState<Obj | null>(null)
+  const [editObj, setEditObj] = useState<Obj | null>(null)
+  const [editFolder, setEditFolder] = useState<Folder | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const [newObj, setNewObj] = useState('')
@@ -112,6 +115,78 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
       await createFolder(obj.id, newFolder.trim(), newFolderParent || null)
       setNewFolder(''); setNewFolderParent('')
       setFolders(await listFolders(obj.id))
+      // В списке объектов показан счётчик папок — держим его в актуальном виде,
+      // иначе он разойдётся с отказом удаления («папок: 1» против «папок: 0»).
+      setObjects(await listObjects())
+    } catch (e) {
+      fail(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveObject(vals: Record<string, string>) {
+    if (!editObj) return
+    setBusy(true)
+    setError(null)
+    try {
+      const upd = await updateObject(editObj.id, {
+        name: vals.name.trim(), code: vals.code.trim() || null, description: vals.description.trim() || null,
+      })
+      setEditObj(null)
+      setObjects(await listObjects())
+      // Открытый объект показан в «хлебных крошках» и заголовках — обновляем и его.
+      if (obj?.id === upd.id) setObj({ ...obj, ...upd })
+    } catch (e) {
+      fail(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function removeObject(o: Obj) {
+    if (!confirm(`Удалить объект «${o.name}»?\n\nУдаление возможно, только если внутри ничего нет.`)) return
+    setBusy(true)
+    setError(null)
+    try {
+      await deleteObject(o.id)
+      if (obj?.id === o.id) { setObj(null); setFolder(null); setOpenDoc(null) }
+      setObjects(await listObjects())
+    } catch (e) {
+      fail(e)
+      // Отказ означает, что внутри что-то есть — перечитываем счётчики,
+      // чтобы список объяснял причину, а не спорил с сообщением об ошибке.
+      listObjects().then(setObjects).catch(() => {})
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveFolder(vals: Record<string, string>) {
+    if (!obj || !editFolder) return
+    setBusy(true)
+    setError(null)
+    try {
+      await updateFolder(obj.id, editFolder.id, vals.name.trim())
+      setEditFolder(null)
+      setFolders(await listFolders(obj.id))
+    } catch (e) {
+      fail(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function removeFolder(f: Folder) {
+    if (!obj) return
+    if (!confirm(`Удалить папку «${f.name}»?\n\nУдаление возможно, только если внутри ничего нет.`)) return
+    setBusy(true)
+    setError(null)
+    try {
+      await deleteFolder(obj.id, f.id)
+      if (folder?.id === f.id) setFolder(null)
+      setFolders(await listFolders(obj.id))
+      setObjects(await listObjects())
     } catch (e) {
       fail(e)
     } finally {
@@ -154,7 +229,18 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
             <button style={btn} disabled={busy || !newObj.trim()}>＋ Объект</button>
           </form>
           <List
-            items={objects.map((o) => ({ id: o.id, title: o.name, sub: `папок: ${o.folders_count ?? 0}`, onClick: () => openObject(o) }))}
+            items={objects.map((o) => ({
+              id: o.id,
+              title: o.name,
+              sub: `папок: ${o.folders_count ?? 0}${o.code ? ` · код: ${o.code}` : ''}`,
+              onClick: () => openObject(o),
+              actions: canManage ? (
+                <>
+                  <IconBtn title="Переименовать объект" onClick={() => setEditObj(o)}>✏️</IconBtn>
+                  <IconBtn title="Удалить объект" danger disabled={busy} onClick={() => removeObject(o)}>🗑</IconBtn>
+                </>
+              ) : undefined,
+            }))}
             empty="Пока нет объектов"
           />
         </Section>
@@ -180,13 +266,48 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
             )}
           </form>
           <List
-            items={folderTree(folders).map((f) => ({ id: f.id, title: folderLabel(f), sub: '', onClick: () => openFolder(f) }))}
+            items={folderTree(folders).map((f) => ({
+              id: f.id,
+              title: folderLabel(f),
+              sub: '',
+              onClick: () => openFolder(f),
+              actions: canManage ? (
+                <>
+                  <IconBtn title="Переименовать папку" onClick={() => setEditFolder(f)}>✏️</IconBtn>
+                  <IconBtn title="Удалить папку" danger disabled={busy} onClick={() => removeFolder(f)}>🗑</IconBtn>
+                </>
+              ) : undefined,
+            }))}
             empty="В объекте пока нет папок"
           />
         </Section>
       )}
 
       {rowAclObj && <RowAclEditor object={rowAclObj} onClose={() => setRowAclObj(null)} />}
+
+      {editObj && (
+        <EditDialog
+          title={`Объект «${editObj.name}»`}
+          busy={busy}
+          fields={[
+            { key: 'name', label: 'Название', value: editObj.name },
+            { key: 'code', label: 'Код (необязательно)', value: editObj.code ?? '', placeholder: 'например, MFC-01' },
+            { key: 'description', label: 'Описание (необязательно)', value: editObj.description ?? '', multiline: true },
+          ]}
+          onSave={saveObject}
+          onClose={() => setEditObj(null)}
+        />
+      )}
+
+      {editFolder && (
+        <EditDialog
+          title={`Папка «${editFolder.name}»`}
+          busy={busy}
+          fields={[{ key: 'name', label: 'Название', value: editFolder.name }]}
+          onSave={saveFolder}
+          onClose={() => setEditFolder(null)}
+        />
+      )}
 
       {folder && openDoc && (
         <ExtractionPage doc={openDoc} canManage={canManage} onBack={() => { setOpenDoc(null); refreshDocs() }} />
@@ -226,7 +347,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function List({ items, empty }: { items: { id: string; title: string; sub: string; onClick?: () => void }[]; empty: string }) {
+type ListItem = { id: string; title: string; sub: string; onClick?: () => void; actions?: React.ReactNode }
+
+function List({ items, empty }: { items: ListItem[]; empty: string }) {
   if (items.length === 0) return <div style={{ color: 'var(--text-faint)', fontSize: 14, padding: '8px 0' }}>{empty}</div>
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
@@ -235,17 +358,88 @@ function List({ items, empty }: { items: { id: string; title: string; sub: strin
           key={it.id}
           onClick={it.onClick}
           style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 14px',
             borderTop: i ? '1px solid var(--border-faint)' : 'none', cursor: it.onClick ? 'pointer' : 'default',
           }}
         >
           <span style={{ fontSize: 14 }}>{it.title}</span>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{it.sub}</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{it.sub}</span>
+            {/* Клик по действию не должен открывать строку. */}
+            {it.actions && <span style={{ display: 'flex', gap: 4 }} onClick={(e) => e.stopPropagation()}>{it.actions}</span>}
+          </span>
         </div>
       ))}
     </div>
   )
 }
+
+function IconBtn(
+  { children, title, onClick, danger, disabled }:
+  { children: React.ReactNode; title: string; onClick: () => void; danger?: boolean; disabled?: boolean },
+) {
+  return (
+    <button
+      type="button" title={title} aria-label={title} disabled={disabled} onClick={onClick}
+      style={{
+        border: '1px solid var(--border)', borderRadius: 8, background: 'transparent', cursor: disabled ? 'default' : 'pointer',
+        fontSize: 13, lineHeight: 1, padding: '5px 8px', opacity: disabled ? 0.5 : 1,
+        color: danger ? 'var(--danger)' : 'var(--text-muted)',
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+type EditField = { key: string; label: string; value: string; placeholder?: string; multiline?: boolean }
+
+/** Диалог правки названия/кода/описания — общий для объекта и папки. */
+function EditDialog(
+  { title, fields, busy, onSave, onClose }:
+  { title: string; fields: EditField[]; busy: boolean; onSave: (v: Record<string, string>) => void; onClose: () => void },
+) {
+  const [vals, setVals] = useState<Record<string, string>>(
+    () => Object.fromEntries(fields.map((f) => [f.key, f.value])),
+  )
+  const nameEmpty = !(vals.name ?? '').trim()
+
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={dialog} onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>{title}</h3>
+        {fields.map((f) => (
+          <label key={f.key} style={{ display: 'block', marginBottom: 12 }}>
+            <span style={{ display: 'block', fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>{f.label}</span>
+            {f.multiline ? (
+              <textarea
+                style={{ ...input, width: '100%', height: 72, padding: 8, resize: 'vertical' }}
+                value={vals[f.key]} placeholder={f.placeholder}
+                onChange={(e) => setVals((p) => ({ ...p, [f.key]: e.target.value }))}
+              />
+            ) : (
+              <input
+                style={{ ...input, width: '100%' }} value={vals[f.key]} placeholder={f.placeholder}
+                onChange={(e) => setVals((p) => ({ ...p, [f.key]: e.target.value }))}
+              />
+            )}
+          </label>
+        ))}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
+          <button type="button" style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent)' }} onClick={onClose}>
+            Отмена
+          </button>
+          <button type="button" style={btn} disabled={busy || nameEmpty} onClick={() => onSave(vals)}>
+            Сохранить
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }
+const dialog: React.CSSProperties = { background: 'var(--surface)', borderRadius: 14, padding: 22, width: 480, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }
 
 function fmtSize(n: number | null): string {
   if (n == null) return '—'

@@ -47,7 +47,8 @@ async def test_move_dashboard_to_folder_and_filter(client, admin_headers):
         assert did in {x["id"] for x in r.json()["items"]}
     finally:
         await purge_dashboard(did)
-        # DELETE-эндпоинтов для objects/folders нет (by design) — чистим напрямую.
+        # Чистим напрямую: DELETE объекта/папки отказывает на непустых, а здесь
+        # в папке ещё числится дашборд (его удаляет purge_dashboard выше).
         async with db.acquire() as conn:
             await conn.execute("delete from folders where id=$1::uuid", folder["id"])
             await conn.execute("delete from objects where id=$1::uuid", obj["id"])

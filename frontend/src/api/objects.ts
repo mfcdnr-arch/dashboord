@@ -3,6 +3,7 @@ import { authH, errText } from './http'
 export interface Obj {
   id: string
   name: string
+  code?: string | null
   description: string | null
   created_at: string
   folders_count?: number
@@ -39,6 +40,38 @@ export async function createObject(name: string, description?: string): Promise<
   })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
+}
+
+export async function updateObject(
+  objectId: string, patch: { name?: string; code?: string | null; description?: string | null },
+): Promise<Obj> {
+  const res = await fetch(`/objects/${objectId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function deleteObject(objectId: string): Promise<void> {
+  const res = await fetch(`/objects/${objectId}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
+
+export async function updateFolder(objectId: string, folderId: string, name: string): Promise<Folder> {
+  const res = await fetch(`/objects/${objectId}/folders/${folderId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function deleteFolder(objectId: string, folderId: string): Promise<void> {
+  const res = await fetch(`/objects/${objectId}/folders/${folderId}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
 }
 
 export async function listFolders(objectId: string): Promise<Folder[]> {
