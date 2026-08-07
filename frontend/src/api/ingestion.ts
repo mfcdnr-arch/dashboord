@@ -17,6 +17,10 @@ export interface ExtractedTable {
   column_count: number
   header_rows: number
   preview: string[][]
+  /** Диапазоны объединённых ячеек [r1,c1,r2,c2] — предпросмотр рисует их rowSpan/colSpan. */
+  merges: number[][]
+  /** Область данных [r1,c1,r2,c2], предложенная системой (отсечён текст письма). */
+  data_rect: number[] | null
   columns: ExtractedColumn[]
 }
 export interface ExtractionJob {
@@ -87,9 +91,47 @@ export async function getMappingSuggestion(jobId: string, tableId: string): Prom
   return res.json()
 }
 
+/** Разметка, выбранная мышью: область, этажи шапки, ориентация, снятые строки. */
+export interface Layout {
+  data_rect: number[] | null
+  header_rows: number
+  orientation: 'columns' | 'rows'
+  skip_rows: number[]
+}
+export interface CellPick {
+  row: number
+  col: number
+  field_code: string
+  field_name: string
+  data_type: string
+}
+export interface LayoutPreview {
+  data_rect: number[]
+  header_rows: number
+  orientation: string
+  row_label_column: number | null
+  row_count: number
+  columns: FieldSuggestion[]
+  sample: string[][]
+}
+
+/** Пересчёт разметки под текущий выбор — тем же кодом, что и выпуск. */
+export async function layoutPreview(jobId: string, body: Layout & { table_id: string }): Promise<LayoutPreview> {
+  const res = await fetch(`/extraction-jobs/${jobId}/layout-preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 export async function createRelease(
   jobId: string,
-  body: { table_id: string; code: string; name: string; reporting_period_start: string | null; fields: FieldMap[]; supersede: boolean },
+  body: {
+    table_id: string; code: string; name: string; reporting_period_start: string | null
+    fields: FieldMap[]; supersede: boolean; layout?: Layout; cells?: CellPick[]
+  },
 ): Promise<ReleaseResult | ReleaseConflict> {
   const res = await fetch(`/extraction-jobs/${jobId}/release`, {
     method: 'POST',

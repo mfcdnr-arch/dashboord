@@ -56,18 +56,25 @@ async def run_extraction(job_id: str) -> None:
                 "delete from extracted_tables where extraction_job_id=$1::uuid", job_id
             )
             for tbl in result.tables:
-                header_rows = analyze.guess_header_rows(tbl.rows)
-                columns = analyze.analyze_columns(tbl.rows, header_rows)
+                # Анализ идёт по сетке с развёрнутыми объединениями, а хранится и
+                # рисуется — исходная: объединение должно попасть в предпросмотр
+                # как rowspan/colspan, а не размножиться по столбцам.
+                filled = parsers.fill_merges(tbl.rows, tbl.merges)
+                rect = analyze.detect_data_rect(tbl.rows, tbl.merges)
+                header_rows = analyze.guess_header_rows(filled, rect)
+                columns = analyze.analyze_columns(filled, header_rows, rect)
                 confidences.extend(c.confidence for c in columns)
                 preview = tbl.rows[:PREVIEW_ROWS]
                 et = await conn.fetchrow(
                     "insert into extracted_tables(extraction_job_id, sheet_or_page, table_index, "
-                    "row_count, column_count, header_rows, raw_preview, data) "
-                    "values($1::uuid,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb) returning id",
+                    "row_count, column_count, header_rows, raw_preview, data, merges, data_rect) "
+                    "values($1::uuid,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb) returning id",
                     job_id, tbl.sheet_or_page, tbl.table_index,
                     tbl.row_count, tbl.column_count, header_rows,
                     json.dumps(preview, ensure_ascii=False),
                     json.dumps(tbl.rows, ensure_ascii=False),
+                    json.dumps([list(m) for m in tbl.merges], ensure_ascii=False),
+                    json.dumps(list(rect), ensure_ascii=False),
                 )
                 for col in columns:
                     await conn.execute(

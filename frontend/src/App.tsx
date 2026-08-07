@@ -62,7 +62,10 @@ export default function App() {
 }
 
 // Разделы, которым нужна вся ширина экрана (сетка виджетов), а не колонка чтения.
-const WIDE_SECTIONS = new Set(['dashboards', 'showcases', 'archive'])
+// «Объекты» попали сюда из-за конструктора разметки: там показывается лист
+// документа как в оригинале, а у отчётов госсектора бывает и 16 столбцов —
+// на 900px от таблицы видно два столбца из шестнадцати.
+const WIDE_SECTIONS = new Set(['dashboards', 'showcases', 'archive', 'objects'])
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (

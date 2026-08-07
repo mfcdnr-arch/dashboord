@@ -10,9 +10,9 @@
 from __future__ import annotations
 
 import json
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Sequence
 
-from . import analyze
+from . import analyze, parsers
 
 
 class ReleaseConflict(Exception):
@@ -58,20 +58,136 @@ async def suggest_mapping(conn, table_id: str, object_id) -> dict:
     if label_idx is None and columns:
         label_idx = columns[0]["column_index"]
 
+    headers = [c["source_header"] or f"Столбец {c['column_index'] + 1}" for c in columns]
+    # Коды обязаны быть различными: у формы с баннером во всю ширину все столбцы
+    # получали один заголовок → один slug → нарушение unique на выпуске.
+    names = analyze.short_names(headers)
+    codes = analyze.dedupe_codes([
+        c["canonical_field_code"] or by_slug.get(analyze.slug(n)) or analyze.slug(n)
+        for c, n in zip(columns, names, strict=True)
+    ])
     suggestions = []
-    for c in columns:
-        header = c["source_header"] or f"Столбец {c['column_index'] + 1}"
-        code = c["canonical_field_code"] or by_slug.get(analyze.slug(header)) or analyze.slug(header)
+    for c, header, code, short in zip(columns, headers, codes, names, strict=True):
         suggestions.append({
             "column_index": c["column_index"],
             "source_header": header,
             "field_code": code,
-            "field_name": header,
+            "field_name": short,
             "data_type": c["inferred_type"],
             "is_row_label": c["column_index"] == label_idx,
             "confidence": float(c["confidence_score"]) if c["confidence_score"] is not None else None,
         })
     return {"row_label_column": label_idx, "columns": suggestions}
+
+
+# --------------------------------------------------------------------------- #
+# Разметка: область данных, ориентация, исключённые строки
+# --------------------------------------------------------------------------- #
+DEFAULT_LAYOUT: dict[str, Any] = {
+    "data_rect": None, "header_rows": None, "orientation": "columns", "skip_rows": [],
+}
+
+
+def analysis_grid(
+    grid: List[List[str]], merges, rect, orientation: str
+) -> List[List[str]]:
+    """Сетка, по которой считаются заголовки и значения.
+
+    Объединения развёрнуты (название строки, объединённое на несколько строк,
+    относится к каждой). Строки ограничены областью данных — иначе в значения
+    уехал бы текст письма над таблицей.
+
+    Столбцы при ориентации «показатели в столбцах» НЕ обрезаются: тогда индекс
+    столбца в разметке совпадает с номером столбца в файле, и в системе живёт
+    одна система координат вместо двух. При ориентации «показатели в строках»
+    область транспонируется целиком, и индекс столбца означает позицию в
+    транспонированной сетке (то есть исходную СТРОКУ).
+    """
+    filled = parsers.fill_merges(grid, merges)
+    if not rect:
+        return filled
+    r1, c1, r2, c2 = rect
+    rows = filled[r1 : r2 + 1]
+    if orientation != "rows":
+        return rows
+    area = [row[c1 : c2 + 1] for row in rows]
+    # strict=False сознательно: сетка выровнена по ширине ещё в парсере, но
+    # падать на кривом файле при транспонировании мы не хотим — лучше короткий
+    # столбец, чем ошибка вместо разметки.
+    return [list(col) for col in zip(*area, strict=False)] if area else []
+
+
+def data_rows(area: List[List[str]], header_rows: int, skip_rows: Sequence[int] = ()) -> List[List[str]]:
+    """Строки данных: ниже шапки, без исключённых пользователем."""
+    skip = set(skip_rows)
+    return [row for i, row in enumerate(area[header_rows:], start=header_rows) if i not in skip]
+
+
+async def layout_preview(
+    conn, table_id: str, object_id, *, data_rect=None, header_rows=None,
+    orientation: str = "columns", skip_rows: Sequence[int] = (), sample: int = 15,
+) -> dict:
+    """Пересчёт разметки под текущий выбор пользователя — без записи в БД.
+
+    Конструктор разметки дёргает этот метод при каждом изменении области,
+    числа строк шапки или ориентации. Считает ТОТ ЖЕ код, что и выпуск
+    (`analyze` + `analysis_grid`), поэтому предпросмотр не может разойтись с
+    тем, что реально уедет в датасет.
+    """
+    table = await conn.fetchrow(
+        "select header_rows, data, merges, data_rect from extracted_tables where id=$1::uuid",
+        table_id,
+    )
+    if table is None:
+        raise ValueError("Таблица не найдена")
+    grid = json.loads(table["data"]) if table["data"] else []
+    merges = [tuple(m) for m in (json.loads(table["merges"]) if table["merges"] else [])]
+    rect = list(data_rect) if data_rect else (
+        json.loads(table["data_rect"]) if table["data_rect"] else [0, 0, len(grid) - 1, 0]
+    )
+    if not data_rect and not table["data_rect"] and grid:
+        rect = [0, 0, len(grid) - 1, max(len(r) for r in grid) - 1]
+
+    area = analysis_grid(grid, merges, rect, orientation)
+    hdr = table["header_rows"] if header_rows is None else header_rows
+    hdr = max(0, min(int(hdr or 0), len(area)))
+    columns = analyze.analyze_columns(area, hdr)
+
+    existing = await conn.fetch(
+        "select code, name from canonical_fields where object_id=$1", object_id
+    )
+    by_slug = {analyze.slug(e["name"]): e["code"] for e in existing}
+    headers = [c.source_header for c in columns]
+    # Имя показателя — без общего для всех столбцов «шапочного» префикса;
+    # полный путь остаётся в source_header и виден в колонке «Столбец в файле».
+    names = analyze.short_names(headers)
+    codes = analyze.dedupe_codes([by_slug.get(analyze.slug(n)) or analyze.slug(n) for n in names])
+
+    label_idx = next((c.column_index for c in columns if c.inferred_type == "text"), None)
+    if label_idx is None and columns:
+        label_idx = columns[0].column_index
+
+    rows = data_rows(area, hdr, skip_rows)
+    return {
+        "data_rect": rect,
+        "header_rows": hdr,
+        "orientation": orientation,
+        "row_label_column": label_idx,
+        "row_count": len(rows),
+        "columns": [
+            {
+                "column_index": c.column_index,
+                "source_header": c.source_header,
+                "field_code": code,
+                "field_name": short,
+                "data_type": c.inferred_type,
+                "is_row_label": c.column_index == label_idx,
+                "confidence": c.confidence,
+            }
+            for c, code, short in zip(columns, codes, names, strict=True)
+        ],
+        "sample": rows[:sample],
+    }
 
 
 def _cast(value: str, data_type: str) -> dict:
@@ -136,13 +252,51 @@ def _validate_grid(rows, value_fields, label_col, field_type) -> list:
 
 async def build_release(conn, *, job_id: str, table_id: str, code: str, name: str,
                         reporting_period_start, reporting_period_end,
-                        fields: List[dict], supersede: bool, user: dict) -> dict:
-    """Создаёт dataset_release, поля и материализует значения. Транзакция — снаружи."""
+                        fields: List[dict], supersede: bool, user: dict,
+                        layout: Optional[dict] = None,
+                        cells: Optional[List[dict]] = None) -> dict:
+    """Создаёт dataset_release, поля и материализует значения. Транзакция — снаружи.
+
+    `layout` — что именно пользователь выделил в конструкторе разметки:
+    область данных, число строк шапки, ориентация, исключённые строки. Если не
+    передан, берётся то, что предложила система при распознавании.
+
+    `cells` — режим отдельных ячеек: список {row, col, field_code, field_name,
+    data_type} в координатах ИСХОДНОЙ сетки. Нужен для форм «приложение к
+    письму», где важны несколько конкретных цифр, а размечать таблицу целиком
+    незачем. Даёт выпуск из одной строки.
+    """
     ctx = await resolve_context(conn, job_id)
     if ctx is None:
         raise ValueError("Задание извлечения не найдено")
     object_id = ctx["object_id"]
     org_id = ctx["organization_id"]
+
+    if cells:
+        # Поля выводим из выбранных ячеек: справочник канонических полей и
+        # dataset_release_fields ниже работают одинаково в обоих режимах.
+        fields = [
+            {
+                "column_index": i, "field_code": c["field_code"], "field_name": c["field_name"],
+                "data_type": c.get("data_type") or "text", "is_row_label": False,
+            }
+            for i, c in enumerate(cells)
+        ]
+    if not fields:
+        raise ValueError("Не выбрано ни одного показателя")
+
+    # Дубли кодов ловим здесь: иначе вставка в dataset_release_fields нарушит
+    # unique (dataset_release_id, canonical_field_code) и пользователь увидит
+    # сырую ошибку БД вместо объяснения, что два столбца названы одинаково.
+    seen_codes: dict[str, str] = {}
+    for f in fields:
+        code_ = f["field_code"]
+        if code_ in seen_codes:
+            raise ValueError(
+                f"Столбцы «{seen_codes[code_]}» и «{f['field_name']}» дают один код поля «{code_}». "
+                "Переименуйте один из них или снимите лишний столбец."
+            )
+        seen_codes[code_] = f["field_name"]
 
     # конфликт по (организация, код, период) — только среди АКТИВНЫХ выпусков
     existing = await conn.fetchrow(
@@ -209,31 +363,59 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
                 col_id, f["field_code"],
             )
 
-    # материализация значений из полной сетки (пропускаем строки-шапки)
+    # материализация значений из полной сетки
     table = await conn.fetchrow(
-        "select header_rows, data from extracted_tables where id=$1::uuid", table_id
+        "select header_rows, data, merges, data_rect from extracted_tables where id=$1::uuid",
+        table_id,
     )
     grid = json.loads(table["data"]) if table["data"] else []
-    header_rows = table["header_rows"] or 0
+    merges = [tuple(m) for m in (json.loads(table["merges"]) if table["merges"] else [])]
+    lay = {**DEFAULT_LAYOUT, **(layout or {})}
+    rect = lay["data_rect"] or (json.loads(table["data_rect"]) if table["data_rect"] else None)
+    header_rows = table["header_rows"] if lay["header_rows"] is None else lay["header_rows"]
+    header_rows = int(header_rows or 0)
     field_type = {f["field_code"]: f["data_type"] for f in value_fields}
 
     n_values = 0
-    for row_index, row in enumerate(grid[header_rows:]):
-        row_label = row[label_col] if label_col is not None and label_col < len(row) else None
-        for f in value_fields:
-            ci = f["column_index"]
-            raw = row[ci] if ci < len(row) else ""
-            casted = _cast(raw, field_type[f["field_code"]])
+    if cells:
+        # Режим отдельных ячеек: один «ряд» значений, подписанный названием
+        # выпуска — на дашборде такие показатели ведут себя как обычные числа.
+        filled = parsers.fill_merges(grid, merges)
+        for f, cell in zip(fields, cells, strict=True):
+            r, c = int(cell["row"]), int(cell["col"])
+            raw = filled[r][c] if r < len(filled) and c < len(filled[r]) else ""
+            casted = _cast(raw, f["data_type"])
             await conn.execute(
                 "insert into dataset_values(dataset_release_id, row_index, row_label, "
                 "canonical_field_code, value_text, value_number, value_date) "
-                "values($1,$2,$3,$4,$5,$6,$7)",
-                release_id, row_index, row_label, f["field_code"],
+                "values($1,0,$2,$3,$4,$5,$6)",
+                release_id, name, f["field_code"],
                 casted["value_text"], casted["value_number"], casted["value_date"],
             )
             n_values += 1
-
-    warnings = _validate_grid(grid[header_rows:], value_fields, label_col, field_type)
+        warnings = []
+        n_rows = 1
+    else:
+        # Сетка разметки: область данных, ориентация, развёрнутые объединения.
+        # Без области в значения уехал бы текст письма над таблицей.
+        area = analysis_grid(grid, merges, rect, lay["orientation"])
+        rows_used = data_rows(area, header_rows, lay["skip_rows"] or [])
+        for row_index, row in enumerate(rows_used):
+            row_label = row[label_col] if label_col is not None and label_col < len(row) else None
+            for f in value_fields:
+                ci = f["column_index"]
+                raw = row[ci] if ci < len(row) else ""
+                casted = _cast(raw, field_type[f["field_code"]])
+                await conn.execute(
+                    "insert into dataset_values(dataset_release_id, row_index, row_label, "
+                    "canonical_field_code, value_text, value_number, value_date) "
+                    "values($1,$2,$3,$4,$5,$6,$7)",
+                    release_id, row_index, row_label, f["field_code"],
+                    casted["value_text"], casted["value_number"], casted["value_date"],
+                )
+                n_values += 1
+        warnings = _validate_grid(rows_used, value_fields, label_col, field_type)
+        n_rows = len(rows_used)
 
     # проставляем ссылку на замещающий выпуск (сам статус уже 'superseded')
     superseded_id = None
@@ -248,7 +430,7 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         "release_id": str(release_id),
         "status": "validated",
         "values_count": n_values,
-        "rows": len(grid) - header_rows,
+        "rows": n_rows,
         "superseded_release_id": superseded_id,
         "validation": {"warnings": warnings, "ok": len(warnings) == 0},
     }

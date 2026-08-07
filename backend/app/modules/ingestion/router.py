@@ -74,7 +74,8 @@ async def _job_payload(conn, job_id: str) -> dict:
     if job is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание извлечения не найдено")
     tables = await conn.fetch(
-        "select id, sheet_or_page, table_index, row_count, column_count, header_rows, raw_preview "
+        "select id, sheet_or_page, table_index, row_count, column_count, header_rows, "
+        "raw_preview, merges, data_rect "
         "from extracted_tables where extraction_job_id=$1::uuid order by table_index",
         job_id,
     )
@@ -93,6 +94,10 @@ async def _job_payload(conn, job_id: str) -> dict:
             "column_count": t["column_count"],
             "header_rows": t["header_rows"],
             "preview": json.loads(t["raw_preview"]) if t["raw_preview"] else [],
+            # объединения и область данных — чтобы предпросмотр рисовался
+            # rowspan/colspan один-в-один с оригиналом
+            "merges": json.loads(t["merges"]) if t["merges"] else [],
+            "data_rect": json.loads(t["data_rect"]) if t["data_rect"] else None,
             "columns": [dict(c) for c in cols],
         })
     return {
@@ -151,13 +156,38 @@ class FieldMap(BaseModel):
     is_row_label: bool = False
 
 
+class LayoutIn(BaseModel):
+    """Что пользователь выделил в конструкторе разметки."""
+
+    data_rect: Optional[List[int]] = None  # [r1, c1, r2, c2], границы включительно
+    header_rows: Optional[int] = Field(default=None, ge=0, le=20)
+    orientation: str = "columns"  # columns — показатели в столбцах; rows — в строках
+    skip_rows: List[int] = Field(default_factory=list)
+
+
+class CellPick(BaseModel):
+    """Отдельная ячейка как показатель (координаты исходной сетки)."""
+
+    row: int = Field(ge=0)
+    col: int = Field(ge=0)
+    field_code: str = Field(min_length=1)
+    field_name: str = Field(min_length=1)
+    data_type: str = "number"
+
+
+class LayoutPreviewIn(LayoutIn):
+    table_id: str
+
+
 class ReleaseIn(BaseModel):
     table_id: str
     code: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=200)
     reporting_period_start: Optional[date] = None
     reporting_period_end: Optional[date] = None
-    fields: List[FieldMap]
+    fields: List[FieldMap] = Field(default_factory=list)
+    layout: Optional[LayoutIn] = None
+    cells: List[CellPick] = Field(default_factory=list)
     supersede: bool = False
 
 
@@ -185,6 +215,33 @@ async def mapping_suggestion(job_id: str, table_id: str, user: dict = Depends(ma
         return await mapping.suggest_mapping(conn, table_id, ctx["object_id"])
 
 
+@router.post("/extraction-jobs/{job_id}/layout-preview")
+async def layout_preview(job_id: str, body: LayoutPreviewIn, user: dict = Depends(manage)):
+    """Пересчёт разметки под выбор мышью: заголовки, типы, строки-образцы.
+
+    Считает тот же код, что и выпуск, поэтому предпросмотр «что получится»
+    не может разойтись с тем, что реально уедет в датасет.
+    """
+    async with db.get_pool().acquire() as conn:
+        ctx = await mapping.resolve_context(conn, job_id)
+        if ctx is None or ctx["organization_id"] != user["organization_id"]:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание извлечения не найдено")
+        owns_table = await conn.fetchval(
+            "select 1 from extracted_tables where id=$1::uuid and extraction_job_id=$2::uuid",
+            body.table_id, job_id,
+        )
+        if not owns_table:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Таблица не найдена в задании")
+        try:
+            return await mapping.layout_preview(
+                conn, body.table_id, ctx["object_id"],
+                data_rect=body.data_rect, header_rows=body.header_rows,
+                orientation=body.orientation, skip_rows=body.skip_rows,
+            )
+        except ValueError as err:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err))
+
+
 @router.post("/extraction-jobs/{job_id}/release", status_code=status.HTTP_201_CREATED)
 async def create_release(job_id: str, body: ReleaseIn, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
@@ -197,6 +254,8 @@ async def create_release(job_id: str, body: ReleaseIn, user: dict = Depends(mana
                     name=body.name, reporting_period_start=body.reporting_period_start,
                     reporting_period_end=body.reporting_period_end,
                     fields=[f.model_dump() for f in body.fields],
+                    layout=body.layout.model_dump() if body.layout else None,
+                    cells=[c.model_dump() for c in body.cells],
                     supersede=body.supersede, user=user,
                 )
         except mapping.ReleaseConflict as conflict:

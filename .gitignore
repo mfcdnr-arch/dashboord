@@ -54,3 +54,6 @@ Final_v.1.*
 dashbord-images.tar
 *.tar
 *.zip
+
+# Образцы реальных отчётов заказчика (не для репозитория)
+samples/

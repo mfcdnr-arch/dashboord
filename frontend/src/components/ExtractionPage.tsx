@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  createRelease, getExtractionForVersion, getJob, getMappingSuggestion, startExtraction,
-  type Doc, type ExtractionJob, type ReleaseResult,
+  createRelease, getExtractionForVersion, getJob, layoutPreview, startExtraction,
+  type CellPick, type Doc, type ExtractionJob, type FieldMap, type LayoutPreview, type ReleaseResult,
 } from '../api'
+import SheetGrid, { colName, fillMerges, type PickedCell, type Rect } from './SheetGrid'
 
 const TYPES = [
   { v: 'number', t: 'Число' },
@@ -10,20 +11,22 @@ const TYPES = [
   { v: 'text', t: 'Текст' },
 ]
 
-// Редактируемая строка маппинга (поверх авто-предложения).
-interface Col {
-  column_index: number
-  source_header: string
-  field_code: string
-  field_name: string
-  data_type: string
-  is_row_label: boolean
-  include: boolean
-}
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const baseName = (f: string) => f.replace(/\.[^.]+$/, '')
 
+/**
+ * Конструктор разметки документа.
+ *
+ * Пользователь видит лист «как в оригинале» (объединения, номера строк, буквы
+ * столбцов) и мышью показывает, что брать: область данных, сколько этажей шапки,
+ * какие столбцы и строки нужны, где названия строк. Всё, что он выбрал,
+ * пересчитывается на сервере ТЕМ ЖЕ кодом, который делает выпуск, — поэтому
+ * «что получится» внизу не может разойтись с тем, что уедет в датасет.
+ *
+ * Два режима: «таблица» (обычный отчёт) и «отдельные ячейки» — для форм вроде
+ * «приложение к письму», где нужны несколько конкретных цифр, а размечать
+ * таблицу целиком незачем.
+ */
 export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; canManage: boolean; onBack: () => void }) {
   const [job, setJob] = useState<ExtractionJob | null>(null)
   const [loading, setLoading] = useState(true)
@@ -31,7 +34,21 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
   const [error, setError] = useState<string | null>(null)
 
   const [tableId, setTableId] = useState<string | null>(null)
-  const [cols, setCols] = useState<Col[]>([])
+  const [rect, setRect] = useState<Rect>([0, 0, 0, 0])
+  const [headerRows, setHeaderRows] = useState(1)
+  const [orientation, setOrientation] = useState<'columns' | 'rows'>('columns')
+  const [excludedCols, setExcludedCols] = useState<Set<number>>(new Set())
+  const [excludedRows, setExcludedRows] = useState<Set<number>>(new Set())
+  const [labelField, setLabelField] = useState<number | null>(null)
+  const [names, setNames] = useState<Record<number, string>>({})
+  const [types, setTypes] = useState<Record<number, string>>({})
+
+  const [mode, setMode] = useState<'table' | 'cells'>('table')
+  const [picked, setPicked] = useState<PickedCell[]>([])
+
+  const [preview, setPreview] = useState<LayoutPreview | null>(null)
+  const [previewing, setPreviewing] = useState(false)
+
   const [code, setCode] = useState('dataset')
   const [name, setName] = useState(baseName(doc.original_filename))
   const [period, setPeriod] = useState(doc.reporting_period_start || '')
@@ -41,6 +58,43 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
   const [result, setResult] = useState<ReleaseResult | null>(null)
 
   const fail = (e: unknown) => setError((e as Error).message)
+  const table = job?.tables.find((t) => t.id === tableId) || null
+  const transposed = orientation === 'rows'
+
+  // Координаты: сетка разметки против листа. При «показателях в строках»
+  // область транспонируется, поэтому строка листа становится ПОЛЕМ, а столбец —
+  // записью. Держим исключения в координатах ЛИСТА (их видит пользователь) и
+  // переводим только на границе с сервером.
+  const skipRows = useMemo(
+    () => (transposed
+      ? [...excludedCols].map((c) => c - rect[1])
+      : [...excludedRows].map((r) => r - rect[0])).filter((i) => i >= 0),
+    [transposed, excludedCols, excludedRows, rect],
+  )
+  const excludedFields = useMemo(
+    () => new Set(
+      (transposed ? [...excludedRows].map((r) => r - rect[0]) : [...excludedCols]).filter((i) => i >= 0),
+    ),
+    [transposed, excludedRows, excludedCols, rect],
+  )
+
+  const selectTable = useCallback((j: ExtractionJob, tid: string) => {
+    const t = j.tables.find((x) => x.id === tid)
+    if (!t) return
+    setTableId(tid)
+    const width = t.preview.reduce((w, r) => Math.max(w, r.length), 0)
+    const r = (t.data_rect && t.data_rect.length === 4
+      ? t.data_rect
+      : [0, 0, Math.max(0, t.preview.length - 1), Math.max(0, width - 1)]) as Rect
+    setRect(r)
+    setHeaderRows(t.header_rows ?? 1)
+    setExcludedCols(new Set())
+    setExcludedRows(new Set())
+    setNames({})
+    setTypes({})
+    setLabelField(null)
+    setPicked([])
+  }, [])
 
   useEffect(() => {
     if (!doc.version_id) { setLoading(false); return }
@@ -49,6 +103,27 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
       .catch(fail)
       .finally(() => setLoading(false))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Пересчёт разметки: сервер отвечает теми же заголовками и типами, которые
+  // потом попадут в датасет. Небольшая задержка — чтобы протягивание области
+  // мышью не порождало запрос на каждый пиксель.
+  useEffect(() => {
+    if (!job?.job_id || !tableId || mode !== 'table') return
+    const id = setTimeout(() => {
+      setPreviewing(true)
+      layoutPreview(job.job_id!, {
+        table_id: tableId, data_rect: rect, header_rows: headerRows,
+        orientation, skip_rows: skipRows,
+      })
+        .then((p) => {
+          setPreview(p)
+          setLabelField((cur) => (cur === null ? p.row_label_column : cur))
+        })
+        .catch(fail)
+        .finally(() => setPreviewing(false))
+    }, 250)
+    return () => clearTimeout(id)
+  }, [job?.job_id, tableId, rect, headerRows, orientation, skipRows, mode])
 
   async function runExtraction() {
     if (!doc.version_id) return
@@ -62,47 +137,84 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
     } catch (e) { fail(e) } finally { setStarting(false) }
   }
 
-  async function selectTable(j: ExtractionJob, tid: string) {
-    setTableId(tid)
-    if (!j.job_id) return
-    try {
-      const sug = await getMappingSuggestion(j.job_id, tid)
-      setCols(sug.columns.map((c) => ({
-        column_index: c.column_index, source_header: c.source_header,
-        field_code: c.field_code, field_name: c.field_name, data_type: c.data_type,
-        is_row_label: c.is_row_label, include: true,
-      })))
-    } catch (e) { fail(e) }
+  function toggle(set: Set<number>, v: number): Set<number> {
+    const next = new Set(set)
+    if (next.has(v)) next.delete(v); else next.add(v)
+    return next
   }
 
-  function patch(idx: number, p: Partial<Col>) {
-    setCols((cs) => cs.map((c) => (c.column_index === idx ? { ...c, ...p } : c)))
+  /**
+   * Имя показателя для отдельной ячейки — из названия строки и заголовка
+   * столбца («Донецкая Народная Республика · за отчётную неделю»). Само
+   * значение ячейки именем быть не может: «7078» ничего не говорит о том,
+   * что это за цифра, а исправлять руками каждую — та же ручная работа,
+   * от которой уходим.
+   */
+  function cellTitle(row: number, col: number, value: string, n: number): string {
+    if (!table) return value.trim() || `Показатель ${n}`
+    const filled = fillMerges(table.preview, table.merges || [])
+    const label = (filled[row]?.[rect[1]] || '').trim()
+    const head = Array.from({ length: headerRows }, (_, i) => (filled[rect[0] + i]?.[col] || '').trim())
+      .filter((h, i, a) => h && a.indexOf(h) === i)
+      .slice(-2)
+      .join(' · ')
+    const name = [...new Set([label, head].filter(Boolean))].join(' · ').trim()
+    return name || value.trim() || `Показатель ${n}`
   }
-  function setRowLabel(idx: number) {
-    setCols((cs) => cs.map((c) => ({ ...c, is_row_label: c.column_index === idx, include: c.column_index === idx ? true : c.include })))
+
+  function pickCell(row: number, col: number, value: string) {
+    setPicked((prev) => {
+      const at = prev.findIndex((p) => p.row === row && p.col === col)
+      if (at >= 0) return prev.filter((_, i) => i !== at)
+      return [...prev, {
+        row, col,
+        field_name: cellTitle(row, col, value, prev.length + 1).slice(0, 120),
+        field_code: `cell_${colName(col).toLowerCase()}${row + 1}`,
+      }]
+    })
   }
 
   async function submit(supersede: boolean) {
     if (!job?.job_id || !tableId) return
-    const fields = cols.filter((c) => c.include).map((c) => ({
-      column_index: c.column_index, field_code: c.field_code.trim(), field_name: c.field_name.trim(),
-      data_type: c.data_type, is_row_label: c.is_row_label,
-    }))
-    if (!fields.length) { setError('Не выбрано ни одного столбца'); return }
-    if (!fields.some((f) => f.is_row_label)) { setError('Отметьте столбец-метку строки (◉)'); return }
     if (!code.trim() || !name.trim()) { setError('Заполните код и название датасета'); return }
+
+    let fields: FieldMap[] = []
+    let cells: CellPick[] | undefined
+    if (mode === 'cells') {
+      if (!picked.length) { setError('Выберите хотя бы одну ячейку'); return }
+      cells = picked.map((p) => ({
+        row: p.row, col: p.col, field_code: p.field_code, field_name: p.field_name, data_type: 'number',
+      }))
+    } else {
+      const cols = (preview?.columns || []).filter((c) => !excludedFields.has(c.column_index))
+      if (!cols.length) { setError('Не выбрано ни одного столбца'); return }
+      if (labelField === null) { setError('Отметьте, где лежат названия строк (◉)'); return }
+      fields = cols.map((c) => ({
+        column_index: c.column_index,
+        field_code: c.field_code,
+        field_name: (names[c.column_index] ?? c.field_name).trim() || c.field_name,
+        data_type: types[c.column_index] ?? c.data_type,
+        is_row_label: c.column_index === labelField,
+      }))
+      if (!fields.some((f) => f.is_row_label)) {
+        setError('Столбец с названиями строк исключён — верните его или выберите другой')
+        return
+      }
+    }
+
     setSubmitting(true); setError(null)
     try {
       const r = await createRelease(job.job_id, {
         table_id: tableId, code: code.trim(), name: name.trim(),
         reporting_period_start: period || null, fields, supersede,
+        layout: { data_rect: rect, header_rows: headerRows, orientation, skip_rows: skipRows },
+        cells,
       })
       if ('conflict' in r) setConflict(r.existing)
       else { setResult(r); setConflict(null) }
     } catch (e) { fail(e) } finally { setSubmitting(false) }
   }
 
-  const table = job?.tables.find((t) => t.id === tableId) || null
   const ready = job?.status === 'succeeded' || job?.status === 'needs_review'
 
   return (
@@ -111,7 +223,7 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
         <button style={crumb} onClick={onBack}>← Назад к документам</button>
         <StatusBadge status={starting ? 'running' : job?.status || 'none'} />
       </div>
-      <h2 style={{ fontSize: 17, margin: '0 0 4px' }}>Распознавание: {doc.original_filename}</h2>
+      <h2 style={{ fontSize: 17, margin: '0 0 4px' }}>Разметка: {doc.original_filename}</h2>
       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
         {doc.source_type.toUpperCase()} · отчётная дата {doc.reporting_period_start}
       </div>
@@ -153,16 +265,67 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
             </div>
           )}
 
-          {table && <PreviewGrid table={table} />}
-
           {table && (
-            <div style={{ marginTop: 20 }}>
-              <h3 style={h3}>Сопоставление столбцов</h3>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-                Отметьте столбец-метку строки (◉), задайте тип и снимите ненужные столбцы.
+            <>
+              <Toolbar
+                mode={mode} onMode={setMode}
+                orientation={orientation} onOrientation={setOrientation}
+                headerRows={headerRows} onHeaderRows={setHeaderRows}
+                rect={rect}
+                onResetRect={() => {
+                  const width = table.preview.reduce((w, r) => Math.max(w, r.length), 0)
+                  setRect([0, 0, Math.max(0, table.preview.length - 1), Math.max(0, width - 1)])
+                }}
+              />
+
+              <SheetGrid
+                rows={table.preview}
+                merges={table.merges || []}
+                rect={rect}
+                headerRows={headerRows}
+                labelCol={transposed ? null : labelField}
+                excludedCols={excludedCols}
+                excludedRows={excludedRows}
+                mode={mode}
+                picked={picked}
+                onRect={setRect}
+                onToggleCol={(c) => setExcludedCols((s) => toggle(s, c))}
+                onToggleRow={(r) => setExcludedRows((s) => toggle(s, r))}
+                onLabelCol={(c) => setLabelField(c)}
+                onPickCell={pickCell}
+              />
+
+              <div style={{ fontSize: 12, color: 'var(--text-faint)', margin: '6px 0 18px' }}>
+                {mode === 'cells'
+                  ? 'Кликайте по ячейкам с нужными цифрами — каждая станет отдельным показателем.'
+                  : 'Протяните мышью по ячейкам, чтобы задать область данных. Клик по букве столбца или номеру строки — исключить их. ◉ — где лежат названия строк.'}
+                {table.row_count > table.preview.length &&
+                  ` Показаны первые ${table.preview.length} строк из ${table.row_count}.`}
               </div>
-              <MappingEditor cols={cols} disabled={!canManage} onPatch={patch} onRowLabel={setRowLabel} />
-            </div>
+            </>
+          )}
+
+          {table && canManage && mode === 'cells' && (
+            <CellsPanel picked={picked} onRename={(i, v) => setPicked((p) => p.map((x, k) => (k === i ? { ...x, field_name: v } : x)))}
+              onRemove={(i) => setPicked((p) => p.filter((_, k) => k !== i))} />
+          )}
+
+          {table && canManage && mode === 'table' && (
+            <FieldsPanel
+              preview={preview}
+              previewing={previewing}
+              transposed={transposed}
+              excluded={excludedFields}
+              names={names}
+              types={types}
+              labelField={labelField}
+              onName={(i, v) => setNames((s) => ({ ...s, [i]: v }))}
+              onType={(i, v) => setTypes((s) => ({ ...s, [i]: v }))}
+              onLabel={setLabelField}
+              onToggle={(i) => (transposed
+                ? setExcludedRows((s) => toggle(s, i + rect[0]))
+                : setExcludedCols((s) => toggle(s, i)))}
+            />
           )}
 
           {table && canManage && (
@@ -189,71 +352,162 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
   )
 }
 
-function PreviewGrid({ table }: { table: ExtractionJob['tables'][number] }) {
+function Toolbar({ mode, onMode, orientation, onOrientation, headerRows, onHeaderRows, rect, onResetRect }: {
+  mode: 'table' | 'cells'; onMode: (m: 'table' | 'cells') => void
+  orientation: 'columns' | 'rows'; onOrientation: (o: 'columns' | 'rows') => void
+  headerRows: number; onHeaderRows: (n: number) => void
+  rect: Rect; onResetRect: () => void
+}) {
   return (
-    <div>
-      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-        Предпросмотр · {table.row_count} строк × {table.column_count} столбцов · шапка: {table.header_rows} стр.
-      </div>
-      <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 10 }}>
-        <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
-          <tbody>
-            {table.preview.slice(0, 12).map((row, ri) => (
-              <tr key={ri} style={{ background: ri < table.header_rows ? 'var(--accent-weak-bg)' : 'var(--surface)' }}>
-                {row.map((cell, ci) => (
-                  <td key={ci} style={{
-                    border: '1px solid var(--border-faint)', padding: '5px 9px', whiteSpace: 'nowrap',
-                    fontWeight: ri < table.header_rows ? 600 : 400,
-                    color: ri < table.header_rows ? 'var(--accent)' : 'var(--text)',
-                  }}>{cell || '—'}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {table.row_count > 12 && <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 4 }}>…показаны первые 12 строк</div>}
+    <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
+      <Field label="Что размечаем">
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button type="button" style={{ ...chip, ...(mode === 'table' ? chipActive : {}) }} onClick={() => onMode('table')}>
+            Таблицу
+          </button>
+          <button type="button" style={{ ...chip, ...(mode === 'cells' ? chipActive : {}) }} onClick={() => onMode('cells')}>
+            Отдельные ячейки
+          </button>
+        </div>
+      </Field>
+
+      {mode === 'table' && (
+        <>
+          <Field label="Показатели расположены">
+            <select style={{ ...input, width: 170 }} value={orientation}
+              onChange={(e) => onOrientation(e.target.value as 'columns' | 'rows')}>
+              <option value="columns">в столбцах</option>
+              <option value="rows">в строках</option>
+            </select>
+          </Field>
+          {/* При «показателях в строках» область транспонирована, и то же самое
+              число означает, сколько ЛЕВЫХ столбцов служат заголовками. */}
+          <Field label={orientation === 'rows' ? 'Столбцов-заголовков слева' : 'Этажей шапки'}>
+            <input style={{ ...input, width: 80 }} type="number" min={0} max={10} value={headerRows}
+              onChange={(e) => onHeaderRows(Math.max(0, Number(e.target.value) || 0))} />
+          </Field>
+          <Field label={`Область: строки ${rect[0] + 1}–${rect[2] + 1}, столбцы ${colName(rect[1])}–${colName(rect[3])}`}>
+            <button type="button" style={chip} onClick={onResetRect}>Взять весь лист</button>
+          </Field>
+        </>
+      )}
     </div>
   )
 }
 
-function MappingEditor({ cols, disabled, onPatch, onRowLabel }: {
-  cols: Col[]; disabled: boolean
-  onPatch: (idx: number, p: Partial<Col>) => void
-  onRowLabel: (idx: number) => void
+function FieldsPanel({ preview, previewing, transposed, excluded, names, types, labelField, onName, onType, onLabel, onToggle }: {
+  preview: LayoutPreview | null; previewing: boolean; transposed: boolean
+  excluded: Set<number>; names: Record<number, string>; types: Record<number, string>
+  labelField: number | null
+  onName: (i: number, v: string) => void
+  onType: (i: number, v: string) => void
+  onLabel: (i: number) => void
+  onToggle: (i: number) => void
 }) {
+  if (!preview) return <div style={muted}>{previewing ? 'Считаем разметку…' : 'Выберите область данных.'}</div>
+  const cols = preview.columns
+  const kept = cols.filter((c) => !excluded.has(c.column_index))
   return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-      <div style={{ ...mapRow, background: 'var(--surface-2)', fontWeight: 600, fontSize: 12, color: 'var(--text-muted)' }}>
-        <span style={{ width: 30 }}>вкл.</span>
-        <span style={{ flex: 1 }}>Столбец в файле</span>
-        <span style={{ flex: 1 }}>Имя поля</span>
-        <span style={{ width: 110 }}>Тип</span>
-        <span style={{ width: 90, textAlign: 'center' }}>Метка строки</span>
+    <div>
+      <h3 style={h3}>
+        Показатели {previewing && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>· пересчёт…</span>}
+      </h3>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+        Найдено {cols.length}, берём {kept.length}. Строк данных: {preview.row_count}.
+        {transposed && ' Показатели взяты из строк листа.'}
       </div>
-      {cols.map((c) => (
-        <div key={c.column_index} style={{ ...mapRow, opacity: c.include ? 1 : 0.5 }}>
-          <span style={{ width: 30 }}>
-            <input type="checkbox" checked={c.include} disabled={disabled || c.is_row_label}
-              onChange={(e) => onPatch(c.column_index, { include: e.target.checked })} />
-          </span>
-          <span style={{ flex: 1, fontSize: 13, color: 'var(--text-2)' }}>{c.source_header}</span>
-          <span style={{ flex: 1 }}>
-            <input style={{ ...input, width: '95%', height: 30 }} value={c.field_name} disabled={disabled}
-              onChange={(e) => onPatch(c.column_index, { field_name: e.target.value })} />
-          </span>
-          <span style={{ width: 110 }}>
-            <select style={{ ...input, width: 104, height: 30 }} value={c.data_type} disabled={disabled}
-              onChange={(e) => onPatch(c.column_index, { data_type: e.target.value })}>
-              {TYPES.map((t) => <option key={t.v} value={t.v}>{t.t}</option>)}
-            </select>
-          </span>
-          <span style={{ width: 90, textAlign: 'center' }}>
-            <input type="radio" name="rowlabel" checked={c.is_row_label} disabled={disabled}
-              onChange={() => onRowLabel(c.column_index)} />
-          </span>
+      <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+        <div style={{ ...mapRow, background: 'var(--surface-2)', fontWeight: 600, fontSize: 12, color: 'var(--text-muted)' }}>
+          <span style={{ width: 30 }}>вкл.</span>
+          <span style={{ flex: 1 }}>{transposed ? 'Строка листа' : 'Столбец в файле'}</span>
+          <span style={{ flex: 1 }}>Название показателя</span>
+          <span style={{ width: 110 }}>Тип</span>
+          <span style={{ width: 90, textAlign: 'center' }}>Названия строк</span>
         </div>
-      ))}
+        {cols.map((c) => {
+          const on = !excluded.has(c.column_index)
+          return (
+            <div key={c.column_index} style={{ ...mapRow, opacity: on ? 1 : 0.5 }}>
+              <span style={{ width: 30 }}>
+                <input type="checkbox" checked={on} onChange={() => onToggle(c.column_index)} />
+              </span>
+              {/* Полный путь по шапке — только для сверки с файлом, поэтому
+                  зажат в две строки: иначе список показателей растягивается
+                  на весь экран и «Что получится» уезжает из поля зрения. */}
+              <span style={{ flex: 1, fontSize: 12, color: 'var(--text-muted)', ...clamp2 }} title={c.source_header}>
+                {c.source_header}
+              </span>
+              <span style={{ flex: 1 }}>
+                <input style={{ ...input, width: '95%', height: 30 }}
+                  value={names[c.column_index] ?? c.field_name}
+                  onChange={(e) => onName(c.column_index, e.target.value)} />
+              </span>
+              <span style={{ width: 110 }}>
+                <select style={{ ...input, width: 104, height: 30 }} value={types[c.column_index] ?? c.data_type}
+                  onChange={(e) => onType(c.column_index, e.target.value)}>
+                  {TYPES.map((t) => <option key={t.v} value={t.v}>{t.t}</option>)}
+                </select>
+              </span>
+              <span style={{ width: 90, textAlign: 'center' }}>
+                <input type="radio" name="rowlabel" checked={labelField === c.column_index}
+                  onChange={() => onLabel(c.column_index)} />
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      {preview.sample.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <h3 style={h3}>Что получится</h3>
+          <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 10 }}>
+            <table style={{ borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr>
+                  {kept.map((c) => (
+                    <th key={c.column_index} style={outHead}>{names[c.column_index] ?? c.field_name}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {preview.sample.map((row, i) => (
+                  <tr key={i}>
+                    {kept.map((c) => <td key={c.column_index} style={outCell}>{row[c.column_index] || '—'}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {preview.row_count > preview.sample.length && (
+            <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 4 }}>
+              …и ещё {preview.row_count - preview.sample.length} строк
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CellsPanel({ picked, onRename, onRemove }: {
+  picked: PickedCell[]; onRename: (i: number, v: string) => void; onRemove: (i: number) => void
+}) {
+  if (!picked.length) return <div style={muted}>Ячейки не выбраны — кликните по нужным цифрам в таблице.</div>
+  return (
+    <div>
+      <h3 style={h3}>Выбранные показатели ({picked.length})</h3>
+      <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+        {picked.map((p, i) => (
+          <div key={`${p.row}:${p.col}`} style={mapRow}>
+            <span style={{ width: 70, fontSize: 12, color: 'var(--text-muted)' }}>{colName(p.col)}{p.row + 1}</span>
+            <span style={{ flex: 1 }}>
+              <input style={{ ...input, width: '95%', height: 30 }} value={p.field_name}
+                onChange={(e) => onRename(i, e.target.value)} />
+            </span>
+            <button type="button" style={{ ...chip, color: 'var(--danger)' }} onClick={() => onRemove(i)}>убрать</button>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -336,6 +590,11 @@ const chipActive: React.CSSProperties = { background: 'var(--accent-weak-bg)', b
 const h3: React.CSSProperties = { fontSize: 14, margin: '0 0 8px' }
 const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 14 }
 const mapRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid var(--border-faint)' }
+const clamp2: React.CSSProperties = {
+  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+}
+const outHead: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '5px 9px', background: 'var(--accent-weak-bg)', color: 'var(--accent)', whiteSpace: 'nowrap', fontSize: 12 }
+const outCell: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '5px 9px', whiteSpace: 'nowrap' }
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 const warnBox: React.CSSProperties = { background: 'var(--warn-bg)', color: 'var(--warn)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 8 }
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }
