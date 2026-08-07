@@ -118,6 +118,11 @@ export async function listDocuments(folderId: string, limit = 50, offset = 0): P
   return res.json()
 }
 
+export async function deleteDocument(folderId: string, documentId: string): Promise<void> {
+  const res = await fetch(`/folders/${folderId}/documents/${documentId}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
+
 export async function uploadDocument(folderId: string, file: File, reportingDate: string): Promise<void> {
   const fd = new FormData()
   fd.append('file', file)

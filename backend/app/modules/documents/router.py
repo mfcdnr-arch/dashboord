@@ -6,10 +6,12 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from datetime import date
 from typing import Optional
 
+from asyncpg.exceptions import ForeignKeyViolationError
 from fastapi import (
     APIRouter,
     Depends,
@@ -23,8 +25,11 @@ from fastapi import (
 from fastapi.concurrency import run_in_threadpool
 
 from ... import db
+from ..audit.service import write_event
 from ..auth.deps import get_current_user, require_roles
 from . import storage
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["documents"])
 manage = require_roles("admin", "moderator")
@@ -123,6 +128,75 @@ async def upload_document(
         "storage_path": storage_path,
         "version_id": str(ver["id"]),
     }
+
+
+@router.delete("/folders/{folder_id}/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(folder_id: str, document_id: str, user: dict = Depends(manage)):
+    """Удаление документа вместе с версиями и файлами в хранилище.
+
+    Отказываем, если из документа уже выпускали данные: `dataset_releases`
+    ссылается на версию документа через `source_document_version_id` БЕЗ
+    каскада, то есть это происхождение показателей — удалив документ, мы
+    оборвали бы связь «цифра на дашборде → первичный файл», ради которой
+    конвейер и построен. Остальная цепочка (версии → задания распознавания →
+    таблицы → колонки) уходит каскадом.
+
+    Порядок важен: сначала БД, потом файлы. При обратном порядке сбой в БД
+    оставил бы документ без файла — он виден в списке, но не открывается.
+    """
+    async with db.get_pool().acquire() as conn:
+        if not await _folder_in_org(conn, folder_id, user["organization_id"]):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Папка не найдена")
+        doc = await conn.fetchrow(
+            "select id, original_filename from documents "
+            "where id=$1::uuid and folder_id=$2::uuid and organization_id=$3",
+            document_id, folder_id, user["organization_id"],
+        )
+        if not doc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Документ не найден")
+
+        releases = await conn.fetchval(
+            "select count(*) from dataset_releases r "
+            "join document_versions v on v.id = r.source_document_version_id "
+            "where v.document_id=$1::uuid",
+            document_id,
+        )
+        if releases:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Из документа уже выпущены данные (выпусков: {releases}) — удаление отменено. "
+                "Иначе показатели на дашбордах потеряют связь с первичным файлом.",
+            )
+
+        paths = [
+            r["storage_path"]
+            for r in await conn.fetch(
+                "select storage_path from document_versions where document_id=$1::uuid", document_id
+            )
+        ]
+        try:
+            async with conn.transaction():
+                await write_event(
+                    conn, user["organization_id"], user["id"], "delete", "document", document_id,
+                    old_data={"original_filename": doc["original_filename"], "folder_id": folder_id},
+                )
+                await conn.execute("delete from documents where id=$1::uuid", document_id)
+        except ForeignKeyViolationError as e:
+            # Страховка на случай связи, о которой мы здесь не знаем: понятный
+            # отказ вместо сырого 500 из драйвера.
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Документ используется другими данными и не может быть удалён: {e}",
+            )
+
+    # Файлы удаляем после фиксации транзакции. Осечка здесь оставит «сироту» в
+    # хранилище — это безобиднее, чем документ в списке без файла, поэтому
+    # операцию не проваливаем, а сообщаем в лог.
+    for p in paths:
+        try:
+            await run_in_threadpool(storage.remove_object, p)
+        except Exception as e:
+            log.warning("не удалось удалить объект хранилища %s: %s", p, e)
 
 
 @router.get("/folders/{folder_id}/documents")

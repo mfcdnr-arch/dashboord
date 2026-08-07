@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import {
-  createFolder, createObject, deleteFolder, deleteObject, listDocuments, listFolders, listObjects,
-  updateFolder, updateObject, uploadDocument,
+  createFolder, createObject, deleteDocument, deleteFolder, deleteObject, listDocuments, listFolders,
+  listObjects, updateFolder, updateObject, uploadDocument,
   type Doc, type Folder, type Obj,
 } from '../api'
 import { folderLabel, folderTree } from '../lib/folderTree'
@@ -194,6 +194,22 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
     }
   }
 
+  async function removeDoc(d: Doc) {
+    if (!folder) return
+    if (!confirm(`Удалить документ «${d.original_filename}»?\n\nФайл будет удалён из хранилища. Если из него уже выпускались данные, система откажет.`)) return
+    setBusy(true)
+    setError(null)
+    try {
+      await deleteDocument(folder.id, d.id)
+      if (openDoc?.id === d.id) setOpenDoc(null)
+      await loadDocs(folder.id)
+    } catch (e) {
+      fail(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function upload(e: FormEvent) {
     e.preventDefault()
     if (!folder || !file || !date) return
@@ -322,7 +338,15 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
             <button style={btn} disabled={busy || !file || !date}>Загрузить</button>
           </form>
           <List
-            items={docs.map((d) => ({ id: d.id, title: d.original_filename, sub: `${d.source_type.toUpperCase()} · ${d.reporting_period_start} · ${fmtSize(d.size)} · ${statusLabel(d.status)}`, onClick: () => setOpenDoc(d) }))}
+            items={docs.map((d) => ({
+              id: d.id,
+              title: d.original_filename,
+              sub: `${d.source_type.toUpperCase()} · ${d.reporting_period_start} · ${fmtSize(d.size)} · ${statusLabel(d.status)}`,
+              onClick: () => setOpenDoc(d),
+              actions: canManage ? (
+                <IconBtn title="Удалить документ" danger disabled={busy} onClick={() => removeDoc(d)}>🗑</IconBtn>
+              ) : undefined,
+            }))}
             empty="В папке пока нет документов"
           />
           {docs.length < docsTotal && (

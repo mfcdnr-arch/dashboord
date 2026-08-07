@@ -88,3 +88,78 @@ async def test_storage_failure_leaves_no_orphan_document(client, admin_headers, 
             "select count(*) from documents d where d.folder_id=$1::uuid "
             "and not exists (select 1 from document_versions v where v.document_id=d.id)", folder)
     assert orphans == 0
+
+
+@pytest.fixture
+def fake_remove(monkeypatch):
+    """Подменяет удаление объекта в MinIO; собирает удалённые storage_path."""
+    removed: list[str] = []
+    monkeypatch.setattr(storage, "remove_object", lambda path: removed.append(path))
+    return removed
+
+
+async def _upload(client, admin_headers, folder, name="del.xlsx", period="2026-03-01"):
+    r = await client.post(
+        f"/folders/{folder}/documents", headers=admin_headers,
+        files={"file": (name, _xlsx(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        data={"reporting_period_start": period})
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+async def test_delete_document_removes_versions_and_files(
+        client, admin_headers, folder, fake_storage, fake_remove):
+    doc = await _upload(client, admin_headers, folder)
+
+    r = await client.delete(f"/folders/{folder}/documents/{doc['id']}", headers=admin_headers)
+    assert r.status_code == 204, r.text
+    # Повторное удаление и удаление через чужую папку — 404, существование не палим.
+    assert (await client.delete(f"/folders/{folder}/documents/{doc['id']}",
+                                headers=admin_headers)).status_code == 404
+
+    async with db.acquire() as conn:
+        assert await conn.fetchval("select count(*) from documents where id=$1::uuid", doc["id"]) == 0
+        # версии ушли каскадом
+        assert await conn.fetchval(
+            "select count(*) from document_versions where document_id=$1::uuid", doc["id"]) == 0
+        act = await conn.fetchval(
+            "select action::text from audit_log where entity_type='document' and entity_id=$1::uuid",
+            doc["id"])
+    assert act == "delete"
+    # файл версии удалён из хранилища
+    assert fake_remove == [doc["storage_path"]]
+
+
+async def test_delete_document_blocked_when_dataset_released(
+        client, admin_headers, folder, fake_storage, fake_remove, ids):
+    """Из документа выпустили данные → удаление отклоняется, файл не трогаем.
+
+    `dataset_releases.source_document_version_id` — это происхождение цифр на
+    дашборде: удалив документ, мы оборвали бы связь «показатель → первичный файл».
+    """
+    doc = await _upload(client, admin_headers, folder, name="released.xlsx", period="2026-04-01")
+    async with db.acquire() as conn:
+        await conn.execute(
+            "insert into dataset_releases(organization_id, code, name, source_document_version_id, "
+            "reporting_period_start, created_by) values($1,'ztest_ds_del','Тест',$2::uuid,'2026-04-01',$3)",
+            ids["org"], doc["version_id"], ids["admin"])
+    try:
+        r = await client.delete(f"/folders/{folder}/documents/{doc['id']}", headers=admin_headers)
+        assert r.status_code == 409, r.text
+        assert "выпусков: 1" in r.json()["detail"]
+        assert fake_remove == []
+        async with db.acquire() as conn:
+            assert await conn.fetchval("select count(*) from documents where id=$1::uuid", doc["id"]) == 1
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from dataset_releases where code='ztest_ds_del'")
+
+
+async def test_delete_document_requires_manage_role(
+        client, admin_headers, folder, fake_storage, viewer):
+    doc = await _upload(client, admin_headers, folder, name="perm.xlsx", period="2026-05-01")
+    r = await client.delete(f"/folders/{folder}/documents/{doc['id']}", headers=viewer["headers"])
+    assert r.status_code == 403
+    async with db.acquire() as conn:
+        assert await conn.fetchval("select count(*) from documents where id=$1::uuid", doc["id"]) == 1

@@ -41,6 +41,16 @@ def put_object(object_name: str, data: bytes, content_type: str) -> str:
     return f"{settings.minio_bucket}/{object_name}"
 
 
+def remove_object(storage_path: str) -> None:
+    """Удаляет объект по storage_path (bucket/object).
+
+    Отсутствующий объект ошибкой не считается: удаление документа должно
+    доводиться до конца, даже если файл уже пропал из хранилища.
+    """
+    bucket, _, object_name = storage_path.partition("/")
+    get_client().remove_object(bucket, object_name)
+
+
 def get_object(storage_path: str) -> bytes:
     """Читает объект по storage_path (bucket/object) и возвращает байты."""
     bucket, _, object_name = storage_path.partition("/")
