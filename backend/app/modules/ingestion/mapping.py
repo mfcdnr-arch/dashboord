@@ -117,15 +117,22 @@ def analysis_grid(
     return [list(col) for col in zip(*area, strict=False)] if area else []
 
 
+def data_row_items(
+    area: List[List[str]], header_rows: int, skip_rows: Sequence[int] = ()
+) -> List[tuple]:
+    """(индекс в сетке разметки, строка) для строк данных без исключённых."""
+    skip = set(skip_rows)
+    return [(i, row) for i, row in enumerate(area[header_rows:], start=header_rows) if i not in skip]
+
+
 def data_rows(area: List[List[str]], header_rows: int, skip_rows: Sequence[int] = ()) -> List[List[str]]:
     """Строки данных: ниже шапки, без исключённых пользователем."""
-    skip = set(skip_rows)
-    return [row for i, row in enumerate(area[header_rows:], start=header_rows) if i not in skip]
+    return [row for _i, row in data_row_items(area, header_rows, skip_rows)]
 
 
 async def layout_preview(
     conn, table_id: str, object_id, *, data_rect=None, header_rows=None,
-    orientation: str = "columns", skip_rows: Sequence[int] = (), sample: int = 15,
+    orientation: str = "columns", skip_rows: Sequence[int] = (), sample: int = 60,
 ) -> dict:
     """Пересчёт разметки под текущий выбор пользователя — без записи в БД.
 
@@ -167,13 +174,31 @@ async def layout_preview(
     if label_idx is None and columns:
         label_idx = columns[0].column_index
 
-    rows = data_rows(area, hdr, skip_rows)
+    items = data_row_items(area, hdr, skip_rows)
+    rows = [row for _i, row in items]
+
+    # Служебные строки: в реальных отчётах под таблицей идут ФИО согласующих и
+    # подписывающих, примечания, «Исполнитель: …». Опознаём их по отсутствию
+    # чисел во ВСЕХ числовых столбцах — на дашборде от такой строки ничего не
+    # останется, кроме мусорной категории. Это подсказка, а не автоудаление:
+    # решение снять их принимает пользователь одной кнопкой.
+    numeric_cols = [c.column_index for c in columns if c.inferred_type == "number"]
+    row_info = []
+    for i, row in items:
+        label = row[label_idx] if label_idx is not None and label_idx < len(row) else ""
+        has_number = any(
+            analyze.parse_number(row[c]) is not None for c in numeric_cols if c < len(row)
+        )
+        row_info.append({"index": i, "label": label, "has_number": has_number})
+
     return {
         "data_rect": rect,
         "header_rows": hdr,
         "orientation": orientation,
         "row_label_column": label_idx,
         "row_count": len(rows),
+        "rows": row_info,
+        "suspect_rows": [r["index"] for r in row_info if not r["has_number"]] if numeric_cols else [],
         "columns": [
             {
                 "column_index": c.column_index,

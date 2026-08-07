@@ -105,6 +105,12 @@ export interface CellPick {
   field_name: string
   data_type: string
 }
+export interface LayoutRow {
+  /** Индекс строки в сетке разметки (шапка тоже считается). */
+  index: number
+  label: string
+  has_number: boolean
+}
 export interface LayoutPreview {
   data_rect: number[]
   header_rows: number
@@ -112,6 +118,9 @@ export interface LayoutPreview {
   row_label_column: number | null
   row_count: number
   columns: FieldSuggestion[]
+  rows: LayoutRow[]
+  /** Строки без единого числа — обычно ФИО согласующих, примечания, подписи. */
+  suspect_rows: number[]
   sample: string[][]
 }
 

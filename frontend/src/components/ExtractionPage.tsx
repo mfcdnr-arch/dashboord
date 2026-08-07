@@ -3,6 +3,8 @@ import {
   createRelease, getExtractionForVersion, getJob, layoutPreview, startExtraction,
   type CellPick, type Doc, type ExtractionJob, type FieldMap, type LayoutPreview, type ReleaseResult,
 } from '../api'
+import DashboardDraft from './DashboardDraft'
+import InfoTip from './InfoTip'
 import SheetGrid, { colName, fillMerges, type PickedCell, type Rect } from './SheetGrid'
 
 const TYPES = [
@@ -71,6 +73,15 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
       : [...excludedRows].map((r) => r - rect[0])).filter((i) => i >= 0),
     [transposed, excludedCols, excludedRows, rect],
   )
+  // Служебные строки листа (ФИО согласующих, примечания) — сервер помечает
+  // строки без единого числа, мы переводим их индексы в координаты листа.
+  const suspectSheetRows = useMemo(() => {
+    const base = transposed ? rect[1] : rect[0]
+    return (preview?.suspect_rows || [])
+      .map((i) => base + i)
+      .filter((r) => !(transposed ? excludedCols : excludedRows).has(r))
+  }, [preview, transposed, rect, excludedCols, excludedRows])
+
   const excludedFields = useMemo(
     () => new Set(
       (transposed ? [...excludedRows].map((r) => r - rect[0]) : [...excludedCols]).filter((i) => i >= 0),
@@ -135,6 +146,26 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
       setJob(j)
       if (j.tables.length && j.job_id) selectTable(j, j.tables[0].id)
     } catch (e) { fail(e) } finally { setStarting(false) }
+  }
+
+  // Имена показателей для шапки листа: в транспонированном режиме поле
+  // соответствует СТРОКЕ листа, поэтому подписывать столбцы нечем.
+  const fieldNames = useMemo(() => {
+    const m = new Map<number, string>()
+    if (transposed) return m
+    for (const c of preview?.columns || []) {
+      if (!excludedFields.has(c.column_index)) m.set(c.column_index, names[c.column_index] ?? c.field_name)
+    }
+    return m
+  }, [preview, names, excludedFields, transposed])
+
+  /** Клик по имени в шапке листа — перевести курсор в поле переименования. */
+  function focusName(col: number) {
+    const el = document.getElementById(`field-name-${col}`) as HTMLInputElement | null
+    if (!el) return
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    el.focus()
+    el.select()
   }
 
   function toggle(set: Set<number>, v: number): Set<number> {
@@ -288,12 +319,31 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
                 excludedRows={excludedRows}
                 mode={mode}
                 picked={picked}
+                suspectRows={new Set(suspectSheetRows)}
+                fieldNames={fieldNames}
                 onRect={setRect}
                 onToggleCol={(c) => setExcludedCols((s) => toggle(s, c))}
                 onToggleRow={(r) => setExcludedRows((s) => toggle(s, r))}
                 onLabelCol={(c) => setLabelField(c)}
                 onPickCell={pickCell}
+                onRenameCol={focusName}
               />
+
+              {suspectSheetRows.length > 0 && mode === 'table' && (
+                <div style={hintBox}>
+                  <span>
+                    ⚠ {suspectSheetRows.length}{' '}
+                    {suspectSheetRows.length === 1 ? 'строка без чисел' : 'строк(и) без чисел'} —
+                    обычно это подписи, согласующие и примечания под таблицей.
+                  </span>
+                  <button type="button" style={{ ...chip, border: '1px solid var(--warn)', color: 'var(--warn)' }}
+                    onClick={() => (transposed
+                      ? setExcludedCols((s) => new Set([...s, ...suspectSheetRows]))
+                      : setExcludedRows((s) => new Set([...s, ...suspectSheetRows])))}>
+                    Исключить их
+                  </button>
+                </div>
+              )}
 
               <div style={{ fontSize: 12, color: 'var(--text-faint)', margin: '6px 0 18px' }}>
                 {mode === 'cells'
@@ -306,8 +356,22 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
           )}
 
           {table && canManage && mode === 'cells' && (
-            <CellsPanel picked={picked} onRename={(i, v) => setPicked((p) => p.map((x, k) => (k === i ? { ...x, field_name: v } : x)))}
-              onRemove={(i) => setPicked((p) => p.filter((_, k) => k !== i))} />
+            <>
+              <CellsPanel picked={picked} onRename={(i, v) => setPicked((p) => p.map((x, k) => (k === i ? { ...x, field_name: v } : x)))}
+                onRemove={(i) => setPicked((p) => p.filter((_, k) => k !== i))} />
+              {picked.length > 0 && (
+                <DashboardDraft
+                  columns={picked.map((p, i) => ({
+                    column_index: i, source_header: p.field_name, field_code: p.field_code,
+                    field_name: p.field_name, data_type: 'number', is_row_label: false, confidence: null,
+                  }))}
+                  rows={[picked.map((p) => fillMerges(table.preview, table.merges || [])[p.row]?.[p.col] ?? '')]}
+                  labelColumn={null}
+                  names={{}}
+                  totalRows={1}
+                />
+              )}
+            </>
           )}
 
           {table && canManage && mode === 'table' && (
@@ -360,7 +424,7 @@ function Toolbar({ mode, onMode, orientation, onOrientation, headerRows, onHeade
 }) {
   return (
     <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
-      <Field label="Что размечаем">
+      <Field label="Что размечаем" hint="«Таблицу» — когда в файле обычный список строк с показателями. «Отдельные ячейки» — когда из документа нужны всего несколько конкретных цифр.">
         <div style={{ display: 'flex', gap: 6 }}>
           <button type="button" style={{ ...chip, ...(mode === 'table' ? chipActive : {}) }} onClick={() => onMode('table')}>
             Таблицу
@@ -373,7 +437,8 @@ function Toolbar({ mode, onMode, orientation, onOrientation, headerRows, onHeade
 
       {mode === 'table' && (
         <>
-          <Field label="Показатели расположены">
+          <Field label="Показатели расположены"
+            hint="«В столбцах» — обычный отчёт: строка = объект (район, МФЦ), столбец = показатель. «В строках» — когда наоборот: слева перечень показателей, а по столбцам идут периоды или подразделения.">
             <select style={{ ...input, width: 170 }} value={orientation}
               onChange={(e) => onOrientation(e.target.value as 'columns' | 'rows')}>
               <option value="columns">в столбцах</option>
@@ -382,11 +447,19 @@ function Toolbar({ mode, onMode, orientation, onOrientation, headerRows, onHeade
           </Field>
           {/* При «показателях в строках» область транспонирована, и то же самое
               число означает, сколько ЛЕВЫХ столбцов служат заголовками. */}
-          <Field label={orientation === 'rows' ? 'Столбцов-заголовков слева' : 'Этажей шапки'}>
+          <Field
+            label={orientation === 'rows' ? 'Столбцов-заголовков слева' : 'Этажей шапки'}
+            hint={orientation === 'rows'
+              ? 'Сколько левых столбцов — это названия показателей, а не данные.'
+              : 'Сколько верхних строк области — заголовки, а не данные. У многоэтажной шапки уровни склеиваются в имя показателя через «·».'}
+          >
             <input style={{ ...input, width: 80 }} type="number" min={0} max={10} value={headerRows}
               onChange={(e) => onHeaderRows(Math.max(0, Number(e.target.value) || 0))} />
           </Field>
-          <Field label={`Область: строки ${rect[0] + 1}–${rect[2] + 1}, столбцы ${colName(rect[1])}–${colName(rect[3])}`}>
+          <Field
+            label={`Область: строки ${rect[0] + 1}–${rect[2] + 1}, столбцы ${colName(rect[1])}–${colName(rect[3])}`}
+            hint="Часть листа, в которой лежит таблица. Задаётся протягиванием мыши по ячейкам. Всё, что вне области (шапка письма, подписи внизу), в дашборд не попадает."
+          >
             <button type="button" style={chip} onClick={onResetRect}>Взять весь лист</button>
           </Field>
         </>
@@ -420,9 +493,15 @@ function FieldsPanel({ preview, previewing, transposed, excluded, names, types, 
         <div style={{ ...mapRow, background: 'var(--surface-2)', fontWeight: 600, fontSize: 12, color: 'var(--text-muted)' }}>
           <span style={{ width: 30 }}>вкл.</span>
           <span style={{ flex: 1 }}>{transposed ? 'Строка листа' : 'Столбец в файле'}</span>
-          <span style={{ flex: 1 }}>Название показателя</span>
+          <span style={{ flex: 1, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            Название показателя
+            <InfoTip text="Под этим именем показатель появится на дашборде и в списке метрик. По умолчанию собирается из шапки файла — исправьте на короткое и понятное руководителю." />
+          </span>
           <span style={{ width: 110 }}>Тип</span>
-          <span style={{ width: 90, textAlign: 'center' }}>Названия строк</span>
+          <span style={{ width: 90, textAlign: 'center', display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
+            Названия строк
+            <InfoTip text="Столбец, из которого берутся подписи строк на дашборде — например, названия районов или МФЦ. Такой столбец должен быть ровно один." />
+          </span>
         </div>
         {cols.map((c) => {
           const on = !excluded.has(c.column_index)
@@ -438,7 +517,8 @@ function FieldsPanel({ preview, previewing, transposed, excluded, names, types, 
                 {c.source_header}
               </span>
               <span style={{ flex: 1 }}>
-                <input style={{ ...input, width: '95%', height: 30 }}
+                <input id={`field-name-${c.column_index}`} style={{ ...input, width: '95%', height: 30 }}
+                  title="Так показатель будет называться на дашборде"
                   value={names[c.column_index] ?? c.field_name}
                   onChange={(e) => onName(c.column_index, e.target.value)} />
               </span>
@@ -458,8 +538,24 @@ function FieldsPanel({ preview, previewing, transposed, excluded, names, types, 
       </div>
 
       {preview.sample.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <h3 style={h3}>
+            Так это будет выглядеть на дашборде{' '}
+            <InfoTip text="Черновик по выбранным столбцам и строкам: ничего не сохраняется. Меняйте разметку — картинка пересчитается сразу. На готовом дашборде значения считаются метриками, вид виджетов настраивается отдельно." />
+          </h3>
+          <DashboardDraft
+            columns={kept}
+            rows={preview.sample}
+            labelColumn={preview.row_label_column}
+            names={names}
+            totalRows={preview.row_count}
+          />
+        </div>
+      )}
+
+      {preview.sample.length > 0 && (
         <div style={{ marginTop: 16 }}>
-          <h3 style={h3}>Что получится</h3>
+          <h3 style={h3}>Что получится (данные)</h3>
           <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 10 }}>
             <table style={{ borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
@@ -572,10 +668,13 @@ function StatusBadge({ status }: { status: string }) {
   return <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 12, background: s.bg, color: s.c }}>{s.t}</span>
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: 'var(--text-muted)' }}>
-      {label}{children}
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        {label}{hint && <InfoTip text={hint} />}
+      </span>
+      {children}
     </label>
   )
 }
@@ -586,10 +685,17 @@ const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none'
 const btnGhost: React.CSSProperties = { height: 36, padding: '0 14px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', fontSize: 14, cursor: 'pointer' }
 const btnDanger: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--danger)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }
 const chip: React.CSSProperties = { padding: '6px 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', fontSize: 13, cursor: 'pointer' }
-const chipActive: React.CSSProperties = { background: 'var(--accent-weak-bg)', borderColor: 'var(--accent)', color: 'var(--accent)' }
+// border целиком, а не borderColor поверх сокращённого свойства из chip:
+// иначе React предупреждает о смешивании и при перерисовке рамка «прыгает».
+const chipActive: React.CSSProperties = { background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent)' }
 const h3: React.CSSProperties = { fontSize: 14, margin: '0 0 8px' }
 const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 14 }
 const mapRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid var(--border-faint)' }
+const hintBox: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+  background: 'var(--warn-bg)', color: 'var(--warn)', fontSize: 13,
+  padding: '8px 12px', borderRadius: 8, margin: '0 0 14px',
+}
 const clamp2: React.CSSProperties = {
   display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
 }

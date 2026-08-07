@@ -143,6 +143,39 @@ def test_data_rows_skips_excluded(parsed):
     assert [r[0] for r in rows] == ["Донецк", "Горловка"]
 
 
+def test_footer_rows_have_no_numbers(parsed):
+    """Подвал документа (согласующие, исполнитель) распознаётся как строки без чисел.
+
+    Именно по этому признаку конструктор предлагает снять их одной кнопкой:
+    в реальном отчёте под таблицей идут ФИО и телефоны, и на дашборде от такой
+    строки остаётся только мусорная категория с нулём.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws["A1"] = "Субъект"
+    ws["B1"] = "Значение"
+    ws["A2"] = "Донецк"
+    ws["B2"] = 7078
+    ws["A3"] = "Согласовано:"
+    ws["A4"] = "Заместитель директора           И.И. Иванов"
+    buf = io.BytesIO()
+    wb.save(buf)
+    tbl = parsers.parse(buf.getvalue(), "xlsx").tables[0]
+
+    rect = analyze.detect_data_rect(tbl.rows, tbl.merges)
+    area = mapping.analysis_grid(tbl.rows, tbl.merges, rect, "columns")
+    cols = analyze.analyze_columns(area, 1)
+    numeric = [c.column_index for c in cols if c.inferred_type == "number"]
+    assert numeric, "столбец значений должен определиться как числовой"
+
+    without_numbers = [
+        i for i, row in mapping.data_row_items(area, 1)
+        if not any(analyze.parse_number(row[c]) is not None for c in numeric if c < len(row))
+    ]
+    labels = [area[i][0] for i in without_numbers]
+    assert labels == ["Согласовано:", "Заместитель директора           И.И. Иванов"]
+
+
 def test_short_names_drop_common_header_prefix():
     """Имя показателя не должно начинаться с общего для всех заголовка таблицы.
 

@@ -30,11 +30,16 @@ interface Props {
   excludedRows: Set<number>
   mode: 'table' | 'cells'
   picked: PickedCell[]
+  /** Строки без чисел — обычно подписи и согласующие; помечаем, но не скрываем. */
+  suspectRows: Set<number>
+  /** Имя показателя для столбца — подписываем прямо в шапке листа. */
+  fieldNames: Map<number, string>
   onRect: (r: Rect) => void
   onToggleCol: (c: number) => void
   onToggleRow: (r: number) => void
   onLabelCol: (c: number) => void
   onPickCell: (row: number, col: number, value: string) => void
+  onRenameCol: (c: number) => void
 }
 
 /** Копия сетки с развёрнутыми объединениями — для подстановки имён из шапки. */
@@ -62,7 +67,10 @@ export function colName(i: number): string {
 }
 
 export default function SheetGrid(props: Props) {
-  const { rows, merges, rect, headerRows, labelCol, excludedCols, excludedRows, mode, picked } = props
+  const {
+    rows, merges, rect, headerRows, labelCol, excludedCols, excludedRows, mode, picked,
+    suspectRows, fieldNames,
+  } = props
   const width = rows.reduce((w, r) => Math.max(w, r.length), 0)
   const [r1, c1, , c2] = rect
 
@@ -114,20 +122,33 @@ export default function SheetGrid(props: Props) {
             <th style={{ ...corner, ...sticky }} />
             {Array.from({ length: width }, (_, c) => {
               const off = excludedCols.has(c) || c < c1 || c > c2
+              const fname = fieldNames.get(c)
               return (
                 <th key={c} style={{ ...colHead, opacity: off ? 0.4 : 1 }}>
-                  <button
-                    type="button" style={colBtn} title={off ? 'Включить столбец' : 'Исключить столбец'}
-                    onClick={() => props.onToggleCol(c)}
-                  >
-                    {colName(c)}
-                  </button>
-                  <button
-                    type="button" style={{ ...radio, color: labelCol === c ? 'var(--accent)' : 'var(--text-faint)' }}
-                    title="Столбец с названиями строк" onClick={() => props.onLabelCol(c)}
-                  >
-                    {labelCol === c ? '◉' : '○'}
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <button
+                      type="button" style={colBtn}
+                      title={off ? 'Включить этот столбец в дашборд' : 'Исключить этот столбец из дашборда'}
+                      onClick={() => props.onToggleCol(c)}
+                    >
+                      {off ? '☐' : '☑'} {colName(c)}
+                    </button>
+                    <button
+                      type="button" style={{ ...radio, color: labelCol === c ? 'var(--accent)' : 'var(--text-faint)' }}
+                      title="Здесь лежат названия строк (подписи на дашборде)"
+                      onClick={() => props.onLabelCol(c)}
+                    >
+                      {labelCol === c ? '◉' : '○'}
+                    </button>
+                  </div>
+                  {/* Имя показателя видно прямо в шапке листа: иначе непонятно,
+                      как столбец файла будет называться на дашборде. */}
+                  {fname && !off && (
+                    <button type="button" style={nameBtn} title={`Переименовать: ${fname}`}
+                      onClick={() => props.onRenameCol(c)}>
+                      {fname}
+                    </button>
+                  )}
                 </th>
               )
             })}
@@ -138,10 +159,16 @@ export default function SheetGrid(props: Props) {
             <tr key={r}>
               <th style={{ ...rowHead, ...sticky, opacity: excludedRows.has(r) ? 0.4 : 1 }}>
                 <button
-                  type="button" style={colBtn} title={excludedRows.has(r) ? 'Включить строку' : 'Исключить строку'}
+                  type="button"
+                  style={{ ...colBtn, color: suspectRows.has(r) ? 'var(--warn)' : 'var(--text-muted)' }}
+                  title={
+                    suspectRows.has(r)
+                      ? 'В строке нет чисел — похоже на подпись или примечание. Клик — исключить'
+                      : excludedRows.has(r) ? 'Вернуть строку в дашборд' : 'Исключить строку из дашборда'
+                  }
                   onClick={() => props.onToggleRow(r)}
                 >
-                  {r + 1}
+                  {suspectRows.has(r) ? '⚠' : ''}{r + 1}
                 </button>
               </th>
               {Array.from({ length: width }, (_, c) => {
@@ -210,6 +237,11 @@ const colBtn: React.CSSProperties = {
   color: 'var(--text-muted)', padding: '0 2px',
 }
 const radio: React.CSSProperties = { border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }
+const nameBtn: React.CSSProperties = {
+  display: 'block', maxWidth: 190, border: 'none', background: 'transparent', cursor: 'text',
+  color: 'var(--accent)', fontSize: 10, fontWeight: 600, lineHeight: 1.2, padding: '1px 2px 0',
+  textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+}
 const cell: React.CSSProperties = {
   border: '1px solid var(--border-faint)', padding: '3px 6px', maxWidth: 260,
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'top',
