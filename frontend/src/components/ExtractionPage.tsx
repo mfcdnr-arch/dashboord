@@ -582,7 +582,11 @@ function FieldsPanel({ preview, previewing, transposed, excluded, names, types, 
               <thead>
                 <tr>
                   {kept.map((c) => (
-                    <th key={c.column_index} style={outHead}>{names[c.column_index] ?? c.field_name}</th>
+                    <th key={c.column_index} style={outHead} title={names[c.column_index] ?? c.field_name}>
+                      {/* Сокращаем середину, а не хвост: ограничение по числу
+                          строк обрезало бы конец имени — там всё различие. */}
+                      <span style={headClamp}>{elideMiddle(names[c.column_index] ?? c.field_name, 90)}</span>
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -717,8 +721,24 @@ const hintBox: React.CSSProperties = {
   background: 'var(--warn-bg)', color: 'var(--warn)', fontSize: 13,
   padding: '8px 12px', borderRadius: 8, margin: '0 0 14px',
 }
-const outHead: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '5px 9px', background: 'var(--accent-weak-bg)', color: 'var(--accent)', whiteSpace: 'nowrap', fontSize: 12 }
-const outCell: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '5px 9px', whiteSpace: 'nowrap' }
+// Заголовки переносим по словам и ограничиваем ширину: составное имя
+// показателя в одну строку растягивает таблицу на несколько экранов вширь,
+// и сравнить столбцы глазами невозможно.
+const outHead: React.CSSProperties = {
+  border: '1px solid var(--border-faint)', padding: '5px 9px',
+  background: 'var(--accent-weak-bg)', color: 'var(--accent)', fontSize: 12,
+  whiteSpace: 'normal', overflowWrap: 'anywhere', maxWidth: 190, minWidth: 90,
+  textAlign: 'left', verticalAlign: 'bottom',
+}
+// Больше пяти строк заголовок разрастаться не должен: у формы на 15 граф
+// шапка занимала бы пол-экрана. Полное имя — в подсказке при наведении.
+const headClamp: React.CSSProperties = {
+  display: '-webkit-box', WebkitLineClamp: 5, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+}
+const outCell: React.CSSProperties = {
+  border: '1px solid var(--border-faint)', padding: '5px 9px',
+  whiteSpace: 'normal', overflowWrap: 'anywhere', maxWidth: 190, verticalAlign: 'top',
+}
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 const warnBox: React.CSSProperties = { background: 'var(--warn-bg)', color: 'var(--warn)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 8 }
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }
