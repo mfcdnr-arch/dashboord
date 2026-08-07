@@ -66,6 +66,21 @@ export function labelsAreUseful(rows: string[][], labelColumn: number | null): b
   return ![...distinct].every((v) => parseNum(v) !== null)
 }
 
+/**
+ * Нужна ли логарифмическая шкала.
+ *
+ * На одном графике живут «110 000 записавшихся» и «183 подключённых МФЦ» —
+ * на линейной шкале второй столбик вырождается в полоску толщиной в пиксель.
+ * Логарифм показывает оба, но существует только для строго положительных
+ * значений: ноль и минус на такой шкале не изобразить, поэтому там остаёмся
+ * на линейной и вместо длины столбика полагаемся на подписанное число.
+ */
+export function logScaleAdvice(values: number[]): { helps: boolean; spread: number } {
+  if (values.length < 2 || values.some((v) => !(v > 0))) return { helps: false, spread: 1 }
+  const spread = Math.max(...values) / Math.min(...values)
+  return { helps: spread >= 100, spread }
+}
+
 export default function DashboardDraft({ columns, rows, labelColumn, names, totalRows }: Props) {
   useThemeVersion() // цвета серий берутся из токенов темы — перерисовать при её смене
   const nameOf = (c: FieldSuggestion) => names[c.column_index] ?? c.field_name
@@ -79,6 +94,7 @@ export default function DashboardDraft({ columns, rows, labelColumn, names, tota
   const useful = useMemo(() => labelsAreUseful(rows, labelColumn), [rows, labelColumn])
   const [byRowsChoice, setByRows] = useState<boolean | null>(null)
   const byRows = byRowsChoice ?? useful
+  const [logScale, setLogScale] = useState<boolean | null>(null)
 
   if (!numeric.length) {
     return (
@@ -104,16 +120,19 @@ export default function DashboardDraft({ columns, rows, labelColumn, names, tota
   const chart = byRows && shown
     ? {
         title: `${nameOf(shown)} — по строкам отчёта`,
-        labels: rowLabels,
+        labels: rowLabels.map((l) => elideMiddle(l, 42)),
         values: rows.map((r) => parseNum(r[shown.column_index]) ?? 0),
         full: rowLabels,
       }
     : {
         title: 'Показатели отчёта',
-        labels: totals.map((t) => elideMiddle(nameOf(t.col), 60)),
+        labels: totals.map((t) => elideMiddle(nameOf(t.col), 42)),
         values: totals.map((t) => t.value),
         full: totals.map((t) => nameOf(t.col)),
       }
+
+  const { helps: logHelps, spread } = logScaleAdvice(chart.values)
+  const useLog = logScale ?? logHelps
 
   return (
     <div style={box}>
@@ -148,21 +167,44 @@ export default function DashboardDraft({ columns, rows, labelColumn, names, tota
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{chart.title}</span>
-            {useful && (
-              <span style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
-                <button type="button" style={{ ...tab, ...(byRows ? tabActive : {}) }} onClick={() => setByRows(true)}>
-                  по строкам
-                </button>
-                <button type="button" style={{ ...tab, ...(!byRows ? tabActive : {}) }} onClick={() => setByRows(false)}>
-                  по показателям
-                </button>
-              </span>
-            )}
+            <span style={{ display: 'flex', gap: 4, marginLeft: 'auto', flexWrap: 'wrap' }}>
+              {logHelps && (
+                <>
+                  <button type="button" style={{ ...tab, ...(!useLog ? tabActive : {}) }}
+                    title="Обычная шкала: показатели сравнимы по длине столбика, но маленькие могут быть не видны"
+                    onClick={() => setLogScale(false)}>
+                    линейная
+                  </button>
+                  <button type="button" style={{ ...tab, ...(useLog ? tabActive : {}) }}
+                    title="Логарифмическая шкала: видно и сотни, и сотни тысяч, но длина столбиков уже не пропорциональна значениям"
+                    onClick={() => setLogScale(true)}>
+                    логарифмическая
+                  </button>
+                </>
+              )}
+              {useful && (
+                <>
+                  <button type="button" style={{ ...tab, ...(byRows ? tabActive : {}) }} onClick={() => setByRows(true)}>
+                    по строкам
+                  </button>
+                  <button type="button" style={{ ...tab, ...(!byRows ? tabActive : {}) }} onClick={() => setByRows(false)}>
+                    по показателям
+                  </button>
+                </>
+              )}
+            </span>
           </div>
+          {useLog && (
+            <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 2 }}>
+              Значения различаются в {Math.round(spread)} раз, поэтому шкала логарифмическая —
+              иначе маленькие показатели не видны. Точные числа подписаны у столбиков.
+            </div>
+          )}
           <EChartLazy
-            height={Math.max(200, Math.min(560, chart.labels.length * 30 + 60))}
+            height={Math.max(220, Math.min(700, chart.labels.length * 46 + 60))}
             option={{
-              grid: { left: 8, right: 24, top: 10, bottom: 8, containLabel: true },
+              // Справа оставляем место под число у конца столбика.
+              grid: { left: 8, right: 72, top: 10, bottom: 8, containLabel: true },
               // Подпись в подсказке — ПОЛНАЯ: на оси имя может не поместиться,
               // а различие показателей часто именно в хвосте.
               tooltip: {
@@ -172,13 +214,28 @@ export default function DashboardDraft({ columns, rows, labelColumn, names, tota
                   return `${chart.full[it.dataIndex]}<br/><b>${fmt(it.value)}</b>`
                 },
               },
-              xAxis: { type: 'value' },
+              // hideOverlap: на узкой колонке деления логарифмической шкалы
+              // («1 10 100 1 000 10 000 100 000») наезжают друг на друга
+              // и превращаются в кашу — лишние лучше не рисовать.
+              xAxis: { type: useLog ? 'log' : 'value', axisLabel: { hideOverlap: true } },
               yAxis: {
                 type: 'category', data: chart.labels, inverse: true,
-                axisLabel: { width: 300, overflow: 'break', lineHeight: 14, fontSize: 11 },
+                axisLabel: {
+                  // interval: 0 обязателен: иначе ECharts прячет часть подписей,
+                  // чтобы они не налезали друг на друга, и столбик остаётся
+                  // безымянным — именно это и увидел заказчик у верхнего.
+                  interval: 0,
+                  width: 230, overflow: 'break', lineHeight: 13, fontSize: 11,
+                },
               },
               series: [{
                 type: 'bar', data: chart.values, barMaxWidth: 22,
+                // Число у столбика: на логарифмической шкале длина обманчива,
+                // да и короткий столбик иначе не прочитать.
+                label: {
+                  show: true, position: 'right', fontSize: 11,
+                  formatter: (p: any) => fmt(p.value),
+                },
                 itemStyle: byRows
                   ? { color: colors[0] }
                   : { color: (p: any) => colors[p.dataIndex % colors.length] },

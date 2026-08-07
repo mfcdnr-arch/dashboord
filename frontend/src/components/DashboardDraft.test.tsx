@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aggregate, labelsAreUseful, parseNum } from './DashboardDraft'
+import { aggregate, labelsAreUseful, logScaleAdvice, parseNum } from './DashboardDraft'
 import { elideMiddle } from '../lib/text'
 
 describe('elideMiddle', () => {
@@ -15,6 +15,24 @@ describe('elideMiddle', () => {
 
   it('короткие имена не трогает', () => {
     expect(elideMiddle('Доля обращений, %', 50)).toBe('Доля обращений, %')
+  })
+})
+
+describe('logScaleAdvice', () => {
+  it('советует логарифм, когда маленький столбик иначе не виден', () => {
+    // 110 000 записавшихся против 183 подключённых МФЦ — случай заказчика.
+    const { helps, spread } = logScaleAdvice([109993, 183, 67])
+    expect(helps).toBe(true)
+    expect(Math.round(spread)).toBe(1642)
+  })
+
+  it('на сравнимых значениях оставляет обычную шкалу', () => {
+    expect(logScaleAdvice([100, 120, 90]).helps).toBe(false)
+  })
+
+  it('ноль и отрицательные значения на логарифм не пускает — их там нет', () => {
+    expect(logScaleAdvice([0, 100000]).helps).toBe(false)
+    expect(logScaleAdvice([-5, 100000]).helps).toBe(false)
   })
 })
 
