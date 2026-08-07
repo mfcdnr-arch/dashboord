@@ -39,6 +39,8 @@ export interface FieldSuggestion {
   field_name: string
   data_type: string
   is_row_label: boolean
+  /** «№ п/п» и подобное: счётчик строк бланка, а не показатель. */
+  is_counter?: boolean
   confidence: number | null
 }
 export interface MappingSuggestion {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   createRelease, getExtractionForVersion, getJob, layoutPreview, startExtraction,
   type CellPick, type Doc, type ExtractionJob, type FieldMap, type LayoutPreview, type ReleaseResult,
@@ -90,9 +90,14 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
     [transposed, excludedRows, excludedCols, rect],
   )
 
+  // Счётчик строк снимается автоматически только при первом расчёте разметки
+  // для таблицы: иначе пользователь не смог бы вернуть столбец обратно.
+  const trimmed = useRef(false)
+
   const selectTable = useCallback((j: ExtractionJob, tid: string) => {
     const t = j.tables.find((x) => x.id === tid)
     if (!t) return
+    trimmed.current = false
     setTableId(tid)
     const width = t.preview.reduce((w, r) => Math.max(w, r.length), 0)
     const r = (t.data_rect && t.data_rect.length === 4
@@ -130,6 +135,14 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
         .then((p) => {
           setPreview(p)
           setLabelField((cur) => (cur === null ? p.row_label_column : cur))
+          // Один раз на таблицу снимаем счётчик строк бланка («№ п/п»):
+          // на дашборде это не показатель, а номер по порядку. Дальше
+          // выбор за пользователем — повторно не вмешиваемся.
+          if (!trimmed.current) {
+            trimmed.current = true
+            const counters = p.columns.filter((c) => c.is_counter).map((c) => c.column_index)
+            if (counters.length) setExcludedCols((s) => new Set([...s, ...counters]))
+          }
         })
         .catch(fail)
         .finally(() => setPreviewing(false))
@@ -286,16 +299,24 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
         </div>
       ) : (
         <>
-          {job!.tables.length > 1 && (
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-              {job!.tables.map((t) => (
-                <button key={t.id} onClick={() => selectTable(job!, t.id)}
-                  style={{ ...chip, ...(t.id === tableId ? chipActive : {}) }}>
-                  {t.sheet_or_page || `Таблица ${t.table_index + 1}`} · {t.row_count}×{t.column_count}
-                </button>
-              ))}
-            </div>
-          )}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            {job!.tables.length > 1 && job!.tables.map((t) => (
+              <button key={t.id} onClick={() => selectTable(job!, t.id)}
+                style={{ ...chip, ...(t.id === tableId ? chipActive : {}) }}>
+                {t.sheet_or_page || `Таблица ${t.table_index + 1}`} · {t.row_count}×{t.column_count}
+              </button>
+            ))}
+            {/* Повторное распознавание нужно не только после ошибки: разбор
+                документа улучшается, а у ранее загруженных файлов остаётся
+                сохранённый прежний результат — иначе исправления до них
+                просто не доходят. */}
+            {canManage && (
+              <button type="button" style={{ ...chip, marginLeft: 'auto' }} title="Разобрать файл заново — текущая разметка сбросится"
+                onClick={() => { if (confirm('Разобрать документ заново? Текущая разметка сбросится.')) runExtraction() }}>
+                ↻ Распознать заново
+              </button>
+            )}
+          </div>
 
           {table && (
             <>
@@ -334,8 +355,8 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
                 <div style={hintBox}>
                   <span>
                     ⚠ {suspectSheetRows.length}{' '}
-                    {suspectSheetRows.length === 1 ? 'строка без чисел' : 'строк(и) без чисел'} —
-                    обычно это подписи, согласующие и примечания под таблицей.
+                    {suspectSheetRows.length === 1 ? 'строка без данных' : 'строк(и) без данных'} —
+                    обычно это пустые заготовки бланка, подписи и примечания.
                   </span>
                   <button type="button" style={{ ...chip, border: '1px solid var(--warn)', color: 'var(--warn)' }}
                     onClick={() => (transposed
@@ -546,7 +567,7 @@ function FieldsPanel({ preview, previewing, transposed, excluded, names, types, 
           <DashboardDraft
             columns={kept}
             rows={preview.sample}
-            labelColumn={preview.row_label_column}
+            labelColumn={labelField ?? preview.row_label_column}
             names={names}
             totalRows={preview.row_count}
           />

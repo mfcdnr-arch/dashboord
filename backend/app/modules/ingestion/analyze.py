@@ -201,11 +201,24 @@ def guess_header_rows(rows: List[List[str]], rect: Optional[Rect] = None) -> int
     return header
 
 
+_WS_RE = re.compile(r"\s+")
+
+
+def _clean(text: str) -> str:
+    """Схлопывает переносы строк и повторные пробелы внутри заголовка.
+
+    В бланках заголовок переносят по строкам прямо внутри ячейки, и без этого
+    имя показателя приезжает с «\\n» посередине — в поле ввода и на графике
+    выглядит сломанным.
+    """
+    return _WS_RE.sub(" ", text).strip()
+
+
 def _compose_header(header_rows: List[List[str]], col: int) -> str:
     """Многоэтажная шапка → составное имя столбца (док-06)."""
     parts: List[str] = []
     for hr in header_rows:
-        val = hr[col].strip() if col < len(hr) else ""
+        val = _clean(hr[col]) if col < len(hr) else ""
         if val and val not in parts:
             parts.append(val)
     return " · ".join(parts)
@@ -268,6 +281,22 @@ def short_names(headers: Sequence[str]) -> List[str]:
         HEADER_SEP.join(p[common:]) if len(p) > 1 and len(p) > common else HEADER_SEP.join(p)
         for p in parts
     ]
+
+
+# Столбец сквозной нумерации строк бланка: подписью на дашборде служить не может.
+# «№» — не буква, поэтому \b после него не срабатывает: якорим по началу строки.
+_COUNTER_HEADER_RE = re.compile(r"^\s*(№|n\b|no\b)|п/п|поряд(ковый|ок)", re.IGNORECASE)
+
+
+def is_counter_column(header: str) -> bool:
+    """«№ п/п» и подобное — счётчик строк, а не название строки.
+
+    В бланках это первый столбец, и он же первый ТЕКСТОВЫЙ (в незаполненных
+    строках там «…», сноски «*», подписи), поэтому наивный выбор «первый
+    текстовый столбец» назначал подписями дашборда номера по порядку вместо
+    названий субъектов.
+    """
+    return bool(_COUNTER_HEADER_RE.search(header.strip()))
 
 
 def dedupe_codes(codes: Sequence[str]) -> List[str]:

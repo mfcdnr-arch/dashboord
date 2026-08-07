@@ -215,6 +215,58 @@ def test_footer_rows_have_no_numbers(parsed):
     assert labels == ["Согласовано:", "Заместитель директора           И.И. Иванов"]
 
 
+def test_type_ignores_excluded_rows():
+    """Тип столбца — по строкам, которые реально уедут в датасет.
+
+    В бланке заказчика ФИО подписанта («Д.В.Регеда») стоит в столбце значений
+    ниже таблицы. Если считать тип по всем строкам, столбец становится
+    текстовым, число не попадает в value_number — и показатель на дашборде
+    не считается вовсе. Исключение строки должно возвращать столбцу тип числа.
+    """
+    area = [
+        ["Субъект", "За неделю"],   # шапка
+        ["Донецк", "33748"],        # данные
+        ["Заместитель руководителя", "Д.В.Регеда"],  # подпись
+    ]
+    both = analyze.analyze_columns(area, 1)
+    assert both[1].inferred_type == "text", "с подписью столбец выглядит текстовым"
+
+    kept = mapping.data_row_items(area, 1, skip_rows=[2])
+    only_data = analyze.analyze_columns(area[:1] + [row for _i, row in kept], 1)
+    assert only_data[1].inferred_type == "number"
+
+
+def test_counter_column_is_not_a_row_label():
+    """«№ п/п» — счётчик строк бланка, подписью на дашборде быть не может.
+
+    В настоящей форме заказчика этот столбец оказывается ещё и первым
+    ТЕКСТОВЫМ (в незаполненных строках там «…», сноски «*», подписи), поэтому
+    наивный выбор «первый текстовый столбец» назначал подписями номера строк
+    вместо названий субъектов.
+    """
+    assert analyze.is_counter_column("№ п/п")
+    assert analyze.is_counter_column("№")
+    assert analyze.is_counter_column("N п/п")
+    assert analyze.is_counter_column("Порядковый номер")
+    assert not analyze.is_counter_column("Субъект Российской Федерации")
+    assert not analyze.is_counter_column("Количество обращений")
+
+
+def test_header_newlines_are_collapsed():
+    """Заголовок переносят внутри ячейки — в имени показателя переносов быть не должно."""
+    wb = Workbook()
+    ws = wb.active
+    ws["A1"] = "Субъект"
+    ws["B1"] = "Количество отправленных уведомлений\nо готовности результатов\nв МФЦ"
+    ws["A2"], ws["B2"] = "Донецк", 7078
+    buf = io.BytesIO()
+    wb.save(buf)
+    tbl = parsers.parse(buf.getvalue(), "xlsx").tables[0]
+
+    cols = analyze.analyze_columns(parsers.fill_merges(tbl.rows, tbl.merges), 1)
+    assert cols[1].source_header == "Количество отправленных уведомлений о готовности результатов в МФЦ"
+
+
 def test_short_names_drop_common_header_prefix():
     """Имя показателя не должно начинаться с общего для всех заголовка таблицы.
 

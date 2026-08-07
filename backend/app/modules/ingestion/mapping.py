@@ -53,10 +53,16 @@ async def suggest_mapping(conn, table_id: str, object_id) -> dict:
     )
     by_slug = {analyze.slug(e["name"]): e["code"] for e in existing}
 
-    # столбец-метка — первый текстовый (иначе первый столбец)
-    label_idx = next((c["column_index"] for c in columns if c["inferred_type"] == "text"), None)
-    if label_idx is None and columns:
-        label_idx = columns[0]["column_index"]
+    # столбец-метка — первый текстовый, кроме счётчика «№ п/п» (иначе первый)
+    text_cols = [c for c in columns if c["inferred_type"] == "text"]
+    label_idx = next(
+        (c["column_index"] for c in text_cols
+         if not analyze.is_counter_column(c["source_header"] or "")),
+        None,
+    )
+    if label_idx is None:
+        label_idx = text_cols[0]["column_index"] if text_cols else (
+            columns[0]["column_index"] if columns else None)
 
     headers = [c["source_header"] or f"Столбец {c['column_index'] + 1}" for c in columns]
     # Коды обязаны быть различными: у формы с баннером во всю ширину все столбцы
@@ -158,7 +164,13 @@ async def layout_preview(
     area = analysis_grid(grid, merges, rect, orientation)
     hdr = table["header_rows"] if header_rows is None else header_rows
     hdr = max(0, min(int(hdr or 0), len(area)))
-    columns = analyze.analyze_columns(area, hdr)
+
+    items = data_row_items(area, hdr, skip_rows)
+    # Тип столбца определяем ТОЛЬКО по строкам, которые реально уедут в датасет.
+    # В бланке под таблицей стоит подпись, и ФИО «Д.В.Регеда» попадает в столбец
+    # значений: если считать тип по всем строкам, столбец становится текстовым,
+    # число не пишется в value_number, и показатель на дашборде не считается.
+    columns = analyze.analyze_columns(area[:hdr] + [row for _i, row in items], hdr)
 
     existing = await conn.fetch(
         "select code, name from canonical_fields where object_id=$1", object_id
@@ -170,26 +182,43 @@ async def layout_preview(
     names = analyze.short_names(headers)
     codes = analyze.dedupe_codes([by_slug.get(analyze.slug(n)) or analyze.slug(n) for n in names])
 
-    label_idx = next((c.column_index for c in columns if c.inferred_type == "text"), None)
-    if label_idx is None and columns:
-        label_idx = columns[0].column_index
+    # Столбец названий строк: первый текстовый, но НЕ счётчик «№ п/п» —
+    # иначе подписями на дашборде становятся номера по порядку.
+    text_cols = [c for c in columns if c.inferred_type == "text"]
+    label_idx = next(
+        (c.column_index for c in text_cols if not analyze.is_counter_column(c.source_header)),
+        None,
+    )
+    if label_idx is None:
+        label_idx = text_cols[0].column_index if text_cols else (columns[0].column_index if columns else None)
 
-    items = data_row_items(area, hdr, skip_rows)
     rows = [row for _i, row in items]
 
-    # Служебные строки: в реальных отчётах под таблицей идут ФИО согласующих и
-    # подписывающих, примечания, «Исполнитель: …». Опознаём их по отсутствию
-    # чисел во ВСЕХ числовых столбцах — на дашборде от такой строки ничего не
-    # останется, кроме мусорной категории. Это подсказка, а не автоудаление:
-    # решение снять их принимает пользователь одной кнопкой.
+    # Служебные строки. Их два вида, и оба на дашборде дают пустую категорию:
+    #   • подвал документа — ФИО согласующих, «Исполнитель: …», примечания:
+    #     чисел в числовых столбцах нет вовсе;
+    #   • заготовки формы — в бланке заранее пронумерованы строки под все
+    #     субъекты, и незаполненные несут только порядковый номер. Правило «нет
+    #     чисел» их НЕ ловит: номер по порядку сам числовой, поэтому смотрим
+    #     ещё и на то, заполнено ли хоть что-то правее первого столбца области.
+    # Это подсказка, а не автоудаление: снимает их пользователь одной кнопкой.
     numeric_cols = [c.column_index for c in columns if c.inferred_type == "number"]
+    first_col = columns[0].column_index if columns else 0
     row_info = []
     for i, row in items:
         label = row[label_idx] if label_idx is not None and label_idx < len(row) else ""
         has_number = any(
             analyze.parse_number(row[c]) is not None for c in numeric_cols if c < len(row)
         )
-        row_info.append({"index": i, "label": label, "has_number": has_number})
+        filled_beyond_first = any(
+            str(row[c.column_index]).strip()
+            for c in columns
+            if c.column_index != first_col and c.column_index < len(row)
+        )
+        row_info.append({
+            "index": i, "label": label,
+            "has_number": has_number and filled_beyond_first,
+        })
 
     return {
         "data_rect": rect,
@@ -207,6 +236,9 @@ async def layout_preview(
                 "field_name": short,
                 "data_type": c.inferred_type,
                 "is_row_label": c.column_index == label_idx,
+                # Счётчик строк бланка показателем не является — конструктор
+                # снимает такие столбцы сразу, чтобы «№ п/п» не уезжал на дашборд.
+                "is_counter": analyze.is_counter_column(c.source_header),
                 "confidence": c.confidence,
             }
             for c, code, short in zip(columns, codes, names, strict=True)

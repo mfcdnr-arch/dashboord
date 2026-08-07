@@ -164,7 +164,7 @@ export default function SheetGrid(props: Props) {
                   style={{ ...colBtn, color: suspectRows.has(r) ? 'var(--warn)' : 'var(--text-muted)' }}
                   title={
                     suspectRows.has(r)
-                      ? 'В строке нет чисел — похоже на подпись или примечание. Клик — исключить'
+                      ? 'В строке нет данных — похоже на пустую заготовку бланка или примечание. Клик — исключить'
                       : excludedRows.has(r) ? 'Вернуть строку в дашборд' : 'Исключить строку из дашборда'
                   }
                   onClick={() => props.onToggleRow(r)}
