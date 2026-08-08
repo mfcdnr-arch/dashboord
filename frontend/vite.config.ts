@@ -6,6 +6,17 @@ import react from '@vitejs/plugin-react'
 // чтобы не упираться в CORS.
 export default defineConfig({
   plugins: [react()],
+  // react-draggable (через react-grid-layout) вызывает свой отладочный log:
+  //   if (process.env.DRAGGABLE_DEBUG) console.log(...)
+  // В браузере глобального `process` нет, поэтому вызов падал с
+  // «ReferenceError: process is not defined» ВНУТРИ обработчика начала
+  // перетаскивания — виджеты на дашборде не двигались и не меняли размер
+  // вообще. Подставляем константу на этапе сборки: и для исходников, и для
+  // предварительно собранных зависимостей (dev-режим).
+  define: { 'process.env.DRAGGABLE_DEBUG': 'false' },
+  optimizeDeps: {
+    esbuildOptions: { define: { 'process.env.DRAGGABLE_DEBUG': 'false' } },
+  },
   test: {
     environment: 'jsdom',
     globals: true,
