@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { EChartsOption } from 'echarts'
 import { getWidgetData, getWidgetDrill } from '../api'
 import { chartColors, useThemeVersion } from '../theme'
@@ -460,7 +461,12 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
 }
 
 function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
-  return (
+  // Портал в body обязателен: сетка дашборда (react-grid-layout) двигает
+  // виджеты CSS-трансформацией, а внутри трансформированного предка
+  // position:fixed отсчитывается от НЕГО, а не от окна. Окно «подробнее»
+  // оказывалось внутри карточки, обрезалось её overflow:hidden — вместе с
+  // крестиком, и закрыть его было нечем.
+  return createPortal((
     <div style={overlay} onClick={onClose}>
       <div style={dialog} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
@@ -514,7 +520,7 @@ function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
         })}
       </div>
     </div>
-  )
+  ), document.body)
 }
 
 const muted: React.CSSProperties = { fontSize: 11, color: 'var(--text-faint)' }

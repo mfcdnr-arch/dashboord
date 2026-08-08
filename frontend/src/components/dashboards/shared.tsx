@@ -45,6 +45,10 @@ export const tab: React.CSSProperties = { height: 34, padding: '0 14px', border:
 export const presetChip: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--accent-weak-bg)', padding: '3px 10px', borderRadius: 12 }
 export const tabActive: React.CSSProperties = { background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent)' }
 export const widgetCard: React.CSSProperties = { border: '1px solid var(--border)', borderRadius: 12, padding: 14, background: 'var(--surface)' }
+export const editHint: React.CSSProperties = {
+  background: 'var(--accent-weak-bg)', color: 'var(--accent)', fontSize: 12,
+  padding: '8px 12px', borderRadius: 8, marginBottom: 10,
+}
 export const wtBadge: React.CSSProperties = { marginLeft: 8, fontSize: 11, padding: '1px 7px', borderRadius: 8, background: 'var(--accent-weak-bg)', color: 'var(--accent)' }
 export const rmBtn: React.CSSProperties = { marginLeft: 'auto', width: 24, height: 24, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--danger)' }
 export const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 14, padding: '8px 0' }

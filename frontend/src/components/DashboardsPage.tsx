@@ -24,7 +24,7 @@ import { DashboardList } from './dashboards/DashboardList'
 import { FolderMoveDialog } from './dashboards/FolderMoveDialog'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
 import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
-import { PubBadge, WT, alertBtn, btn, btnGhost, crumb, dialog, editBtn, errBox, input, linkDanger, muted, overlay, presetChip, rmBtn, tab, tabActive, widgetCard, wtBadge } from './dashboards/shared'
+import { PubBadge, WT, alertBtn, btn, btnGhost, crumb, dialog, editBtn, editHint, errBox, input, linkDanger, muted, overlay, presetChip, rmBtn, tab, tabActive, widgetCard, wtBadge } from './dashboards/shared'
 
 
 const DASH_PAGE = 50
@@ -529,7 +529,15 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
             <div ref={pageRef} style={{ background: 'var(--surface)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                 <h3 style={{ fontSize: 15, margin: 0 }}>Страница «{page.name}»</h3>
-                {canManage && <button style={{ ...tab, height: 30, ...(editMode ? tabActive : {}) }} onClick={() => setEditMode((v) => !v)}>{editMode ? '✓ Готово' : '✎ Раскладка'}</button>}
+                {canManage && (
+                  <button style={{ ...tab, height: 30, ...(editMode ? tabActive : {}) }}
+                    title={editMode
+                      ? 'Выйти из режима правки раскладки'
+                      : 'Включить перетаскивание виджетов и изменение их размера'}
+                    onClick={() => setEditMode((v) => !v)}>
+                    {editMode ? '✓ Готово' : '✎ Двигать и менять размер'}
+                  </button>
+                )}
                 {canManage && <button style={linkDanger} onClick={() => delPage(page)}>удалить страницу</button>}
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
                   <span>Период:</span>
@@ -569,6 +577,17 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                 {canManage && <button style={{ ...tab, height: 28 }} onClick={savePreset}>💾 Сохранить текущие</button>}
                 <span style={{ fontSize: 12, color: 'var(--text-faint)', marginLeft: 4 }}>клик по столбцу/сектору тоже задаёт «Строку»</span>
               </div>
+
+              {/* В режиме правки объясняем, ЧЕМ именно двигать и тянуть: без
+                  подсказки перетаскивание и изменение размера просто не
+                  находят — кнопка «Раскладка» об этом не говорит. */}
+              {editMode && (
+                <div style={editHint}>
+                  ✎ Перетаскивайте виджет за <strong>заголовок</strong>, размер меняйте за
+                  <strong> правый нижний угол</strong>. Свёрнутые виджеты не двигаются — разверните их (▸).
+                  Положение и размер сохраняются сразу.
+                </div>
+              )}
 
               {/* Сетка виджетов (drag-drop в режиме раскладки). Ширина сетки —
                   ФАКТИЧЕСКАЯ ширина контейнера (useContainerWidth), а не 1280px

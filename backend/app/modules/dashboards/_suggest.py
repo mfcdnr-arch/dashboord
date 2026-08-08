@@ -132,19 +132,31 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None) -> dict:
         fields = await _dataset_numeric_fields(conn, org_id, code)
         if not fields:
             continue
+        # Раскладка без дыр: сетка 12 колонок заполняется целиком, иначе
+        # страница вытягивается вниз при пустом месте справа.
+        #   ряд 1 (h=6): KPI 3 + KPI 3 (друг под другом) | график 5 | динамика 4
+        #   ряд 2 (h=6): таблица во всю ширину
+        # Без динамики (один период) график занимает освободившиеся колонки.
         f0 = fields[0]
+        has_dyn = (d["periods"] or 0) > 1
+        chart_w = 5 if has_dyn else 9
         await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: Σ {f0['name']}", "kpi",
                             {"dataset_code": code, "value_field": f0["code"]},
                             {"position_x": 0, "position_y": y, "width": 3, "height": 3}); n += 1
+        if len(fields) > 1:
+            f1 = fields[1]
+            await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: Σ {f1['name']}", "kpi",
+                                {"dataset_code": code, "value_field": f1["code"]},
+                                {"position_x": 0, "position_y": y + 3, "width": 3, "height": 3}); n += 1
         await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: {f0['name']} по строкам", "bar",
                             {"dataset_code": code, "value_field": f0["code"]},
-                            {"position_x": 3, "position_y": y, "width": 5, "height": 6}); n += 1
-        if (d["periods"] or 0) > 1:
+                            {"position_x": 3, "position_y": y, "width": chart_w, "height": 6}); n += 1
+        if has_dyn:
             await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: динамика {f0['name']}", "dynamics",
                                 {"dataset_code": code, "value_field": f0["code"]},
                                 {"position_x": 8, "position_y": y, "width": 4, "height": 6}); n += 1
         await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: таблица", "table",
                             {"dataset_code": code},
-                            {"position_x": 0, "position_y": y + 6, "width": 6, "height": 6}); n += 1
+                            {"position_x": 0, "position_y": y + 6, "width": 12, "height": 6}); n += 1
         y += 12
     return {"dashboard_id": did, "page_id": pid, "widgets": n}
