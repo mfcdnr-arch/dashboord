@@ -50,6 +50,16 @@ async def _formula_value(conn, org_id, formula: str):
 async def _metric_value(conn, org_id, code: str):
     row = await _best_metric_version(conn, org_id, code)
     if row is None:
+        # Различаем «метрики нет» и «метрика есть, но формулы у неё нет»:
+        # заказчик завёл метрику, не сохранил версию формулы и получил
+        # «не найдена» — сообщение уводило искать опечатку в коде.
+        exists = await conn.fetchval(
+            "select 1 from metrics where organization_id=$1 and code=$2", org_id, code)
+        if exists:
+            raise DashboardError(
+                f"У метрики '{code}' нет ни одной версии формулы. "
+                "Откройте её в разделе «Метрики» и сохраните формулу."
+            )
         raise DashboardError(f"Метрика '{code}' не найдена")
     ast = row["formula_ast"]
     if isinstance(ast, str):

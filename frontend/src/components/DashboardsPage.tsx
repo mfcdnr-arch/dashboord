@@ -9,6 +9,7 @@ import {
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Folder, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
 } from '../api'
 import { useContainerWidth } from '../lib/useWidth'
+import { elideMiddle } from '../lib/text'
 import WidgetView from './WidgetView'
 import InfoTip from './InfoTip'
 import { WIDGET_META } from './dashboards/WidgetPicker'
@@ -588,11 +589,17 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                   }))}>
                   {widgets.map((w) => (
                     <div key={w.id} style={{ ...widgetCard, height: '100%', overflow: 'hidden', outline: editMode ? '1px dashed var(--text-faint)' : 'none' }}>
-                      <div className={editMode ? 'wdrag' : ''} style={{ display: 'flex', alignItems: 'center', marginBottom: 8, cursor: editMode ? 'move' : 'default' }}>
-                        <button style={{ ...editBtn, cursor: 'pointer' }} onClick={() => toggleCollapse(w.id)}
+                      {/* Шапка строго в одну строку. Иначе длинное имя виджета
+                          («… · Факт · нарастающим итогом**») переносится, у
+                          свёрнутого виджета высота всего 40px, и кнопка ▸
+                          выезжает за карточку — свернуть можно, а развернуть
+                          уже нечем. */}
+                      <div className={editMode ? 'wdrag' : ''} style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', marginBottom: 8, cursor: editMode ? 'move' : 'default' }}>
+                        <button style={{ ...editBtn, cursor: 'pointer', flexShrink: 0 }} onClick={() => toggleCollapse(w.id)}
                           title={collapsed.has(w.id) ? 'Развернуть виджет' : 'Свернуть виджет'}>{collapsed.has(w.id) ? '▸' : '▾'}</button>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{w.name}</div>
-                        <span style={wtBadge}>{WT.find((x) => x.v === w.widget_type)?.t || w.widget_type}</span>
+                        <div style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          title={w.name}>{elideMiddle(w.name, 70)}</div>
+                        <span style={{ ...wtBadge, flexShrink: 0 }}>{WT.find((x) => x.v === w.widget_type)?.t || w.widget_type}</span>
                         <span style={{ marginLeft: 6 }}>
                           <InfoTip text={widgetTip(w)} />
                         </span>
