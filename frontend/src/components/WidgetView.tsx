@@ -231,7 +231,14 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
           <thead><tr>
             <th style={{ ...th, ...sortableTh }} onClick={() => toggleSort(setTableSort, '__row')}>Строка{sortArrow(tableSort, '__row')}</th>
-            {cols.map((c: string) => <th key={c} style={{ ...th, ...sortableTh }} onClick={() => toggleSort(setTableSort, c)}>{c}{sortArrow(tableSort, c)}</th>)}
+            {/* Заголовок — человеческое имя показателя; код остаётся ключом
+                данных и подсказкой, чтобы можно было сверить с формулой. */}
+            {cols.map((c: string) => (
+              <th key={c} style={{ ...th, ...sortableTh }} title={c}
+                onClick={() => toggleSort(setTableSort, c)}>
+                {(data.column_titles?.[c] as string) || c}{sortArrow(tableSort, c)}
+              </th>
+            ))}
           </tr></thead>
           <tbody>
             {rows.length === 0 && <tr><td style={td} colSpan={cols.length + 1}>Ничего не найдено</td></tr>}
@@ -488,7 +495,11 @@ function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Датасет «{dc}»</div>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
-                  <thead><tr><th style={th}>Строка</th>{t.columns.map((c: string) => <th key={c} style={th}>{c}</th>)}</tr></thead>
+                  <thead><tr><th style={th}>Строка</th>
+                    {t.columns.map((c: string) => (
+                      <th key={c} style={th} title={c}>{t.column_titles?.[c] || c}</th>
+                    ))}
+                  </tr></thead>
                   <tbody>
                     {t.rows.map((r: any, i: number) => (
                       <tr key={i}><td style={{ ...td, fontWeight: 600 }}>{r.row}</td>

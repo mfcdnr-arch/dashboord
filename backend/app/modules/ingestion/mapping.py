@@ -23,6 +23,15 @@ class ReleaseConflict(Exception):
         super().__init__("Выпуск за этот период уже существует")
 
 
+def _norm_name(name: str) -> str:
+    """Ключ сопоставления показателя с уже заведённым полем объекта.
+
+    Только регистр и пробелы: имя показателя — единственное, что устойчиво
+    повторяется в одной и той же форме за разные периоды.
+    """
+    return " ".join((name or "").split()).lower()
+
+
 async def resolve_context(conn, job_id: str) -> Optional[dict]:
     """object_id, organization_id и source_document_version_id по заданию извлечения."""
     return await conn.fetchrow(
@@ -51,7 +60,9 @@ async def suggest_mapping(conn, table_id: str, object_id) -> dict:
     existing = await conn.fetch(
         "select code, name, data_type from canonical_fields where object_id=$1", object_id
     )
-    by_slug = {analyze.slug(e["name"]): e["code"] for e in existing}
+    by_name: dict[str, str] = {}
+    for e in existing:
+        by_name.setdefault(_norm_name(e["name"]), e["code"])
 
     # столбец-метка — первый текстовый, кроме счётчика «№ п/п» (иначе первый)
     text_cols = [c for c in columns if c["inferred_type"] == "text"]
@@ -69,7 +80,7 @@ async def suggest_mapping(conn, table_id: str, object_id) -> dict:
     # получали один заголовок → один slug → нарушение unique на выпуске.
     names = analyze.short_names(headers)
     codes = analyze.dedupe_codes([
-        c["canonical_field_code"] or by_slug.get(analyze.slug(n)) or analyze.slug(n)
+        c["canonical_field_code"] or by_name.get(_norm_name(n)) or analyze.slug(n)
         for c, n in zip(columns, names, strict=True)
     ])
     suggestions = []
@@ -172,15 +183,28 @@ async def layout_preview(
     # число не пишется в value_number, и показатель на дашборде не считается.
     columns = analyze.analyze_columns(area[:hdr] + [row for _i, row in items], hdr)
 
+    # Порядок важен: за именем закрепляется код, выданный ему ПЕРВЫМ. Если в
+    # справочнике накопились варианты одного имени (например, после неудачного
+    # выпуска), показатель не должен «переезжать» на новый код — иначе прошлые
+    # периоды на дашборде отвалятся.
     existing = await conn.fetch(
-        "select code, name from canonical_fields where object_id=$1", object_id
+        "select code, name from canonical_fields where object_id=$1 order by created_at, code",
+        object_id,
     )
-    by_slug = {analyze.slug(e["name"]): e["code"] for e in existing}
+    # Сопоставляем с уже заведёнными полями по ПОЛНОМУ имени, а не по коду.
+    # Код обрезан до 60 символов, и у граф «Количество обращений … нарастающим
+    # итогом / за неделю» первые 60 символов совпадают: сопоставление по коду
+    # промахивалось, второй выпуск той же формы получал НОВЫЕ коды (…_3_2), и
+    # динамика по периодам разваливалась — соседние даты становились разными
+    # показателями.
+    by_name: dict[str, str] = {}
+    for e in existing:
+        by_name.setdefault(_norm_name(e["name"]), e["code"])
     headers = [c.source_header for c in columns]
     # Имя показателя — без общего для всех столбцов «шапочного» префикса;
     # полный путь остаётся в source_header и виден в колонке «Столбец в файле».
     names = analyze.short_names(headers)
-    codes = analyze.dedupe_codes([by_slug.get(analyze.slug(n)) or analyze.slug(n) for n in names])
+    codes = analyze.dedupe_codes([by_name.get(_norm_name(n)) or analyze.slug(n) for n in names])
 
     # Столбец названий строк: первый текстовый, но НЕ счётчик «№ п/п» —
     # иначе подписями на дашборде становятся номера по порядку.

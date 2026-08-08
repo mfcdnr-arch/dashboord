@@ -160,7 +160,17 @@ async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None
             float(v["value_number"]) if v["value_number"] is not None else v["value_text"])
     rows = [{"row": by_row[i].get("__row__"), **{c: by_row[i].get(c) for c in cols}}
             for i in sorted(by_row)]
-    return {"columns": cols, "rows": rows}
+    # Человеческие названия столбцов: в таблице на дашборде руководитель должен
+    # видеть «Количество обращений … за отчётную неделю», а не машинный код
+    # поля. Ключ остаётся кодом — по нему собраны строки и работает экспорт.
+    titles = await conn.fetch(
+        "select cf.code, cf.name from canonical_fields cf "
+        "join dataset_releases r on r.object_id = cf.object_id "
+        "where r.id=$1 and cf.code = any($2::text[])",
+        rel, cols,
+    )
+    names = {t["code"]: t["name"] for t in titles}
+    return {"columns": cols, "column_titles": names, "rows": rows}
 
 
 async def _dataset_as_of(conn, org_id, dataset_code: str):
