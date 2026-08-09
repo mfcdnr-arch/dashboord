@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { RenameDialog } from './dashboards/RenameDialog'
 import {
   checkPassword, createDepartment, createUser, deleteDepartment, deleteUser, exportLoginEvents, getLoginEvents, getPasswordPolicy,
   getUserActivity, grantAuditAccess, listAuditAccess, listDepartments, listRoles, listUsers, passwordHint, resetUserPassword,
@@ -27,6 +28,8 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
   const [depts, setDepts] = useState<Department[]>([])
   const [roles, setRoles] = useState<Role[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [pwTarget, setPwTarget] = useState<AppUser | null>(null)
   const [edit, setEdit] = useState<AppUser | null>(null)
   const [creating, setCreating] = useState(false)
   const [audit, setAudit] = useState<LoginEventsReport | null>(null)
@@ -87,10 +90,16 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
   async function toggleActive(u: AppUser) {
     try { await setUserActive(u.id, !u.is_active); reload() } catch (e) { fail(e) }
   }
-  async function resetPw(u: AppUser) {
-    const pw = prompt(`Новый временный пароль для «${u.login}»\n(минимум 8 символов, обязательно буквы и цифры):`)
-    if (!pw) return
-    try { await resetUserPassword(u.id, pw.trim()); alert('Пароль сброшен. Пользователь сменит его при входе.') } catch (e) { fail(e) }
+  // Своё окно вместо системного prompt(): браузер его блокирует, и кнопка
+  // выглядела как неработающая.
+  async function resetPw(pw: string) {
+    if (!pwTarget) return
+    setError(null)
+    try {
+      await resetUserPassword(pwTarget.id, pw)
+      setPwTarget(null)
+      setNotice(`Пароль пользователя «${pwTarget.login}» сброшен — он сменит его при входе.`)
+    } catch (e) { fail(e) }
   }
   async function removeUser(u: AppUser) {
     if (!confirm(`Удалить пользователя «${u.login}»?\n\nЖёсткое удаление возможно только если пользователь ничего не создавал. Если у него есть данные/история — предложу заблокировать (сохранит аудит).`)) return
@@ -118,6 +127,18 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
     <div>
       <h2 style={{ fontSize: 20, margin: '0 0 16px' }}>Пользователи</h2>
       {error && <div style={errBox}>{error}</div>}
+      {notice && (
+        <div style={{ background: 'var(--success-bg)', color: 'var(--success)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }}>
+          {notice} <button style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer' }} onClick={() => setNotice(null)}>✕</button>
+        </div>
+      )}
+      {pwTarget && (
+        <RenameDialog
+          title={`Сброс пароля: ${pwTarget.login}`}
+          label="Новый временный пароль (минимум 8 символов, буквы и цифры)"
+          initial="" placeholder="Пользователь сменит его при первом входе"
+          onClose={() => setPwTarget(null)} onSave={resetPw} />
+      )}
 
       {/* Отделы */}
       <Section title="Отделы (справочник)">
@@ -167,7 +188,7 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
                     {canManage(u) ? (
                       <>
                         <button style={linkBtn} onClick={() => setEdit(u)}>✎ изменить</button>
-                        <button style={linkBtn} onClick={() => resetPw(u)}>🔑 пароль</button>
+                        <button style={linkBtn} onClick={() => setPwTarget(u)}>🔑 пароль</button>
                         {u.id !== me.id && (
                           <button style={{ ...linkBtn, color: u.is_active ? 'var(--danger)' : 'var(--success)' }} onClick={() => toggleActive(u)}>
                             {u.is_active ? '🔒 блок' : '🔓 разблок'}

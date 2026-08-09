@@ -23,6 +23,7 @@ import { AlertEditor } from './dashboards/AlertEditor'
 import { DashboardList } from './dashboards/DashboardList'
 import { FolderMoveDialog } from './dashboards/FolderMoveDialog'
 import { AboutDashboard, EditDashboardDialog } from './dashboards/AboutDashboard'
+import { RenameDialog } from './dashboards/RenameDialog'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
 import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
 import { PubBadge, WT, alertBtn, btn, btnGhost, crumb, dialog, editBtn, editHint, errBox, input, linkDanger, muted, overlay, presetChip, rmBtn, tab, tabActive, widgetCard, wtBadge } from './dashboards/shared'
@@ -111,6 +112,10 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   const [versions, setVersions] = useState<{ version_no: number; status_code: string; created_at: string }[] | null>(null)
   // Правка самого дашборда (имя/описание) и карточка «о дашборде».
   const [editDash, setEditDash] = useState<{ name: string; description: string } | null>(null)
+  const [renamePageTarget, setRenamePageTarget] = useState<DashPage | null>(null)
+  const [templateName, setTemplateName] = useState<string | null>(null)
+  const [presetName, setPresetName] = useState<string | null>(null)
+  const [tplName, setTplName] = useState<string | null>(null)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [alertWidget, setAlertWidget] = useState<Widget | null>(null)
   const [editWidget, setEditWidget] = useState<Widget | null>(null)
@@ -185,10 +190,9 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
   function applyPreset(p: DashPreset) {
     setPFrom(p.filters.from || ''); setPTo(p.filters.to || ''); setCrossRow(p.filters.row || null)
   }
-  async function savePreset() {
+  async function savePreset(name: string) {
     if (!sel) return
-    const name = prompt('Название пресета фильтров:')?.trim()
-    if (!name) return
+    setPresetName(null); setError(null)
     try {
       await createPreset(sel.dashboard.id, name, { from: pFrom || undefined, to: pTo || undefined, row: crossRow || undefined })
       reloadPresets()
@@ -224,19 +228,17 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
       setNewPage(''); const d = await getDashboard(sel.dashboard.id); setSel(d); openPage(p)
     } catch (e) { fail(e) } finally { setBusy(false) }
   }
-  async function renamePage(p: DashPage) {
-    if (!sel) return
-    const name = prompt('Название страницы:', p.name)
-    if (name === null) return
-    if (!name.trim()) { setError('Название страницы не может быть пустым'); return }
+  async function savePageName(name: string) {
+    if (!sel || !renamePageTarget) return
     setError(null)
     try {
-      await updatePage(p.id, { name: name.trim() })
+      await updatePage(renamePageTarget.id, { name })
       const d = await getDashboard(sel.dashboard.id)
       setSel(d)
-      // Вкладка перечитывается из ответа: иначе в заголовке осталось бы старое имя.
-      const fresh = d.pages.find((x) => x.id === p.id)
+      // Вкладку перечитываем из ответа: иначе в заголовке осталось бы старое имя.
+      const fresh = d.pages.find((x) => x.id === renamePageTarget.id)
       if (fresh) setPage(fresh)
+      setRenamePageTarget(null)
     } catch (e) { fail(e) }
   }
   async function delPage(p: DashPage) {
@@ -342,17 +344,18 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
       if (d.pages.length) openPage(d.pages[0]); else { setPage(null); setWidgets([]) }
     } catch (e) { fail(e) }
   }
-  async function saveTemplate() {
+  async function saveTemplate(name: string) {
     if (!sel) return
-    const name = prompt('Название шаблона:', sel.dashboard.name)
-    if (!name) return
-    try { await saveAsTemplate(sel.dashboard.id, name.trim()); setTemplates(await listTemplates()) } catch (e) { fail(e) }
+    setError(null)
+    try {
+      await saveAsTemplate(sel.dashboard.id, name)
+      setTemplates(await listTemplates())
+      setTemplateName(null)
+    } catch (e) { fail(e) }
   }
-  async function createFromTemplate() {
+  async function createFromTemplate(name: string) {
     if (!tpl) return
-    const t = templates.find((x) => x.id === tpl)
-    const name = prompt('Название нового дашборда:', t ? `${t.name} (копия)` : 'Новый дашборд')
-    if (!name) return
+    setTplName(null)
     setBusy(true); setError(null)
     try {
       // Проверяем, есть ли в текущем контексте все коды датасетов/метрик шаблона.
@@ -470,7 +473,10 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
           canManage={canManage} objects={objects} templates={templates}
           newDash={newDash} setNewDash={setNewDash} addDashboard={addDashboard} busy={busy}
           autoObj={autoObj} setAutoObj={setAutoObj} autoBuild={autoBuild}
-          tpl={tpl} setTpl={setTpl} createFromTemplate={createFromTemplate}
+          tpl={tpl} setTpl={setTpl} createFromTemplate={() => {
+            const t = templates.find((x) => x.id === tpl)
+            setTplName(t ? `${t.name} (копия)` : 'Новый дашборд')
+          }}
           query={query} setQuery={setQuery} favOnly={favOnly} setFavOnly={setFavOnly}
           dashFrom={dashFrom} setDashFrom={setDashFrom} dashTo={dashTo} setDashTo={setDashTo}
           filterObjId={filterObjId} setFilterObjId={setFilterObjId} filterFolders={filterFolders}
@@ -501,7 +507,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
             {page && <button style={btnGhost} disabled={exporting} onClick={exportPdf}>{exporting ? 'Экспорт…' : '⤓ PDF'}</button>}
             {page && <button style={btnGhost} disabled={exporting} onClick={exportExcel} title="Данные страницы в Excel">⤓ Excel</button>}
             {page && <button style={btnGhost} disabled={exporting} onClick={exportPng} title="Снимок страницы в PNG">⤓ PNG</button>}
-            {canManage && <button style={btnGhost} onClick={saveTemplate}>Сохранить как шаблон</button>}
+            {canManage && <button style={btnGhost} onClick={() => setTemplateName(sel.dashboard.name)}>Сохранить как шаблон</button>}
             {canManage && objects.length > 0 && (
               <button style={btnGhost}
                 onClick={() => setFolderTarget({
@@ -575,7 +581,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                 <h3 style={{ fontSize: 15, margin: 0 }}>Страница «{page.name}»</h3>
                 {canManage && (
                   <button style={{ ...editBtn, cursor: 'pointer' }} title="Переименовать страницу"
-                    onClick={() => renamePage(page)}>✎</button>
+                    onClick={() => setRenamePageTarget(page)}>✎</button>
                 )}
                 {canManage && (
                   <button style={{ ...tab, height: 30, ...(editMode ? tabActive : {}) }}
@@ -622,7 +628,7 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                     {canManage && <button style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0 }} onClick={() => removePreset(p)} title="Удалить пресет">✕</button>}
                   </span>
                 ))}
-                {canManage && <button style={{ ...tab, height: 28 }} onClick={savePreset}>💾 Сохранить текущие</button>}
+                {canManage && <button style={{ ...tab, height: 28 }} onClick={() => setPresetName('')}>💾 Сохранить текущие</button>}
                 <span style={{ fontSize: 12, color: 'var(--text-faint)', marginLeft: 4 }}>клик по столбцу/сектору тоже задаёт «Строку»</span>
               </div>
 
@@ -713,6 +719,28 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
             </div>
           )}
         </div>
+      )}
+      {renamePageTarget && (
+        <RenameDialog
+          title="Переименовать страницу" label="Название страницы"
+          initial={renamePageTarget.name} placeholder="Например: Обзор, По неделям, По субъектам"
+          onClose={() => setRenamePageTarget(null)} onSave={savePageName} />
+      )}
+      {presetName !== null && (
+        <RenameDialog
+          title="Сохранить набор фильтров" label="Название набора"
+          initial={presetName} placeholder="Например: Июль, только Донецк"
+          onClose={() => setPresetName(null)} onSave={savePreset} />
+      )}
+      {tplName !== null && (
+        <RenameDialog
+          title="Создать дашборд из шаблона" label="Название нового дашборда"
+          initial={tplName} onClose={() => setTplName(null)} onSave={createFromTemplate} />
+      )}
+      {templateName !== null && (
+        <RenameDialog
+          title="Сохранить как шаблон" label="Название шаблона"
+          initial={templateName} onClose={() => setTemplateName(null)} onSave={saveTemplate} />
       )}
       {editDash && sel && (
         <EditDashboardDialog initial={editDash} onClose={() => setEditDash(null)} onSave={saveDashboardEdit} />
