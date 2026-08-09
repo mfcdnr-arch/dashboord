@@ -6,6 +6,7 @@ import { chartColors, useThemeVersion } from '../theme'
 import EChart from './EChartLazy'
 import FitText from './dashboards/FitText'
 import { fmtNumber as fmt } from '../lib/format'
+import { distinctLabels, elideMiddle } from '../lib/text'
 
 // Отрисовка данных виджета: KPI/таблица/план-факт — HTML, столбцы/линия/круговая —
 // ECharts. По кнопке «подробнее» — drill (прозрачность): формула метрики + первичные строки.
@@ -450,10 +451,22 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
   if (data.type === 'compare' || data.type === 'cross_dataset_compare') {
     const cats: string[] = data.categories || []
     if (cats.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
+    // Показатели одной формы называются по шаблону «Количество … · Факт ·
+    // нарастающим итогом»: в легенде от них остаётся одинаковое начало и конец,
+    // а различие — в середине. Отсекаем общую часть, чтобы подписи различались.
+    const seriesNames: string[] = (data.series || []).map((s: any) => s.name)
+    const shortened = distinctLabels(seriesNames)
+    const shortSeries: Record<string, string> = {}
+    seriesNames.forEach((n, i) => { shortSeries[n] = shortened[i] })
     const opt: EChartsOption = {
       grid: { left: 44, right: 12, top: 12, bottom: cats.some((c) => c.length > 6) ? 60 : 46 },
       tooltip: { trigger: 'axis' },
-      legend: { bottom: 0, textStyle: { fontSize: 11 } },
+      // Имена показателей в госформах длинные и различаются ХВОСТОМ («нарастающим
+      // итогом» / «за отчётную неделю»), поэтому в легенде сокращаем середину, а
+      // не конец; полное имя видно в подсказке при наведении. Прокрутка легенды —
+      // чтобы при пяти-шести показателях она не съела весь график.
+      legend: { bottom: 0, type: 'scroll', textStyle: { fontSize: 11 },
+        formatter: (name: string) => elideMiddle(shortSeries[name] || name, 38) },
       xAxis: { type: 'category', data: cats, axisLabel: { interval: 0, rotate: cats.some((c) => c.length > 6) ? 30 : 0, fontSize: 11 } },
       yAxis: { type: 'value' },
       series: (data.series || []).map((s: any, i: number) => ({
