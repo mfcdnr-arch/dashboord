@@ -637,29 +637,40 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                   }))}>
                   {widgets.map((w) => (
                     <div key={w.id} style={{ ...widgetCard, height: '100%', overflow: 'hidden', outline: editMode ? '1px dashed var(--text-faint)' : 'none' }}>
-                      {/* Шапка строго в одну строку. Иначе длинное имя виджета
-                          («… · Факт · нарастающим итогом**») переносится, у
-                          свёрнутого виджета высота всего 40px, и кнопка ▸
-                          выезжает за карточку — свернуть можно, а развернуть
-                          уже нечем. */}
-                      <div className={editMode ? 'wdrag' : ''} style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', marginBottom: 8, cursor: editMode ? 'move' : 'default' }}>
-                        <button style={{ ...editBtn, cursor: 'pointer', flexShrink: 0 }} onClick={() => toggleCollapse(w.id)}
-                          title={collapsed.has(w.id) ? 'Развернуть виджет' : 'Свернуть виджет'}>{collapsed.has(w.id) ? '▸' : '▾'}</button>
-                        <div style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                          title={w.name}>{elideMiddle(w.name, 70)}</div>
-                        <span style={{ ...wtBadge, flexShrink: 0 }}>{WT.find((x) => x.v === w.widget_type)?.t || w.widget_type}</span>
-                        <span style={{ marginLeft: 6 }}>
-                          <InfoTip text={widgetTip(w)} />
-                        </span>
-                        {canManage && sources && <button style={editBtn} onClick={() => setEditWidget(w)} title="Изменить данные/тип виджета">✎</button>}
-                        {canManage && ['kpi', 'gauge', 'plan_fact', 'dynamics'].includes(w.widget_type) && (
-                          <button style={alertBtn} onClick={() => setAlertWidget(w)}
-                            title="Пороги KPI-алерта (условное форматирование)">⚠</button>
+                      {/* Шапка в два ряда: сверху ИМЯ (оно главное — виджет без
+                          названия ничего не сообщает), снизу значок типа и
+                          действия. Когда всё было одной строкой, на узкой
+                          карточке значок типа и четыре кнопки съедали её
+                          целиком, а имя сжималось до нулевой ширины и
+                          пропадало. У СВЁРНУТОГО виджета высота всего 40px —
+                          там оставляем только ▸ и имя, иначе не поместится
+                          даже кнопка разворачивания. */}
+                      <div className={editMode ? 'wdrag' : ''} style={{ marginBottom: 8, cursor: editMode ? 'move' : 'default' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
+                          <button style={{ ...editBtn, cursor: 'pointer', flexShrink: 0 }} onClick={() => toggleCollapse(w.id)}
+                            title={collapsed.has(w.id) ? 'Развернуть виджет' : 'Свернуть виджет'}>{collapsed.has(w.id) ? '▸' : '▾'}</button>
+                          <div style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                            title={w.name}>{elideMiddle(w.name, 70)}</div>
+                        </div>
+                        {!collapsed.has(w.id) && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                            <span style={wtBadge}>{WT.find((x) => x.v === w.widget_type)?.t || w.widget_type}</span>
+                            <InfoTip text={widgetTip(w)} />
+                            <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                              {canManage && sources && <button style={editBtn} onClick={() => setEditWidget(w)} title="Изменить данные/тип виджета">✎</button>}
+                              {canManage && ['kpi', 'gauge', 'plan_fact', 'dynamics'].includes(w.widget_type) && (
+                                <button style={alertBtn} onClick={() => setAlertWidget(w)}
+                                  title="Пороги KPI-алерта (условное форматирование)">⚠</button>
+                              )}
+                              {canManage && <button style={rmBtn} onClick={() => delWidget(w)} title="Удалить">✕</button>}
+                            </span>
+                          </div>
                         )}
-                        {canManage && <button style={rmBtn} onClick={() => delWidget(w)} title="Удалить">✕</button>}
                       </div>
+                      {/* Шапка двухрядная (имя + действия) — под неё нужно 60px,
+                          иначе низ виджета обрезается. */}
                       {!collapsed.has(w.id) && (
-                        <div style={{ overflow: 'auto', maxHeight: 'calc(100% - 30px)' }}>
+                        <div style={{ overflow: 'auto', maxHeight: 'calc(100% - 60px)' }}>
                           <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} row={crossRow || undefined}
                             onPick={(name) => setCrossRow((cur) => cur === name ? null : name)}
                             batched={!batchFailed} injData={pageData[w.id]?.data} injError={pageData[w.id]?.error} />
