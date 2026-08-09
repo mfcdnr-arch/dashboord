@@ -7,6 +7,11 @@ from ._widgetdata import compute_widget_data
 from ._widgetsources import _page_org
 
 
+def _pct(v: float | None) -> str:
+    """Процент в ячейку итогов: «+4,28 %» либо пусто, если посчитать не от чего."""
+    return "" if v is None else f"{v:+.2f} %".replace(".", ",")
+
+
 async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
     """Экспорт данных всех виджетов страницы в .xlsx (openpyxl).
     KPI/план-факт — на лист «Сводка», датасетные виджеты — по листу на виджет.
@@ -76,6 +81,15 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
             ws.append(["Период", "Значение", "Аномалия"])
             for i, (pr, v) in enumerate(zip(data.get("periods", []), data.get("values", []), strict=False)):
                 ws.append([pr, v, "⚠" if i in anomaly_idx else ""])
+            # Те же итоги, что видны под графиком — иначе в выгрузке пришлось бы
+            # считать их заново вручную, и цифры разошлись бы с экраном.
+            if data.get("total_change") is not None:
+                ws.append([])
+                ws.append([f"За весь период ({data.get('first_period')} → {data.get('last_period')})",
+                           data.get("total_change"), _pct(data.get("total_change_pct"))])
+            if data.get("change") is not None:
+                ws.append([f"К пред. периоду ({data.get('change_from_period')} → {data.get('change_to_period')})",
+                           data.get("change"), _pct(data.get("change_pct"))])
         elif t == "yoy":
             ws = wb.create_sheet(sheet_name(name))
             py, cy = data.get("previous_year"), data.get("current_year")

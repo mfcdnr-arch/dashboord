@@ -259,6 +259,18 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         change_pct = (change / values[-2] * 100.0) if (change is not None and values[-2]) else None
         res = {"type": "dynamics", "title": name, "periods": periods, "values": values,
                "change": change, "change_pct": change_pct}
+        if len(values) >= 2:
+            # К какой ПАРЕ дат относится «к пред. периоду»: когда точек больше двух,
+            # по одному числу не понять, между чем и чем прирост.
+            res["change_from_period"], res["change_to_period"] = periods[-2], periods[-1]
+            # Итог за весь показанный отрезок: от первой даты к последней. Считается
+            # от текущего ряда, поэтому новый выпуск данных пересчитывает его сам.
+            total = values[-1] - values[0]
+            res["total_change"] = total
+            res["total_change_pct"] = (total / values[0] * 100.0) if values[0] else None
+            res["first_period"], res["last_period"] = periods[0], periods[-1]
+            res["first_value"], res["last_value"] = values[0], values[-1]
+            res["periods_count"] = len(values)
         if cfg.get("trend"):
             tr = _linear_trend(values)
             if tr:

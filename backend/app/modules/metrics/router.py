@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field
 
 from ... import db
 from ..auth.deps import get_current_user, require_roles
+from .data_suggestions import suggest_from_data
+from .parser import FormulaError
 from .service import (
     MetricError,
     create_metric,
@@ -29,6 +31,7 @@ from .service import (
     update_metric,
 )
 from .suggestions import suggest_derived_metrics
+from .templates import TEMPLATES, build_formula, suggested_name
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 manage = require_roles("admin", "moderator")
@@ -122,6 +125,37 @@ async def metric_suggestions(dashboard_id: str, user: dict = Depends(manage)):
     привязан папкой. Определён ДО /{metric_id}, иначе тот перехватит путь."""
     async with db.get_pool().acquire() as conn:
         return await suggest_derived_metrics(conn, user["organization_id"], dashboard_id)
+
+
+@router.get("/formula-templates")
+async def formula_templates(user: dict = Depends(manage)):
+    """Готовые рецепты метрик («Процент», «Выполнение плана», «Прирост к прошлому
+    периоду» …) — чтобы завести показатель, не зная языка формул.
+    Определён ДО /{metric_id}, иначе тот перехватит путь."""
+    return {"items": TEMPLATES}
+
+
+@router.post("/formula-templates/build")
+async def build_template_formula(body: dict, user: dict = Depends(manage)):
+    """Рецепт + выбранные столбцы → готовая формула DSL (сразу проверенная парсером)."""
+    code = (body or {}).get("template_code")
+    if not code:
+        raise HTTPException(400, "Укажите template_code")
+    try:
+        formula = build_formula(code, (body or {}).get("values") or {})
+    except FormulaError as e:
+        raise HTTPException(400, str(e)) from None
+    return {"formula": formula, "name": suggested_name(code, (body or {}).get("labels") or {})}
+
+
+@router.get("/data-suggestions")
+async def data_suggestions(dataset_code: Optional[str] = None, object_id: Optional[str] = None,
+                           user: dict = Depends(manage)):
+    """Что можно посчитать по САМИМ ДАННЫМ: разбирает имена числовых столбцов
+    датасета (план/факт, отправлено/доставлено, обращения/записались …) и
+    предлагает готовые метрики. Определён ДО /{metric_id}."""
+    async with db.get_pool().acquire() as conn:
+        return await suggest_from_data(conn, user["organization_id"], dataset_code=dataset_code, object_id=object_id)
 
 
 @router.get("/{metric_id}")

@@ -5,6 +5,8 @@ import {
   type DataSources, type Dependencies, type Metric, type MetricVersion,
 } from '../api'
 import FormulaBuilder from './FormulaBuilder'
+import TemplatePicker from './metrics/TemplatePicker'
+import DataSuggestPanel from './metrics/DataSuggestPanel'
 import { fmtNumber as fmtNum } from '../lib/format'
 
 const FORMULA_HELP = [
@@ -72,6 +74,7 @@ export default function MetricsPage({ canManage }: { canManage: boolean }) {
 
       {!sel && (
         <div>
+          {canManage && <DataSuggestPanel onCreated={refresh} />}
           {canManage && (
             <form onSubmit={addMetric} style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
               <input style={{ ...input, width: 160 }} placeholder="код (латиницей)" value={code} onChange={(e) => setCode(e.target.value)} />
@@ -129,7 +132,7 @@ function MetricDetail({ data, canManage, onError, onChanged }: {
   const { metric, versions } = data
   const [formula, setFormula] = useState('')
   const [unit, setUnit] = useState('')
-  const [mode, setMode] = useState<'visual' | 'text'>('visual')
+  const [mode, setMode] = useState<'ready' | 'visual' | 'text'>('ready')
   const [sources, setSources] = useState<DataSources | null>(null)
   const [preview, setPreview] = useState<{ value: number; deps: Dependencies } | null>(null)
   const [previewErr, setPreviewErr] = useState<string | null>(null)
@@ -223,12 +226,20 @@ function MetricDetail({ data, canManage, onError, onChanged }: {
       {canManage && (
         <div style={{ marginTop: 20 }}>
           <h3 style={h3}>Новая версия формулы</h3>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+            <button style={{ ...modeBtn, ...(mode === 'ready' ? modeBtnActive : {}) }} onClick={() => setMode('ready')}>📚 Готовые</button>
             <button style={{ ...modeBtn, ...(mode === 'visual' ? modeBtnActive : {}) }} onClick={() => setMode('visual')}>🖱 Конструктор</button>
             <button style={{ ...modeBtn, ...(mode === 'text' ? modeBtnActive : {}) }} onClick={() => setMode('text')}>⌨ Текст</button>
           </div>
 
-          {mode === 'visual' ? (
+          {mode === 'ready' ? (
+            <div>
+              <TemplatePicker sources={sources} onApply={(f, u) => { setFormula(f); if (u) setUnit(u); setMode('text') }} />
+              <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)' }}>
+                Получится формула: <code style={mono2}>{formula || '—'}</code>
+              </div>
+            </div>
+          ) : mode === 'visual' ? (
             <div>
               {sources
                 ? <FormulaBuilder sources={sources} onFormula={setFormula} />

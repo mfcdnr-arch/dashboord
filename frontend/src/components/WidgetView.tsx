@@ -17,6 +17,14 @@ function fmtAsOf(iso: string): string {
   return isNaN(d.getTime()) ? iso : d.toLocaleDateString('ru-RU')
 }
 
+// Подпись периода на графике динамики. Периоды приходят как «2026-07-22»
+// (дата выпуска) либо «2026-07» (месяц) — машинный вид на оси читается плохо.
+function fmtPeriod(p: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(p)) return fmtAsOf(p)
+  const m = /^(\d{4})-(\d{2})$/.exec(p)
+  return m ? `${m[2]}.${m[1]}` : p
+}
+
 // Палитра серий — из CSS-токенов темы (см. theme.css: --chart-*); при смене темы
 // Body перерисовывается (useThemeVersion) и графики пересобираются с новыми цветами.
 function chartOption(data: any): EChartsOption {
@@ -279,23 +287,38 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
       grid: { left: 44, right: 12, top: 12, bottom: 40 },
       tooltip: { trigger: 'axis' },
       legend: (data.trend || anomalies.length > 0) ? { bottom: 0, textStyle: { fontSize: 10 }, itemHeight: 8 } : undefined,
-      xAxis: { type: 'category', data: periods, axisLabel: { rotate: 30, fontSize: 11 } },
+      xAxis: { type: 'category', data: periods.map(fmtPeriod), axisLabel: { rotate: 30, fontSize: 11 } },
       yAxis: { type: 'value' },
       series,
     }
     const ch = data.change
+    const tot = data.total_change
+    // Когда точек всего две, «за весь период» и «к пред. периоду» — одно и то же число:
+    // вторую строку в этом случае не показываем, чтобы не дублировать.
+    const showTotal = tot != null && (data.periods_count ?? 0) > 2
     return (
       <div>
         <EChart option={opt} height={(data.trend || anomalies.length > 0) ? 196 : 180} />
         {ch != null && (
           <div style={{ fontSize: 13, marginTop: 4 }}>
-            К пред. периоду: <b style={{ color: ch >= 0 ? 'var(--success)' : 'var(--danger)' }}>{ch >= 0 ? '↑ +' : '↓ '}{fmt(ch)}{data.change_pct != null ? ` (${fmt(data.change_pct)}%)` : ''}</b>
+            К пред. периоду
+            {data.change_to_period && (
+              <span style={{ color: 'var(--text-muted)' }}> ({fmtPeriod(data.change_from_period)} → {fmtPeriod(data.change_to_period)})</span>
+            )}: <b style={{ color: ch >= 0 ? 'var(--success)' : 'var(--danger)' }}>{ch >= 0 ? '↑ +' : '↓ '}{fmt(ch)}{data.change_pct != null ? ` (${fmt(data.change_pct)}%)` : ''}</b>
             {data.trend_slope != null && <span style={{ marginLeft: 10, color: 'var(--warn)' }}>тренд: <b>{data.trend_slope >= 0 ? '↗ рост' : '↘ спад'}</b> ({fmt(data.trend_slope)}/период)</span>}
+          </div>
+        )}
+        {showTotal && (
+          <div style={{ fontSize: 13, marginTop: 2 }}
+            title={`${fmt(data.first_value)} на ${fmtPeriod(data.first_period)} → ${fmt(data.last_value)} на ${fmtPeriod(data.last_period)}`}>
+            За весь период
+            <span style={{ color: 'var(--text-muted)' }}> ({fmtPeriod(data.first_period)} → {fmtPeriod(data.last_period)}, точек: {data.periods_count})</span>
+            : <b style={{ color: tot >= 0 ? 'var(--success)' : 'var(--danger)' }}>{tot >= 0 ? '↑ +' : '↓ '}{fmt(tot)}{data.total_change_pct != null ? ` (${fmt(data.total_change_pct)}%)` : ''}</b>
           </div>
         )}
         {data.anomaly_threshold != null && (
           anomalies.length > 0
-            ? <div style={{ fontSize: 12, marginTop: 4, color: 'var(--danger)' }}>⚠ {anomalies.length} {anomalies.length === 1 ? 'аномалия' : 'аномалии(й)'}: {anomalies.map((a) => a.period).join(', ')}</div>
+            ? <div style={{ fontSize: 12, marginTop: 4, color: 'var(--danger)' }}>⚠ {anomalies.length} {anomalies.length === 1 ? 'аномалия' : 'аномалии(й)'}: {anomalies.map((a) => fmtPeriod(a.period)).join(', ')}</div>
             : <div style={{ fontSize: 12, marginTop: 4, color: 'var(--text-muted)' }}>Аномалий не обнаружено (порог {data.anomaly_threshold}σ)</div>
         )}
       </div>

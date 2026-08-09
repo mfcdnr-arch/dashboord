@@ -129,3 +129,55 @@ export async function metricSuggestions(dashboardId: string): Promise<{ specs: M
   return res.json()
 }
 
+
+// Готовые рецепты метрик (2026-08-09): завести показатель, не зная языка формул.
+export interface TemplateInput {
+  key: string
+  kind: 'field' | 'metric' | 'number'
+  label: string
+  agg?: string
+  hint?: string
+}
+export interface FormulaTemplate {
+  code: string
+  group: string
+  name: string
+  unit: string | null
+  description: string
+  example: string
+  inputs: TemplateInput[]
+  formula: string
+  min_periods?: number
+}
+export async function listFormulaTemplates(): Promise<{ items: FormulaTemplate[] }> {
+  const res = await fetch('/metrics/formula-templates', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function buildTemplateFormula(templateCode: string, values: Record<string, unknown>, labels: Record<string, string>):
+  Promise<{ formula: string; name: string | null }> {
+  const res = await fetch('/metrics/formula-templates/build', {
+    method: 'POST', headers: { ...authH(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ template_code: templateCode, values, labels }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+// Предложения метрик из анализа САМИХ ДАННЫХ (столбцов распознанного файла).
+export interface DataSuggestion {
+  type: string
+  name: string
+  formula: string
+  unit: string | null
+  why: string
+  based_on: string[]
+  dataset_code: string
+  code: string
+}
+export async function dataSuggestions(datasetCode?: string): Promise<{ specs: DataSuggestion[]; datasets: { code: string; name: string; periods: number }[] }> {
+  const q = datasetCode ? `?dataset_code=${encodeURIComponent(datasetCode)}` : ''
+  const res = await fetch(`/metrics/data-suggestions${q}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
