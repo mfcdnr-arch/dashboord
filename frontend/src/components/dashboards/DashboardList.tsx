@@ -4,7 +4,7 @@
 import type { FormEvent } from 'react'
 import type { Dashboard, DashTemplate, Folder, Obj } from '../../api'
 import { folderLabel, folderTree } from '../../lib/folderTree'
-import { btn, btnAuto, input, muted, rowForm, rowItem, tab, tabActive } from './shared'
+import { PubBadge, btn, btnAuto, input, muted, rowForm, rowItem, tab, tabActive } from './shared'
 
 export function DashboardList({
   canManage, objects, templates,
@@ -132,9 +132,10 @@ export function DashboardList({
                     </span>
                   )}
                 </span>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  страниц: {d.pages ?? 0} · {d.publication_status}
-                  {d.updated_at && ` · изменён ${new Date(d.updated_at).toLocaleDateString('ru-RU')}`}
+                <span style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+                  <span>страниц: {d.pages ?? 0}</span>
+                  <PubBadge status={d.publication_status} />
+                  {d.updated_at && <span>изменён {new Date(d.updated_at).toLocaleDateString('ru-RU')}</span>}
                 </span>
               </div>
             ))}

@@ -4,11 +4,8 @@ import {
   type ArchiveRunStatus, type AttendanceReport, type BackupStatus, type BusinessReport, type DashboardViewers, type DataQualityReport, type Gauge, type HealHistoryEntry, type HealResult, type LogsResult, type ModerationReport, type PopularityReport, type SystemReport,
 } from '../api'
 import EChart from './EChartLazy'
+import { fmtNumber as num } from '../lib/format'
 
-function num(n: number | null): string {
-  if (n == null || !isFinite(n)) return '—'
-  return Number.isInteger(n) ? n.toLocaleString('ru-RU') : n.toFixed(2)
-}
 
 // Раздел «Отчёты» (admin): системный мониторинг (CPU/RAM/диск через psutil +
 // статусы сервисов, с порогами) и посещаемость (по login_events).

@@ -3,6 +3,7 @@ import {
   addHomeKpi, getHome, listMetrics, removeHomeKpi,
   type HomeData, type Metric,
 } from '../api'
+import { fmtNumber as fmt } from '../lib/format'
 
 const KIND_ICON: Record<string, string> = { dataset: '📄', metric: '📐', dashboard: '📊' }
 
@@ -54,10 +55,6 @@ const FEATURES: { icon: string; title: string; text: string }[] = [
   { icon: 'archive', title: 'Архив, экспорт, витрины', text: 'Помесячные снимки данных, выгрузка в Excel/PDF/PNG и витрины из нескольких дашбордов на одном экране.' },
 ]
 
-function fmt(n: number | null): string {
-  if (n == null || !isFinite(n)) return '—'
-  return Number.isInteger(n) ? n.toLocaleString('ru-RU') : n.toFixed(2)
-}
 function ago(iso: string | null): string {
   if (!iso) return '—'
   const d = new Date(iso)

@@ -90,7 +90,16 @@ async def list_metrics(user: dict = Depends(get_current_user), q: Optional[str] 
             "(select count(*) from metric_versions v where v.metric_id=m.id) as versions, "
             "(select mv.unit from metric_versions mv where mv.metric_id=m.id and mv.status='approved' "
             " order by mv.version_no desc limit 1) as unit, "
-            "exists(select 1 from metric_versions v where v.metric_id=m.id and v.status='approved') as has_approved "
+            "exists(select 1 from metric_versions v where v.metric_id=m.id and v.status='approved') as has_approved, "
+            # Статус ЛУЧШЕЙ версии: одобрена → проверена → черновик. Без него список
+            # печатал «черновик» и у метрики, которая уже проверена и ждёт одобрения
+            # другим сотрудником — по списку было не понять, что от модератора ждут действия.
+            "(select case when count(*) filter (where v.status='approved') > 0 then 'approved' "
+            "             when count(*) filter (where v.status='validated') > 0 then 'validated' "
+            "             when count(*) filter (where v.status='deprecated') > 0 "
+            "                  and count(*) filter (where v.status='draft') = 0 then 'deprecated' "
+            "             else 'draft' end "
+            " from metric_versions v where v.metric_id=m.id) as best_status "
             f"from metrics m where {where} order by m.name limit ${len(params) + 1} offset ${len(params) + 2}",
             *params, limit, offset,
         )

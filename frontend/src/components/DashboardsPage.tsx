@@ -674,7 +674,17 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
                           <button style={{ ...editBtn, cursor: 'pointer', flexShrink: 0 }} onClick={() => toggleCollapse(w.id)}
                             title={collapsed.has(w.id) ? 'Развернуть виджет' : 'Свернуть виджет'}>{collapsed.has(w.id) ? '▸' : '▾'}</button>
-                          <div style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          {/* У развёрнутого виджета имя занимает до ДВУХ строк: имена
+                              из авто-сборки длинные («… · Факт · нарастающим итогом»),
+                              и в одну строку на карточке видно только «Внедре…» —
+                              руководитель не понимает, что за число перед ним.
+                              У свёрнутого (высота 40px) вторая строка не помещается. */}
+                          <div style={{
+                            fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden',
+                            ...(collapsed.has(w.id)
+                              ? { textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+                              : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.25 }),
+                          }}
                             title={w.name}>{elideMiddle(w.name, 70)}</div>
                         </div>
                         {!collapsed.has(w.id) && (
@@ -692,10 +702,10 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
                           </div>
                         )}
                       </div>
-                      {/* Шапка двухрядная (имя + действия) — под неё нужно 60px,
+                      {/* Шапка: имя (до двух строк) + ряд действий — под неё нужно 78px,
                           иначе низ виджета обрезается. */}
                       {!collapsed.has(w.id) && (
-                        <div style={{ overflow: 'auto', maxHeight: 'calc(100% - 60px)' }}>
+                        <div style={{ overflow: 'auto', maxHeight: 'calc(100% - 78px)' }}>
                           <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} row={crossRow || undefined}
                             onPick={(name) => setCrossRow((cur) => cur === name ? null : name)}
                             batched={!batchFailed} injData={pageData[w.id]?.data} injError={pageData[w.id]?.error} />

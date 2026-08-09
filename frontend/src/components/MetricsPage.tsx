@@ -5,6 +5,7 @@ import {
   type DataSources, type Dependencies, type Metric, type MetricVersion,
 } from '../api'
 import FormulaBuilder from './FormulaBuilder'
+import { fmtNumber as fmtNum } from '../lib/format'
 
 const FORMULA_HELP = [
   "SUM(field('план','кол'))",
@@ -92,9 +93,7 @@ export default function MetricsPage({ canManage }: { canManage: boolean }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     {m.unit && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{m.unit}</span>}
                     <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>версий: {m.versions ?? 0}</span>
-                    {m.has_approved
-                      ? <span style={{ ...pill, background: 'var(--success-bg)', color: 'var(--success)' }}>одобрена</span>
-                      : <span style={{ ...pill, background: 'var(--surface-3)', color: 'var(--text-muted)' }}>черновик</span>}
+                    <StatusBadge status={m.best_status || (m.has_approved ? 'approved' : 'draft')} />
                   </div>
                 </div>
               ))}
@@ -316,9 +315,6 @@ function StatusBadge({ status }: { status: string }) {
   return <span style={{ ...pill, background: s.bg, color: s.c }}>{s.t}</span>
 }
 
-function fmtNum(n: number): string {
-  return Number.isInteger(n) ? String(n) : n.toFixed(2)
-}
 
 const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 14, padding: 0 }
 const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 14 }

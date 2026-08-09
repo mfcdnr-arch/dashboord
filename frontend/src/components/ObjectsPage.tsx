@@ -240,10 +240,14 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
 
       {!obj && (
         <Section title="Объекты">
-          <form onSubmit={addObject} style={rowForm}>
-            <input style={input} placeholder="Название объекта" value={newObj} onChange={(e) => setNewObj(e.target.value)} />
-            <button style={btn} disabled={busy || !newObj.trim()}>＋ Объект</button>
-          </form>
+          {/* Создание/загрузка — только для тех, у кого есть права: сервер всё равно
+              ответит «Недостаточно прав», а нерабочая кнопка выглядит как поломка. */}
+          {canManage && (
+            <form onSubmit={addObject} style={rowForm}>
+              <input style={input} placeholder="Название объекта" value={newObj} onChange={(e) => setNewObj(e.target.value)} />
+              <button style={btn} disabled={busy || !newObj.trim()}>＋ Объект</button>
+            </form>
+          )}
           <List
             items={objects.map((o) => ({
               id: o.id,
@@ -264,23 +268,23 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
 
       {obj && !folder && (
         <Section title={`Папки объекта «${obj.name}»`}>
-          <form onSubmit={addFolder} style={rowForm}>
-            <input style={input} placeholder="Название папки" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} />
-            {folders.length > 0 && (
-              <select style={input} value={newFolderParent} onChange={(e) => setNewFolderParent(e.target.value)}
-                title="Вложить в существующую папку (необязательно)">
-                <option value="">— верхний уровень —</option>
-                {folderTree(folders).map((f) => <option key={f.id} value={f.id}>{folderLabel(f)}</option>)}
-              </select>
-            )}
-            <button style={btn} disabled={busy || !newFolder.trim()}>＋ Папка</button>
-            {canManage && (
+          {canManage && (
+            <form onSubmit={addFolder} style={rowForm}>
+              <input style={input} placeholder="Название папки" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} />
+              {folders.length > 0 && (
+                <select style={input} value={newFolderParent} onChange={(e) => setNewFolderParent(e.target.value)}
+                  title="Вложить в существующую папку (необязательно)">
+                  <option value="">— верхний уровень —</option>
+                  {folderTree(folders).map((f) => <option key={f.id} value={f.id}>{folderLabel(f)}</option>)}
+                </select>
+              )}
+              <button style={btn} disabled={busy || !newFolder.trim()}>＋ Папка</button>
               <button type="button" style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent)' }}
                 onClick={() => setRowAclObj(obj)} title="Ограничить видимость строк данных по подразделению">
                 🔐 Доступ к строкам
               </button>
-            )}
-          </form>
+            </form>
+          )}
           <List
             items={folderTree(folders).map((f) => ({
               id: f.id,
@@ -331,12 +335,14 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
 
       {folder && !openDoc && (
         <Section title={`Документы папки «${folder.name}»`}>
-          <form onSubmit={upload} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
-            <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-            <label style={{ fontSize: 13, color: 'var(--text-muted)' }}>Отчётная дата:</label>
-            <input style={{ ...input, width: 160 }} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-            <button style={btn} disabled={busy || !file || !date}>Загрузить</button>
-          </form>
+          {canManage && (
+            <form onSubmit={upload} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+              <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              <label style={{ fontSize: 13, color: 'var(--text-muted)' }}>Отчётная дата:</label>
+              <input style={{ ...input, width: 160 }} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <button style={btn} disabled={busy || !file || !date}>Загрузить</button>
+            </form>
+          )}
           <List
             items={docs.map((d) => ({
               id: d.id,

@@ -12,6 +12,7 @@ export interface Metric {
   versions?: number
   unit?: string | null
   has_approved?: boolean
+  best_status?: string // статус лучшей версии: approved | validated | deprecated | draft
 }
 export interface MetricVersion {
   id: string

@@ -4,14 +4,12 @@ import type { EChartsOption } from 'echarts'
 import { getWidgetData, getWidgetDrill } from '../api'
 import { chartColors, useThemeVersion } from '../theme'
 import EChart from './EChartLazy'
+import FitText from './dashboards/FitText'
+import { fmtNumber as fmt } from '../lib/format'
 
 // Отрисовка данных виджета: KPI/таблица/план-факт — HTML, столбцы/линия/круговая —
 // ECharts. По кнопке «подробнее» — drill (прозрачность): формула метрики + первичные строки.
 
-function fmt(n: number): string {
-  if (!isFinite(n)) return '—'
-  return Number.isInteger(n) ? n.toLocaleString('ru-RU') : n.toFixed(2)
-}
 
 // Дата актуальности данных (as_of) в формате ДД.ММ.ГГГГ.
 function fmtAsOf(iso: string): string {
@@ -166,11 +164,12 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     )
   }
   if (data.type === 'kpi') {
+    const kpiText = fmt(data.value) + (data.unit ? ' ' + data.unit : '')
     return (
       <div>
-        <div style={{ fontSize: 30, fontWeight: 700, color: data.alert?.color || 'var(--accent)' }}>{fmt(data.value)}
-          {data.unit && <span style={{ fontSize: 15, color: 'var(--text-muted)', marginLeft: 6 }}>{data.unit}</span>}
-        </div>
+        <FitText size={30} title={kpiText} style={{ fontWeight: 700, color: data.alert?.color || 'var(--accent)' }}>{fmt(data.value)}
+          {data.unit && <span style={{ fontSize: '0.5em', color: 'var(--text-muted)', marginLeft: 6 }}>{data.unit}</span>}
+        </FitText>
         <TargetLine data={data} />
       </div>
     )
