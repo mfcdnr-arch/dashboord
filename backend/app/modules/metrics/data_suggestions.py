@@ -97,6 +97,12 @@ def _is_main_slice(slc: str) -> bool:
 
 
 async def _datasets(conn, org_id, dataset_code: Optional[str], object_id: Optional[str]) -> List[dict]:
+    """Датасеты организации с родословной: объект → папка → документ.
+
+    Когда объектов несколько, по одному коду датасета не понять, к какому файлу
+    относится предложение, — поэтому тянем и название объекта, и папку с
+    документом, из которых датасет выпущен.
+    """
     where = ["r.organization_id=$1", "r.status<>'superseded'"]
     params: List[Any] = [org_id]
     if dataset_code:
@@ -107,8 +113,14 @@ async def _datasets(conn, org_id, dataset_code: Optional[str], object_id: Option
         where.append(f"r.object_id=${len(params)}::uuid")
     rows = await conn.fetch(
         "select r.code, max(r.name) as name, max(r.object_id::text) as object_id, "
-        "count(distinct r.reporting_period_start) as periods "
-        f"from dataset_releases r where {' and '.join(where)} group by r.code order by max(r.name)",
+        "count(distinct r.reporting_period_start) as periods, "
+        "max(o.name) as object_name, max(f.name) as folder_name, max(d.original_filename) as document_name "
+        "from dataset_releases r "
+        "left join objects o on o.id = r.object_id "
+        "left join document_versions dv on dv.id = r.source_document_version_id "
+        "left join documents d on d.id = dv.document_id "
+        "left join folders f on f.id = d.folder_id "
+        f"where {' and '.join(where)} group by r.code order by max(o.name), max(r.name)",
         *params)
     return [dict(r) for r in rows]
 
@@ -126,6 +138,94 @@ async def _numeric_fields(conn, org_id, code: str) -> List[dict]:
     return [dict(r) for r in rows]
 
 
+async def _field_values(conn, org_id, code: str) -> Dict[str, Dict[tuple, float]]:
+    """Значения по столбцам: {код столбца: {(период, строка): число}}.
+
+    Нужны для поиска связок, которых нет в словаре: словарь знает только те пары
+    слов, что я в него вписал, а данные говорят сами за себя.
+    """
+    rows = await conn.fetch(
+        "select dv.canonical_field_code as code, r.reporting_period_start as period, "
+        "       coalesce(dv.row_label,'') as row_label, dv.value_number as v "
+        "from dataset_values dv join dataset_releases r on r.id = dv.dataset_release_id "
+        "where r.organization_id=$1 and r.code=$2 and r.status<>'superseded' and dv.value_number is not null",
+        org_id, code)
+    out: Dict[str, Dict[tuple, float]] = {}
+    for r in rows:
+        out.setdefault(r["code"], {})[(r["period"], r["row_label"])] = float(r["v"])
+    return out
+
+
+# Насколько уверенно пара выглядит как «часть от целого».
+_MIN_POINTS = 3      # меньше — совпадение может быть случайным
+_MAX_RATIO = 0.98    # часть почти равна целому — скорее два одинаковых столбца
+_MIN_RATIO = 0.001   # доля в тысячные доли процента — вероятно, разные величины
+
+
+def _detect_part_of_whole(values: Dict[str, Dict[tuple, float]], parsed: List[dict]) -> List[tuple]:
+    """Пары столбцов, которые ПО ДАННЫМ ведут себя как «часть → целое».
+
+    Признак: в каждой общей точке (период + строка) одно значение не превосходит
+    другое, отношение держится в разумных пределах и таких точек достаточно.
+    Это находит связки, которых нет в словаре, — без правки кода и без выдумок:
+    вывод делается из чисел, а не из похожести слов.
+
+    Возвращает [(часть, целое, средняя доля в %)].
+    """
+    by_code = {p["code"]: p for p in parsed}
+    found: List[tuple] = []
+    codes = [p["code"] for p in parsed if p["code"] in values]
+
+    for a in codes:
+        for b in codes:
+            if a == b:
+                continue
+            pa, pb = by_code[a], by_code[b]
+            # Сравниваем только сопоставимые столбцы: один разрез, ни один не план.
+            if pa["role"] == "plan" or pb["role"] == "plan":
+                continue
+            if _clean(pa["slice"]).lower() != _clean(pb["slice"]).lower():
+                continue
+            common = set(values[a]) & set(values[b])
+            if len(common) < _MIN_POINTS:
+                continue
+            ratios = []
+            ok = True
+            for key in common:
+                part, whole = values[a][key], values[b][key]
+                if whole <= 0 or part < 0 or part > whole:
+                    ok = False
+                    break
+                ratios.append(part / whole)
+            if not ok or not ratios:
+                continue
+            avg = sum(ratios) / len(ratios)
+            if not (_MIN_RATIO <= avg <= _MAX_RATIO):
+                continue
+            found.append((a, b, avg * 100.0))
+    return found
+
+
+async def _verify(conn, org_id, formula: str) -> dict:
+    """Проверка предложения расчётом: разбирается ли формула и считается ли она.
+
+    Требование заказчика — «любое добавление не должно ломать работоспособность».
+    Поэтому новое правило не может протащить в интерфейс формулу, которая упадёт:
+    сначала она вычисляется на реальных данных, и только потом показывается.
+    Импорт локальный — service тянет resolver и БД, на уровне модуля это дало бы
+    круговой импорт.
+    """
+    from .service import MetricError, preview
+    try:
+        res = await preview(conn, org_id, formula)
+    except (MetricError, Exception):  # noqa: B014 — любая ошибка = предложение не показываем
+        return {"ok": False, "value": None}
+    v = res.get("value")
+    if v is None or isinstance(v, bool) or not isinstance(v, (int, float)):
+        return {"ok": False, "value": None}
+    return {"ok": True, "value": float(v)}
+
+
 async def _existing_formulas(conn, org_id) -> set:
     rows = await conn.fetch(
         "select v.formula_expression from metric_versions v "
@@ -137,8 +237,13 @@ def _sum(ds: str, field: str) -> str:
     return f"SUM(field('{ds}','{field}'))"
 
 
-def _build_specs(ds: dict, fields: List[dict]) -> List[dict]:
-    """Правила разбора: что осмысленно посчитать по этому набору столбцов."""
+def _build_specs(ds: dict, fields: List[dict],
+                 values: Optional[Dict[str, Dict[tuple, float]]] = None) -> List[dict]:
+    """Правила разбора: что осмысленно посчитать по этому набору столбцов.
+
+    values (значения по столбцам) необязательны: без них работают словарные
+    правила, с ними дополнительно ищутся связки, которых в словаре нет.
+    """
     code = ds["code"]
     multi_period = (ds.get("periods") or 0) > 1
     parsed = []
@@ -193,7 +298,24 @@ def _build_specs(ds: dict, fields: List[dict]) -> List[dict]:
                 "данные есть за несколько периодов — видно, растём или падаем",
                 [p["code"]])
 
-    # 4. Итоги — только по основному разрезу: сумму месячного или недельного
+    # 4. Связки, которых НЕТ в словаре, — найденные по самим числам.
+    # Словарь знает только те пары слов, что в него вписаны; данные говорят сами
+    # за себя: если один столбец во всех точках вложен в другой, это часть целого.
+    if values:
+        known = {(s["based_on"][0], s["based_on"][1]) for s in specs if s["type"] == "percent_of" and len(s["based_on"]) == 2}
+        known |= {(b, a) for a, b in known}
+        for part, whole, avg in _detect_part_of_whole(values, parsed):
+            if (whole, part) in known or (part, whole) in known:
+                continue  # уже предложено словарным правилом
+            pp, pw = by_code_of(parsed, part), by_code_of(parsed, whole)
+            slice_hint = f" ({pp['slice']})" if pp["slice"] else ""
+            add("percent_of_auto", f"{pp['subject']} — доля от «{pw['subject']}»{slice_hint}, %",
+                f"PERCENT_OF({_sum(code, whole)}, {_sum(code, part)})", "%",
+                f"найдено по данным: значения одного столбца всегда укладываются в другой "
+                f"(в среднем {avg:.1f} %) — похоже на часть от целого",
+                [whole, part])
+
+    # 5. Итоги — только по основному разрезу: сумму месячного или недельного
     # столбца виджет считает и без метрики, а список от них разрастается втрое.
     for p in facts:
         if not _is_main_slice(p["slice"]):
@@ -203,6 +325,10 @@ def _build_specs(ds: dict, fields: List[dict]) -> List[dict]:
             "итог по столбцу — основа для остальных расчётов", [p["code"]])
 
     return specs
+
+
+def by_code_of(parsed: List[dict], code: str) -> dict:
+    return next(p for p in parsed if p["code"] == code)
 
 
 async def suggest_from_data(conn, org_id, dataset_code: Optional[str] = None,
@@ -217,10 +343,24 @@ async def suggest_from_data(conn, org_id, dataset_code: Optional[str] = None,
         fields = await _numeric_fields(conn, org_id, ds["code"])
         if not fields:
             continue
-        for spec in _build_specs(ds, fields):
+        values = await _field_values(conn, org_id, ds["code"])
+        for spec in _build_specs(ds, fields, values):
             if _norm_formula(spec["formula"]) in existing:
                 continue  # такая метрика уже заведена — не предлагаем повторно
+            # САМОПРОВЕРКА: предложение показывается, только если оно реально
+            # считается на этих данных. Новые правила (в том числе найденные по
+            # числам) не могут выдать формулу, которая упадёт у пользователя.
+            checked = await _verify(conn, org_id, spec["formula"])
+            if not checked["ok"]:
+                continue
+            spec["preview_value"] = checked["value"]
             existing.add(_norm_formula(spec["formula"]))
+            # Родословная у КАЖДОГО предложения: при нескольких объектах иначе не
+            # понять, из какого файла взяты столбцы.
+            spec["dataset_name"] = ds.get("name")
+            spec["object_name"] = ds.get("object_name")
+            spec["folder_name"] = ds.get("folder_name")
+            spec["document_name"] = ds.get("document_name")
             specs.append(spec)
             if len(specs) >= MAX_SUGGESTIONS:
                 break
@@ -228,5 +368,9 @@ async def suggest_from_data(conn, org_id, dataset_code: Optional[str] = None,
             break
 
     _assign_codes(specs, existing_codes)
-    return {"specs": specs, "datasets": [{"code": d["code"], "name": d["name"], "periods": d["periods"]}
-                                         for d in datasets]}
+    return {
+        "specs": specs,
+        "datasets": [{"code": d["code"], "name": d["name"], "periods": d["periods"],
+                      "object_name": d.get("object_name"), "folder_name": d.get("folder_name"),
+                      "document_name": d.get("document_name")} for d in datasets],
+    }

@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -19,7 +20,8 @@ from pydantic import BaseModel, Field
 from ... import db
 from ..auth.deps import get_current_user, require_roles
 from .data_suggestions import suggest_from_data
-from .parser import FormulaError
+from .describe import build_info_draft
+from .parser import FormulaError, extract_dependencies
 from .service import (
     MetricError,
     create_metric,
@@ -156,6 +158,56 @@ async def data_suggestions(dataset_code: Optional[str] = None, object_id: Option
     предлагает готовые метрики. Определён ДО /{metric_id}."""
     async with db.get_pool().acquire() as conn:
         return await suggest_from_data(conn, user["organization_id"], dataset_code=dataset_code, object_id=object_id)
+
+
+@router.get("/{metric_id}/info-draft")
+async def metric_info_draft(metric_id: str, user: dict = Depends(manage)):
+    """Черновик «расширенной информации о показателе»: что считает формула,
+    откуда данные, как часто обновляются, как читать. Модератор правит и
+    сохраняет — молча в БД ничего не пишется."""
+    async with db.get_pool().acquire() as conn:
+        m = await conn.fetchrow(
+            "select id, code, name from metrics where id=$1::uuid and organization_id=$2",
+            metric_id, user["organization_id"])
+        if m is None:
+            raise HTTPException(404, "Метрика не найдена")
+        v = await conn.fetchrow(
+            "select formula_expression, formula_ast, unit, status from metric_versions "
+            "where metric_id=$1::uuid order by case status when 'approved' then 0 "
+            "when 'validated' then 1 else 2 end, version_no desc limit 1", metric_id)
+        if v is None:
+            raise HTTPException(400, "У метрики нет ни одной версии формулы — сначала задайте формулу")
+
+        ast = v["formula_ast"]
+        if isinstance(ast, str):
+            ast = json.loads(ast) if ast else None
+        deps = extract_dependencies(ast) if ast else {"datasets": []}
+        ds_codes = deps.get("datasets", [])
+
+        # Человеческие имена столбцов и названия датасетов — чтобы в тексте не
+        # осталось машинных кодов, которые пользователю ничего не говорят.
+        names: dict = {}
+        ds_titles: list = []
+        periods, last_period = 0, None
+        if ds_codes:
+            rows = await conn.fetch(
+                "select cf.code, cf.name from canonical_fields cf "
+                "join objects o on o.id = cf.object_id where o.organization_id=$1", user["organization_id"])
+            names = {r["code"]: r["name"] for r in rows}
+            drows = await conn.fetch(
+                "select code, max(name) as name, count(distinct reporting_period_start) as periods, "
+                "       max(reporting_period_start) as last_period "
+                "from dataset_releases where organization_id=$1 and code = any($2::text[]) "
+                "and status<>'superseded' group by code", user["organization_id"], ds_codes)
+            ds_titles = [r["name"] or r["code"] for r in drows]
+            periods = max((r["periods"] or 0) for r in drows) if drows else 0
+            lp = max((r["last_period"] for r in drows if r["last_period"]), default=None)
+            last_period = lp.strftime("%d.%m.%Y") if lp else None
+
+    return {"draft": build_info_draft(
+        metric_name=m["name"], formula=v["formula_expression"], ast=ast, unit=v["unit"],
+        status=v["status"], datasets=ds_titles, field_names=names,
+        periods=periods, last_period=last_period)}
 
 
 @router.get("/{metric_id}")

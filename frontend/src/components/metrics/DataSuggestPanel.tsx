@@ -1,12 +1,20 @@
 import { useEffect, useState } from 'react'
-import { createMetric, createVersion, dataSuggestions, type DataSuggestion } from '../../api'
+import { fmtNumber } from '../../lib/format'
+import { createMetric, createVersion, dataSuggestions, type DataSuggestion, type SuggestDataset } from '../../api'
 
 const TYPE_RU: Record<string, string> = {
   plan_fact_pct: 'План/факт',
   plan_remainder: 'Остаток до плана',
   percent_of: 'Доля',
+  percent_of_auto: 'Доля (найдено по данным)',
   period_delta: 'Динамика',
   total_sum: 'Итог',
+}
+
+// Откуда столбцы: объект → папка → файл. При нескольких объектах без этого
+// не понять, к какому файлу относится предложение.
+function source(s: { object_name?: string | null; folder_name?: string | null; document_name?: string | null; dataset_name?: string | null }): string {
+  return [s.object_name, s.folder_name, s.document_name || s.dataset_name].filter(Boolean).join(' · ')
 }
 
 // «Что можно посчитать по этим данным»: система разбирает названия столбцов
@@ -16,7 +24,7 @@ const TYPE_RU: Record<string, string> = {
 // Принятое предложение создаётся ЧЕРНОВИКОМ и проходит обычную проверку.
 export default function DataSuggestPanel({ onCreated }: { onCreated: () => void }) {
   const [specs, setSpecs] = useState<DataSuggestion[] | null>(null)
-  const [datasets, setDatasets] = useState<{ code: string; name: string; periods: number }[]>([])
+  const [datasets, setDatasets] = useState<SuggestDataset[]>([])
   const [dsCode, setDsCode] = useState('')
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
@@ -68,9 +76,14 @@ export default function DataSuggestPanel({ onCreated }: { onCreated: () => void 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
         <b style={{ fontSize: 14 }}>Что можно посчитать по вашим данным</b>
         {datasets.length > 1 && (
-          <select style={sl} value={dsCode} onChange={(e) => setDsCode(e.target.value)}>
-            <option value="">все датасеты</option>
-            {datasets.map((d) => <option key={d.code} value={d.code}>{d.name}</option>)}
+          <select style={sl} value={dsCode} onChange={(e) => setDsCode(e.target.value)}
+            title="Предложения строятся по столбцам выбранного файла">
+            <option value="">все файлы ({datasets.length})</option>
+            {datasets.map((d) => (
+              <option key={d.code} value={d.code}>
+                {[d.object_name, d.folder_name, d.document_name || d.name].filter(Boolean).join(' · ')}
+              </option>
+            ))}
           </select>
         )}
         <button type="button" onClick={() => load(dsCode)} style={ghost}>↻ Пересчитать</button>
@@ -100,7 +113,16 @@ export default function DataSuggestPanel({ onCreated }: { onCreated: () => void 
             <span style={{ fontSize: 11, padding: '1px 8px', borderRadius: 9, background: 'var(--accent-weak-bg)',
               color: 'var(--accent)', marginRight: 6 }}>{TYPE_RU[s.type] || s.type}</span>
             <span style={{ fontSize: 13 }}>{s.name}</span>
+            {s.preview_value != null && (
+              <span style={{ marginLeft: 6, fontSize: 12, color: 'var(--success)' }}
+                title="Предложение проверено расчётом на ваших данных">
+                = {fmtNumber(s.preview_value)}{s.unit ? ` ${s.unit}` : ''}
+              </span>
+            )}
             <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{s.why}</span>
+            {source(s) && (
+              <span style={{ display: 'block', fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>📄 {source(s)}</span>
+            )}
             <code style={{ display: 'block', fontSize: 11, color: 'var(--text-faint)', marginTop: 2, wordBreak: 'break-all' }}>{s.formula}</code>
           </span>
         </label>

@@ -339,8 +339,13 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
       })
     }
     const vals: number[] = data.values || []
+    // Легенда «Значение / Тренд / Аномалии» рисуется по нижнему краю и налезала
+    // на повёрнутые подписи дат. Теперь под неё резервируется место, а на низком
+    // графике она вовсе скрывается: пунктир тренда и красные точки аномалий
+    // различимы и без подписи, а места на подписи дат не остаётся.
+    const showLegend = (data.trend || anomalies.length > 0) && fit.h >= 150
     const opt: EChartsOption = {
-      grid: { left: 44, right: 12, top: 12, bottom: 40 },
+      grid: { left: 44, right: 12, top: 12, bottom: showLegend ? 62 : 40 },
       // Под графиком помещается только последняя пара периодов, а изменение между
       // каждой парой («22.07 → 05.08») видно здесь: наводя на точку, пользователь
       // получает и значение, и прирост к предыдущему периоду.
@@ -362,7 +367,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
           return lines.join('<br/>')
         },
       },
-      legend: (data.trend || anomalies.length > 0) ? { bottom: 0, textStyle: { fontSize: 10 }, itemHeight: 8 } : undefined,
+      legend: showLegend ? { bottom: 0, textStyle: { fontSize: 10 }, itemHeight: 8 } : undefined,
       xAxis: { type: 'category', data: periods.map(fmtPeriod), axisLabel: { rotate: 30, fontSize: 11 } },
       // На ужатом по высоте графике деления оси налезают друг на друга — при
       // малой высоте оставляем меньше делений.
@@ -416,8 +421,10 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     }
     series.push({ type: 'line', name: String(data.current_year), data: data.current, smooth: true, symbol: 'circle', symbolSize: 5,
       itemStyle: { color: C.c1 }, lineStyle: { color: C.c1, width: 2.5 }, areaStyle: { opacity: 0.08 } })
+    // У «Года к году» легенда (два года) нужна всегда — резервируем под неё место,
+    // иначе она ложится на подписи месяцев.
     const opt: EChartsOption = {
-      grid: { left: 44, right: 12, top: 12, bottom: 40 },
+      grid: { left: 44, right: 12, top: 12, bottom: 56 },
       tooltip: { trigger: 'axis' },
       legend: { bottom: 0, textStyle: { fontSize: 11 } },
       xAxis: { type: 'category', data: months, axisLabel: { fontSize: 11 } },

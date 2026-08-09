@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
-  approveVersion, createMetric, createVersion, getDataSources, getMetric, listMetrics, previewFormula,
+  approveVersion, createMetric, createVersion, getDataSources, getMetric, listMetrics, metricInfoDraft, previewFormula,
   updateMetric, validateVersion, versionValue,
   type DataSources, type Dependencies, type Metric, type MetricVersion,
 } from '../api'
@@ -144,6 +144,18 @@ function MetricDetail({ data, canManage, onError, onChanged }: {
 
   useEffect(() => { getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] })) }, [])
 
+  // Если описание показателя ещё не заполнено — подставляем черновик, собранный
+  // системой из формулы, источников и состояния версии. В БД он НЕ пишется:
+  // модератор правит текст и сохраняет сам, поэтому «Информации нет» перестаёт
+  // быть нормой, но и выдумок за модератора не появляется.
+  const [infoAuto, setInfoAuto] = useState(false)
+  useEffect(() => {
+    if (metric.info_text) return
+    metricInfoDraft(metric.id)
+      .then((r) => { setInfo((cur) => (cur ? cur : r.draft)); setInfoAuto(true) })
+      .catch(() => {}) // нет версии формулы — описывать пока нечего
+  }, [metric.id, metric.info_text])
+
   async function saveInfo() {
     setInfoBusy(true); setInfoSaved(false)
     try { await updateMetric(metric.id, { info_text: info }); setInfoSaved(true) }
@@ -192,9 +204,18 @@ function MetricDetail({ data, canManage, onError, onChanged }: {
           <textarea style={{ width: '100%', minHeight: 70, padding: 8, border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }}
             value={info} onChange={(e) => { setInfo(e.target.value); setInfoSaved(false) }}
             placeholder="Из чего складывается показатель, как читать, за что отвечает…" />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
             <button style={btnSm} disabled={infoBusy} onClick={saveInfo}>{infoBusy ? 'Сохранение…' : 'Сохранить информацию'}</button>
+            <button style={btnSm} disabled={infoBusy} title="Собрать описание заново из формулы и источников"
+              onClick={() => metricInfoDraft(metric.id).then((r) => { setInfo(r.draft); setInfoAuto(true); setInfoSaved(false) }).catch(onError)}>
+              ✨ Заполнить автоматически
+            </button>
             {infoSaved && <span style={{ fontSize: 12, color: 'var(--success)' }}>✓ сохранено</span>}
+            {infoAuto && !infoSaved && (
+              <span style={{ fontSize: 12, color: 'var(--warn)' }}>
+                текст подготовлен системой — проверьте, дополните и сохраните
+              </span>
+            )}
           </div>
         </div>
       )}

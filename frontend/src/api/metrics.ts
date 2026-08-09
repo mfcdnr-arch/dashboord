@@ -174,10 +174,23 @@ export interface DataSuggestion {
   based_on: string[]
   dataset_code: string
   code: string
+  preview_value?: number | null   // предложение проверено расчётом на данных
+  dataset_name?: string | null
+  object_name?: string | null
+  folder_name?: string | null
+  document_name?: string | null
 }
-export async function dataSuggestions(datasetCode?: string): Promise<{ specs: DataSuggestion[]; datasets: { code: string; name: string; periods: number }[] }> {
+export interface SuggestDataset { code: string; name: string; periods: number; object_name?: string | null; folder_name?: string | null; document_name?: string | null }
+export async function dataSuggestions(datasetCode?: string): Promise<{ specs: DataSuggestion[]; datasets: SuggestDataset[] }> {
   const q = datasetCode ? `?dataset_code=${encodeURIComponent(datasetCode)}` : ''
   const res = await fetch(`/metrics/data-suggestions${q}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+// Черновик «расширенной информации о показателе», собранный системой из формулы.
+export async function metricInfoDraft(metricId: string): Promise<{ draft: string }> {
+  const res = await fetch(`/metrics/${metricId}/info-draft`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
