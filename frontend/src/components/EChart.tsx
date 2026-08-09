@@ -22,6 +22,17 @@ function themeDefaults(): EChartsOption {
   return { textStyle: { color: muted } }
 }
 
+// Подсказка при наведении рисуется ВНУТРИ контейнера графика, а карточка виджета
+// обрезает всё, что вылезло за её край (overflow: hidden) — у узких карточек от
+// подсказки оставалась половина слова. Выносим её в body, как уже сделано для
+// окна «подробнее» и значка ⓘ. Свойство добавляется автоматически всем графикам,
+// чтобы про него не пришлось помнить при каждом новом типе виджета.
+function withDetachedTooltip(option: EChartsOption): EChartsOption {
+  const tip = (option as { tooltip?: Record<string, unknown> }).tooltip
+  if (!tip) return option
+  return { ...option, tooltip: { appendToBody: true, ...tip } } as EChartsOption
+}
+
 // Тонкая обёртка над ECharts: инициализирует график в div, применяет option,
 // подстраивает размер под контейнер, освобождает ресурсы при размонтировании.
 export default function EChart({ option, height = 200, onPick }: { option: EChartsOption; height?: number; onPick?: (name: string) => void }) {
@@ -40,13 +51,13 @@ export default function EChart({ option, height = 200, onPick }: { option: EChar
     const ro = new ResizeObserver(() => chart.resize())
     ro.observe(ref.current)
     // Перерисовать при смене темы (data-theme на <html>) — обновить цвета текста.
-    const mo = new MutationObserver(() => chart.setOption({ ...themeDefaults(), ...optionRef.current }, true))
+    const mo = new MutationObserver(() => chart.setOption(withDetachedTooltip({ ...themeDefaults(), ...optionRef.current }), true))
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     return () => { ro.disconnect(); mo.disconnect(); chart.dispose(); chartRef.current = null }
   }, [])
 
   useEffect(() => {
-    chartRef.current?.setOption({ ...themeDefaults(), ...option }, true)
+    chartRef.current?.setOption(withDetachedTooltip({ ...themeDefaults(), ...option }), true)
   }, [option])
 
   return <div ref={ref} style={{ width: '100%', height }} />

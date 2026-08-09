@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { EChartsOption } from 'echarts'
 import { getWidgetData, getWidgetDrill } from '../api'
@@ -16,6 +16,50 @@ function fmtAsOf(iso: string): string {
   const d = new Date(iso)
   return isNaN(d.getTime()) ? iso : d.toLocaleDateString('ru-RU')
 }
+
+// Высота графика под РЕАЛЬНО доступное место в карточке.
+// Раньше высота была константой: как только под графиком добавилась вторая строка
+// итогов, содержимое перестало помещаться (276px против 192px), карточка включила
+// прокрутку и показала только нижнюю часть оси — линия графика уехала из виду.
+// Числа важнее картинки, поэтому ужимается график, а не подписи.
+function useFitHeight(base: number) {
+  const box = useRef<HTMLDivElement>(null)
+  const labels = useRef<HTMLDivElement>(null)
+  const [h, setH] = useState(base)
+
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el) return
+    // Ограничивает высоту не прямой родитель, а карточка виджета выше по дереву;
+    // между ними лежат и другие блоки («подробнее», «данные на»), которые тоже
+    // занимают место. Поэтому меряем не «сколько осталось», а фактическое
+    // переполнение карточки и ужимаем график ровно на него.
+    let scroller: HTMLElement | null = el.parentElement
+    while (scroller && getComputedStyle(scroller).overflowY === 'visible') scroller = scroller.parentElement
+    if (!scroller || !scroller.clientHeight) return // предпросмотр в форме: высота не ограничена
+
+    const calc = () => {
+      const s = scroller as HTMLElement
+      const over = s.scrollHeight - s.clientHeight
+      setH((cur) => {
+        if (over > 0) return Math.max(MIN_CHART_H, cur - over)
+        if (cur < base) return Math.min(base, cur + Math.max(0, s.clientHeight - s.scrollHeight))
+        return cur
+      })
+    }
+    calc()
+    const ro = new ResizeObserver(calc)
+    ro.observe(scroller)
+    if (labels.current) ro.observe(labels.current)
+    return () => ro.disconnect()
+  }, [base])
+
+  return { box, labels, h }
+}
+// Ниже этого графику нельзя: на 84px даже три деления оси налезали друг на друга.
+// Если содержимое всё равно не помещается, карточка включит прокрутку — это
+// честнее, чем показать нечитаемый график.
+const MIN_CHART_H = 118
 
 // Подпись периода на графике динамики. Периоды приходят как «2026-07-22»
 // (дата выпуска) либо «2026-07» (месяц) — машинный вид на оси читается плохо.
@@ -144,6 +188,9 @@ const searchInput: React.CSSProperties = {
   background: 'var(--surface)', color: 'var(--text)', fontSize: 12, width: 220, marginBottom: 8,
 }
 const sortableTh: React.CSSProperties = { cursor: 'pointer', userSelect: 'none' }
+// Значок ▲/▼ у заголовка ничего не объясняет сам по себе — подсказка при наведении
+// говорит, что это сортировка и что делает повторный клик.
+const SORT_HINT = 'Сортировать по этому столбцу: ▲ по возрастанию, ▼ по убыванию, третий клик — сброс'
 
 function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) {
   useThemeVersion() // перерисовка при смене темы: цвета серий берутся из токенов
@@ -152,6 +199,9 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
   const [tableSort, setTableSort] = useState<SortState>(null)
   const [pivotSearch, setPivotSearch] = useState('')
   const [pivotSort, setPivotSort] = useState<SortState>(null)
+  // Хук объявлен до ветвления по типу виджета: тип может смениться при правке
+  // виджета, а порядок хуков между рендерами меняться не должен.
+  const fit = useFitHeight(196)
   if (data.type === 'text') {
     const align = data.align === 'center' ? 'center' : 'left'
     if (!data.heading && !data.body) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Пустая аннотация</div>
@@ -234,15 +284,20 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     rows = sortRows(rows, tableSort, (r, c) => (c === '__row' ? r.row : r[c]))
     return (
       <div>
-        <input style={searchInput} placeholder="🔍 Поиск по таблице…" value={tableSearch} onChange={(e) => setTableSearch(e.target.value)} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <input style={searchInput} placeholder="🔍 Поиск по таблице…" value={tableSearch} onChange={(e) => setTableSearch(e.target.value)} />
+          <span style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 8 }}>
+            клик по заголовку столбца сортирует: ▲ по возрастанию, ▼ по убыванию, третий клик — сброс
+          </span>
+        </div>
         <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
           <thead><tr>
-            <th style={{ ...th, ...sortableTh }} onClick={() => toggleSort(setTableSort, '__row')}>Строка{sortArrow(tableSort, '__row')}</th>
+            <th style={{ ...th, ...sortableTh }} title={SORT_HINT} onClick={() => toggleSort(setTableSort, '__row')}>Строка{sortArrow(tableSort, '__row')}</th>
             {/* Заголовок — человеческое имя показателя; код остаётся ключом
                 данных и подсказкой, чтобы можно было сверить с формулой. */}
             {cols.map((c: string) => (
-              <th key={c} style={{ ...th, ...sortableTh }} title={c}
+              <th key={c} style={{ ...th, ...sortableTh }} title={`${SORT_HINT}\nКод столбца: ${c}`}
                 onClick={() => toggleSort(setTableSort, c)}>
                 {(data.column_titles?.[c] as string) || c}{sortArrow(tableSort, c)}
               </th>
@@ -283,12 +338,35 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
         data: anomalies.map((a) => [a.index, a.value]),
       })
     }
+    const vals: number[] = data.values || []
     const opt: EChartsOption = {
       grid: { left: 44, right: 12, top: 12, bottom: 40 },
-      tooltip: { trigger: 'axis' },
+      // Под графиком помещается только последняя пара периодов, а изменение между
+      // каждой парой («22.07 → 05.08») видно здесь: наводя на точку, пользователь
+      // получает и значение, и прирост к предыдущему периоду.
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params: any) => {
+          const arr = Array.isArray(params) ? params : [params]
+          const i = arr[0]?.dataIndex ?? 0
+          const lines = [`<b>${fmtPeriod(periods[i])}</b>`]
+          arr.forEach((p: any) => {
+            const v = Array.isArray(p.value) ? p.value[1] : p.value
+            if (v != null) lines.push(`${p.marker} ${p.seriesName}: <b>${fmt(v)}</b>`)
+          })
+          if (i > 0 && vals[i] != null && vals[i - 1] != null) {
+            const d = vals[i] - vals[i - 1]
+            const pct = vals[i - 1] ? (d / vals[i - 1]) * 100 : null
+            lines.push(`<span style="color:#888">к ${fmtPeriod(periods[i - 1])}:</span> ${d >= 0 ? '+' : ''}${fmt(d)}${pct != null ? ` (${d >= 0 ? '+' : ''}${fmt(pct)}%)` : ''}`)
+          }
+          return lines.join('<br/>')
+        },
+      },
       legend: (data.trend || anomalies.length > 0) ? { bottom: 0, textStyle: { fontSize: 10 }, itemHeight: 8 } : undefined,
       xAxis: { type: 'category', data: periods.map(fmtPeriod), axisLabel: { rotate: 30, fontSize: 11 } },
-      yAxis: { type: 'value' },
+      // На ужатом по высоте графике деления оси налезают друг на друга — при
+      // малой высоте оставляем меньше делений.
+      yAxis: { type: 'value', splitNumber: fit.h < 130 ? 3 : 5 },
       series,
     }
     const ch = data.change
@@ -297,22 +375,23 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     // вторую строку в этом случае не показываем, чтобы не дублировать.
     const showTotal = tot != null && (data.periods_count ?? 0) > 2
     return (
-      <div>
-        <EChart option={opt} height={(data.trend || anomalies.length > 0) ? 196 : 180} />
+      <div ref={fit.box} style={{ height: '100%' }}>
+        <EChart option={opt} height={fit.h} />
+        <div ref={fit.labels}>
         {ch != null && (
-          <div style={{ fontSize: 13, marginTop: 4 }}>
-            К пред. периоду
+          <div style={{ fontSize: 12.5, marginTop: 3, lineHeight: 1.35 }}>
+            К пред.
             {data.change_to_period && (
-              <span style={{ color: 'var(--text-muted)' }}> ({fmtPeriod(data.change_from_period)} → {fmtPeriod(data.change_to_period)})</span>
+              <span style={{ color: 'var(--text-muted)' }}> ({fmtPeriod(data.change_from_period)}→{fmtPeriod(data.change_to_period)})</span>
             )}: <b style={{ color: ch >= 0 ? 'var(--success)' : 'var(--danger)' }}>{ch >= 0 ? '↑ +' : '↓ '}{fmt(ch)}{data.change_pct != null ? ` (${fmt(data.change_pct)}%)` : ''}</b>
             {data.trend_slope != null && <span style={{ marginLeft: 10, color: 'var(--warn)' }}>тренд: <b>{data.trend_slope >= 0 ? '↗ рост' : '↘ спад'}</b> ({fmt(data.trend_slope)}/период)</span>}
           </div>
         )}
         {showTotal && (
-          <div style={{ fontSize: 13, marginTop: 2 }}
+          <div style={{ fontSize: 12.5, marginTop: 1, lineHeight: 1.35 }}
             title={`${fmt(data.first_value)} на ${fmtPeriod(data.first_period)} → ${fmt(data.last_value)} на ${fmtPeriod(data.last_period)}`}>
-            За весь период
-            <span style={{ color: 'var(--text-muted)' }}> ({fmtPeriod(data.first_period)} → {fmtPeriod(data.last_period)}, точек: {data.periods_count})</span>
+            Всего
+            <span style={{ color: 'var(--text-muted)' }}> ({fmtPeriod(data.first_period)}→{fmtPeriod(data.last_period)}, точек: {data.periods_count})</span>
             : <b style={{ color: tot >= 0 ? 'var(--success)' : 'var(--danger)' }}>{tot >= 0 ? '↑ +' : '↓ '}{fmt(tot)}{data.total_change_pct != null ? ` (${fmt(data.total_change_pct)}%)` : ''}</b>
           </div>
         )}
@@ -321,6 +400,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
             ? <div style={{ fontSize: 12, marginTop: 4, color: 'var(--danger)' }}>⚠ {anomalies.length} {anomalies.length === 1 ? 'аномалия' : 'аномалии(й)'}: {anomalies.map((a) => fmtPeriod(a.period)).join(', ')}</div>
             : <div style={{ fontSize: 12, marginTop: 4, color: 'var(--text-muted)' }}>Аномалий не обнаружено (порог {data.anomaly_threshold}σ)</div>
         )}
+        </div>
       </div>
     )
   }
@@ -414,9 +494,9 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
         <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
           <thead><tr>
-            <th style={{ ...th, ...sortableTh }} onClick={() => toggleSort(setPivotSort, '__row')}>Строка{sortArrow(pivotSort, '__row')}</th>
-            {cols.map((c, ci) => <th key={c} style={{ ...th, ...sortableTh }} onClick={() => toggleSort(setPivotSort, String(ci))}>{c}{sortArrow(pivotSort, String(ci))}</th>)}
-            <th style={{ ...th, ...sortableTh, color: 'var(--accent)' }} onClick={() => toggleSort(setPivotSort, '__total')}>Итого{sortArrow(pivotSort, '__total')}</th>
+            <th style={{ ...th, ...sortableTh }} title={SORT_HINT} onClick={() => toggleSort(setPivotSort, '__row')}>Строка{sortArrow(pivotSort, '__row')}</th>
+            {cols.map((c, ci) => <th key={c} style={{ ...th, ...sortableTh }} title={SORT_HINT} onClick={() => toggleSort(setPivotSort, String(ci))}>{c}{sortArrow(pivotSort, String(ci))}</th>)}
+            <th style={{ ...th, ...sortableTh, color: 'var(--accent)' }} title={SORT_HINT} onClick={() => toggleSort(setPivotSort, '__total')}>Итого{sortArrow(pivotSort, '__total')}</th>
           </tr></thead>
           <tbody>
             {rows.length === 0 && <tr><td style={td} colSpan={cols.length + 2}>Ничего не найдено</td></tr>}

@@ -66,6 +66,11 @@ export default function App() {
 // «Объекты» попали сюда из-за конструктора разметки: там показывается лист
 // документа как в оригинале, а у отчётов госсектора бывает и 16 столбцов —
 // на 900px от таблицы видно два столбца из шестнадцати.
+// Разделы с сеткой виджетов и широкими таблицами занимают ВСЮ ширину окна:
+// на мониторе 1920/2560 ограничение по ширине оставляло половину экрана пустой,
+// а дашборд смотрят именно на большом экране (в том числе на ТВ в холле).
+// Остальные разделы (формы, списки) остаются в узкой колонке — длинные строки
+// текста через весь монитор читать неудобно.
 const WIDE_SECTIONS = new Set(['dashboards', 'showcases', 'archive', 'objects'])
 
 function Centered({ children }: { children: React.ReactNode }) {
@@ -225,7 +230,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             узкой колонке (900px — комфортная длина строки), но ДАШБОРДЫ и ВИТРИНЫ —
             это плотная сетка виджетов: на 900px из 12 колонок сетки получаются
             узкие карточки, а на мониторе 1920 половина экрана простаивала. */}
-        <main style={{ flex: 1, padding: narrow ? 12 : 24, maxWidth: narrow ? '100%' : (WIDE_SECTIONS.has(section) ? 1600 : 900), minWidth: 0 }}>
+        <main style={{ flex: 1, padding: narrow ? 12 : 24, maxWidth: (narrow || WIDE_SECTIONS.has(section)) ? '100%' : 900, minWidth: 0 }}>
           <OnboardingHint section={section} roles={me.roles} userKey={me.login} />
           {section === 'home' ? (
             <HomePage me={me} canManage={canManage} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
