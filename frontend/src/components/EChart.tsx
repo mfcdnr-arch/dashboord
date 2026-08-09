@@ -27,10 +27,21 @@ function themeDefaults(): EChartsOption {
 // подсказки оставалась половина слова. Выносим её в body, как уже сделано для
 // окна «подробнее» и значка ⓘ. Свойство добавляется автоматически всем графикам,
 // чтобы про него не пришлось помнить при каждом новом типе виджета.
+// confine — держит подсказку в пределах окна: вынесенная в body, она иначе
+// уезжает за левый/верхний край экрана, и часть текста прочитать невозможно.
 function withDetachedTooltip(option: EChartsOption): EChartsOption {
   const tip = (option as { tooltip?: Record<string, unknown> }).tooltip
   if (!tip) return option
-  return { ...option, tooltip: { appendToBody: true, ...tip } } as EChartsOption
+  return {
+    ...option,
+    tooltip: {
+      appendToBody: true, confine: true,
+      // Длинные имена показателей госформ не должны растягивать подсказку на
+      // весь экран — переносим их по словам.
+      extraCssText: 'max-width:min(460px,90vw);white-space:normal;',
+      ...tip,
+    },
+  } as EChartsOption
 }
 
 // Тонкая обёртка над ECharts: инициализирует график в div, применяет option,

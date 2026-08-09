@@ -531,10 +531,19 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       {usesMulti && (
         <>
           <F t={type === 'heatmap' ? 'Поля (столбцы карты)' : 'Поля (несколько)'}>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', height: 34, alignItems: 'center' }}>
+            {/* Высота была жёстко задана в 34px: полтора десятка длинных имён
+                показателей госформы туда не помещались и наезжали на соседние
+                поля формы. Теперь список занимает столько, сколько нужно, но не
+                больше — дальше прокрутка, чтобы форма не разрасталась на экран. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 132, overflowY: 'auto',
+              width: 'min(460px, 100%)', boxSizing: 'border-box',
+              padding: '4px 6px', border: '1px solid var(--border-faint)', borderRadius: 8 }}>
               {numFields(dataset).map((f) => (
-                <label key={f.code} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 13 }}>
-                  <input type="checkbox" checked={multiFields.includes(f.code)} onChange={() => toggleField(f.code)} />{f.name}
+                <label key={f.code} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 13, lineHeight: 1.3 }}>
+                  <input type="checkbox" checked={multiFields.includes(f.code)} onChange={() => toggleField(f.code)} style={{ marginTop: 2, flexShrink: 0 }} />
+                  {/* Имена показателей длинные: без переноса они выходят за
+                      границы списка и наезжают на соседние поля формы. */}
+                  <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{f.name}</span>
                 </label>
               ))}
             </div>

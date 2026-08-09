@@ -62,6 +62,14 @@ function useFitHeight(base: number) {
 // честнее, чем показать нечитаемый график.
 const MIN_CHART_H = 118
 
+// Ширина полосы под подписи оси значений. При миллионах «3 000 000» не влезает
+// в фиксированные 44px и обрезается слева — считаем место по самому длинному числу.
+function gridLeft(values: (number | null | undefined)[]): number {
+  const max = Math.max(0, ...values.filter((v): v is number => typeof v === 'number' && isFinite(v)).map(Math.abs))
+  const digits = fmt(Math.round(max)).length
+  return Math.min(80, Math.max(44, 12 + digits * 7))
+}
+
 // Подпись периода на графике динамики. Периоды приходят как «2026-07-22»
 // (дата выпуска) либо «2026-07» (месяц) — машинный вид на оси читается плохо.
 function fmtPeriod(p: string): string {
@@ -85,7 +93,7 @@ function chartOption(data: any): EChartsOption {
   }
   const isLine = data.type === 'line'
   return {
-    grid: { left: 40, right: 12, top: 12, bottom: cats.some((c) => c.length > 6) ? 46 : 24 },
+    grid: { left: gridLeft(vals), right: 12, top: 12, bottom: cats.some((c) => c.length > 6) ? 46 : 24 },
     tooltip: { trigger: 'axis' },
     xAxis: { type: 'category', data: cats, axisLabel: { interval: 0, rotate: cats.some((c) => c.length > 6) ? 30 : 0, fontSize: 11 } },
     yAxis: { type: 'value' },
@@ -346,7 +354,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     // различимы и без подписи, а места на подписи дат не остаётся.
     const showLegend = (data.trend || anomalies.length > 0) && fit.h >= 150
     const opt: EChartsOption = {
-      grid: { left: 44, right: 12, top: 12, bottom: showLegend ? 62 : 40 },
+      grid: { left: gridLeft(vals), right: 12, top: 12, bottom: showLegend ? 62 : 40 },
       // Под графиком помещается только последняя пара периодов, а изменение между
       // каждой парой («22.07 → 05.08») видно здесь: наводя на точку, пользователь
       // получает и значение, и прирост к предыдущему периоду.
@@ -458,23 +466,48 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     const shortened = distinctLabels(seriesNames)
     const shortSeries: Record<string, string> = {}
     seriesNames.forEach((n, i) => { shortSeries[n] = shortened[i] })
+    // Снизу претендуют двое: повёрнутые подписи категорий и легенда серий —
+    // раньше они делили одно место и наезжали друг на друга. Теперь под каждое
+    // резервируется своя полоса, а на низкой карточке легенда убирается совсем:
+    // категории важнее, цвета серий читаются по подсказке при наведении.
+    // Поворачиваем подписи категорий, только когда их несколько: единственная
+    // повёрнутая подпись уходит влево и наезжает на ось значений.
+    const rotated = cats.length > 1 && cats.some((c) => c.length > 6)
+    // Единственная длинная подпись («Донецкая Народная Республика») шире узкой
+    // карточки и вылезала за края графика — переносим её по словам.
+    const wrapSingle = cats.length === 1 && cats[0].length > 14
+    const legendRoom = 22
+    const catsRoom = rotated ? 58 : wrapSingle ? 44 : 30
+    const showLegend = seriesNames.length > 1 && fit.h >= 170
     const opt: EChartsOption = {
-      grid: { left: 44, right: 12, top: 12, bottom: cats.some((c) => c.length > 6) ? 60 : 46 },
+      grid: { left: gridLeft((data.series || []).flatMap((x: any) => x.data || [])), right: 12, top: 12, bottom: catsRoom + (showLegend ? legendRoom : 0) },
       tooltip: { trigger: 'axis' },
-      // Имена показателей в госформах длинные и различаются ХВОСТОМ («нарастающим
-      // итогом» / «за отчётную неделю»), поэтому в легенде сокращаем середину, а
-      // не конец; полное имя видно в подсказке при наведении. Прокрутка легенды —
-      // чтобы при пяти-шести показателях она не съела весь график.
-      legend: { bottom: 0, type: 'scroll', textStyle: { fontSize: 11 },
-        formatter: (name: string) => elideMiddle(shortSeries[name] || name, 38) },
-      xAxis: { type: 'category', data: cats, axisLabel: { interval: 0, rotate: cats.some((c) => c.length > 6) ? 30 : 0, fontSize: 11 } },
-      yAxis: { type: 'value' },
+      // Имена показателей одной формы совпадают началом и концом, поэтому в
+      // легенде показываем только различающую часть (distinctLabels), а полное
+      // имя остаётся в подсказке. Прокрутка — чтобы 5–6 показателей не съели график.
+      legend: showLegend
+        ? { bottom: 0, type: 'scroll', textStyle: { fontSize: 11 },
+            formatter: (name: string) => elideMiddle(shortSeries[name] || name, 38) }
+        : undefined,
+      xAxis: { type: 'category', data: cats,
+        axisLabel: {
+          interval: 0, rotate: rotated ? 30 : 0, fontSize: 11, hideOverlap: true,
+          ...(wrapSingle ? { width: 130, overflow: 'break' as const } : {}),
+          formatter: (v: string) => (wrapSingle ? v : elideMiddle(v, 28)),
+        } },
+      // На ужатом графике пять делений оси налезают друг на друга — оставляем меньше.
+      yAxis: { type: 'value', splitNumber: fit.h < 140 ? 2 : fit.h < 200 ? 3 : 5 },
       series: (data.series || []).map((s: any, i: number) => ({
         name: s.name, type: data.viz === 'line' ? 'line' : 'bar', data: s.data,
         smooth: data.viz === 'line', itemStyle: { color: C.palette[i % C.palette.length] }, barMaxWidth: 28,
       })),
     }
-    return <EChart option={opt} height={230} onPick={onPick} />
+    return (
+      <div ref={fit.box} style={{ height: '100%' }}>
+        <EChart option={opt} height={fit.h} onPick={onPick} />
+        <div ref={fit.labels} />
+      </div>
+    )
   }
 
   if (data.type === 'heatmap') {
