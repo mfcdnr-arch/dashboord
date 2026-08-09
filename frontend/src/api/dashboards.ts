@@ -120,6 +120,17 @@ export async function unpublishDashboard(id: string): Promise<void> {
   const res = await fetch(`/dashboards/${id}/unpublish`, { method: 'POST', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
 }
+/** Переименование страницы дашборда (вкладки). */
+export async function updatePage(pageId: string, patch: { name?: string; description?: string }): Promise<DashPage> {
+  const res = await fetch(`/dashboard-pages/${pageId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 /** Правка дашборда: название и/или описание (передаём только изменяемое). */
 export async function updateDashboard(
   id: string, patch: { name?: string; description?: string | null },

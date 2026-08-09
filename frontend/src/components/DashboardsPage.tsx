@@ -5,7 +5,7 @@ import 'react-resizable/css/styles.css'
 import {
   autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deleteDashboard, deletePage, deletePreset, deleteWidget, getDashboard,
   exportPageXlsx, getDataSources, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listFolders, listObjects, listPageWidgets, listPresets,
-  listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, updateDashboard, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
+  listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, updateDashboard, updatePage, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Folder, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
 } from '../api'
 import { useContainerWidth } from '../lib/useWidth'
@@ -223,6 +223,21 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
       const p = await createPage(sel.dashboard.id, newPage.trim())
       setNewPage(''); const d = await getDashboard(sel.dashboard.id); setSel(d); openPage(p)
     } catch (e) { fail(e) } finally { setBusy(false) }
+  }
+  async function renamePage(p: DashPage) {
+    if (!sel) return
+    const name = prompt('Название страницы:', p.name)
+    if (name === null) return
+    if (!name.trim()) { setError('Название страницы не может быть пустым'); return }
+    setError(null)
+    try {
+      await updatePage(p.id, { name: name.trim() })
+      const d = await getDashboard(sel.dashboard.id)
+      setSel(d)
+      // Вкладка перечитывается из ответа: иначе в заголовке осталось бы старое имя.
+      const fresh = d.pages.find((x) => x.id === p.id)
+      if (fresh) setPage(fresh)
+    } catch (e) { fail(e) }
   }
   async function delPage(p: DashPage) {
     if (!sel || !confirm(`Удалить страницу «${p.name}» со всеми виджетами?`)) return
@@ -558,6 +573,10 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
             <div ref={pageRef} style={{ background: 'var(--surface)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                 <h3 style={{ fontSize: 15, margin: 0 }}>Страница «{page.name}»</h3>
+                {canManage && (
+                  <button style={{ ...editBtn, cursor: 'pointer' }} title="Переименовать страницу"
+                    onClick={() => renamePage(page)}>✎</button>
+                )}
                 {canManage && (
                   <button style={{ ...tab, height: 30, ...(editMode ? tabActive : {}) }}
                     title={editMode
