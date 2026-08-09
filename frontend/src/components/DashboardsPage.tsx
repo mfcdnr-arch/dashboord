@@ -171,9 +171,15 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
     listFolders(filterObjId).then(setFilterFolders).catch(() => setFilterFolders([]))
   }, [filterObjId])
   useEffect(() => {
-    getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] }))
+    // Источники и шаблоны нужны только конструктору: на /metrics/data-sources
+    // обычный пользователь получает 403, и запрос уходил впустую при каждом
+    // открытии раздела — лишний отказ в логах и в консоли браузера.
+    // Список объектов оставляем всем: по нему работает фильтр «Папка».
     listObjects().then(setObjects).catch(() => {})
-    listTemplates().then(setTemplates).catch(() => {})
+    if (canManage) {
+      getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] }))
+      listTemplates().then(setTemplates).catch(() => {})
+    }
     if (initialDashboardId) openDashboard(initialDashboardId)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 

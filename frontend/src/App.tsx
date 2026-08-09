@@ -22,6 +22,7 @@ import Logo from './components/Logo'
 import SetupWizard from './components/SetupWizard'
 import ArchivePage from './components/ArchivePage'
 import { archiveMe } from './api/archive'
+import { listShowcases } from './api/showcases'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -75,12 +76,15 @@ function Centered({ children }: { children: React.ReactNode }) {
   )
 }
 
+// staffOnly — рабочая кухня (загрузка документов, разметка, формулы, сводка по
+// системе). Обычному пользователю там нечего делать: он смотрит готовые дашборды
+// и комментирует их, а кнопки создания всё равно упирались бы в «Недостаточно прав».
 const NAV = [
-  { key: 'home', label: 'Главная', ready: true },
-  { key: 'objects', label: 'Объекты', ready: true },
-  { key: 'metrics', label: 'Метрики', ready: true },
+  { key: 'home', label: 'Главная', ready: true, staffOnly: true },
+  { key: 'objects', label: 'Объекты', ready: true, staffOnly: true },
+  { key: 'metrics', label: 'Метрики', ready: true, staffOnly: true },
   { key: 'dashboards', label: 'Дашборды', ready: true },
-  { key: 'showcases', label: 'Витрины', ready: true },
+  { key: 'showcases', label: 'Витрины', ready: true, showcaseGate: true },
   { key: 'archive', label: 'Архив', ready: true, archiveGate: true },
   { key: 'moderation', label: 'Модерация', ready: true, modOnly: true },
   { key: 'appeals', label: 'Обращения', ready: true, modOnly: true },
@@ -108,7 +112,9 @@ function useIsNarrow(maxWidth = 760): boolean {
 function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const narrow = useIsNarrow()
   const [health, setHealth] = useState<Health | null>(null)
-  const [section, setSection] = useState('home')
+  // Обычный пользователь начинает сразу со списка дашбордов: «Главной» у него нет.
+  const staff = me.roles.some((r) => ['admin', 'moderator', 'superadmin'].includes(r))
+  const [section, setSection] = useState(staff ? 'home' : 'dashboards')
   const [openDash, setOpenDash] = useState<string | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
   useEffect(() => {
@@ -133,6 +139,13 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     if (canModerate) { setArchiveOk(true); return }
     archiveMe().then((r) => setArchiveOk(r.allowed)).catch(() => setArchiveOk(false))
   }, [canModerate])
+  // «Витрины» обычному пользователю показываем, только если ему реально доступна
+  // хоть одна — иначе он открывает раздел и видит пустоту без объяснения.
+  const [showcasesOk, setShowcasesOk] = useState(false)
+  useEffect(() => {
+    if (canManage) return
+    listShowcases().then((r) => setShowcasesOk(r.length > 0)).catch(() => setShowcasesOk(false))
+  }, [canManage])
   // Значок «сколько обращений ждут ответа» у пункта «Обращения» (только staff).
   // Best-effort, не real-time (полноценный push через WebSocket/SSE был бы
   // избыточен для масштаба МФЦ) — но обновляется часто и по актуальным поводам:
@@ -150,7 +163,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('focus', load) }
   }, [canModerate, section])
   const nav = NAV.filter((n) => (!n.adminOnly || isAdmin) && (!n.modOnly || canModerate)
-    && (!(n as { archiveGate?: boolean }).archiveGate || archiveOk))
+    && (!(n as { staffOnly?: boolean }).staffOnly || canManage)
+    && (!(n as { archiveGate?: boolean }).archiveGate || archiveOk)
+    && (!(n as { showcaseGate?: boolean }).showcaseGate || canManage || showcasesOk))
 
   return (
     <div style={{ fontFamily: 'var(--font-body)', minHeight: '100vh' }}>
