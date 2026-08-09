@@ -115,6 +115,27 @@ async def get_dashboard(dashboard_id: str, user: dict = Depends(get_current_user
         return result
 
 
+class DashboardPatch(BaseModel):
+    """Частичная правка: передаём только то, что меняем."""
+
+    name: Optional[str] = Field(default=None, max_length=200)
+    description: Optional[str] = None
+
+
+@router.patch("/dashboards/{dashboard_id}")
+async def update_dashboard(dashboard_id: str, body: DashboardPatch, user: dict = Depends(manage)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            async with conn.transaction():
+                # exclude_unset: описание можно стереть (null), не трогая имя.
+                return await service.update_dashboard(
+                    conn, user["organization_id"], user, dashboard_id,
+                    body.model_dump(exclude_unset=True),
+                )
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.delete("/dashboards/{dashboard_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_dashboard(dashboard_id: str, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:

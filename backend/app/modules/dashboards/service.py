@@ -200,6 +200,51 @@ async def _assert_editable(conn, dashboard_id) -> None:
         raise DashboardError("Дашборд на проверке — правки заблокированы; отзовите заявку, чтобы изменить")
 
 
+async def update_dashboard(conn, org_id, user: dict, dashboard_id: str, patch: dict) -> dict:
+    """Правка названия и описания дашборда.
+
+    До этого имя задавалось при создании и оставалось навсегда — опечатку в
+    названии исправить было нечем. Права те же, что у удаления: чужой дашборд
+    правит только администратор, свой — и модератор. Аудит писать вручную не
+    надо: на таблице висит триггер `trg_audit_dashboards`.
+
+    Частичность через `exclude_unset` на роутере: описание можно стереть
+    (передать null), не трогая имя.
+    """
+    d = await conn.fetchrow(
+        "select name, created_by from dashboards where id=$1::uuid and organization_id=$2",
+        dashboard_id, org_id)
+    if d is None:
+        raise DashboardError("Дашборд не найден")
+
+    roles = set(user.get("roles") or ())
+    if not roles & {"admin", "superadmin"} and str(d["created_by"]) != str(user["id"]):
+        raise DashboardError("Недостаточно прав: чужой дашборд может изменить только администратор")
+
+    sets, params = [], []
+    if "name" in patch:
+        name = (patch["name"] or "").strip()
+        if not name:
+            raise DashboardError("Название не может быть пустым")
+        params.append(name)
+        sets.append(f"name=${len(params)}")
+    if "description" in patch:
+        desc = patch["description"]
+        params.append(desc.strip() if isinstance(desc, str) and desc.strip() else None)
+        sets.append(f"description=${len(params)}")
+    if not sets:
+        raise DashboardError("Нечего изменять")
+
+    params.extend([dashboard_id, org_id])
+    row = await conn.fetchrow(
+        f"update dashboards set {', '.join(sets)}, updated_at=now() "
+        f"where id=${len(params) - 1}::uuid and organization_id=${len(params)} "
+        "returning id, name, description, publication_status, created_at, updated_at",
+        *params,
+    )
+    return dict(row)
+
+
 async def delete_dashboard(conn, org_id, user: dict, dashboard_id: str) -> None:
     """Удаление дашборда целиком — пока он не «в работе».
 

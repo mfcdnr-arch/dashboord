@@ -5,7 +5,7 @@ import 'react-resizable/css/styles.css'
 import {
   autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deleteDashboard, deletePage, deletePreset, deleteWidget, getDashboard,
   exportPageXlsx, getDataSources, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listFolders, listObjects, listPageWidgets, listPresets,
-  listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
+  listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, updateDashboard, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Folder, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
 } from '../api'
 import { useContainerWidth } from '../lib/useWidth'
@@ -22,6 +22,7 @@ import { Comments } from './dashboards/Comments'
 import { AlertEditor } from './dashboards/AlertEditor'
 import { DashboardList } from './dashboards/DashboardList'
 import { FolderMoveDialog } from './dashboards/FolderMoveDialog'
+import { AboutDashboard, EditDashboardDialog } from './dashboards/AboutDashboard'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
 import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
 import { PubBadge, WT, alertBtn, btn, btnGhost, crumb, dialog, editBtn, editHint, errBox, input, linkDanger, muted, overlay, presetChip, rmBtn, tab, tabActive, widgetCard, wtBadge } from './dashboards/shared'
@@ -108,6 +109,9 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
     })
   }
   const [versions, setVersions] = useState<{ version_no: number; status_code: string; created_at: string }[] | null>(null)
+  // Правка самого дашборда (имя/описание) и карточка «о дашборде».
+  const [editDash, setEditDash] = useState<{ name: string; description: string } | null>(null)
+  const [aboutOpen, setAboutOpen] = useState(false)
   const [alertWidget, setAlertWidget] = useState<Widget | null>(null)
   const [editWidget, setEditWidget] = useState<Widget | null>(null)
   const [accessOpen, setAccessOpen] = useState(false)
@@ -262,6 +266,20 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
     if (!sel) return
     try { await unpublishDashboard(sel.dashboard.id); setSel(await getDashboard(sel.dashboard.id)) } catch (e) { fail(e) }
   }
+  async function saveDashboardEdit(patch: { name: string; description: string }) {
+    if (!sel) return
+    setError(null)
+    try {
+      await updateDashboard(sel.dashboard.id, {
+        name: patch.name.trim(),
+        description: patch.description.trim() || null,
+      })
+      setSel(await getDashboard(sel.dashboard.id))
+      setEditDash(null)
+      refresh() // имя изменилось — обновляем и список
+    } catch (e) { fail(e) }
+  }
+
   async function doDeleteDashboard() {
     if (!sel) return
     if (!confirm(
@@ -416,7 +434,18 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, marginBottom: 16 }}>
         <button style={crumb} onClick={() => { setSel(null); setPage(null) }}>Дашборды</button>
-        {sel && <><span style={{ color: 'var(--text-faint)' }}>/</span><span>{sel.dashboard.name}</span></>}
+        {sel && (
+          <>
+            <span style={{ color: 'var(--text-faint)' }}>/</span>
+            <span>{sel.dashboard.name}</span>
+            {canManage && (
+              <button style={{ ...editBtn, cursor: 'pointer' }} title="Переименовать дашборд, изменить описание"
+                onClick={() => setEditDash({ name: sel.dashboard.name, description: sel.dashboard.description || '' })}>✎</button>
+            )}
+            <button style={{ ...editBtn, cursor: 'pointer' }} title="Что это за дашборд и из чего он собран"
+              onClick={() => setAboutOpen(true)}>ℹ</button>
+          </>
+        )}
       </div>
 
       {error && <div style={errBox}>{error}</div>}
@@ -654,6 +683,13 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
             </div>
           )}
         </div>
+      )}
+      {editDash && sel && (
+        <EditDashboardDialog initial={editDash} onClose={() => setEditDash(null)} onSave={saveDashboardEdit} />
+      )}
+      {aboutOpen && sel && (
+        <AboutDashboard dashboard={sel.dashboard} pages={sel.pages} widgets={widgets}
+          currentPage={page} onClose={() => setAboutOpen(false)} />
       )}
       {alertWidget && (
         <AlertEditor widget={alertWidget} onClose={() => setAlertWidget(null)}

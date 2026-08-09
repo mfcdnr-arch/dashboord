@@ -120,6 +120,19 @@ export async function unpublishDashboard(id: string): Promise<void> {
   const res = await fetch(`/dashboards/${id}/unpublish`, { method: 'POST', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
 }
+/** Правка дашборда: название и/или описание (передаём только изменяемое). */
+export async function updateDashboard(
+  id: string, patch: { name?: string; description?: string | null },
+): Promise<{ id: string; name: string; description: string | null }> {
+  const res = await fetch(`/dashboards/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 export async function deleteDashboard(id: string): Promise<void> {
   const res = await fetch(`/dashboards/${id}`, { method: 'DELETE', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
