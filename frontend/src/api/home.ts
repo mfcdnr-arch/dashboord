@@ -2,7 +2,15 @@ import { authH, errText } from './http'
 
 // --- Главная ---
 export interface HomeData {
-  counters: { dashboards: number; objects: number; metrics: number; datasets: number; users: number }
+  counters: {
+    dashboards: number; objects: number; metrics: number; datasets: number; users: number
+    documents?: number; releases?: number
+  }
+  /** За какой период есть данные и когда последняя загрузка. */
+  data_span?: { first_period: string | null; last_period: string | null; last_upload: string | null }
+  /** Пройденные шаги настройки — по ним строится подсказка «что дальше». */
+  setup?: { objects: boolean; documents: boolean; datasets: boolean; metrics: boolean; dashboards: boolean; published: boolean }
+  pending_review?: number
   pages: { dashboard_id: string; dashboard_name: string; page_id: string; page_name: string; description: string | null; widgets: number }[]
   recent: { kind: string; title: string; at: string }[]
   freshness: { name: string; last_update: string | null; last_period: string | null }[]

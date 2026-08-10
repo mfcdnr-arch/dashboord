@@ -48,9 +48,35 @@ async def get_home(conn, org_id, user: dict) -> dict:
         "(select count(*) from objects where organization_id=$1) as objects, "
         "(select count(*) from metrics where organization_id=$1) as metrics, "
         "(select count(distinct code) from dataset_releases where organization_id=$1 and status<>'superseded') as datasets, "
-        "(select count(*) from users where organization_id=$1) as users",
+        "(select count(*) from users where organization_id=$1) as users, "
+        # Документы и охваченные периоды: до появления первого дашборда это
+        # единственное, что показывает, живёт система или пуста.
+        "(select count(*) from documents where organization_id=$1) as documents, "
+        "(select count(*) from dataset_releases where organization_id=$1 and status<>'superseded') as releases",
         org_id, visible,
     )
+
+    # За какой период вообще есть данные и когда была последняя загрузка.
+    span = await conn.fetchrow(
+        "select min(reporting_period_start) as first_period, max(reporting_period_start) as last_period, "
+        "       max(created_at) as last_upload "
+        "from dataset_releases where organization_id=$1 and status<>'superseded'", org_id)
+
+    # Путь настройки: какие шаги уже пройдены. Пока система не наполнена,
+    # «Главная» состоит из пустых блоков и не подсказывает, что делать дальше.
+    pending_review = await conn.fetchval(
+        "select count(*) from publication_requests pr join dashboards d on d.id = pr.dashboard_id "
+        "where d.organization_id=$1 and pr.status='pending_moderation'", org_id) or 0
+    published = await conn.fetchval(
+        "select count(*) from dashboards where organization_id=$1 and publication_status='published'", org_id) or 0
+    setup = {
+        "objects": counters["objects"] > 0,
+        "documents": counters["documents"] > 0,
+        "datasets": counters["datasets"] > 0,
+        "metrics": counters["metrics"] > 0,
+        "dashboards": counters["dashboards"] > 0,
+        "published": published > 0,
+    }
 
     pages = await conn.fetch(
         "select d.id as dashboard_id, d.name as dashboard_name, p.id as page_id, p.name as page_name, "
@@ -92,6 +118,13 @@ async def get_home(conn, org_id, user: dict) -> dict:
 
     return {
         "counters": dict(counters),
+        "data_span": {
+            "first_period": span["first_period"] if span else None,
+            "last_period": span["last_period"] if span else None,
+            "last_upload": span["last_upload"] if span else None,
+        },
+        "setup": setup,
+        "pending_review": pending_review,
         "pages": [dict(p) for p in pages],
         "recent": recent,
         "freshness": [dict(f) for f in freshness],

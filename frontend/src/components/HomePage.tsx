@@ -55,6 +55,12 @@ const FEATURES: { icon: string; title: string; text: string }[] = [
   { icon: 'archive', title: 'Архив, экспорт, витрины', text: 'Помесячные снимки данных, выгрузка в Excel/PDF/PNG и витрины из нескольких дашбордов на одном экране.' },
 ]
 
+function fmtDate(iso: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString('ru-RU')
+}
+
 function ago(iso: string | null): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -89,8 +95,25 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
   const c = data.counters
   const counters = [
     { t: 'Дашборды', v: c.dashboards }, { t: 'Объекты', v: c.objects },
+    { t: 'Документы', v: c.documents ?? 0 },
+    { t: 'Выпуски данных', v: c.releases ?? 0 },
     { t: 'Метрики', v: c.metrics }, { t: 'Датасеты', v: c.datasets }, { t: 'Пользователи', v: c.users },
   ]
+
+  // Путь настройки: пока система не наполнена, «Главная» состоит из пустых
+  // блоков («показатели не выбраны», «страниц нет») и не подсказывает, что
+  // делать дальше. Показываем шаги с отметками и ведём к следующему.
+  const setup = data.setup
+  const steps = setup ? [
+    { done: setup.objects, t: 'Создать объект и папку', hint: 'куда складывать отчёты', go: 'objects' },
+    { done: setup.documents, t: 'Загрузить документ', hint: 'Excel, CSV, Word или PDF с таблицей', go: 'objects' },
+    { done: setup.datasets, t: 'Разметить и выпустить данные', hint: 'указать область данных и показатели', go: 'objects' },
+    { done: setup.metrics, t: 'Завести показатель', hint: 'или принять предложение системы', go: 'metrics' },
+    { done: setup.dashboards, t: 'Собрать дашборд', hint: 'кнопка «Собрать» строит его по объекту', go: 'dashboards' },
+    { done: setup.published, t: 'Опубликовать и выдать доступ', hint: 'после проверки дашборд увидят зрители', go: 'dashboards' },
+  ] : []
+  const nextStep = steps.find((x) => !x.done)
+  const span = data.data_span
   const available = metrics.filter((m) => !data.key_kpis.some((k) => k.code === m.code))
 
   // группировка каталога по дашбордам
@@ -138,6 +161,50 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
           </div>
         ))}
       </div>
+
+      {/* Что уже есть в данных: до появления первого дашборда это единственное,
+          что показывает — система живёт, отчёты загружаются. */}
+      {(c.releases ?? 0) > 0 && span && (
+        <Section title="Данные в системе">
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 13 }}>
+            <span>Загружено документов: <b>{c.documents ?? 0}</b></span>
+            <span>Выпусков данных: <b>{c.releases ?? 0}</b></span>
+            {span.first_period && span.last_period && (
+              <span>Период отчётов: <b>{fmtDate(span.first_period)} — {fmtDate(span.last_period)}</b></span>
+            )}
+            {span.last_upload && <span>Последняя загрузка: <b>{ago(span.last_upload)}</b></span>}
+          </div>
+        </Section>
+      )}
+
+      {/* Путь настройки — пока не пройден полностью */}
+      {nextStep && canManage && (
+        <Section title="С чего начать">
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>
+            Пройдено шагов: {steps.filter((x) => x.done).length} из {steps.length}.
+            Следующий — <b style={{ color: 'var(--text)' }}>{nextStep.t.toLowerCase()}</b>.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {steps.map((x, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 13,
+                opacity: x.done ? 0.6 : 1 }}>
+                <span style={{ color: x.done ? 'var(--success)' : 'var(--text-faint)' }}>{x.done ? '✓' : '○'}</span>
+                <span style={{ fontWeight: x === nextStep ? 600 : 400 }}>{x.t}</span>
+                <span style={{ color: 'var(--text-faint)', fontSize: 12 }}>— {x.hint}</span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Ждут проверки: модератору видно, что от него ждут действия */}
+      {!!data.pending_review && canManage && (
+        <Section title="Ждут проверки">
+          <div style={{ fontSize: 13 }}>
+            Дашбордов на модерации: <b>{data.pending_review}</b>. Раздел «Модерация» — очередь и решение по каждому.
+          </div>
+        </Section>
+      )}
 
       {/* KPI-алерты (сработавшие пороги) */}
       {data.alerts.length > 0 && (
