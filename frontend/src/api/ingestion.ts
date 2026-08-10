@@ -112,6 +112,9 @@ export interface LayoutRow {
   index: number
   label: string
   has_number: boolean
+  /** Заполнено ли название строки — строка с числами, но без подписи почти
+   *  всегда служебная и молча удваивает итоги. */
+  has_label?: boolean
 }
 export interface LayoutPreview {
   data_rect: number[]
@@ -121,7 +124,7 @@ export interface LayoutPreview {
   row_count: number
   columns: FieldSuggestion[]
   rows: LayoutRow[]
-  /** Строки без единого числа — обычно ФИО согласующих, примечания, подписи. */
+  /** Служебные строки: без чисел (подписи, примечания) ИЛИ с числами, но без названия. */
   suspect_rows: number[]
   sample: string[][]
 }

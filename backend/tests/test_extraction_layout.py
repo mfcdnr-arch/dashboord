@@ -326,3 +326,49 @@ def test_dedupe_codes_keeps_release_valid():
     codes = analyze.dedupe_codes(["informaciya"] * 3 + ["subekt"])
     assert codes == ["informaciya", "informaciya_2", "informaciya_3", "subekt"]
     assert len(set(codes)) == len(codes)
+
+
+def test_row_with_numbers_but_no_label_is_suspect():
+    """Строка с числами, но БЕЗ названия — самый опасный вид служебной строки.
+
+    Реальный случай из формы заказчика за 05.08.2026: под строкой «Донецкая
+    Народная Республика» шла строка «2» с пустым названием субъекта, но
+    заполненными числами. Показатель молча складывался по двум строкам, и на
+    дашборде вместо 2 357 470 появлялось 4 795 995 — без единого признака, что
+    что-то не так. Такую строку конструктор обязан помечать.
+    """
+    rows = [
+        {"index": 1, "label": "Донецкая Народная Республика", "has_number": True, "has_label": True},
+        {"index": 2, "label": "", "has_number": True, "has_label": False},
+    ]
+    suspect = mapping._suspect_rows(rows, has_numeric_cols=True)
+    assert suspect == [2], suspect
+
+
+def test_footer_and_blank_template_rows_stay_suspect():
+    """Прежние два вида служебных строк продолжают отлавливаться."""
+    rows = [
+        {"index": 1, "label": "Донецк", "has_number": True, "has_label": True},
+        {"index": 2, "label": "Согласовано:", "has_number": False, "has_label": True},
+        {"index": 3, "label": "", "has_number": False, "has_label": False},
+    ]
+    assert mapping._suspect_rows(rows, has_numeric_cols=True) == [2, 3]
+
+
+def test_rows_without_labels_at_all_are_not_all_suspect():
+    """Если подписей нет во всей таблице, помечать всё подряд бессмысленно.
+
+    Иначе пользователь получил бы предложение «исключить все строки» — это
+    сбивает с толку сильнее, чем отсутствие подсказки.
+    """
+    rows = [
+        {"index": 1, "label": "", "has_number": True, "has_label": False},
+        {"index": 2, "label": "", "has_number": True, "has_label": False},
+    ]
+    assert mapping._suspect_rows(rows, has_numeric_cols=True) == []
+
+
+def test_no_numeric_columns_means_no_hints():
+    """Без числовых столбцов подсказывать нечего."""
+    rows = [{"index": 1, "label": "", "has_number": False, "has_label": False}]
+    assert mapping._suspect_rows(rows, has_numeric_cols=False) == []

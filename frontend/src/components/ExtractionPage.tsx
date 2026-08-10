@@ -83,6 +83,15 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
       .filter((r) => !(transposed ? excludedCols : excludedRows).has(r))
   }, [preview, transposed, rect, excludedCols, excludedRows])
 
+  // Строки, где числа есть, а названия нет: самый опасный вид — показатель
+  // складывается по двум строкам, и число на дашборде растёт без видимой причины.
+  const unlabeledCount = useMemo(
+    () => (preview?.rows || []).filter(
+      (r) => (preview?.suspect_rows || []).includes(r.index) && r.has_number && !r.has_label,
+    ).length,
+    [preview],
+  )
+
   const excludedFields = useMemo(
     () => new Set(
       (transposed ? [...excludedRows].map((r) => r - rect[0]) : [...excludedCols]).filter((i) => i >= 0),
@@ -354,9 +363,15 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
               {suspectSheetRows.length > 0 && mode === 'table' && (
                 <div style={hintBox}>
                   <span>
-                    ⚠ {suspectSheetRows.length}{' '}
-                    {suspectSheetRows.length === 1 ? 'строка без данных' : 'строк(и) без данных'} —
-                    обычно это пустые заготовки бланка, подписи и примечания.
+                    ⚠ Похоже, лишних строк: {suspectSheetRows.length}.{' '}
+                    {unlabeledCount > 0 && (
+                      <b>
+                        {unlabeledCount === 1 ? 'Одна строка заполнена числами, но без названия' :
+                          `Строк с числами, но без названия: ${unlabeledCount}`}
+                        {' '}— их значения молча прибавятся к итогам.{' '}
+                      </b>
+                    )}
+                    Остальные — пустые заготовки бланка, подписи и примечания.
                   </span>
                   <button type="button" style={{ ...chip, border: '1px solid var(--warn)', color: 'var(--warn)' }}
                     onClick={() => (transposed

@@ -147,6 +147,28 @@ def data_rows(area: List[List[str]], header_rows: int, skip_rows: Sequence[int] 
     return [row for _i, row in data_row_items(area, header_rows, skip_rows)]
 
 
+def _suspect_rows(row_info, has_numeric_cols: bool) -> list:
+    """Строки, которые почти наверняка не нужны в датасете.
+
+    Без числовых столбцов подсказывать нечего — вернём пусто.
+
+    Правило «числа без подписи» применяется, только если колонка названий
+    реально заполнена хоть у одной строки: в формах, где подписей нет вовсе
+    (данные в один ряд), иначе пришлось бы пометить подозрительными ВСЕ строки
+    и предложить «исключить всё» — это сбивало бы с толку сильнее, чем молчание.
+    """
+    if not has_numeric_cols:
+        return []
+    labels_used = any(r["has_label"] for r in row_info)
+    out = []
+    for r in row_info:
+        if not r["has_number"]:
+            out.append(r["index"])            # подвал / пустая заготовка
+        elif labels_used and not r["has_label"]:
+            out.append(r["index"])            # числа есть, а подписи нет
+    return out
+
+
 async def layout_preview(
     conn, table_id: str, object_id, *, data_rect=None, header_rows=None,
     orientation: str = "columns", skip_rows: Sequence[int] = (), sample: int = 60,
@@ -218,13 +240,19 @@ async def layout_preview(
 
     rows = [row for _i, row in items]
 
-    # Служебные строки. Их два вида, и оба на дашборде дают пустую категорию:
+    # Служебные строки. Все виды на дашборде дают пустую категорию либо тихо
+    # искажают итоги:
     #   • подвал документа — ФИО согласующих, «Исполнитель: …», примечания:
     #     чисел в числовых столбцах нет вовсе;
     #   • заготовки формы — в бланке заранее пронумерованы строки под все
     #     субъекты, и незаполненные несут только порядковый номер. Правило «нет
     #     чисел» их НЕ ловит: номер по порядку сам числовой, поэтому смотрим
     #     ещё и на то, заполнено ли хоть что-то правее первого столбца области.
+    #   • ЧИСЛА БЕЗ ПОДПИСИ — строка заполнена, но название субъекта/строки
+    #     пустое. Самый опасный вид: показатель молча складывается по двум
+    #     строкам, и число на дашборде вырастает вдвое без видимой причины
+    #     (реальный случай в форме заказчика за 05.08.2026: строка «2» без
+    #     названия субъекта добавляла 2 438 525 к отправленным уведомлениям).
     # Это подсказка, а не автоудаление: снимает их пользователь одной кнопкой.
     numeric_cols = [c.column_index for c in columns if c.inferred_type == "number"]
     first_col = columns[0].column_index if columns else 0
@@ -242,6 +270,7 @@ async def layout_preview(
         row_info.append({
             "index": i, "label": label,
             "has_number": has_number and filled_beyond_first,
+            "has_label": bool(str(label).strip()),
         })
 
     return {
@@ -251,7 +280,7 @@ async def layout_preview(
         "row_label_column": label_idx,
         "row_count": len(rows),
         "rows": row_info,
-        "suspect_rows": [r["index"] for r in row_info if not r["has_number"]] if numeric_cols else [],
+        "suspect_rows": _suspect_rows(row_info, bool(numeric_cols)),
         "columns": [
             {
                 "column_index": c.column_index,
