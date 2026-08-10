@@ -197,6 +197,15 @@ const searchInput: React.CSSProperties = {
   background: 'var(--surface)', color: 'var(--text)', fontSize: 12, width: 220, marginBottom: 8,
 }
 const sortableTh: React.CSSProperties = { cursor: 'pointer', userSelect: 'none' }
+// Первый столбец (названия строк) не уезжает при горизонтальной прокрутке —
+// иначе после сдвига непонятно, к какой строке относится число.
+const stickyCol: React.CSSProperties = {
+  position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface)',
+  boxShadow: '1px 0 0 var(--border-faint)',
+}
+// У закреплённого ЗАГОЛОВКА фон должен совпадать с остальной шапкой —
+// иначе на её фоне он выглядит белой дырой.
+const stickyHead: React.CSSProperties = { zIndex: 3, background: 'var(--surface-2)' }
 // Значок ▲/▼ у заголовка ничего не объясняет сам по себе — подсказка при наведении
 // говорит, что это сортировка и что делает повторный клик.
 const SORT_HINT = 'Сортировать по этому столбцу: ▲ по возрастанию, ▼ по убыванию, третий клик — сброс'
@@ -299,10 +308,14 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
             клик по заголовку столбца сортирует: ▲ по возрастанию, ▼ по убыванию, третий клик — сброс
           </span>
         </div>
-        <div style={{ overflowX: 'auto' }}>
+        {/* width:100% обязателен: без него контейнер растягивался под таблицу,
+            прокрутка не включалась, и широкая таблица вылезала за карточку. */}
+        <div style={{ overflowX: 'auto', width: '100%', maxWidth: '100%' }}>
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
           <thead><tr>
-            <th style={{ ...th, ...sortableTh }} title={SORT_HINT} onClick={() => toggleSort(setTableSort, '__row')}>Строка{sortArrow(tableSort, '__row')}</th>
+            {/* Названия строк закреплены слева: при прокрутке вправо уезжали и
+                они, и было не понять, к какой строке относятся числа. */}
+            <th style={{ ...th, ...sortableTh, ...stickyCol, ...stickyHead }} title={SORT_HINT} onClick={() => toggleSort(setTableSort, '__row')}>Строка{sortArrow(tableSort, '__row')}</th>
             {/* Заголовок — человеческое имя показателя; код остаётся ключом
                 данных и подсказкой, чтобы можно было сверить с формулой. */}
             {cols.map((c: string) => (
@@ -315,7 +328,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
           <tbody>
             {rows.length === 0 && <tr><td style={td} colSpan={cols.length + 1}>Ничего не найдено</td></tr>}
             {rows.map((r: any, i: number) => (
-              <tr key={i}><td style={{ ...td, fontWeight: 600 }}>{r.row}</td>
+              <tr key={i}><td style={{ ...td, fontWeight: 600, ...stickyCol }}>{r.row}</td>
                 {cols.map((c: string) => <td key={c} style={td}>{typeof r[c] === 'number' ? fmt(r[c]) : (r[c] ?? '—')}</td>)}
               </tr>
             ))}
@@ -544,23 +557,23 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     return (
       <div>
         <input style={searchInput} placeholder="🔍 Поиск по сводной…" value={pivotSearch} onChange={(e) => setPivotSearch(e.target.value)} />
-        <div style={{ overflowX: 'auto' }}>
+        <div style={{ overflowX: 'auto', width: '100%', maxWidth: '100%' }}>
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
           <thead><tr>
-            <th style={{ ...th, ...sortableTh }} title={SORT_HINT} onClick={() => toggleSort(setPivotSort, '__row')}>Строка{sortArrow(pivotSort, '__row')}</th>
+            <th style={{ ...th, ...sortableTh, ...stickyCol, ...stickyHead }} title={SORT_HINT} onClick={() => toggleSort(setPivotSort, '__row')}>Строка{sortArrow(pivotSort, '__row')}</th>
             {cols.map((c, ci) => <th key={c} style={{ ...th, ...sortableTh }} title={SORT_HINT} onClick={() => toggleSort(setPivotSort, String(ci))}>{c}{sortArrow(pivotSort, String(ci))}</th>)}
             <th style={{ ...th, ...sortableTh, color: 'var(--accent)' }} title={SORT_HINT} onClick={() => toggleSort(setPivotSort, '__total')}>Итого{sortArrow(pivotSort, '__total')}</th>
           </tr></thead>
           <tbody>
             {rows.length === 0 && <tr><td style={td} colSpan={cols.length + 2}>Ничего не найдено</td></tr>}
             {rows.map((r, i) => (
-              <tr key={i}><td style={{ ...td, fontWeight: 600 }}>{r.row}</td>
+              <tr key={i}><td style={{ ...td, fontWeight: 600, ...stickyCol }}>{r.row}</td>
                 {cols.map((_, ci) => <td key={ci} style={{ ...td, textAlign: 'right' }}>{typeof r.values[ci] === 'number' ? fmt(r.values[ci]) : '—'}</td>)}
                 <td style={{ ...totCell, textAlign: 'right' }}>{fmt(r.total)}</td>
               </tr>
             ))}
           </tbody>
-          <tfoot><tr><td style={totCell}>Итого</td>
+          <tfoot><tr><td style={{ ...totCell, ...stickyCol, background: 'var(--surface-2)' }}>Итого</td>
             {(data.col_totals || []).map((v: number, i: number) => <td key={i} style={{ ...totCell, textAlign: 'right' }}>{fmt(v)}</td>)}
             <td style={{ ...totCell, textAlign: 'right', color: 'var(--accent)' }}>{fmt(data.grand_total)}</td>
           </tr></tfoot>

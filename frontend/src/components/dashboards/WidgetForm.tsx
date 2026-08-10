@@ -378,7 +378,8 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   }
 
   return (
-    <form onSubmit={submit} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end', border: initial ? 'none' : '1px solid var(--border)', borderRadius: 10, padding: initial ? 0 : 12 }}>
+    <form onSubmit={submit} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end', minWidth: 0, maxWidth: '100%',
+      border: initial ? 'none' : '1px solid var(--border)', borderRadius: 10, padding: initial ? 0 : 12 }}>
       <F t="Название"><input style={sel} placeholder="Заголовок виджета" value={name} onChange={(e) => setName(e.target.value)} /></F>
       <F t="Подсказка (тултип)"><input style={sel} placeholder="Что показывает виджет — покажется по значку «i»" value={help} onChange={(e) => setHelp(e.target.value)} /></F>
       <F t="Тип"><button type="button" style={{ ...sel, minWidth: 200, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', cursor: 'pointer' }}
@@ -583,9 +584,13 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           )}
         </div>
       )}
-      <div style={{ flexBasis: '100%', marginTop: 6 }}>
+      {/* minWidth:0 обязателен: без него блок предпросмотра растягивается под
+          широкую таблицу (15 показателей) и разрывает форму — содержимое уходит
+          за края окна. С ним таблица прокручивается внутри своей рамки. */}
+      <div style={{ flexBasis: '100%', width: '100%', minWidth: 0, maxWidth: '100%', marginTop: 6 }}>
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Предпросмотр</div>
-        <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, minHeight: 56, background: 'var(--surface)' }}>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, minHeight: 56,
+          background: 'var(--surface)', minWidth: 0, maxWidth: '100%', overflowX: 'auto' }}>
           {previewErr ? <div style={{ color: 'var(--danger)', fontSize: 12 }}>{previewErr}</div>
             : preview ? <WidgetPreviewBody data={preview} />
               : <div style={{ color: 'var(--text-faint)', fontSize: 12 }}>Заполните поля — здесь появится живой предпросмотр виджета</div>}
