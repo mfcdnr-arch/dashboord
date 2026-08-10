@@ -163,3 +163,51 @@ async def test_delete_document_requires_manage_role(
     assert r.status_code == 403
     async with db.acquire() as conn:
         assert await conn.fetchval("select count(*) from documents where id=$1::uuid", doc["id"]) == 1
+
+
+async def test_documents_are_listed_by_reporting_date(client, admin_headers, folder, fake_storage):
+    """Список папки идёт по ОТЧЁТНОЙ дате, а не по времени загрузки.
+
+    Заказчик грузит недельные формы вразнобой (сначала августовскую, потом
+    апрельскую), и список выглядел вперемешку — по нему нельзя было понять
+    хронологию. Загружаем намеренно не по порядку и ждём убывание дат.
+    """
+    upload_order = ["2026-04-15", "2026-08-05", "2026-06-10", "2026-07-22"]
+    for d in upload_order:
+        r = await client.post(
+            f"/folders/{folder}/documents",
+            headers=admin_headers,
+            files={"file": (f"Показатели MAX {d}.xlsx", _xlsx(),
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            data={"reporting_period_start": d},
+        )
+        assert r.status_code in (200, 201), r.text
+
+    items = (await client.get(f"/folders/{folder}/documents", headers=admin_headers)).json()["items"]
+    dates = [str(i["reporting_period_start"]) for i in items]
+    assert dates == sorted(dates, reverse=True), dates
+    assert dates[0].startswith("2026-08-05"), "самый свежий отчёт должен быть первым"
+
+
+async def test_new_document_lands_in_its_place_by_date(client, admin_headers, folder, fake_storage):
+    """Файл, добавленный позже всех, встаёт на своё место по отчётной дате.
+
+    Это сценарий заказчика: недельные формы догружаются задним числом, и новый
+    файл должен оказаться между соседними по дате, а не в конце списка.
+    """
+    async def upload(d: str):
+        r = await client.post(
+            f"/folders/{folder}/documents", headers=admin_headers,
+            files={"file": (f"Показатели MAX {d}.xlsx", _xlsx(),
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            data={"reporting_period_start": d},
+        )
+        assert r.status_code in (200, 201), r.text
+
+    for d in ("2026-04-01", "2026-06-10", "2026-08-05"):
+        await upload(d)
+    await upload("2026-05-20")  # добавлен последним, а по дате — второй с конца
+
+    items = (await client.get(f"/folders/{folder}/documents", headers=admin_headers)).json()["items"]
+    dates = [str(i["reporting_period_start"]) for i in items]
+    assert dates == ["2026-08-05", "2026-06-10", "2026-05-20", "2026-04-01"], dates

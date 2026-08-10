@@ -225,7 +225,12 @@ async def list_documents(
             "from documents d "
             "left join lateral (select id, file_size_bytes from document_versions v "
             "  where v.document_id=d.id order by version_no desc limit 1) v on true "
-            "where d.folder_id=$1::uuid order by d.created_at desc limit $2 offset $3",
+            # Порядок — по ОТЧЁТНОЙ дате (свежие сверху), а не по времени загрузки:
+            # формы загружают вразнобой, и список выглядел вперемешку. Документы без
+            # отчётной даты уходят вниз, между собой — по времени загрузки.
+            "where d.folder_id=$1::uuid "
+            "order by d.reporting_period_start desc nulls last, d.created_at desc "
+            "limit $2 offset $3",
             folder_id, limit, offset,
         )
     return {"total": total, "limit": limit, "offset": offset, "items": [dict(r) for r in rows]}
