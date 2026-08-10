@@ -36,6 +36,53 @@ async def _cleanup(logins):
         await conn.execute("delete from users where login = any($1::text[])", logins)
 
 
+async def _make_metric_version(client, headers, code: str) -> str:
+    """Метрика + версия формулы в статусе «проверена» — готова к одобрению."""
+    r = await client.post("/metrics", headers=headers, json={"code": code, "name": code})
+    assert r.status_code in (200, 201), r.text
+    mid = r.json()["id"]
+    r = await client.post(f"/metrics/{mid}/versions", headers=headers, json={"formula": "1 + 1"})
+    assert r.status_code in (200, 201), r.text
+    vid = r.json()["version_id"]
+    r = await client.post(f"/metrics/versions/{vid}/validate", headers=headers)
+    assert r.status_code == 200, r.text
+    return vid
+
+
+async def _purge_metrics(codes):
+    async with db.acquire() as conn:
+        await conn.execute(
+            "delete from metric_versions where metric_id in "
+            "(select id from metrics where code = any($1::text[]))", codes)
+        await conn.execute("delete from metrics where code = any($1::text[])", codes)
+
+
+async def test_superadmin_can_approve_own_metric(client):
+    """Владелец системы доводит свою метрику до «одобрена» без второго сотрудника.
+    Обычному администратору это по-прежнему запрещено."""
+    code_s, code_a = "ztest_m_super", "ztest_m_admin"
+    try:
+        su = hdr(await login(client, "superadmin", "superadmin"))
+        vid = await _make_metric_version(client, su, code_s)
+        r = await client.post(f"/metrics/versions/{vid}/approve", headers=su)
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "approved"
+        # самоодобрение остаётся видимым: автор и одобривший совпадают
+        async with db.acquire() as conn:
+            row = await conn.fetchrow(
+                "select created_by, approved_by from metric_versions where id=$1::uuid", vid)
+        assert row["created_by"] == row["approved_by"]
+
+        # обычный admin свою версию одобрить по-прежнему НЕ может
+        ad = hdr(await login(client, "admin", "admin"))
+        vid_a = await _make_metric_version(client, ad, code_a)
+        r = await client.post(f"/metrics/versions/{vid_a}/approve", headers=ad)
+        assert r.status_code == 400, r.text
+        assert "конфликт интересов" in r.text
+    finally:
+        await _purge_metrics([code_s, code_a])
+
+
 async def test_superadmin_can_login_and_has_role(client):
     token = await login(client, "superadmin", "superadmin")
     r = await client.get("/auth/me", headers=hdr(token))

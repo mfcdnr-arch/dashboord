@@ -208,6 +208,29 @@ async def viewer(client, ids):
 
 
 @pytest_asyncio.fixture
+async def superadmin_user(client, ids):
+    """Суперадминистратор — ему разрешено одобрять СВОЮ работу (владелец системы
+    проходит цикл в одиночку). Чистится после теста."""
+    login_name = "ztest_super"
+    async with db.acquire() as conn:
+        await conn.execute("delete from user_roles where user_id in (select id from users where login=$1)", login_name)
+        await conn.execute("delete from users where login=$1", login_name)
+        uid = await conn.fetchval(
+            "insert into users(organization_id,login,password_hash,is_active,must_change_password) "
+            "values($1,$2,$3,true,false) returning id", ids["org"], login_name, hash_password("super123"))
+        for code in ("superadmin", "admin"):
+            role_id = await conn.fetchval(
+                "select id from roles where code=$1 and organization_id=$2", code, ids["org"])
+            if role_id:
+                await conn.execute("insert into user_roles(user_id,role_id) values($1,$2)", uid, role_id)
+    token = await login(client, login_name, "super123")
+    yield {"id": str(uid), "headers": hdr(token)}
+    async with db.acquire() as conn:
+        await conn.execute("delete from user_roles where user_id=$1", uid)
+        await conn.execute("delete from users where id=$1", uid)
+
+
+@pytest_asyncio.fixture
 async def moderator_user(client, ids):
     """Отдельный модератор (роль `moderator`) — чтобы одобрять чужие дашборды
     (свой одобрять нельзя: разделение обязанностей). Чистится после теста."""

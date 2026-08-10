@@ -1,11 +1,14 @@
 """Модерация дашборда: submit-review → очередь → approve. Проверяет переходы
 статуса публикации (draft → review → published)."""
+import json
+
 import pytest
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 import pytest_asyncio
 
+from app import db
 from conftest import purge_dashboard
 
 
@@ -47,6 +50,35 @@ async def test_cannot_approve_own(client, admin_headers, draft_dashboard):
     r = await client.post(f"/dashboards/{draft_dashboard}/moderate", headers=admin_headers,
                         json={"decision": "approve"})
     assert r.status_code == 400
+
+
+async def test_superadmin_can_approve_own(client, superadmin_user):
+    """Исключение из разделения обязанностей: владелец системы проходит цикл
+    в одиночку. Факт самоодобрения при этом фиксируется в аудите."""
+    h = superadmin_user["headers"]
+    r = await client.post("/dashboards", headers=h, json={"name": "ztest_super_own"})
+    assert r.status_code in (200, 201), r.text
+    did = r.json()["id"]
+    try:
+        await client.post(f"/dashboards/{did}/submit-review", headers=h)
+        # в очереди помечен как свой, но одобрять РАЗРЕШЕНО
+        r = await client.get("/moderation/queue", headers=h)
+        row = next(x for x in r.json() if x["dashboard_id"] == did)
+        assert row["own"] is True and row["can_approve"] is True
+
+        r = await client.post(f"/dashboards/{did}/moderate", headers=h, json={"decision": "approve"})
+        assert r.status_code == 200, r.text
+        r = await client.get(f"/dashboards/{did}", headers=h)
+        assert r.json()["dashboard"]["publication_status"] == "published"
+
+        # самоодобрение не замалчивается — оно видно в журнале
+        async with db.acquire() as conn:
+            new_data = await conn.fetchval(
+                "select new_data from audit_log where entity_type='dashboard' and entity_id=$1::uuid "
+                "and action='publish' order by created_at desc limit 1", did)
+        assert json.loads(new_data)["self_approved"] is True
+    finally:
+        await purge_dashboard(did)
 
 
 async def test_double_submit_rejected(client, admin_headers, draft_dashboard):

@@ -6,7 +6,8 @@ export interface ModerationQueueItem {
   name: string
   requested_at: string
   requester: string
-  own: boolean // собственный дашборд — одобрять нельзя (конфликт интересов)
+  own: boolean // собственный дашборд (автор или инициатор заявки — это вы)
+  can_approve: boolean // можно ли одобрить: свой одобряет только суперадмин
 }
 export interface ReasonCode { code: string; label: string; severity: 'low' | 'medium' | 'high' | 'critical' }
 export interface ModerationHistoryItem {

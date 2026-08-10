@@ -1,7 +1,8 @@
 """Сервис метрик: версии формул, зависимости, проверка циклов, статусы, предпросмотр.
 
 Версии формул: draft → validated → approved (→ deprecated). Автор версии сам её
-НЕ одобряет (конфликт интересов, как в модерации). Перед сохранением формула
+НЕ одобряет (конфликт интересов, как в модерации) — исключение сделано для
+роли superadmin, которая может вести цикл в одиночку. Перед сохранением формула
 разбирается в AST, извлекаются зависимости (датасеты/метрики), проверяется
 отсутствие циклов. Предпросмотр вычисляет результат на реальных данных.
 """
@@ -144,7 +145,8 @@ async def create_version(conn, org_id, user_id, metric_id: str, formula_expressi
 # --------------------------------------------------------------------------- #
 # Смена статуса версии
 # --------------------------------------------------------------------------- #
-async def set_status(conn, org_id, user_id, version_id: str, target: str) -> dict:
+async def set_status(conn, org_id, user_id, version_id: str, target: str,
+                     roles: Optional[set] = None) -> dict:
     ver = await conn.fetchrow(
         "select mv.id, mv.metric_id, mv.status, mv.created_by from metric_versions mv "
         "join metrics m on m.id=mv.metric_id "
@@ -160,7 +162,10 @@ async def set_status(conn, org_id, user_id, version_id: str, target: str) -> dic
     elif target == "approved":
         if ver["status"] != "validated":
             raise MetricError("Одобрить можно только проверенную версию")
-        if ver["created_by"] == user_id:
+        # Конфликт интересов: свою версию одобряет только суперадмин (он же
+        # владелец системы и может работать в одиночку). Факт самоодобрения
+        # остаётся видимым: created_by и approved_by в строке совпадут.
+        if ver["created_by"] == user_id and "superadmin" not in (roles or set()):
             raise MetricError("Нельзя одобрять собственную версию (конфликт интересов)")
         # снять одобрение с прочих версий этой метрики
         await conn.execute(

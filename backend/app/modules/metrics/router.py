@@ -262,7 +262,8 @@ async def approve_version(version_id: str, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         try:
             async with conn.transaction():
-                return await set_status(conn, user["organization_id"], user["id"], version_id, "approved")
+                return await set_status(conn, user["organization_id"], user["id"], version_id, "approved",
+                                        roles=set(user.get("roles") or ()))
         except MetricError as e:
             raise _bad(e)
 

@@ -71,9 +71,12 @@ export default function ModerationPage({ me, onOpenDashboard }: {
                   <td style={td}>{q.requester}</td>
                   <td style={{ ...td, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{fmtDt(q.requested_at)}</td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>
-                    {q.own
+                    {q.can_approve === false
                       ? <span style={{ color: 'var(--warn)', fontSize: 12 }} title="Вы автор/инициатор — нужен другой модератор">свой · нельзя</span>
-                      : <button style={btn} onClick={() => setReview(q)}>Проверить</button>}
+                      : <button style={btn} onClick={() => setReview(q)}
+                          title={q.own ? 'Это ваш дашборд — как суперадминистратор вы можете одобрить его сами; самоодобрение будет отмечено в журнале' : undefined}>
+                          Проверить{q.own ? ' (свой)' : ''}
+                        </button>}
                   </td>
                 </tr>
               ))}

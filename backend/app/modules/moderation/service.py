@@ -3,7 +3,8 @@
 Жизненный цикл (dashboards.publication_status): draft → review → published,
 либо review → draft (возврат на доработку). Одна ступень: одобрение модератора
 = публикация. Конфликт интересов: одобрять/публиковать собственный дашборд
-(автор или инициатор заявки) нельзя. Наполняет publication_requests /
+(автор или инициатор заявки) нельзя — исключение только для superadmin, и такое
+самоодобрение помечается в аудите (self_approved). Наполняет publication_requests /
 publication_reviews / moderation_session / moderation_check_result.
 """
 from __future__ import annotations
@@ -21,7 +22,10 @@ BLOCK_LABELS = {
     "filters": "Фильтры", "access": "Доступ", "visual": "Визуализация",
 }
 # Роли, которые могут модерировать (одобрять/возвращать/публиковать).
-MODERATOR_ROLES = {"admin", "moderator", "senior_moderator"}
+MODERATOR_ROLES = {"superadmin", "admin", "moderator", "senior_moderator"}
+# Роль, которой разрешено одобрять собственную работу: владелец системы должен
+# уметь пройти цикл в одиночку, когда второго сотрудника ещё нет.
+SELF_APPROVE_ROLE = "superadmin"
 
 
 class ModerationError(Exception):
@@ -109,8 +113,8 @@ async def cancel_review(conn, org_id, user: dict, dashboard_id: str) -> dict:
 
 
 async def queue(conn, org_id, user: dict) -> list:
-    """Очередь заявок на модерации (для модераторов). own=собственный дашборд
-    (нельзя одобрять — конфликт интересов)."""
+    """Очередь заявок на модерации (для модераторов). own=собственный дашборд,
+    can_approve=можно ли его одобрить (свой — только суперадмину)."""
     rows = await conn.fetch(
         "select pr.dashboard_id, d.name, pr.requested_at, pr.requested_by, "
         "u.login as requester_login, u.full_name as requester_name, d.created_by "
@@ -119,6 +123,8 @@ async def queue(conn, org_id, user: dict) -> list:
         "left join users u on u.id=pr.requested_by "
         "where pr.status='pending_moderation' and d.organization_id=$1 "
         "order by pr.requested_at", org_id)
+    roles = await _load_roles(conn, user)
+    may_self = SELF_APPROVE_ROLE in roles
     out = []
     for r in rows:
         own = r["requested_by"] == user["id"] or r["created_by"] == user["id"]
@@ -127,6 +133,7 @@ async def queue(conn, org_id, user: dict) -> list:
             "requested_at": r["requested_at"],
             "requester": r["requester_name"] or r["requester_login"] or "—",
             "own": own,
+            "can_approve": (not own) or may_self,
         })
     return out
 
@@ -166,8 +173,11 @@ async def decide(conn, org_id, user: dict, dashboard_id: str, decision: str,
     await _save_checklist(conn, session_id, checklist)
 
     if decision == "approve":
-        # конфликт интересов: нельзя одобрять собственный дашборд
-        if req["requested_by"] == user["id"] or d["created_by"] == user["id"]:
+        # Конфликт интересов: собственный дашборд одобряет только суперадмин
+        # (владелец системы, работает в одиночку). Самоодобрение не замалчивается —
+        # оно помечается в журнале аудита полем self_approved.
+        own = req["requested_by"] == user["id"] or d["created_by"] == user["id"]
+        if own and SELF_APPROVE_ROLE not in roles:
             raise ModerationError("Нельзя одобрять собственный дашборд (конфликт интересов) — нужен другой модератор")
         vno = await conn.fetchval(
             "select version_no from dashboard_versions where id=$1", version_id)
@@ -182,7 +192,8 @@ async def decide(conn, org_id, user: dict, dashboard_id: str, decision: str,
             "values($1,$2,'approved',$3)", req["id"], user["id"], comment)
         await audit_svc.write_event(
             conn, org_id, user["id"], "publish", "dashboard", dashboard_id,
-            new_data={"version_no": vno, "via": "moderation", "publication_status": "published"})
+            new_data={"version_no": vno, "via": "moderation", "publication_status": "published",
+                      "self_approved": own})
         return {"decision": "approve", "publication_status": "published", "version_no": vno}
 
     # decision == 'return'
