@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import EChartLazy from './EChartLazy'
 import { chartColors, useThemeVersion } from '../theme'
 import { elideMiddle } from '../lib/text'
+import { logScaleAdvice } from '../lib/format'
 import type { FieldSuggestion } from '../api'
 
 /**
@@ -75,11 +76,9 @@ export function labelsAreUseful(rows: string[][], labelColumn: number | null): b
  * значений: ноль и минус на такой шкале не изобразить, поэтому там остаёмся
  * на линейной и вместо длины столбика полагаемся на подписанное число.
  */
-export function logScaleAdvice(values: number[]): { helps: boolean; spread: number } {
-  if (values.length < 2 || values.some((v) => !(v > 0))) return { helps: false, spread: 1 }
-  const spread = Math.max(...values) / Math.min(...values)
-  return { helps: spread >= 100, spread }
-}
+// Переехала в lib/format.ts — той же логикой пользуется виджет «Сравнение»
+// на дашборде. Реэкспорт оставлен: на неё ссылаются тесты черновика.
+export { logScaleAdvice }
 
 export default function DashboardDraft({ columns, rows, labelColumn, names, totalRows }: Props) {
   useThemeVersion() // цвета серий берутся из токенов темы — перерисовать при её смене

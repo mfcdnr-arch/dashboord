@@ -5,7 +5,7 @@ import { getWidgetData, getWidgetDrill } from '../api'
 import { chartColors, useThemeVersion } from '../theme'
 import EChart from './EChartLazy'
 import FitText from './dashboards/FitText'
-import { fmtNumber as fmt } from '../lib/format'
+import { fmtNumber as fmt, logScaleAdvice } from '../lib/format'
 import { distinctLabels, elideMiddle } from '../lib/text'
 
 // Отрисовка данных виджета: KPI/таблица/план-факт — HTML, столбцы/линия/круговая —
@@ -68,6 +68,16 @@ function gridLeft(values: (number | null | undefined)[]): number {
   const max = Math.max(0, ...values.filter((v): v is number => typeof v === 'number' && isFinite(v)).map(Math.abs))
   const digits = fmt(Math.round(max)).length
   return Math.min(80, Math.max(44, 12 + digits * 7))
+}
+
+// Границы логарифмической оси: ближайшие степени десятки вокруг данных.
+// Без них ось уезжает на порядки выше максимума и график «прижимается» к низу.
+function logBound(values: number[], kind: 'min' | 'max'): number {
+  const nums = values.filter((v) => typeof v === 'number' && isFinite(v) && v > 0)
+  if (!nums.length) return kind === 'min' ? 1 : 10
+  const v = kind === 'min' ? Math.min(...nums) : Math.max(...nums)
+  const p = kind === 'min' ? Math.floor(Math.log10(v)) : Math.ceil(Math.log10(v))
+  return Math.pow(10, p)
 }
 
 // Подпись периода на графике динамики. Периоды приходят как «2026-07-22»
@@ -475,6 +485,10 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     // Показатели одной формы называются по шаблону «Количество … · Факт ·
     // нарастающим итогом»: в легенде от них остаётся одинаковое начало и конец,
     // а различие — в середине. Отсекаем общую часть, чтобы подписи различались.
+    const allValues: number[] = (data.series || []).flatMap((x: any) => (x.data || []).filter((v: any) => typeof v === 'number'))
+    const { helps: logHelps, spread } = logScaleAdvice(allValues)
+    // cfg.scale: 'log' | 'linear' | не задано (тогда решает разброс значений)
+    const useLog = data.scale === 'log' || (data.scale !== 'linear' && logHelps)
     const seriesNames: string[] = (data.series || []).map((s: any) => s.name)
     const shortened = distinctLabels(seriesNames)
     const shortSeries: Record<string, string> = {}
@@ -509,16 +523,40 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
           formatter: (v: string) => (wrapSingle ? v : elideMiddle(v, 28)),
         } },
       // На ужатом графике пять делений оси налезают друг на друга — оставляем меньше.
-      yAxis: { type: 'value', splitNumber: fit.h < 140 ? 2 : fit.h < 200 ? 3 : 5 },
+      // Логарифмическая шкала — когда показатели различаются на два порядка:
+      // на линейной маленькие столбики вырождаются в полоску у нуля. Точные
+      // числа подписаны у столбиков, потому что на логарифме длина обманчива.
+      // Границы лог-шкалы задаём по данным: без них ECharts растягивает ось до
+      // ближайших степеней десятки (при максимуме 2,3 млн верхнее деление
+      // оказывалось 10 000 000 000) и столбики жмутся к низу.
+      yAxis: useLog
+        ? {
+            type: 'log', splitNumber: fit.h < 140 ? 2 : 3,
+            min: logBound(allValues, 'min'), max: logBound(allValues, 'max'),
+          }
+        : { type: 'value', splitNumber: fit.h < 140 ? 2 : fit.h < 200 ? 3 : 5 },
       series: (data.series || []).map((s: any, i: number) => ({
         name: s.name, type: data.viz === 'line' ? 'line' : 'bar', data: s.data,
         smooth: data.viz === 'line', itemStyle: { color: C.palette[i % C.palette.length] }, barMaxWidth: 28,
+        // На логарифме длина столбика обманчива — подписываем точное число.
+        label: useLog && data.viz !== 'line'
+          ? { show: true, position: 'top', fontSize: 10, formatter: (p: any) => fmt(p.value) }
+          : undefined,
       })),
     }
     return (
       <div ref={fit.box} style={{ height: '100%' }}>
         <EChart option={opt} height={fit.h} onPick={onPick} />
-        <div ref={fit.labels} />
+        <div ref={fit.labels}>
+          {useLog && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+              {logHelps
+                ? `Логарифмическая шкала: значения различаются в ${fmt(Math.round(spread))} раз — на обычной маленькие показатели не видны.`
+                : 'Логарифмическая шкала (выбрана в настройках виджета).'}
+              {' '}Точные числа подписаны у столбиков.
+            </div>
+          )}
+        </div>
       </div>
     )
   }

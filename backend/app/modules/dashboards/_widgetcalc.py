@@ -133,6 +133,11 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
             raise DashboardError("Сравнение: укажите dataset_code и value_fields")
         res = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row, allowed)
         res["type"], res["viz"], res["title"] = "compare", cfg.get("viz", "bar"), name
+        # Шкала: 'log' | 'linear' | не задано (тогда решает разброс значений на
+        # фронте). Показатели одной формы различаются на два порядка — на линейной
+        # шкале маленькие столбики вырождаются в полоску у нуля.
+        if cfg.get("scale"):
+            res["scale"] = cfg["scale"]
         return res
 
     if t == "heatmap":
@@ -246,6 +251,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         categories = sorted(cat_order)
         series = [{"name": label, "data": [vmap.get(c) for c in categories]} for label, vmap in raw_series]
         return {"type": "cross_dataset_compare", "title": name, "viz": cfg.get("viz", "bar"),
+                "scale": cfg.get("scale"),
                 "categories": categories, "series": series, "match_by": match_by, "sources": sources_meta}
 
     if t == "dynamics":

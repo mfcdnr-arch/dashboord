@@ -229,6 +229,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const [factField, setFactField] = useState(cfg0.fact_field || numFields(initDataset)[0]?.code || '')
   const [multiFields, setMultiFields] = useState<string[]>(cfg0.value_fields || [])
   const [viz, setViz] = useState(cfg0.viz || 'bar')
+  const [scale, setScale] = useState<string>((initial?.config?.scale as string) || '')
   const [heading, setHeading] = useState(cfg0.heading || '')
   const [bodyText, setBodyText] = useState(cfg0.body || '')
   const [align, setAlign] = useState(cfg0.align || 'left')
@@ -320,10 +321,10 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     if (type === 'cross_dataset_compare') {
       const valid = crossSeries.filter((s) => s.dataset_code && s.value_field)
       return valid.length >= 2
-        ? { series: valid.map((s) => ({ dataset_code: s.dataset_code, value_field: s.value_field, ...(s.label.trim() ? { label: s.label.trim() } : {}) })), match_by: matchBy, viz }
+        ? { series: valid.map((s) => ({ dataset_code: s.dataset_code, value_field: s.value_field, ...(s.label.trim() ? { label: s.label.trim() } : {}) })), match_by: matchBy, viz, ...(scale ? { scale } : {}) }
         : null
     }
-    if (type === 'compare') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields, viz } : null
+    if (type === 'compare') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields, viz, ...(scale ? { scale } : {}) } : null
     if (type === 'heatmap' || type === 'pivot') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields } : null
     if (type === 'dynamics') return (dataset && valueField) ? {
       dataset_code: dataset, value_field: valueField,
@@ -550,7 +551,21 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
             </div>
           </F>
           {type === 'compare' && (
-            <F t="Вид"><select style={sel} value={viz} onChange={(e) => setViz(e.target.value)}><option value="bar">Столбцы</option><option value="line">Линии</option></select></F>
+            <>
+              <F t="Вид"><select style={sel} value={viz} onChange={(e) => setViz(e.target.value)}><option value="bar">Столбцы</option><option value="line">Линии</option></select></F>
+              {/* Показатели одной формы различаются на два порядка (2 357 470
+                  против 7 078): на линейной шкале маленькие столбики
+                  вырождаются в полоску у нуля. «Авто» включает логарифм, когда
+                  разброс больше чем в 100 раз. */}
+              <F t="Шкала">
+                <select style={sel} value={scale} onChange={(e) => setScale(e.target.value)}
+                  title="Логарифмическая шкала показывает и большие, и маленькие показатели рядом">
+                  <option value="">авто (по разбросу)</option>
+                  <option value="linear">линейная</option>
+                  <option value="log">логарифмическая</option>
+                </select>
+              </F>
+            </>
           )}
         </>
       )}
