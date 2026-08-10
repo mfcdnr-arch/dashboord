@@ -268,42 +268,74 @@ async def delete_user(conn, org_id, user_id: str, actor: dict) -> dict:
     return {"id": user_id, "deleted": True}
 
 
-async def login_events_report(conn, org_id, limit: int = 50) -> dict:
+def _login_filter(org_id, user_id, only_failed, start_idx: int = 1):
+    """Условие и параметры выборки событий входа — общие для отчёта и выгрузки.
+
+    Событие с `user_id is null` — это попытка входа под НЕСУЩЕСТВУЮЩИМ логином
+    (организация неизвестна), поэтому в общем списке такие показываются, а при
+    фильтре по конкретному пользователю — нет.
+    """
+    where = ["(e.organization_id=$%d or e.organization_id is null)" % start_idx]
+    params = [org_id]
+    if user_id:
+        params.append(user_id)
+        where.append("e.user_id=$%d::uuid" % (start_idx + len(params) - 1))
+    if only_failed:
+        where.append("not e.success")
+    return " and ".join(where), params
+
+
+async def login_events_report(conn, org_id, limit: int = 50, user_id: str | None = None,
+                              only_failed: bool = False) -> dict:
     """Аудит входов: сводка по пользователям (входов/неудач/последний вход) +
-    последние события (кто/когда/IP/успех)."""
+    последние события (кто/когда/IP/успех).
+
+    user_id — показать журнал по ОДНОМУ сотруднику: в организации с двумя
+    десятками учёток общая лента не отвечает на вопрос «когда заходил Иванов».
+    Сводка при этом остаётся полной — она и есть список для выбора.
+    """
     summary = await conn.fetch(
-        "select u.login, u.full_name, u.is_active, "
+        "select u.id, u.login, u.full_name, u.is_active, "
         "count(*) filter (where e.success) as logins, "
         "count(*) filter (where not e.success) as failed, "
         "max(e.created_at) filter (where e.success) as last_login "
         "from users u left join login_events e on e.user_id=u.id "
         "where u.organization_id=$1 group by u.id, u.login, u.full_name, u.is_active "
         "order by max(e.created_at) desc nulls last, u.login", org_id)
+    where, params = _login_filter(org_id, user_id, only_failed)
+    params.append(limit)
     recent = await conn.fetch(
-        "select e.login, e.ip, e.success, e.created_at, u.full_name "
+        "select e.login, e.ip, e.user_agent, e.success, e.created_at, u.full_name "
         "from login_events e left join users u on u.id=e.user_id "
-        "where e.organization_id=$1 or e.organization_id is null "
-        "order by e.created_at desc limit $2", org_id, limit)
+        f"where {where} order by e.created_at desc limit ${len(params)}", *params)
     return {
         "summary": [{
-            "login": s["login"], "full_name": s["full_name"], "is_active": s["is_active"],
+            "user_id": str(s["id"]), "login": s["login"], "full_name": s["full_name"],
+            "is_active": s["is_active"],
             "logins": s["logins"], "failed": s["failed"], "last_login": s["last_login"],
         } for s in summary],
         "recent": [{
             "login": r["login"], "full_name": r["full_name"], "ip": r["ip"],
+            "user_agent": r["user_agent"],
             "success": r["success"], "created_at": r["created_at"],
         } for r in recent],
+        "filtered_by_user": user_id,
     }
 
 
-async def login_events_export(conn, org_id, limit: int = 50000):
+async def login_events_export(conn, org_id, limit: int = 50000, user_id: str | None = None,
+                              only_failed: bool = False):
     """Плоские строки журнала входов под выгрузку (CSV/XLSX): (headers, rows).
-    Все события (успех и неудача), новые сверху."""
+
+    Фильтры те же, что на экране: выгрузка должна совпадать с тем, что человек
+    видит, иначе в файле окажется не то, что он отобрал.
+    """
+    where, params = _login_filter(org_id, user_id, only_failed)
+    params.append(limit)
     rows = await conn.fetch(
         "select e.created_at, e.login, u.full_name, e.ip, e.user_agent, e.success "
         "from login_events e left join users u on u.id=e.user_id "
-        "where e.organization_id=$1 or e.organization_id is null "
-        "order by e.created_at desc limit $2", org_id, limit)
+        f"where {where} order by e.created_at desc limit ${len(params)}", *params)
     headers = ["Дата/время", "Логин", "ФИО", "IP", "Устройство", "Результат"]
     out = [[
         r["created_at"].strftime("%Y-%m-%d %H:%M:%S") if r["created_at"] else "",
@@ -314,12 +346,22 @@ async def login_events_export(conn, org_id, limit: int = 50000):
 
 
 async def user_activity(conn, org_id, user_id: str, limit: int = 100) -> dict:
-    """Сводный отчёт активности ОДНОГО пользователя (волна B, «личный кабинет»):
-    входы, действия из аудита (в т.ч. просмотры дашбордов и выгрузки),
-    оставленные комментарии — в одном месте вместо трёх разных экранов."""
+    """«Кабинет сотрудника глазами администратора»: карточка (роли, отдел,
+    состояние учётки, последний вход), входы, действия из аудита (включая
+    просмотры дашбордов и выгрузки), комментарии и обращения — в одном месте
+    вместо четырёх разных экранов.
+
+    Это ПРОСМОТР, а не вход под чужой учётной записью: система принципиально
+    не позволяет действовать от чужого имени, иначе аудит перестал бы отвечать
+    на вопрос «кто это сделал».
+    """
     target = await conn.fetchrow(
-        "select id, login, full_name, is_active from users where id=$1::uuid and organization_id=$2",
-        user_id, org_id)
+        "select u.id, u.login, u.full_name, u.email, u.is_active, u.created_at, "
+        "       u.must_change_password, dep.name as department, "
+        "       coalesce((select array_agg(r.name order by r.name) from user_roles ur "
+        "         join roles r on r.id=ur.role_id where ur.user_id=u.id), '{}') as roles "
+        "from users u left join departments dep on dep.id=u.department_id "
+        "where u.id=$1::uuid and u.organization_id=$2", user_id, org_id)
     if target is None:
         raise UsersError("Пользователь не найден")
     logins = await conn.fetch(
@@ -332,9 +374,25 @@ async def user_activity(conn, org_id, user_id: str, limit: int = 100) -> dict:
         "select c.id, c.body, c.created_at, c.dashboard_id, d.name as dashboard_name "
         "from dashboard_comments c join dashboards d on d.id=c.dashboard_id "
         "where c.user_id=$1::uuid order by c.created_at desc limit $2", user_id, limit)
+    # Обращения сотрудника — часть его «кабинета»: администратор видит, с чем
+    # человек уже приходил, не переключаясь в раздел «Обращения».
+    appeals = await conn.fetch(
+        "select id, subject, status, created_at, updated_at, "
+        "  (select count(*) from appeal_messages m where m.appeal_id = a.id) as messages "
+        "from appeals a where user_id=$1::uuid and organization_id=$2 "
+        "order by updated_at desc limit 20", user_id, org_id)
+    last_login = await conn.fetchval(
+        "select max(created_at) from login_events where user_id=$1::uuid and success", user_id)
     return {
         "user": {"id": str(target["id"]), "login": target["login"],
-                "full_name": target["full_name"], "is_active": target["is_active"]},
+                "full_name": target["full_name"], "is_active": target["is_active"],
+                "email": target["email"], "department": target["department"],
+                "roles": list(target["roles"]), "created_at": target["created_at"],
+                "must_change_password": target["must_change_password"],
+                "last_login": last_login},
+        "appeals": [{"id": str(a["id"]), "subject": a["subject"], "status": a["status"],
+                    "messages": a["messages"], "created_at": a["created_at"],
+                    "updated_at": a["updated_at"]} for a in appeals],
         "login_count": login_count,
         "logins": [{"ip": r["ip"], "user_agent": r["user_agent"], "success": r["success"],
                    "created_at": r["created_at"]} for r in logins],

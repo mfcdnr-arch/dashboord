@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import UserCard from './users/UserCard'
 import { RenameDialog } from './dashboards/RenameDialog'
 import {
   checkPassword, createDepartment, createUser, deleteDepartment, deleteUser, exportLoginEvents, getLoginEvents, getPasswordPolicy,
-  getUserActivity, grantAuditAccess, listAuditAccess, listDepartments, listRoles, listUsers, passwordHint, resetUserPassword,
+  grantAuditAccess, listAuditAccess, listDepartments, listRoles, listUsers, passwordHint, resetUserPassword,
   revokeAuditAccess, setUserActive, updateUser,
-  type AppUser, type AuditAccessRow, type Department, type LoginEventsReport, type PasswordPolicy, type Role, type UserActivity,
+  type AppUser, type AuditAccessRow, type Department, type LoginEventsReport, type PasswordPolicy, type Role,
 } from '../api'
 
 function fmtDt(iso: string | null): string {
@@ -38,10 +39,17 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
   const [auditForbidden, setAuditForbidden] = useState(false)
   const [auditAccess, setAuditAccess] = useState<AuditAccessRow[]>([])
   const [activityUser, setActivityUser] = useState<AppUser | null>(null)
+  // Фильтры журнала входов: по сотруднику и «только неудачные».
+  const [logUser, setLogUser] = useState('')
+  const [onlyFailed, setOnlyFailed] = useState(false)
 
   const fail = (e: unknown) => setError((e as Error).message)
-  const loadAudit = () => getLoginEvents().then((a) => { setAudit(a); setAuditForbidden(false) })
+  const loadAudit = () => getLoginEvents({ userId: logUser || undefined, onlyFailed })
+    .then((a) => { setAudit(a); setAuditForbidden(false) })
     .catch((e) => { if (/доступа к аудиту/i.test((e as Error).message)) setAuditForbidden(true); else fail(e) })
+  // Смена фильтра — перезапрос журнала (сводка приходит полной и остаётся
+  // списком для выбора, поэтому выпадашка не «схлопывается» после фильтрации).
+  useEffect(() => { if (!auditForbidden) loadAudit() }, [logUser, onlyFailed]) // eslint-disable-line react-hooks/exhaustive-deps
   // Защита от гонки ответов: применяем только результат последнего запроса.
   const reqSeq = useRef(0)
   const loadUsers = (query: string) => {
@@ -234,9 +242,32 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
           </div>
         ) : (
           <>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }} title="Выгрузить полный журнал входов">
-          <button style={linkBtn} onClick={() => exportLoginEvents('csv').catch(() => {})}>⤓ CSV</button>
-          <button style={linkBtn} onClick={() => exportLoginEvents('xlsx').catch(() => {})}>⤓ Excel</button>
+        {/* Фильтры журнала: в организации на два десятка учёток общая лента не
+            отвечает на вопрос «когда заходил Иванов». Выгрузка идёт с теми же
+            фильтрами — файл должен совпадать с тем, что видно на экране. */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+            Пользователь:
+            <select style={{ ...input, height: 30 }} value={logUser}
+              onChange={(e) => setLogUser(e.target.value)}>
+              <option value="">все</option>
+              {(audit?.summary || []).map((s) => (
+                <option key={s.user_id} value={s.user_id}>{s.login}{s.full_name ? ` · ${s.full_name}` : ''}</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}
+            title="Только неудачные попытки входа — разбор инцидентов">
+            <input type="checkbox" checked={onlyFailed} onChange={(e) => setOnlyFailed(e.target.checked)} />
+            только неудачные
+          </label>
+          {(logUser || onlyFailed) && (
+            <button style={linkBtn} onClick={() => { setLogUser(''); setOnlyFailed(false) }}>сбросить</button>
+          )}
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }} title="Выгрузка учитывает выбранные фильтры">
+            <button style={linkBtn} onClick={() => exportLoginEvents('csv', { userId: logUser || undefined, onlyFailed }).catch(() => {})}>⤓ CSV</button>
+            <button style={linkBtn} onClick={() => exportLoginEvents('xlsx', { userId: logUser || undefined, onlyFailed }).catch(() => {})}>⤓ Excel</button>
+          </span>
         </div>
         {!audit ? <span style={muted}>Загрузка…</span> : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
@@ -247,7 +278,10 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
                   <thead><tr>{['Логин', 'Входов', 'Неудач', 'Последний вход'].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
                   <tbody>
                     {audit.summary.map((s) => (
-                      <tr key={s.login} style={{ opacity: s.is_active ? 1 : 0.55 }}>
+                      <tr key={s.login} onClick={() => setLogUser(s.user_id === logUser ? '' : s.user_id)}
+                        title="Показать журнал только по этому пользователю"
+                        style={{ opacity: s.is_active ? 1 : 0.55, cursor: 'pointer',
+                          background: s.user_id === logUser ? 'var(--accent-weak-bg)' : undefined }}>
                         <td style={{ ...td, fontWeight: 600 }}>{s.login}</td>
                         <td style={td}>{s.logins}</td>
                         <td style={{ ...td, color: s.failed ? 'var(--danger)' : undefined }}>{s.failed}</td>
@@ -259,7 +293,12 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
               </div>
             </div>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Последние события</div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                {logUser
+                  ? `События: ${(audit?.summary || []).find((x) => x.user_id === logUser)?.login || ''}`
+                  : 'Последние события'}
+                {onlyFailed && <span style={{ color: 'var(--danger)', fontWeight: 400 }}> · только неудачные</span>}
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
                 {audit.recent.length === 0 && <span style={muted}>Событий пока нет.</span>}
                 {audit.recent.map((r, i) => (
@@ -369,78 +408,27 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return <div style={{ marginBottom: 24 }}><h3 style={{ fontSize: 15, margin: '0 0 10px' }}>{title}</h3>{children}</div>
 }
 
-const ACTION_RU: Record<string, string> = {
-  create: 'создание', update: 'изменение', delete: 'удаление', view: 'просмотр',
-  publish: 'публикация', grant_access: 'выдача доступа', revoke_access: 'отзыв доступа',
-  archive: 'архивация', unarchive: 'возврат из архива', export: 'выгрузка',
-}
 
 // «Личный кабинет» пользователя (волна B): входы, действия из аудита и
 // комментарии в одном месте — вместо трёх разных экранов. Доступ как у
 // /audit (superadmin всегда, admin — по гранту), поэтому 403 показываем как
 // понятное сообщение, а не общую ошибку.
 function UserActivityPanel({ user, onClose }: { user: AppUser; onClose: () => void }) {
-  const [data, setData] = useState<UserActivity | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-  useEffect(() => { getUserActivity(user.id).then(setData).catch((e) => setErr((e as Error).message)) }, [user.id])
   return (
     <div style={overlay} onClick={onClose}>
       <div style={{ ...dialog, width: 720 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>📊 Активность: {user.login}{user.full_name ? ` (${user.full_name})` : ''}</div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>
+            📊 Кабинет: {user.login}{user.full_name ? ` (${user.full_name})` : ''}
+          </div>
           <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
         </div>
-        {err && <div style={errBox}>{err}</div>}
-        {!data && !err && <div style={muted}>Загрузка…</div>}
-        {data && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ fontSize: 13 }}>Успешных входов: <b>{data.login_count}</b></div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Последние входы</div>
-              {data.logins.length === 0 ? <div style={muted}>Входов не было.</div> : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 140, overflowY: 'auto' }}>
-                  {data.logins.map((l, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12 }}>
-                      <span style={{ color: l.success ? 'var(--success)' : 'var(--danger)' }}>{l.success ? '✓' : '✕'}</span>
-                      <span style={{ color: 'var(--text-faint)', flex: 1 }}>{l.ip || '—'}</span>
-                      <span style={{ color: 'var(--text-faint)' }}>{fmtDt(l.created_at)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Действия (в т.ч. просмотры и выгрузки)</div>
-              {data.events.length === 0 ? <div style={muted}>Действий не зафиксировано.</div> : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 200, overflowY: 'auto' }}>
-                  {data.events.map((e) => (
-                    <div key={e.id} style={{ display: 'flex', gap: 8, fontSize: 12 }}>
-                      <span style={roleBadge}>{ACTION_RU[e.action] || e.action}</span>
-                      <span style={{ flex: 1 }}>{e.entity_name || e.entity_type}</span>
-                      <span style={{ color: 'var(--text-faint)' }}>{fmtDt(e.created_at)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Комментарии к дашбордам</div>
-              {data.comments.length === 0 ? <div style={muted}>Комментариев не оставлял.</div> : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
-                  {data.comments.map((c) => (
-                    <div key={c.id} style={{ fontSize: 12 }}>
-                      <span style={{ color: 'var(--text-faint)' }}>{fmtDt(c.created_at)} · {c.dashboard_name}: </span>{c.body}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        <UserCard userId={user.id} />
       </div>
     </div>
   )
 }
+
 function L({ t, children }: { t: string; children: React.ReactNode }) {
   return <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: 'var(--text-muted)' }}>{t}{children}</label>
 }

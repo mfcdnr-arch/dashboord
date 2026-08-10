@@ -118,3 +118,59 @@ async def test_client_export_log_endpoint(client, admin_headers, ids):
     assert r.status_code == 204
     activity = (await client.get(f"/users/{ids['admin']}/activity", headers=sa)).json()
     assert any(e["action"] == "export" for e in activity["events"])
+
+
+async def test_login_journal_filters_by_user(client, ids):
+    """Журнал входов по одному сотруднику.
+
+    В организации на два десятка учёток общая лента не отвечает на вопрос
+    «когда заходил Иванов»: нужен фильтр, и выгрузка должна совпадать с ним.
+    """
+    sa = await _superadmin(client)
+    login_name = "ztest_journal_user"
+    async with db.acquire() as conn:
+        await conn.execute("delete from login_events where login=$1", login_name)
+        await conn.execute("delete from users where login=$1", login_name)
+        uid = await conn.fetchval(
+            "insert into users(organization_id,login,password_hash,is_active,must_change_password) "
+            "values($1,$2,$3,true,false) returning id", ids["org"], login_name, hash_password("journal12345"))
+    try:
+        await login(client, login_name, "journal12345")          # успешный вход
+        await client.post("/auth/login", data={"username": login_name, "password": "wrong"})  # неудачный
+
+        all_events = (await client.get("/login-events", headers=sa)).json()
+        assert any(r["login"] != login_name for r in all_events["recent"]), "без фильтра лента общая"
+        assert any(s["user_id"] == str(uid) for s in all_events["summary"]), "в сводке есть id для выбора"
+
+        mine = (await client.get(f"/login-events?user_id={uid}", headers=sa)).json()
+        assert mine["recent"], "события сотрудника должны быть"
+        assert {r["login"] for r in mine["recent"]} == {login_name}
+        assert mine["filtered_by_user"] == str(uid)
+        # сводка остаётся полной — она же список для выбора в интерфейсе
+        assert len(mine["summary"]) == len(all_events["summary"])
+
+        failed = (await client.get(f"/login-events?user_id={uid}&only_failed=true", headers=sa)).json()
+        assert failed["recent"] and all(not r["success"] for r in failed["recent"])
+
+        csv = await client.get(f"/login-events/export.csv?user_id={uid}", headers=sa)
+        assert csv.status_code == 200
+        body = csv.content.decode("utf-8-sig")
+        assert login_name in body
+        assert "superadmin" not in body, "выгрузка должна повторять фильтр экрана"
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from login_events where user_id=$1 or login=$2", uid, login_name)
+            await conn.execute("delete from users where id=$1", uid)
+
+
+async def test_user_activity_includes_profile_and_appeals(client, admin_headers, ids):
+    """Отчёт активности — это «кабинет» сотрудника: роли, отдел, состояние
+    учётной записи и обращения, а не только лента событий."""
+    sa = await _superadmin(client)
+    me = (await client.get("/auth/me", headers=admin_headers)).json()
+    data = (await client.get(f"/users/{me['id']}/activity", headers=sa)).json()
+    u = data["user"]
+    for field in ("roles", "department", "last_login", "must_change_password", "email"):
+        assert field in u, f"в карточке нет поля {field}"
+    assert isinstance(u["roles"], list) and u["roles"], "роли должны быть заполнены"
+    assert "appeals" in data, "обращения — часть кабинета"

@@ -122,22 +122,31 @@ async def get_user_activity(user_id: str, user: dict = Depends(audit_reader)):
 
 # --- Аудит входов --- (доступ как у /audit: superadmin всегда, admin — по гранту)
 @router.get("/login-events")
-async def login_events(user: dict = Depends(audit_reader)):
+async def login_events(user: dict = Depends(audit_reader),
+                       user_id: Optional[str] = None, only_failed: bool = False,
+                       limit: int = Query(50, ge=1, le=500)):
+    """user_id — журнал по одному сотруднику («когда заходил Иванов»),
+    only_failed — только неудачные попытки (разбор инцидентов)."""
     async with db.get_pool().acquire() as conn:
-        return await service.login_events_report(conn, user["organization_id"])
+        return await service.login_events_report(
+            conn, user["organization_id"], limit=limit, user_id=user_id, only_failed=only_failed)
 
 
 @router.get("/login-events/export.csv")
-async def export_login_csv(user: dict = Depends(audit_reader)):
+async def export_login_csv(user: dict = Depends(audit_reader),
+                           user_id: Optional[str] = None, only_failed: bool = False):
     async with db.get_pool().acquire() as conn:
-        headers, rows = await service.login_events_export(conn, user["organization_id"])
+        headers, rows = await service.login_events_export(
+            conn, user["organization_id"], user_id=user_id, only_failed=only_failed)
     return Response(to_csv(headers, rows), media_type=CSV_MEDIA, headers=_attach("login-events.csv"))
 
 
 @router.get("/login-events/export.xlsx")
-async def export_login_xlsx(user: dict = Depends(audit_reader)):
+async def export_login_xlsx(user: dict = Depends(audit_reader),
+                            user_id: Optional[str] = None, only_failed: bool = False):
     async with db.get_pool().acquire() as conn:
-        headers, rows = await service.login_events_export(conn, user["organization_id"])
+        headers, rows = await service.login_events_export(
+            conn, user["organization_id"], user_id=user_id, only_failed=only_failed)
     return Response(to_xlsx("Журнал входов", headers, rows), media_type=XLSX_MEDIA, headers=_attach("login-events.xlsx"))
 
 

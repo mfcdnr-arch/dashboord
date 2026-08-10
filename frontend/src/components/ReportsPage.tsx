@@ -4,7 +4,9 @@ import {
   type ArchiveRunStatus, type AttendanceReport, type BackupStatus, type BusinessReport, type DashboardViewers, type DataQualityReport, type Gauge, type HealHistoryEntry, type HealResult, type LogsResult, type ModerationReport, type PopularityReport, type SystemReport,
 } from '../api'
 import EChart from './EChartLazy'
+import UserCard from './users/UserCard'
 import { fmtNumber as num } from '../lib/format'
+import { getLoginEvents, type LoginEventsReport } from '../api'
 
 
 // Раздел «Отчёты» (admin): системный мониторинг (CPU/RAM/диск через psutil +
@@ -253,6 +255,11 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
           </div>
         </div>
       </Section>
+
+      {/* Активность конкретного сотрудника: журнал входов + действия + выгрузки
+          + комментарии + обращения. Раньше это жило только в разделе
+          «Пользователи», хотя по смыслу — отчёт. */}
+      <UserActivitySection />
 
       {/* Посещаемость */}
       <Section title="Посещаемость (за 30 дней)">
@@ -516,3 +523,61 @@ const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'va
 const btnGhost: React.CSSProperties = { height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-2)', fontSize: 13, cursor: 'pointer' }
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px' }
+
+
+// ── Активность пользователей ────────────────────────────────────────────────
+// Выбор сотрудника → его «кабинет» глазами администратора. Список для выбора
+// берётся из сводки журнала входов: там уже есть все учётки организации со
+// счётчиками, отдельный запрос не нужен.
+function UserActivitySection() {
+  const [report, setReport] = useState<LoginEventsReport | null>(null)
+  const [forbidden, setForbidden] = useState(false)
+  const [sel, setSel] = useState('')
+
+  useEffect(() => {
+    getLoginEvents()
+      .then(setReport)
+      .catch((e) => { if (/доступа к аудиту/i.test((e as Error).message)) setForbidden(true) })
+  }, [])
+
+  if (forbidden) {
+    return (
+      <Section title="Активность пользователей">
+        <span style={muted}>
+          Нужен доступ к журналам аудита. Суперадминистратор выдаёт его в разделе «Пользователи» кнопкой «🕵 дать аудит».
+        </span>
+      </Section>
+    )
+  }
+
+  const list = (report?.summary || [])
+  return (
+    <Section title="Активность пользователей" hint="кто, когда и что делал — по одному сотруднику">
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+          Сотрудник:
+          <select style={selStyle} value={sel} onChange={(e) => setSel(e.target.value)}>
+            <option value="">— выберите —</option>
+            {list.map((u) => (
+              <option key={u.user_id} value={u.user_id}>
+                {u.login}{u.full_name ? ` · ${u.full_name}` : ''}{u.is_active ? '' : ' (заблокирован)'}
+              </option>
+            ))}
+          </select>
+        </label>
+        {sel && <button style={linkBtnStyle} onClick={() => setSel('')}>очистить</button>}
+      </div>
+      {!sel
+        ? <span style={muted}>Выберите сотрудника — покажем его входы, действия, выгрузки, комментарии и обращения.</span>
+        : <UserCard userId={sel} compact />}
+    </Section>
+  )
+}
+
+const selStyle: React.CSSProperties = {
+  height: 32, padding: '0 8px', borderRadius: 8, border: '1px solid var(--border-strong)',
+  background: 'var(--surface)', color: 'var(--text)', fontSize: 13,
+}
+const linkBtnStyle: React.CSSProperties = {
+  border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, padding: 0,
+}

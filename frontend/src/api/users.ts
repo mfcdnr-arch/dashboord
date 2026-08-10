@@ -1,8 +1,9 @@
 import { authH, downloadFile, errText, type Page } from './http'
 
-// Выгрузка журнала входов в CSV/XLSX.
-export function exportLoginEvents(fmt: 'csv' | 'xlsx'): Promise<void> {
-  return downloadFile(`/login-events/export.${fmt}`, `login-events.${fmt}`)
+// Выгрузка журнала входов в CSV/XLSX — с теми же фильтрами, что на экране,
+// иначе в файле окажется не то, что человек отобрал.
+export function exportLoginEvents(fmt: 'csv' | 'xlsx', f: LoginEventsFilter = {}): Promise<void> {
+  return downloadFile(`/login-events/export.${fmt}${loginQuery(f)}`, `login-events.${fmt}`)
 }
 
 // --- Модуль «Пользователи» (волна B) ---
@@ -71,11 +72,22 @@ export async function deleteUser(id: string): Promise<void> {
 }
 
 export interface LoginEventsReport {
-  summary: { login: string; full_name: string | null; is_active: boolean; logins: number; failed: number; last_login: string | null }[]
-  recent: { login: string; full_name: string | null; ip: string | null; success: boolean; created_at: string }[]
+  summary: { user_id: string; login: string; full_name: string | null; is_active: boolean; logins: number; failed: number; last_login: string | null }[]
+  recent: { login: string; full_name: string | null; ip: string | null; user_agent?: string | null; success: boolean; created_at: string }[]
+  filtered_by_user?: string | null
 }
-export async function getLoginEvents(): Promise<LoginEventsReport> {
-  const res = await fetch('/login-events', { headers: authH() })
+export interface LoginEventsFilter { userId?: string; onlyFailed?: boolean }
+
+function loginQuery(f: LoginEventsFilter = {}): string {
+  const p = new URLSearchParams()
+  if (f.userId) p.set('user_id', f.userId)
+  if (f.onlyFailed) p.set('only_failed', 'true')
+  const q = p.toString()
+  return q ? `?${q}` : ''
+}
+
+export async function getLoginEvents(f: LoginEventsFilter = {}): Promise<LoginEventsReport> {
+  const res = await fetch(`/login-events${loginQuery(f)}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
@@ -88,11 +100,16 @@ export interface UserActivityEvent {
   entity_name: string | null; created_at: string; changed_fields: string[]
 }
 export interface UserActivity {
-  user: { id: string; login: string; full_name: string | null; is_active: boolean }
+  user: {
+    id: string; login: string; full_name: string | null; is_active: boolean
+    email?: string | null; department?: string | null; roles?: string[]
+    created_at?: string; last_login?: string | null; must_change_password?: boolean
+  }
   login_count: number
   logins: { ip: string | null; user_agent: string | null; success: boolean; created_at: string }[]
   events: UserActivityEvent[]
   comments: { id: string; body: string; created_at: string; dashboard_id: string; dashboard_name: string }[]
+  appeals?: { id: string; subject: string | null; status: string; messages: number; created_at: string; updated_at: string }[]
 }
 export async function getUserActivity(userId: string): Promise<UserActivity> {
   const res = await fetch(`/users/${userId}/activity`, { headers: authH() })
