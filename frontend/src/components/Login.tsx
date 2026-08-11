@@ -2,6 +2,22 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { login, setToken, submitBlockedAppeal, type LoginError } from '../api'
 import Logo from './Logo'
 import { LoginBackdrop } from './Art'
+import ThemeToggle from './ThemeToggle'
+
+/**
+ * Переключатель темы в углу страницы входа.
+ *
+ * До входа тема была недоступна: человеку, которому нужна тёмная (или который
+ * ей просто пользуется), первый экран всё равно светил белым, и переключить он
+ * мог только уже войдя. Выбор хранится в браузере, авторизация для него не нужна.
+ */
+function ThemeCorner() {
+  return (
+    <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 2 }}>
+      <ThemeToggle />
+    </div>
+  )
+}
 
 // Стартовая страница входа. Двухпанельная: слева — о портале, справа — форма.
 // БРЕНД: цвета/название/эмблема вынесены в BRAND ниже — под будущий брендбук МФЦ
@@ -110,7 +126,8 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
 
   if (blockedMsg) {
     return (
-      <div style={{ ...page, flexDirection: narrow ? 'column' : 'row' }}>
+      <div style={{ ...page, flexDirection: narrow ? 'column' : 'row', position: 'relative' }}>
+        <ThemeCorner />
         <div style={{ ...hero, padding: narrow ? '32px 24px' : '56px 52px', minHeight: narrow ? undefined : '100vh' }}>
           <div style={heroInner}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: narrow ? 20 : 40 }}>
@@ -132,7 +149,8 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
   }
 
   return (
-    <div style={{ ...page, flexDirection: narrow ? 'column' : 'row' }}>
+    <div style={{ ...page, flexDirection: narrow ? 'column' : 'row', position: 'relative' }}>
+      <ThemeCorner />
       {/* Левая панель — о портале */}
       <div style={{ ...hero, padding: narrow ? '32px 24px' : '56px 52px', minHeight: narrow ? undefined : '100vh' }}>
         <div style={heroInner}>
