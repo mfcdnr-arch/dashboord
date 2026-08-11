@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { login, setToken, submitBlockedAppeal, type LoginError } from '../api'
 import Logo from './Logo'
+import { LoginBackdrop } from './Art'
 
 // Стартовая страница входа. Двухпанельная: слева — о портале, справа — форма.
 // БРЕНД: цвета/название/эмблема вынесены в BRAND ниже — под будущий брендбук МФЦ
@@ -173,9 +174,12 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
         </div>
       </div>
 
-      {/* Правая панель — форма входа */}
-      <div style={{ ...formSide, padding: narrow ? '28px 24px 44px' : 24, minHeight: narrow ? undefined : '100vh' }}>
-        <form onSubmit={submit} style={card}>
+      {/* Правая панель — форма входа. Под формой лежит приглушённая графика:
+          левая половина высокая и прокручивается, а правая без неё читалась
+          как незавершённая. На узком экране не рисуем — там места и так нет. */}
+      <div style={{ ...formSide, padding: narrow ? '28px 24px 44px' : 24, minHeight: narrow ? undefined : '100vh', position: 'relative', overflow: 'hidden' }}>
+        {!narrow && <LoginBackdrop />}
+        <form onSubmit={submit} style={{ ...card, position: 'relative' }}>
           <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Вход в систему</h2>
           <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 20px' }}>Введите логин и пароль, выданные администратором.</p>
           <label style={label}>Логин</label>

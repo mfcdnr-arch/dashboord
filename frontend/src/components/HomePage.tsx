@@ -4,6 +4,7 @@ import {
   type HomeData, type Metric,
 } from '../api'
 import { fmtNumber as fmt } from '../lib/format'
+import { EmptyKpiArt } from './Art'
 
 const KIND_ICON: Record<string, string> = { dataset: '📄', metric: '📐', dashboard: '📊' }
 
@@ -235,7 +236,19 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
 
       {/* Ключевые KPI */}
       <Section title="Ключевые показатели">
-        {data.key_kpis.length === 0 && <div style={muted}>Показатели ещё не выбраны{canManage ? ' — добавьте ниже.' : '.'}</div>}
+        {data.key_kpis.length === 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', padding: '6px 0 10px' }}>
+            <EmptyKpiArt />
+            <div style={{ minWidth: 240, flex: 1 }}>
+              <div style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: 4 }}>Показатели ещё не выбраны</div>
+              <div style={muted}>
+                {canManage
+                  ? 'Вынесите сюда несколько показателей — они будут считаться на свежих данных и открываться первым экраном.'
+                  : 'Набор показателей на этом экране настраивает администратор.'}
+              </div>
+            </div>
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
           {data.key_kpis.map((k) => (
             <div key={k.code} style={kpiCard}>
