@@ -22,6 +22,30 @@ async function apiToken(login = 'admin', pass = 'admin') {
   return (await r.json()).access_token;
 }
 
+// ── Какие дашборды снимать ───────────────────────────────────────────────────
+// Имена НЕ зашиты в код. Раньше здесь стояли «Динамика МФЦ» и «Динамика тест»;
+// стенд наполнился реальными данными, синтетические дашборды исчезли — и кадры
+// молча снимались «не те» либо падали. Берём то, что на стенде реально есть.
+let DASH_VIEW = '';  // для просмотра/доступа/обсуждения/архива — с виджетами
+let DASH_EDIT = '';  // для конструктора и диалога архивации — любой другой
+const sqlStr = (s) => `'${String(s).replace(/'/g, "''")}'`;
+
+function resolveDashboards() {
+  const rows = psql(`select d.name || '~~' || d.publication_status || '~~' ||
+      (select count(*) from widgets w where w.dashboard_id = d.id)
+    from dashboards d
+    order by (select count(*) from widgets w where w.dashboard_id = d.id) desc, d.created_at`)
+    .split('\n').map((s) => s.trim()).filter(Boolean)
+    .map((s) => { const p = s.split('~~'); return { name: p[0], status: p[1], widgets: +p[2] }; });
+  if (!rows.length) throw new Error('на стенде нет ни одного дашборда — снимать нечего');
+  // для просмотра предпочитаем опубликованный (так его видит и обычный пользователь)
+  DASH_VIEW = (rows.find((r) => r.status === 'published' && r.widgets > 0) || rows[0]).name;
+  // для конструктора — черновик (на нём же показываем диалог архивации)
+  DASH_EDIT = (rows.find((r) => r.name !== DASH_VIEW && r.status !== 'published')
+    || rows.find((r) => r.name !== DASH_VIEW) || rows[0]).name;
+  console.log(`дашборды для съёмки: просмотр «${DASH_VIEW}», конструктор «${DASH_EDIT}»`);
+}
+
 // ── Временные данные ─────────────────────────────────────────────────────────
 function prepUsers() {
   const hash = execSync(`docker exec dashbord_api python -c "from app.modules.auth.security import hash_password; print(hash_password('Ztest12345'))"`, { encoding: 'utf8' }).trim();
@@ -36,7 +60,7 @@ function prepUsers() {
     on conflict do nothing`);
   psql(`insert into access_grants(scope, dashboard_id, grantee_type, user_id, granted_by)
     select 'dashboard', d.id, 'user', u.id, a.id from dashboards d, users u, users a
-    where d.name='Динамика МФЦ' and u.login='ztest_user' and a.login='admin' on conflict do nothing`);
+    where d.name=${sqlStr(DASH_VIEW)} and u.login='ztest_user' and a.login='admin' on conflict do nothing`);
 }
 function cleanupUsers() {
   for (const sql of [
@@ -67,11 +91,27 @@ async function login(page, user, pass) {
   await page.getByRole('button', { name: 'Войти' }).click();
   await page.waitForTimeout(1500);
 }
+// Закрываем ВЕРХНЕЕ модальное окно, а не «первую кнопку с ✕ на странице».
+// Прежняя версия искала только текст «✕» и не закрывала окна с другим крестиком
+// («×», title «Закрыть») — следующий клик уходил «под» модалку и падал по таймауту.
 async function closeOverlays(page) {
-  for (let i = 0; i < 4; i++) {
-    const x = page.locator('button:has-text("✕")').first();
-    if (await x.isVisible().catch(() => false)) { await x.click({ force: true }).catch(() => {}); await page.waitForTimeout(250); }
-    else break;
+  for (let i = 0; i < 5; i++) {
+    const closed = await page.evaluate(() => {
+      const fixed = [...document.querySelectorAll('div')].filter((d) => {
+        const cs = getComputedStyle(d);
+        return cs.position === 'fixed' && d.offsetWidth > 200 && d.offsetHeight > 100;
+      });
+      if (!fixed.length) return false;
+      const top = fixed[fixed.length - 1];
+      const btn = [...top.querySelectorAll('button')].find((b) => {
+        const t = b.textContent.trim();
+        return t === '✕' || t === '×' || /закрыть/i.test(b.getAttribute('title') || '');
+      });
+      if (btn) { btn.click(); return true; }
+      return false;
+    });
+    if (!closed) break;
+    await page.waitForTimeout(400);
   }
   await page.keyboard.press('Escape').catch(() => {});
 }
@@ -117,6 +157,7 @@ async function shotSection(page, headingText, name) {
 }
 
 (async () => {
+  resolveDashboards();  // до prepUsers: грант зрителю выдаётся на найденный дашборд
   prepUsers();
   const browser = await chromium.launch();
   const mkCtx = (w = 1440, h = 900) => browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 2 });
@@ -151,7 +192,10 @@ async function shotSection(page, headingText, name) {
   await nav(page, 'Объекты'); await shot(page, '05_objects', { full: true });
   await nav(page, 'Метрики'); await shot(page, '06_metrics');
   try {
-    await page.getByText('Итого план').first().click();
+    // Имя метрики не зашито: берём первую из списка, какая на стенде есть.
+    const metric = psql('select name from metrics order by created_at limit 1').split('\n')[0].trim();
+    if (!metric) throw new Error('на стенде нет ни одной метрики');
+    await clickText(page, metric);
     await page.waitForTimeout(1200);
     const c = page.getByRole('button', { name: '🖱 Конструктор' });
     if (await c.isVisible().catch(() => false)) await c.click();
@@ -160,7 +204,7 @@ async function shotSection(page, headingText, name) {
 
   await nav(page, 'Дашборды'); await shot(page, '08_dashboards');
   try {
-    await clickText(page, 'Дашборд «Динамика тест»');
+    await clickText(page, DASH_EDIT);
     await shot(page, '09_editor', { full: true });
     await page.locator('button:has-text("галерея")').first().click();
     await shot(page, '10_widget_picker', { wait: 700 });
@@ -169,7 +213,7 @@ async function shotSection(page, headingText, name) {
 
   try {
     await clickText(page, 'Дашборды'); // крошка: выход из открытого конструктора к списку
-    await clickText(page, 'Динамика МФЦ');
+    await clickText(page, DASH_VIEW);
     await page.waitForTimeout(500);
     await shot(page, '11_viewer', { full: true });
     await page.locator('button').filter({ hasText: 'Доступ' }).first().click();
@@ -188,7 +232,9 @@ async function shotSection(page, headingText, name) {
 
   // Отчёты: точечные кадры новых разделов (полный скрин выше — общий вид,
   // эти — блок целиком, а не весь экран, иначе соседние разделы дублируются).
-  await shotSection(page, 'История починок', '18b_reports_healhist');
+  // «История починок» — не h3, а подзаголовок внутри блока «Здоровье системы»,
+  // и он появляется, только когда починки уже были. Снимаем блок целиком.
+  await shotSection(page, 'Здоровье системы', '18b_reports_healhist');
   await shotSection(page, 'Логи сервисов', '18c_reports_logs');
   await shotSection(page, 'Бэкап и автоархив', '18d_reports_backup');
 
@@ -211,7 +257,7 @@ async function shotSection(page, headingText, name) {
   try {
     const tok = await apiToken();
     const H = { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' };
-    const list = await (await fetch(`${API}/dashboards?` + new URLSearchParams({ q: 'Динамика МФЦ' }), { headers: H })).json();
+    const list = await (await fetch(`${API}/dashboards?` + new URLSearchParams({ q: DASH_VIEW }), { headers: H })).json();
     const did = list.items[0].id;
     const arc = await (await fetch(`${API}/dashboards/${did}/archive`, { method: 'POST', headers: H, body: JSON.stringify({ topic: 'Месячная отчётность', note: 'Слепок показателей за июль' }) })).json();
     await nav(page, 'Архив');
@@ -223,7 +269,7 @@ async function shotSection(page, headingText, name) {
     await fetch(`${API}/archive/${arc.id}`, { method: 'DELETE', headers: H });
     // диалог архивации на черновике
     await nav(page, 'Дашборды');
-    await clickText(page, 'Показатели МФЦ');
+    await clickText(page, DASH_EDIT);
     await page.locator('button').filter({ hasText: 'В архив' }).first().click();
     await shot(page, '52_archive_dialog', { wait: 800 });
     await page.getByRole('button', { name: 'Отмена' }).click().catch(() => {});
@@ -236,11 +282,11 @@ async function shotSection(page, headingText, name) {
   await login(page, 'admin', 'admin');
   try {
     await nav(page, 'Дашборды');
-    await clickText(page, 'Динамика МФЦ');
+    await clickText(page, DASH_VIEW);
     await page.waitForTimeout(500); await page.mouse.wheel(0, 380);
     await shot(page, '60_viewer_slide', { wait: 1200 });
     await clickText(page, 'Дашборды'); // крошка
-    await clickText(page, 'Дашборд «Динамика тест»');
+    await clickText(page, DASH_EDIT);
     await page.waitForTimeout(500); await page.mouse.wheel(0, 320);
     await shot(page, '61_editor_slide', { wait: 1200 });
     await nav(page, 'Отчёты'); await shot(page, '62_reports_slide', { wait: 1800 });
@@ -267,7 +313,7 @@ async function shotSection(page, headingText, name) {
   await shot(page, '41_user_home', { wait: 1500 });
   try {
     await nav(page, 'Дашборды');
-    await clickText(page, 'Динамика МФЦ');
+    await clickText(page, DASH_VIEW);
     await shot(page, '42_user_dashboard', { full: true });
   } catch (e) { fails.push('42: ' + e.message.split('\n')[0]); }
   await ctx.close();

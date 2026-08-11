@@ -112,7 +112,7 @@ function title(docTitle, subtitle, version) {
     new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 1200 }, children: [new TextRun({ text: docTitle, bold: true, size: 44, color: DARKTXT, font: 'PT Sans' })] }),
     new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 300 }, children: [new TextRun({ text: subtitle, size: 24, color: MUTED, font: 'PT Sans' })] }),
     new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 2600 }, children: [new TextRun({ text: version, size: 22, color: MUTED, font: 'PT Sans' })] }),
-    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'ГБУ «МФЦ ДНР» · первое внедрение · июль 2026', size: 22, color: MUTED, font: 'PT Sans' })] }),
+    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'ГБУ «МФЦ ДНР» · первое внедрение · август 2026', size: 22, color: MUTED, font: 'PT Sans' })] }),
     new Paragraph({ children: [new PageBreak()] }),
     new Paragraph({ children: [new TextRun({ text: 'Содержание', bold: true, size: 28, color: DARKTXT, font: 'PT Sans' })], spacing: { after: 200 } }),
     new TableOfContents('Содержание', { hyperlink: true, headingStyleRange: '1-2' }),
