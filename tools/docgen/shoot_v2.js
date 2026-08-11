@@ -151,6 +151,28 @@ async function openDashboard(page, part) {
   await closeOverlays(page);
   await shot(page, '38_objects', { full: true });
 
+  // ── Карточка файла: блок «Выпущенные данные» (отмена/возврат выпуска) ─────
+  try {
+    await clickText(page, 'МФЦ ДНР');
+    const folder = await page.evaluate(() => {
+      const el = [...document.querySelectorAll('*')].filter((e) => /\u2714|\u270f/.test(e.textContent) === false
+        && e.children.length === 0 && /^[А-ЯA-Z]/.test(e.textContent.trim()) && e.textContent.trim().length > 3);
+      return el.length ? el[el.length - 1].textContent.trim() : null;
+    });
+    await clickText(page, folder || 'Внедрение');
+    // открываем первый файл в папке
+    await page.evaluate(() => {
+      const f = [...document.querySelectorAll('*')].filter((e) => e.children.length === 0 && /\.xlsx$/.test(e.textContent.trim()));
+      if (f.length) f[0].click();
+    });
+    await page.waitForTimeout(3000);
+    const box = page.locator('text=Выпущенные данные').first().locator('xpath=..');
+    await box.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(400);
+    await box.screenshot({ path: OUT + '43_releases_panel.png' });
+    console.log('OK 43_releases_panel');
+  } catch (e) { fails.push('43_releases_panel: ' + e.message.split('\n')[0]); }
+
   // ── Взгляд обычного пользователя: меню сведено к дашбордам ────────────────
   await login(page, 'viewer1', 'Mfc2026view');
   await page.waitForTimeout(1500);
