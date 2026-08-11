@@ -6,8 +6,11 @@ from fastapi import HTTPException, status
 from ..auth.deps import require_roles
 from .service import DashboardError
 
-manage = require_roles("admin", "moderator")
+manage = require_roles("superadmin", "admin", "moderator")
 admin_only = require_roles("admin", "superadmin")
+# Удаление дашборда — только владелец системы: оно необратимо (в отличие от
+# снятия с публикации или архивации), а восстановить дашборд из журнала нельзя.
+superadmin_only = require_roles("superadmin")
 
 
 def _bad(e: DashboardError) -> HTTPException:

@@ -98,6 +98,13 @@ async def admin_headers(client):
     return hdr(await login(client, "admin", "admin"))
 
 
+@pytest_asyncio.fixture
+async def superadmin_headers(client):
+    """Владелец системы. Нужен там, где действие доступно только ему:
+    удаление дашбордов и показателей, одобрение собственной работы."""
+    return hdr(await login(client, "superadmin", "superadmin"))
+
+
 @pytest_asyncio.fixture(scope="session")
 async def ids(_seeded):
     """Организация и admin по умолчанию."""

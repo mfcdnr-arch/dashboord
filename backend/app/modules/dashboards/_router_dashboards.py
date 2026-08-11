@@ -14,7 +14,7 @@ from ... import db
 from ..audit import service as audit_svc
 from ..auth.deps import get_current_user, require_roles
 from . import service
-from ._router_base import _bad, manage
+from ._router_base import _bad, manage, superadmin_only
 from .service import DashboardError
 
 router = APIRouter()
@@ -137,7 +137,7 @@ async def update_dashboard(dashboard_id: str, body: DashboardPatch, user: dict =
 
 
 @router.delete("/dashboards/{dashboard_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_dashboard(dashboard_id: str, user: dict = Depends(manage)):
+async def delete_dashboard(dashboard_id: str, user: dict = Depends(superadmin_only)):
     async with db.acquire(user["id"]) as conn:
         try:
             await service.delete_dashboard(conn, user["organization_id"], user, dashboard_id)

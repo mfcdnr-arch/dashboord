@@ -257,6 +257,8 @@ async def delete_dashboard(conn, org_id, user: dict, dashboard_id: str) -> None:
     Три стоп-фактора: опубликован, отправлен на проверку, входит в витрину.
     Все три означают, что дашборд кто-то видит прямо сейчас, — молча убирать
     его из-под пользователей нельзя, поэтому объясняем, что сделать сначала.
+
+    Право на удаление — только у роли superadmin (см. проверку ниже).
     """
     d = await conn.fetchrow(
         "select name, publication_status, created_by from dashboards "
@@ -264,10 +266,13 @@ async def delete_dashboard(conn, org_id, user: dict, dashboard_id: str) -> None:
     if d is None:
         raise DashboardError("Дашборд не найден")
 
-    # Чужой дашборд удаляет только админ; модератор — свой (он его и создавал).
+    # Удаляет только суперадминистратор — решение заказчика (11.08.2026).
+    # Остальным доступны обратимые действия: снять с публикации, отправить
+    # в архив. Проверка продублирована здесь, а не только в зависимости
+    # роутера, чтобы правило держалось и при вызове сервиса из другого места.
     roles = set(user.get("roles") or ())
-    if not roles & {"admin", "superadmin"} and str(d["created_by"]) != str(user["id"]):
-        raise DashboardError("Недостаточно прав: чужой дашборд может удалить только администратор")
+    if "superadmin" not in roles:
+        raise DashboardError("Недостаточно прав: удалить дашборд может только суперадминистратор")
 
     if d["publication_status"] == "published":
         raise DashboardError("Дашборд опубликован — удаление отменено. Сначала снимите его с публикации.")

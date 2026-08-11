@@ -45,7 +45,7 @@ function surfaceColor(): string {
   return getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#ffffff'
 }
 
-export default function DashboardsPage({ canManage, isAdmin, initialDashboardId }: { canManage: boolean; isAdmin?: boolean; initialDashboardId?: string | null }) {
+export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initialDashboardId }: { canManage: boolean; isAdmin?: boolean; isSuperadmin?: boolean; initialDashboardId?: string | null }) {
   const [dashboards, setDashboards] = useState<Dashboard[]>([])
   const [dashTotal, setDashTotal] = useState(0)
   const [query, setQuery] = useState('')
@@ -541,10 +541,10 @@ export default function DashboardsPage({ canManage, isAdmin, initialDashboardId 
             )}
             {/* Удаление — крайним и отдельным цветом: соседство с «В архив» не
                 должно провоцировать промах, это разные по последствиям вещи. */}
-            {canManage && (
+            {isSuperadmin && (
               <button style={{ ...btnGhost, marginLeft: 'auto', borderColor: 'var(--danger)', color: 'var(--danger)' }}
                 onClick={doDeleteDashboard}
-                title="Удалить дашборд со страницами и виджетами (слепки в архиве сохранятся)">
+                title="Удалить дашборд со страницами и виджетами (слепки в архиве сохранятся). Доступно только суперадминистратору">
                 🗑 Удалить
               </button>
             )}

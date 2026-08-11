@@ -128,6 +128,10 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const ok = health?.status === 'ok'
   const canManage = me.roles.includes('admin') || me.roles.includes('moderator') || me.roles.includes('superadmin')
   const isAdmin = me.roles.includes('admin') || me.roles.includes('superadmin')
+  // Удаление дашбордов и показателей необратимо — доступно только владельцу
+  // системы. Кнопки прячем, а не отключаем: кнопка, которая всегда отвечает
+  // отказом, выглядит поломкой.
+  const isSuperadmin = me.roles.includes('superadmin')
   // Мастер первичной настройки: показываем автоматически на «свежей установке»
   // (структурно пусто) администратору, пока настройка не закрыта (серверный флаг
   // organizations.setup_dismissed — переживает смену браузера). Открыть вручную —
@@ -237,9 +241,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ) : section === 'objects' ? (
             <ObjectsPage canManage={canManage} />
           ) : section === 'metrics' ? (
-            <MetricsPage canManage={canManage} />
+            <MetricsPage canManage={canManage} isSuperadmin={isSuperadmin} />
           ) : section === 'dashboards' ? (
-            <DashboardsPage canManage={canManage} isAdmin={isAdmin} initialDashboardId={openDash} />
+            <DashboardsPage canManage={canManage} isAdmin={isAdmin} isSuperadmin={isSuperadmin} initialDashboardId={openDash} />
           ) : section === 'showcases' ? (
             <ShowcasesPage canManage={canManage} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'users' ? (

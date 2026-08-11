@@ -38,6 +38,9 @@ from .templates import TEMPLATES, build_formula, suggested_name
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 manage = require_roles("superadmin", "admin", "moderator")
+# Удаление показателя необратимо (версии формул уходят каскадом), поэтому
+# доступно только владельцу системы — решение заказчика от 11.08.2026.
+superadmin_only = require_roles("superadmin")
 
 
 class MetricIn(BaseModel):
@@ -246,7 +249,7 @@ async def patch_metric(metric_id: str, body: MetricPatch, user: dict = Depends(m
 
 
 @router.delete("/{metric_id}")
-async def remove_metric(metric_id: str, user: dict = Depends(manage)):
+async def remove_metric(metric_id: str, user: dict = Depends(superadmin_only)):
     async with db.get_pool().acquire() as conn:
         try:
             async with conn.transaction():

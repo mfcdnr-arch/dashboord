@@ -20,7 +20,7 @@ const FORMULA_HELP = [
 
 const METRICS_PAGE = 50
 
-export default function MetricsPage({ canManage }: { canManage: boolean }) {
+export default function MetricsPage({ canManage, isSuperadmin }: { canManage: boolean; isSuperadmin?: boolean }) {
   const [metrics, setMetrics] = useState<Metric[]>([])
   const [metricsTotal, setMetricsTotal] = useState(0)
   const [mq, setMq] = useState('')
@@ -115,7 +115,7 @@ export default function MetricsPage({ canManage }: { canManage: boolean }) {
 
       {sel && (
         <MetricDetail
-          data={sel} canManage={canManage}
+          data={sel} canManage={canManage} isSuperadmin={isSuperadmin}
           onError={fail}
           onChanged={async () => { await refresh(); openMetric(sel.metric.id) }}
           onDeleted={async () => { setSel(null); await refresh() }}
@@ -125,9 +125,10 @@ export default function MetricsPage({ canManage }: { canManage: boolean }) {
   )
 }
 
-function MetricDetail({ data, canManage, onError, onChanged, onDeleted }: {
+function MetricDetail({ data, canManage, isSuperadmin, onError, onChanged, onDeleted }: {
   data: { metric: Metric; versions: MetricVersion[] }
   canManage: boolean
+  isSuperadmin?: boolean
   onError: (e: unknown) => void
   onChanged: () => void
   onDeleted: () => void
@@ -217,9 +218,9 @@ function MetricDetail({ data, canManage, onError, onChanged, onDeleted }: {
           <h2 style={{ fontSize: 17, margin: '0 0 2px' }}>{metric.name}</h2>
           <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>{metric.code}{metric.description ? ' · ' + metric.description : ''}</div>
         </div>
-        {canManage && (
+        {isSuperadmin && (
           <button style={btnDanger} disabled={busy} onClick={() => setAskDelete(true)}
-            title="Удалить показатель вместе с версиями формулы">🗑 Удалить</button>
+            title="Удалить показатель вместе с версиями формулы. Доступно только суперадминистратору">🗑 Удалить</button>
         )}
       </div>
 
