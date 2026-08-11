@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
-  approveVersion, createMetric, createVersion, getDataSources, getMetric, listMetrics, metricInfoDraft, previewFormula,
-  updateMetric, validateVersion, versionValue,
+  approveVersion, createMetric, createVersion, deleteMetric, getDataSources, getMetric, listMetrics, metricInfoDraft,
+  previewFormula, updateMetric, validateVersion, versionValue,
   type DataSources, type Dependencies, type Metric, type MetricVersion,
 } from '../api'
 import FormulaBuilder from './FormulaBuilder'
+import { ConfirmDialog } from './dashboards/ConfirmDialog'
 import TemplatePicker from './metrics/TemplatePicker'
 import DataSuggestPanel from './metrics/DataSuggestPanel'
 import { fmtNumber as fmtNum } from '../lib/format'
@@ -117,17 +118,19 @@ export default function MetricsPage({ canManage }: { canManage: boolean }) {
           data={sel} canManage={canManage}
           onError={fail}
           onChanged={async () => { await refresh(); openMetric(sel.metric.id) }}
+          onDeleted={async () => { setSel(null); await refresh() }}
         />
       )}
     </div>
   )
 }
 
-function MetricDetail({ data, canManage, onError, onChanged }: {
+function MetricDetail({ data, canManage, onError, onChanged, onDeleted }: {
   data: { metric: Metric; versions: MetricVersion[] }
   canManage: boolean
   onError: (e: unknown) => void
   onChanged: () => void
+  onDeleted: () => void
 }) {
   const { metric, versions } = data
   const [formula, setFormula] = useState('')
@@ -137,6 +140,7 @@ function MetricDetail({ data, canManage, onError, onChanged }: {
   const [preview, setPreview] = useState<{ value: number; deps: Dependencies } | null>(null)
   const [previewErr, setPreviewErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [askDelete, setAskDelete] = useState(false)
   const [values, setValues] = useState<Record<string, string>>({})
   const [info, setInfo] = useState(metric.info_text || '')
   const [infoBusy, setInfoBusy] = useState(false)
@@ -184,6 +188,21 @@ function MetricDetail({ data, canManage, onError, onChanged }: {
     try { await fn(); onChanged() } catch (e) { onError(e) } finally { setBusy(false) }
   }
 
+  async function removeMetric() {
+    setBusy(true)
+    try { await deleteMetric(data.metric.id); setAskDelete(false); onDeleted() }
+    catch (e) { setAskDelete(false); onError(e) } finally { setBusy(false) }
+  }
+
+  // Что именно исчезнет: у показателя может быть несколько версий формулы,
+  // и одобренная среди них — не редкость, об этом надо предупредить прямо.
+  const versCount = data.versions.length
+  const hasApproved = data.versions.some((v) => v.status === 'approved')
+  const deleteWarning = (versCount
+    ? `Вместе с ним удалятся версии формулы (${versCount})${hasApproved ? ', включая ОДОБРЕННУЮ' : ''}.`
+    : 'Версий формулы у него нет.')
+    + '\n\nЕсли на показатель ссылаются виджеты или формулы других показателей, система откажет и назовёт их.'
+
   async function computeValue(v: MetricVersion) {
     try {
       const r = await versionValue(v.id)
@@ -193,8 +212,26 @@ function MetricDetail({ data, canManage, onError, onChanged }: {
 
   return (
     <div>
-      <h2 style={{ fontSize: 17, margin: '0 0 2px' }}>{metric.name}</h2>
-      <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>{metric.code}{metric.description ? ' · ' + metric.description : ''}</div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <h2 style={{ fontSize: 17, margin: '0 0 2px' }}>{metric.name}</h2>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>{metric.code}{metric.description ? ' · ' + metric.description : ''}</div>
+        </div>
+        {canManage && (
+          <button style={btnDanger} disabled={busy} onClick={() => setAskDelete(true)}
+            title="Удалить показатель вместе с версиями формулы">🗑 Удалить</button>
+        )}
+      </div>
+
+      {askDelete && (
+        <ConfirmDialog
+          title={`Удалить показатель «${metric.name}»?`}
+          message={deleteWarning}
+          busy={busy}
+          onClose={() => setAskDelete(false)}
+          onConfirm={removeMetric}
+        />
+      )}
 
       {/* Расширенная информация (FR-5.9): показывается пользователю при «провале» в показатель (drill) */}
       {canManage && (
@@ -353,6 +390,7 @@ const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px
 const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }
 const btnGhost: React.CSSProperties = { height: 36, padding: '0 14px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', fontSize: 14, cursor: 'pointer' }
 const btnSm: React.CSSProperties = { height: 28, padding: '0 10px', border: 'none', borderRadius: 6, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 12, cursor: 'pointer' }
+const btnDanger: React.CSSProperties = { height: 30, padding: '0 12px', border: '1px solid var(--danger)', borderRadius: 8, background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, fontWeight: 600, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }
 const btnGhostSm: React.CSSProperties = { height: 28, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--surface)', fontSize: 12, cursor: 'pointer' }
 const rowItem: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', cursor: 'pointer' }
 const pill: React.CSSProperties = { fontSize: 11, padding: '2px 8px', borderRadius: 10 }

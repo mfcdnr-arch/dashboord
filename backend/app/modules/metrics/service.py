@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from typing import List, Optional
 
+from ..audit import service as audit_svc
 from . import resolver
 from .cycles import CycleError, validate_and_topo_sort
 from .parser import FormulaError, extract_dependencies, parse
@@ -87,6 +88,75 @@ async def update_metric(conn, org_id, metric_id: str, name: Optional[str],
         "where id=$1::uuid returning id, code, name, description, info_text",
         metric_id, name, description, info_text, owner_id)
     return dict(row)
+
+
+async def _metric_usage(conn, org_id, metric_id: str, code: str) -> dict:
+    """Кто опирается на показатель. Обе связи — ПО КОДУ, в jsonb и в разобранных
+    формулах, поэтому внешних ключей на них нет и СУБД сама ничего не проверит."""
+    widgets = await conn.fetch(
+        "select w.name as widget_name, d.name as dashboard_name "
+        "from widgets w "
+        "join dashboards d on d.id = w.dashboard_id "
+        "where w.organization_id = $1 and ("
+        "  w.config->>'metric_code' = $2 or w.config->>'plan_metric' = $2 "
+        "  or w.config->>'fact_metric' = $2)",
+        org_id, code)
+
+    # Формулы других показателей: ссылка живёт внутри разобранного AST,
+    # достаём её тем же кодом, что и при проверке циклов.
+    others = await conn.fetch(
+        "select m.code, m.name, mv.formula_ast from metric_versions mv "
+        "join metrics m on m.id = mv.metric_id "
+        "where m.organization_id = $1 and m.id <> $2::uuid and mv.formula_ast is not null "
+        "and mv.status <> 'deprecated'", org_id, metric_id)
+    used_by_metrics = []
+    for r in others:
+        ast = r["formula_ast"]
+        if isinstance(ast, str):
+            ast = json.loads(ast)
+        if code in extract_dependencies(ast)["metrics"]:
+            label = f"{r['name']} ({r['code']})"
+            if label not in used_by_metrics:
+                used_by_metrics.append(label)
+
+    return {
+        "widgets": [f"«{r['widget_name']}» на дашборде «{r['dashboard_name']}»" for r in widgets],
+        "metrics": used_by_metrics,
+    }
+
+
+async def delete_metric(conn, org_id, user_id, metric_id: str) -> dict:
+    """Удаление показателя вместе с версиями формул (каскад в БД).
+
+    Отказываем, пока показатель в работе: удалить его — значит сломать чужой
+    виджет или чужую формулу, причём молча, ведь ссылка идёт по коду и внешнего
+    ключа за ней нет. Причину называем поимённо, иначе непонятно, что чинить.
+    """
+    m = await conn.fetchrow(
+        "select id, code, name from metrics where id=$1::uuid and organization_id=$2",
+        metric_id, org_id)
+    if m is None:
+        raise MetricError("Метрика не найдена")
+
+    usage = await _metric_usage(conn, org_id, metric_id, m["code"])
+    if usage["widgets"] or usage["metrics"]:
+        parts = []
+        if usage["widgets"]:
+            parts.append("используется виджетами: " + ", ".join(usage["widgets"][:5]))
+        if usage["metrics"]:
+            parts.append("на него ссылаются формулы показателей: " + ", ".join(usage["metrics"][:5]))
+        raise MetricError("Удаление отменено — показатель в работе (" + "; ".join(parts) + ")")
+
+    versions = await conn.fetch(
+        "select version_no, status from metric_versions where metric_id=$1::uuid order by version_no",
+        metric_id)
+    await audit_svc.write_event(
+        conn, org_id, user_id, "delete", "metric", metric_id,
+        old_data={"code": m["code"], "name": m["name"],
+                  "versions": [{"version_no": v["version_no"], "status": v["status"]} for v in versions]})
+    # версии и metric_dependencies уходят каскадом (миграция 002)
+    await conn.execute("delete from metrics where id=$1::uuid", metric_id)
+    return {"deleted": True, "code": m["code"], "versions_deleted": len(versions)}
 
 
 async def create_version(conn, org_id, user_id, metric_id: str, formula_expression: str,

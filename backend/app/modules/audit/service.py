@@ -21,6 +21,7 @@ ENTITY_LABELS = {
     "object": "Объект",
     "folder": "Папка",
     "document": "Документ",
+    "metric": "Показатель",
 }
 # Все значения enum audit_action (порядок — для фасета фильтра).
 ACTIONS = ["create", "update", "delete", "publish", "grant_access", "revoke_access", "view",

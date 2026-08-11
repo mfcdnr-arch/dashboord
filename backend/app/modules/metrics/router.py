@@ -26,6 +26,7 @@ from .service import (
     MetricError,
     create_metric,
     create_version,
+    delete_metric,
     evaluate_version,
     list_data_sources,
     preview,
@@ -36,7 +37,7 @@ from .suggestions import suggest_derived_metrics
 from .templates import TEMPLATES, build_formula, suggested_name
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
-manage = require_roles("admin", "moderator")
+manage = require_roles("superadmin", "admin", "moderator")
 
 
 class MetricIn(BaseModel):
@@ -65,7 +66,14 @@ class PreviewIn(BaseModel):
 
 
 def _bad(e: MetricError) -> HTTPException:
-    return HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    """Доменная ошибка → код ответа. Отличаем «нет такого» (404) и «нельзя
+    сейчас» — показатель в работе (409) — от ошибки ввода (400)."""
+    msg = str(e)
+    if "не найден" in msg:
+        return HTTPException(status.HTTP_404_NOT_FOUND, msg)
+    if "удаление отменено" in msg.lower():
+        return HTTPException(status.HTTP_409_CONFLICT, msg)
+    return HTTPException(status.HTTP_400_BAD_REQUEST, msg)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -233,6 +241,16 @@ async def patch_metric(metric_id: str, body: MetricPatch, user: dict = Depends(m
         try:
             return await update_metric(conn, user["organization_id"], metric_id,
                                        body.name, body.description, body.info_text, body.owner_id)
+        except MetricError as e:
+            raise _bad(e)
+
+
+@router.delete("/{metric_id}")
+async def remove_metric(metric_id: str, user: dict = Depends(manage)):
+    async with db.get_pool().acquire() as conn:
+        try:
+            async with conn.transaction():
+                return await delete_metric(conn, user["organization_id"], user["id"], metric_id)
         except MetricError as e:
             raise _bad(e)
 

@@ -96,6 +96,12 @@ export async function approveVersion(versionId: string): Promise<void> {
   if (!res.ok) throw new Error(await errText(res))
 }
 
+export async function deleteMetric(metricId: string): Promise<{ deleted: boolean; code: string; versions_deleted: number }> {
+  const res = await fetch(`/metrics/${metricId}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 export async function versionValue(versionId: string): Promise<{ value: number; unit: string | null }> {
   const res = await fetch(`/metrics/versions/${versionId}/value`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
