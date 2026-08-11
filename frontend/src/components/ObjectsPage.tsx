@@ -7,10 +7,11 @@ import {
 import { folderLabel, folderTree } from '../lib/folderTree'
 import ExtractionPage from './ExtractionPage'
 import RowAclEditor from './RowAclEditor'
+import { ConfirmDialog } from './dashboards/ConfirmDialog'
 
 const DOCS_PAGE = 50
 
-export default function ObjectsPage({ canManage }: { canManage: boolean }) {
+export default function ObjectsPage({ canManage, isSuperadmin }: { canManage: boolean; isSuperadmin?: boolean }) {
   const [objects, setObjects] = useState<Obj[]>([])
   const [obj, setObj] = useState<Obj | null>(null)
   const [folders, setFolders] = useState<Folder[]>([])
@@ -29,6 +30,7 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
   const [file, setFile] = useState<File | null>(null)
   const [date, setDate] = useState('')
   const [busy, setBusy] = useState(false)
+  const [askDelDoc, setAskDelDoc] = useState<Doc | null>(null)
 
   function fail(e: unknown) {
     setError((e as Error).message)
@@ -194,16 +196,17 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
     }
   }
 
-  async function removeDoc(d: Doc) {
+  async function removeDoc(d: Doc, withData = false) {
     if (!folder) return
-    if (!confirm(`Удалить документ «${d.original_filename}»?\n\nФайл будет удалён из хранилища. Если из него уже выпускались данные, система откажет.`)) return
     setBusy(true)
     setError(null)
     try {
-      await deleteDocument(folder.id, d.id)
+      await deleteDocument(folder.id, d.id, withData)
       if (openDoc?.id === d.id) setOpenDoc(null)
+      setAskDelDoc(null)
       await loadDocs(folder.id)
     } catch (e) {
+      setAskDelDoc(null)
       fail(e)
     } finally {
       setBusy(false)
@@ -329,6 +332,19 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
         />
       )}
 
+      {askDelDoc && (
+        <ConfirmDialog
+          title={`Удалить документ «${askDelDoc.original_filename}»?`}
+          message={'Файл будет удалён из хранилища.\n\nЕсли из документа уже выпускались данные, система откажет — они питают показатели на дашбордах. Суперадминистратор может удалить документ вместе с этими данными: тогда исчезнут и выпуски, и значения за этот период.'}
+          busy={busy}
+          onClose={() => setAskDelDoc(null)}
+          onConfirm={() => removeDoc(askDelDoc)}
+          extraAction={isSuperadmin
+            ? { label: 'Удалить вместе с данными', onClick: () => removeDoc(askDelDoc, true) }
+            : undefined}
+        />
+      )}
+
       {folder && openDoc && (
         <ExtractionPage doc={openDoc} canManage={canManage} onBack={() => { setOpenDoc(null); refreshDocs() }} />
       )}
@@ -350,7 +366,7 @@ export default function ObjectsPage({ canManage }: { canManage: boolean }) {
               sub: `${d.source_type.toUpperCase()} · ${d.reporting_period_start} · ${fmtSize(d.size)} · ${statusLabel(d.status)}`,
               onClick: () => setOpenDoc(d),
               actions: canManage ? (
-                <IconBtn title="Удалить документ" danger disabled={busy} onClick={() => removeDoc(d)}>🗑</IconBtn>
+                <IconBtn title="Удалить документ" danger disabled={busy} onClick={() => setAskDelDoc(d)}>🗑</IconBtn>
               ) : undefined,
             }))}
             empty="В папке пока нет документов"

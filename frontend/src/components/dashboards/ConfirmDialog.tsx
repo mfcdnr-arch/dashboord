@@ -14,13 +14,17 @@ import { btnGhost, dialog, overlay, rmBtn } from './shared'
  * Портал в body — чтобы окно не обрезалось карточкой или сеткой дашборда.
  */
 export function ConfirmDialog(
-  { title, message, confirmLabel = 'Удалить', busy, onClose, onConfirm }: {
+  { title, message, confirmLabel = 'Удалить', busy, onClose, onConfirm, extraAction }: {
     title: string
     message: React.ReactNode
     confirmLabel?: string
     busy?: boolean
     onClose: () => void
     onConfirm: () => void
+    /** Второй, более разрушительный вариант — например «удалить вместе с данными».
+     *  Стоит слева от основного и подписан словами, а не галочкой: галочку
+     *  проскакивают не читая, а отдельную кнопку приходится выбрать осознанно. */
+    extraAction?: { label: string; onClick: () => void }
   },
 ) {
   useEffect(() => {
@@ -37,8 +41,18 @@ export function ConfirmDialog(
           <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
         </div>
         <div style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.5, whiteSpace: 'pre-line' }}>{message}</div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18, flexWrap: 'wrap' }}>
           <button style={btnGhost} onClick={onClose}>Отмена</button>
+          {extraAction && (
+            <button
+              disabled={busy} onClick={extraAction.onClick}
+              style={{
+                height: 36, padding: '0 14px', border: '1px solid var(--danger)', borderRadius: 8,
+                background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 14,
+                cursor: 'pointer', opacity: busy ? 0.6 : 1,
+              }}
+            >{extraAction.label}</button>
+          )}
           <button
             autoFocus={false} disabled={busy} onClick={onConfirm}
             style={{

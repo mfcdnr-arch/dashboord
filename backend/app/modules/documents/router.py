@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 from datetime import date
@@ -130,16 +131,68 @@ async def upload_document(
     }
 
 
+async def _dataset_usage(conn, org_id, document_id: str) -> list:
+    """Кто останется без источника, если снести выпуски этого документа.
+
+    Опасен не сам выпуск, а исчезновение ПОСЛЕДНЕГО выпуска кода: виджеты и
+    формулы ссылаются на датасет по коду, а не на конкретный выпуск. Пока у
+    кода остаются другие выпуски (обычный случай — недельные формы), дашборд
+    продолжит считаться по ним, и удаление одного файла ничего не ломает.
+    """
+    codes = await conn.fetch(
+        "select r.code, count(*) as mine, "
+        "  (select count(*) from dataset_releases a "
+        "     where a.organization_id=$2 and a.code=r.code) as total "
+        "from dataset_releases r "
+        "join document_versions v on v.id = r.source_document_version_id "
+        "where v.document_id=$1::uuid group by r.code", document_id, org_id)
+    orphaned = [c["code"] for c in codes if c["mine"] >= c["total"]]
+    if not orphaned:
+        return []
+
+    out: list = []
+    widgets = await conn.fetch(
+        "select w.name as widget, d.name as dash from widgets w "
+        "join dashboards d on d.id = w.dashboard_id "
+        "where w.organization_id=$1 and w.config->>'dataset_code' = any($2::text[])",
+        org_id, orphaned)
+    out += [f"виджет «{r['widget']}» на дашборде «{r['dash']}»" for r in widgets]
+
+    # Формулы показателей: ссылка на датасет живёт внутри разобранного AST,
+    # достаём её тем же кодом, что и проверка циклов в модуле метрик.
+    from ..metrics.parser import extract_dependencies
+    rows = await conn.fetch(
+        "select m.code, m.name, mv.formula_ast from metric_versions mv "
+        "join metrics m on m.id = mv.metric_id "
+        "where m.organization_id=$1 and mv.formula_ast is not null and mv.status <> 'deprecated'", org_id)
+    for r in rows:
+        ast = r["formula_ast"]
+        if isinstance(ast, str):
+            ast = json.loads(ast)
+        if set(extract_dependencies(ast)["datasets"]) & set(orphaned):
+            label = f"показатель «{r['name']}» ({r['code']})"
+            if label not in out:
+                out.append(label)
+    return out
+
+
 @router.delete("/folders/{folder_id}/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_document(folder_id: str, document_id: str, user: dict = Depends(manage)):
+async def delete_document(folder_id: str, document_id: str, user: dict = Depends(manage),
+                          with_data: bool = Query(False, description="удалить вместе с выпущенными данными")):
     """Удаление документа вместе с версиями и файлами в хранилище.
 
-    Отказываем, если из документа уже выпускали данные: `dataset_releases`
-    ссылается на версию документа через `source_document_version_id` БЕЗ
-    каскада, то есть это происхождение показателей — удалив документ, мы
-    оборвали бы связь «цифра на дашборде → первичный файл», ради которой
-    конвейер и построен. Остальная цепочка (версии → задания распознавания →
-    таблицы → колонки) уходит каскадом.
+    По умолчанию отказываем, если из документа уже выпускали данные:
+    `dataset_releases` ссылается на версию документа через
+    `source_document_version_id` БЕЗ каскада, то есть это происхождение
+    показателей — удалив документ молча, мы оборвали бы связь «цифра на
+    дашборде → первичный файл», ради которой конвейер и построен.
+
+    Но безусловный запрет оказался тупиком: ошибочно загруженный файл,
+    из которого успели выпустить данные, оставался в системе НАВСЕГДА —
+    удаления выпуска в системе нет вовсе. Поэтому есть осознанный выход:
+    `with_data=true` сносит документ вместе с его выпусками. Это необратимо,
+    поэтому доступно только суперадминистратору и только если на данные никто
+    не опирается — иначе называем виновника поимённо.
 
     Порядок важен: сначала БД, потом файлы. При обратном порядке сбой в БД
     оставил бы документ без файла — он виден в списке, но не открывается.
@@ -161,12 +214,27 @@ async def delete_document(folder_id: str, document_id: str, user: dict = Depends
             "where v.document_id=$1::uuid",
             document_id,
         )
-        if releases:
+        if releases and not with_data:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 f"Из документа уже выпущены данные (выпусков: {releases}) — удаление отменено. "
-                "Иначе показатели на дашбордах потеряют связь с первичным файлом.",
+                "Иначе показатели на дашбордах потеряют связь с первичным файлом. "
+                "Удалить вместе с данными может суперадминистратор.",
             )
+        if releases and with_data:
+            if "superadmin" not in set(user.get("roles") or ()):
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN,
+                    "Недостаточно прав: удалить документ вместе с выпущенными данными "
+                    "может только суперадминистратор.",
+                )
+            used = await _dataset_usage(conn, user["organization_id"], document_id)
+            if used:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "Удаление отменено — на данные этого документа опираются: "
+                    + "; ".join(used[:5]) + ". Уберите их или замените источник, потом удаляйте.",
+                )
 
         paths = [
             r["storage_path"]
@@ -178,8 +246,18 @@ async def delete_document(folder_id: str, document_id: str, user: dict = Depends
             async with conn.transaction():
                 await write_event(
                     conn, user["organization_id"], user["id"], "delete", "document", document_id,
-                    old_data={"original_filename": doc["original_filename"], "folder_id": folder_id},
+                    old_data={"original_filename": doc["original_filename"], "folder_id": folder_id,
+                              "releases_deleted": releases if with_data else 0},
                 )
+                if releases and with_data:
+                    # Значения и поля выпуска уходят каскадом (миграция 001);
+                    # сами выпуски держат документ внешним ключом, поэтому их
+                    # снимаем первыми, иначе удаление документа не пройдёт.
+                    await conn.execute(
+                        "delete from dataset_releases where id in ("
+                        "  select r.id from dataset_releases r "
+                        "  join document_versions v on v.id = r.source_document_version_id "
+                        "  where v.document_id=$1::uuid)", document_id)
                 await conn.execute("delete from documents where id=$1::uuid", document_id)
         except ForeignKeyViolationError as e:
             # Страховка на случай связи, о которой мы здесь не знаем: понятный

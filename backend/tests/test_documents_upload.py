@@ -156,6 +156,71 @@ async def test_delete_document_blocked_when_dataset_released(
             await conn.execute("delete from dataset_releases where code='ztest_ds_del'")
 
 
+async def test_superadmin_can_delete_document_with_its_data(
+        client, admin_headers, superadmin_headers, folder, fake_storage, fake_remove, ids):
+    """Выход из тупика: раньше документ с выпущенными данными оставался в
+    системе НАВСЕГДА — удаления выпуска в системе нет вовсе. Теперь
+    суперадминистратор может снести документ вместе с его данными."""
+    doc = await _upload(client, admin_headers, folder, name="withdata.xlsx", period="2026-06-01")
+    async with db.acquire() as conn:
+        rel = await conn.fetchval(
+            "insert into dataset_releases(organization_id, code, name, source_document_version_id, "
+            "reporting_period_start, created_by) values($1,'ztest_ds_wd','Тест',$2::uuid,'2026-06-01',$3) "
+            "returning id", ids["org"], doc["version_id"], ids["admin"])
+        await conn.execute(
+            "insert into dataset_values(dataset_release_id,row_index,row_label,canonical_field_code,value_number) "
+            "values($1,0,'Строка','f',1)", rel)
+    try:
+        # обычный admin так не может — операция необратима
+        r = await client.delete(f"/folders/{folder}/documents/{doc['id']}?with_data=true", headers=admin_headers)
+        assert r.status_code == 403, r.text
+
+        r = await client.delete(f"/folders/{folder}/documents/{doc['id']}?with_data=true",
+                                headers=superadmin_headers)
+        assert r.status_code == 204, r.text
+        async with db.acquire() as conn:
+            assert await conn.fetchval("select count(*) from documents where id=$1::uuid", doc["id"]) == 0
+            assert await conn.fetchval("select count(*) from dataset_releases where code='ztest_ds_wd'") == 0
+            assert await conn.fetchval(
+                "select count(*) from dataset_values where dataset_release_id=$1", rel) == 0, \
+                "значения выпуска должны уйти каскадом"
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from dataset_releases where code='ztest_ds_wd'")
+
+
+async def test_delete_with_data_blocked_while_widget_uses_dataset(
+        client, admin_headers, superadmin_headers, folder, fake_storage, fake_remove, ids):
+    """Если после удаления у кода не осталось бы ни одного выпуска, а на него
+    ссылается виджет — отказываем и называем виновника."""
+    doc = await _upload(client, admin_headers, folder, name="used.xlsx", period="2026-06-08")
+    did = None
+    async with db.acquire() as conn:
+        await conn.execute(
+            "insert into dataset_releases(organization_id, code, name, source_document_version_id, "
+            "reporting_period_start, created_by) values($1,'ztest_ds_used','Тест',$2::uuid,'2026-06-08',$3)",
+            ids["org"], doc["version_id"], ids["admin"])
+    try:
+        did = (await client.post("/dashboards", headers=admin_headers,
+                                 json={"name": "ztest_doc_dash"})).json()["id"]
+        pid = (await client.post(f"/dashboards/{did}/pages", headers=admin_headers,
+                                 json={"name": "Стр"})).json()["id"]
+        await client.post(f"/dashboard-pages/{pid}/widgets", headers=admin_headers,
+                          json={"name": "Карточка", "widget_type": "kpi",
+                                "config": {"dataset_code": "ztest_ds_used", "value_field": "f"}})
+
+        r = await client.delete(f"/folders/{folder}/documents/{doc['id']}?with_data=true",
+                                headers=superadmin_headers)
+        assert r.status_code == 409, r.text
+        assert "Карточка" in r.text and "ztest_doc_dash" in r.text
+    finally:
+        if did:
+            from conftest import purge_dashboard
+            await purge_dashboard(did)
+        async with db.acquire() as conn:
+            await conn.execute("delete from dataset_releases where code='ztest_ds_used'")
+
+
 async def test_delete_document_requires_manage_role(
         client, admin_headers, folder, fake_storage, viewer):
     doc = await _upload(client, admin_headers, folder, name="perm.xlsx", period="2026-05-01")

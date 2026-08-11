@@ -239,7 +239,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {section === 'home' ? (
             <HomePage me={me} canManage={canManage} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'objects' ? (
-            <ObjectsPage canManage={canManage} />
+            <ObjectsPage canManage={canManage} isSuperadmin={isSuperadmin} />
           ) : section === 'metrics' ? (
             <MetricsPage canManage={canManage} isSuperadmin={isSuperadmin} />
           ) : section === 'dashboards' ? (
