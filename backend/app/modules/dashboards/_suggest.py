@@ -12,6 +12,12 @@ from ..metrics import resolver as mr
 from ._alerts import _cfg
 from ._base import DashboardError
 
+# Потолок карточек в авто-сборке на один датасет. Показываем ВСЕ показатели
+# формы (у госформ их бывает полтора десятка), но у файла на сотню граф
+# столько виджетов сделали бы страницу нечитаемой, а её открытие — медленным:
+# каждая карточка считается отдельно. Остальные графы видны в таблице ниже.
+MAX_AUTO_KPI = 24
+
 
 # --------------------------------------------------------------------------- #
 # Авто-сборка дашборда из объекта (rule-based, не ИИ)
@@ -132,29 +138,48 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None) -> dict:
         fields = await _dataset_numeric_fields(conn, org_id, code)
         if not fields:
             continue
-        # Раскладка без дыр: сетка 12 колонок заполняется целиком, иначе
-        # страница вытягивается вниз при пустом месте справа.
-        #   ряд 1 (h=6): KPI 3 + KPI 3 (друг под другом) | график 5 | динамика 4
-        #   ряд 2 (h=6): таблица во всю ширину
-        # Без динамики (один период) график занимает освободившиеся колонки.
+        # Карточка на КАЖДЫЙ числовой показатель, по 4 в ряд (сетка 12 колонок).
+        # Раньше брались только первые два поля — на форме из 14 граф человек
+        # видел в предпросмотре разметки 14 карточек, а на собранном дашборде
+        # две, и это выглядело как потеря данных.
         f0 = fields[0]
         has_dyn = (d["periods"] or 0) > 1
-        chart_w = 5 if has_dyn else 9
-        await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: Σ {f0['name']}", "kpi",
-                            {"dataset_code": code, "value_field": f0["code"]},
-                            {"position_x": 0, "position_y": y, "width": 3, "height": 3}); n += 1
-        if len(fields) > 1:
-            f1 = fields[1]
-            await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: Σ {f1['name']}", "kpi",
-                                {"dataset_code": code, "value_field": f1["code"]},
-                                {"position_x": 0, "position_y": y + 3, "width": 3, "height": 3}); n += 1
+        # В имени карточки — ТОЛЬКО показатель. Префикс с именем датасета,
+        # повторённый на десятке карточек, съедал строку целиком, и от самого
+        # показателя оставалось многоточие. Датасет виден по значку ⓘ и по
+        # графику с таблицей ниже — они подписаны полностью.
+        shown = fields[:MAX_AUTO_KPI]
+        for i, f in enumerate(shown):
+            await svc.create_widget(conn, org_id, user_id, pid, f["name"], "kpi",
+                                {"dataset_code": code, "value_field": f["code"]},
+                                {"position_x": (i % 4) * 3, "position_y": y + (i // 4) * 3,
+                                 "width": 3, "height": 3}); n += 1
+        y += ((len(shown) + 3) // 4) * 3
+
+        # Ряд графиков: столбцы + динамика заполняют 12 колонок целиком, иначе
+        # страница вытягивается вниз при пустом месте справа. Без динамики
+        # (один период в серии) график забирает освободившиеся колонки.
+        chart_w = 8 if has_dyn else 12
         await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: {f0['name']} по строкам", "bar",
                             {"dataset_code": code, "value_field": f0["code"]},
-                            {"position_x": 3, "position_y": y, "width": chart_w, "height": 6}); n += 1
+                            {"position_x": 0, "position_y": y, "width": chart_w, "height": 6}); n += 1
         if has_dyn:
             await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: динамика {f0['name']}", "dynamics",
                                 {"dataset_code": code, "value_field": f0["code"]},
                                 {"position_x": 8, "position_y": y, "width": 4, "height": 6}); n += 1
+        # Сравнение всех показателей одним графиком: десяток карточек даёт точные
+        # числа, но не даёт увидеть соотношение между ними. Высота растёт с числом
+        # показателей — на 13 столбиков стандартных 6 рядов мало: шапка и пояснение
+        # под графиком съедают карточку, и на сам график остаётся полоска.
+        if len(shown) > 1:
+            # 8 рядов — замерено: при 6 график ужимается до полоски (легенда,
+            # пояснение про шкалу и подпись источника съедают карточку), при
+            # 10 внизу остаётся пустое место — график выше базовой высоты не растёт.
+            cmp_h = 8 if len(shown) > 4 else 6
+            await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: сравнение показателей", "compare",
+                                {"dataset_code": code, "value_fields": [f["code"] for f in shown]},
+                                {"position_x": 0, "position_y": y + 6, "width": 12, "height": cmp_h}); n += 1
+            y += cmp_h
         await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: таблица", "table",
                             {"dataset_code": code},
                             {"position_x": 0, "position_y": y + 6, "width": 12, "height": 6}); n += 1
