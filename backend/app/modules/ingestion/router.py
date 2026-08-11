@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from ... import db
+from ..audit import service as audit_svc
 from ..auth.deps import get_current_user, require_roles
 from . import mapping, queue, service
 
@@ -343,3 +344,135 @@ async def get_release(release_id: str, limit: int = 200, user: dict = Depends(ge
         "fields": [dict(f) for f in fields],
         "values": [dict(v) for v in values],
     }
+
+
+# --------------------------------------------------------------------------- #
+# Отмена выпуска: снять данные с использования, не трогая сам файл
+# --------------------------------------------------------------------------- #
+# Статус `superseded` заложен в схеме с самого начала и уважается ВСЕМИ
+# чтениями (виджеты, метрики, предложения — везде `status <> 'superseded'`),
+# но выставлялся только автоматически, когда за тот же период выпускали
+# заново. Ручной отмены не было: единственным способом убрать ошибочные
+# данные оставалось удаление самого документа, чего пользователь как раз
+# делать не хочет — файл нужен, неверен только выпуск.
+async def _release_usage(conn, org_id, release_id: str) -> list:
+    """Кто останется без данных, если снять этот выпуск с использования.
+
+    Значение имеет не выпуск сам по себе, а исчезновение ПОСЛЕДНЕГО активного
+    выпуска кода: виджеты и формулы ссылаются на датасет по коду. Пока у кода
+    остаются другие активные выпуски, отмена одного ничего не ломает.
+    """
+    row = await conn.fetchrow(
+        "select code, (select count(*) from dataset_releases a "
+        "   where a.organization_id=$2 and a.code=r.code and a.status<>'superseded' and a.id<>r.id) as others "
+        "from dataset_releases r where r.id=$1::uuid and r.organization_id=$2", release_id, org_id)
+    if row is None or row["others"]:
+        return []
+    code = row["code"]
+    out: list = []
+    widgets = await conn.fetch(
+        "select w.name as widget, d.name as dash from widgets w "
+        "join dashboards d on d.id = w.dashboard_id "
+        "where w.organization_id=$1 and w.config->>'dataset_code' = $2", org_id, code)
+    out += [f"виджет «{r['widget']}» на дашборде «{r['dash']}»" for r in widgets]
+
+    from ..metrics.parser import extract_dependencies
+    rows = await conn.fetch(
+        "select m.code, m.name, mv.formula_ast from metric_versions mv "
+        "join metrics m on m.id = mv.metric_id "
+        "where m.organization_id=$1 and mv.formula_ast is not null and mv.status <> 'deprecated'", org_id)
+    for r in rows:
+        ast = r["formula_ast"]
+        if isinstance(ast, str):
+            ast = json.loads(ast)
+        if code in extract_dependencies(ast)["datasets"]:
+            label = f"показатель «{r['name']}» ({r['code']})"
+            if label not in out:
+                out.append(label)
+    return out
+
+
+async def _release_or_404(conn, release_id: str, org_id):
+    rel = await conn.fetchrow(
+        "select id, code, name, status, reporting_period_start from dataset_releases "
+        "where id=$1::uuid and organization_id=$2", release_id, org_id)
+    if rel is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Выпуск датасета не найден")
+    return rel
+
+
+@router.post("/dataset-releases/{release_id}/cancel")
+async def cancel_release(release_id: str, user: dict = Depends(manage)):
+    """Снять выпуск с использования (статус `superseded`).
+
+    Данные остаются в базе, файл не трогаем — операция ОБРАТИМА, поэтому
+    отказом не блокируем даже если на датасет кто-то опирается: иначе человек
+    с ошибочными цифрами на дашборде оказался бы заперт. Вместо запрета
+    возвращаем список затронутого, чтобы он видел последствия.
+    """
+    async with db.get_pool().acquire() as conn:
+        rel = await _release_or_404(conn, release_id, user["organization_id"])
+        if rel["status"] == "superseded":
+            raise HTTPException(status.HTTP_409_CONFLICT, "Выпуск уже снят с использования")
+        affected = await _release_usage(conn, user["organization_id"], release_id)
+        async with conn.transaction():
+            await conn.execute(
+                "update dataset_releases set status='superseded' where id=$1::uuid", release_id)
+            await audit_svc.write_event(
+                conn, user["organization_id"], user["id"], "update", "dataset_release", release_id,
+                old_data={"status": rel["status"]},
+                new_data={"status": "superseded", "code": rel["code"], "affected": affected})
+    return {"status": "superseded", "affected": affected}
+
+
+@router.post("/dataset-releases/{release_id}/restore")
+async def restore_release(release_id: str, user: dict = Depends(manage)):
+    """Вернуть снятый выпуск в работу."""
+    async with db.get_pool().acquire() as conn:
+        rel = await _release_or_404(conn, release_id, user["organization_id"])
+        if rel["status"] != "superseded":
+            raise HTTPException(status.HTTP_409_CONFLICT, "Выпуск и так в работе")
+        async with conn.transaction():
+            await conn.execute(
+                "update dataset_releases set status='validated' where id=$1::uuid", release_id)
+            await audit_svc.write_event(
+                conn, user["organization_id"], user["id"], "update", "dataset_release", release_id,
+                old_data={"status": "superseded"}, new_data={"status": "validated", "code": rel["code"]})
+    return {"status": "validated"}
+
+
+@router.delete("/dataset-releases/{release_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_release(release_id: str, user: dict = Depends(require_roles("superadmin"))):
+    """Удалить выпуск вместе со значениями, оставив документ на месте.
+
+    В отличие от отмены — необратимо, поэтому только суперадминистратору и с
+    отказом, если после удаления у кода не останется активных выпусков, а на
+    него опираются виджеты или формулы.
+    """
+    async with db.get_pool().acquire() as conn:
+        await _release_or_404(conn, release_id, user["organization_id"])
+        used = await _release_usage(conn, user["organization_id"], release_id)
+        if used:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Удаление отменено — на эти данные опираются: " + "; ".join(used[:5])
+                + ". Снимите выпуск с использования или уберите зависимости.")
+        async with conn.transaction():
+            await audit_svc.write_event(
+                conn, user["organization_id"], user["id"], "delete", "dataset_release", release_id, old_data=None)
+            # значения и поля выпуска уходят каскадом (миграция 001)
+            await conn.execute("delete from dataset_releases where id=$1::uuid", release_id)
+
+
+@router.get("/document-versions/{version_id}/dataset-releases")
+async def list_version_releases(version_id: str, user: dict = Depends(get_current_user)):
+    """Выпуски, сделанные из этой версии документа — чтобы человек видел их
+    там же, где смотрит сам файл, и мог снять ошибочный с использования."""
+    async with db.get_pool().acquire() as conn:
+        rows = await conn.fetch(
+            "select r.id, r.code, r.name, r.status, r.reporting_period_start, r.created_at, "
+            "  (select count(*) from dataset_values dv where dv.dataset_release_id=r.id) as values_count "
+            "from dataset_releases r "
+            "where r.source_document_version_id=$1::uuid and r.organization_id=$2 "
+            "order by r.created_at desc", version_id, user["organization_id"])
+    return [dict(r) for r in rows]

@@ -160,3 +160,35 @@ export async function createRelease(
   return res.json()
 }
 
+
+export type VersionRelease = {
+  id: string
+  code: string
+  name: string
+  status: string
+  reporting_period_start: string | null
+  values_count: number
+}
+
+/** Выпуски, сделанные из этой версии документа. */
+export async function listVersionReleases(versionId: string): Promise<VersionRelease[]> {
+  const res = await fetch(`/document-versions/${versionId}/dataset-releases`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function cancelRelease(releaseId: string): Promise<{ status: string; affected: string[] }> {
+  const res = await fetch(`/dataset-releases/${releaseId}/cancel`, { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function restoreRelease(releaseId: string): Promise<void> {
+  const res = await fetch(`/dataset-releases/${releaseId}/restore`, { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}
+
+export async function deleteRelease(releaseId: string): Promise<void> {
+  const res = await fetch(`/dataset-releases/${releaseId}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}

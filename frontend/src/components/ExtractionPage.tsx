@@ -7,6 +7,8 @@ import DashboardDraft from './DashboardDraft'
 import { elideMiddle } from '../lib/text'
 import InfoTip from './InfoTip'
 import SheetGrid, { colName, fillMerges, type PickedCell, type Rect } from './SheetGrid'
+import { ConfirmDialog } from './dashboards/ConfirmDialog'
+import { cancelRelease, deleteRelease, listVersionReleases, restoreRelease, type VersionRelease } from '../api/ingestion'
 
 const TYPES = [
   { v: 'number', t: 'Число' },
@@ -30,7 +32,7 @@ const baseName = (f: string) => f.replace(/\.[^.]+$/, '')
  * «приложение к письму», где нужны несколько конкретных цифр, а размечать
  * таблицу целиком незачем.
  */
-export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; canManage: boolean; onBack: () => void }) {
+export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }: { doc: Doc; canManage: boolean; isSuperadmin?: boolean; onBack: () => void }) {
   const [job, setJob] = useState<ExtractionJob | null>(null)
   const [loading, setLoading] = useState(true)
   const [starting, setStarting] = useState(false)
@@ -284,6 +286,10 @@ export default function ExtractionPage({ doc, canManage, onBack }: { doc: Doc; c
 
       {error && <div style={errBox}>{error}</div>}
       {job?.warnings?.map((w, i) => <div key={i} style={warnBox}>⚠ {w}</div>)}
+
+      {doc.version_id && canManage && (
+        <ReleasesPanel versionId={doc.version_id} isSuperadmin={isSuperadmin} onError={setError} />
+      )}
 
       {result ? (
         <ResultPanel result={result} onBack={onBack} />
@@ -758,3 +764,92 @@ const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'va
 const warnBox: React.CSSProperties = { background: 'var(--warn-bg)', color: 'var(--warn)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 8 }
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }
 const dialog: React.CSSProperties = { background: 'var(--surface)', borderRadius: 14, padding: 24, width: 440, maxWidth: '90vw', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }
+
+/**
+ * Выпуски, сделанные из этого файла.
+ *
+ * Отвечает на вопрос «не хочу удалять файл, хочу отменить выпуск»: снятый
+ * выпуск перестаёт использоваться дашбордами и формулами (все чтения данных
+ * фильтруют `superseded`), но данные и сам файл остаются — операцию можно
+ * отменить кнопкой «Вернуть». Удаление выпуска необратимо, поэтому оно
+ * отдельной кнопкой и только у суперадминистратора.
+ */
+function ReleasesPanel(
+  { versionId, isSuperadmin, onError }:
+  { versionId: string; isSuperadmin?: boolean; onError: (m: string | null) => void },
+) {
+  const [items, setItems] = useState<VersionRelease[]>([])
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  const [askDel, setAskDel] = useState<VersionRelease | null>(null)
+
+  const reload = useCallback(() => {
+    listVersionReleases(versionId).then(setItems).catch((e) => onError((e as Error).message))
+  }, [versionId, onError])
+  useEffect(() => { reload() }, [reload])
+
+  async function act(fn: () => Promise<unknown>, after?: (r: unknown) => void) {
+    setBusy(true); onError(null); setNote(null)
+    try { const r = await fn(); after?.(r); reload() }
+    catch (e) { onError((e as Error).message) } finally { setBusy(false); setAskDel(null) }
+  }
+
+  if (!items.length) return null
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, marginBottom: 12 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Выпущенные данные</div>
+      <div style={{ ...muted, fontSize: 12.5, marginBottom: 8 }}>
+        Снятый выпуск перестаёт использоваться дашбордами и формулами, но данные и файл остаются — можно вернуть.
+      </div>
+      {note && <div style={{ ...warnBox, marginBottom: 8 }}>{note}</div>}
+      {items.map((r) => {
+        const off = r.status === 'superseded'
+        return (
+          <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '6px 0', borderTop: '1px solid var(--border-faint)' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, opacity: off ? 0.6 : 1 }}>{r.name}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              код {r.code}{r.reporting_period_start ? ` · ${r.reporting_period_start}` : ''} · значений: {r.values_count}
+            </span>
+            <span style={{
+              fontSize: 11, padding: '1px 8px', borderRadius: 8,
+              background: off ? 'var(--danger-bg)' : 'var(--success-bg)',
+              color: off ? 'var(--danger)' : 'var(--success)',
+            }}>{off ? 'снят с использования' : 'в работе'}</span>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+              {off
+                ? <button style={btnGhostSm} disabled={busy} onClick={() => act(() => restoreRelease(r.id))}>Вернуть в работу</button>
+                : (
+                  <button style={btnGhostSm} disabled={busy} title="Данные перестанут использоваться, но останутся в системе"
+                    onClick={() => act(() => cancelRelease(r.id), (res) => {
+                      const aff = (res as { affected: string[] }).affected || []
+                      setNote(aff.length
+                        ? 'Выпуск снят. Останутся без данных: ' + aff.join('; ')
+                        : 'Выпуск снят с использования.')
+                    })}>Отменить выпуск</button>
+                )}
+              {isSuperadmin && (
+                <button style={{ ...btnGhostSm, borderColor: 'var(--danger)', color: 'var(--danger)' }}
+                  disabled={busy} title="Удалить данные выпуска безвозвратно (файл останется)"
+                  onClick={() => setAskDel(r)}>🗑</button>
+              )}
+            </div>
+          </div>
+        )
+      })}
+      {askDel && (
+        <ConfirmDialog
+          title={`Удалить выпуск «${askDel.name}»?`}
+          message={`Значения (${askDel.values_count}) будут удалены безвозвратно. Сам файл останется в папке — его можно разметить и выпустить заново.\n\nЕсли нужно просто перестать использовать эти данные, закройте окно и нажмите «Отменить выпуск» — то действие обратимо.`}
+          busy={busy}
+          onClose={() => setAskDel(null)}
+          onConfirm={() => act(() => deleteRelease(askDel.id))}
+        />
+      )}
+    </div>
+  )
+}
+
+const btnGhostSm: React.CSSProperties = {
+  height: 28, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 6,
+  background: 'var(--surface)', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap',
+}

@@ -346,7 +346,7 @@ export default function ObjectsPage({ canManage, isSuperadmin }: { canManage: bo
       )}
 
       {folder && openDoc && (
-        <ExtractionPage doc={openDoc} canManage={canManage} onBack={() => { setOpenDoc(null); refreshDocs() }} />
+        <ExtractionPage doc={openDoc} canManage={canManage} isSuperadmin={isSuperadmin} onBack={() => { setOpenDoc(null); refreshDocs() }} />
       )}
 
       {folder && !openDoc && (
