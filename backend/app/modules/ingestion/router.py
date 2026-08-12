@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from ... import db
 from ..audit import service as audit_svc
 from ..auth.deps import get_current_user, require_roles
-from . import mapping, queue, service
+from . import analyze, mapping, queue, service
 
 router = APIRouter(tags=["ingestion"])
 manage = require_roles("admin", "moderator")
@@ -65,6 +65,32 @@ async def start_extraction(version_id: str, user: dict = Depends(manage)):
     return {"job_id": job_id, "status": "queued"}
 
 
+async def _suggest_dataset_code(conn, version_id: str) -> str:
+    """Код датасета по умолчанию — от имени объекта.
+
+    Раньше в форме выпуска жёстко стояло `dataset`, одинаково для любого
+    объекта. Код ищется по паре «организация + код» БЕЗ учёта объекта, поэтому
+    второй объект с тем же кодом молча смешался бы с первым: выпуск за уже
+    занятый период заместил бы чужой, а виджеты стали бы брать чужие данные.
+    Подсказываем имя, производное от объекта, — столкновений не возникает.
+
+    Если у объекта уже есть выпуски, предлагаем ИХ код: недельные формы одного
+    объекта должны попадать в один ряд, а не начинать новый.
+    """
+    row = await conn.fetchrow(
+        "select o.id as object_id, o.name as object_name from document_versions dv "
+        "join documents d on d.id = dv.document_id "
+        "join folders f on f.id = d.folder_id "
+        "join objects o on o.id = f.object_id "
+        "where dv.id=$1::uuid", version_id)
+    if row is None:
+        return "dataset"
+    used = await conn.fetchval(
+        "select code from dataset_releases where object_id=$1 and status <> 'superseded' "
+        "order by created_at desc limit 1", row["object_id"])
+    return used or analyze.slug(row["object_name"] or "dataset")
+
+
 async def _job_payload(conn, job_id: str) -> dict:
     job = await conn.fetchrow(
         "select id, document_version_id, status, engine, started_at, finished_at, "
@@ -103,6 +129,7 @@ async def _job_payload(conn, job_id: str) -> dict:
         })
     return {
         "job_id": str(job["id"]),
+        "suggested_code": await _suggest_dataset_code(conn, str(job["document_version_id"])),
         "document_version_id": str(job["document_version_id"]),
         "status": job["status"],
         "engine": job["engine"],

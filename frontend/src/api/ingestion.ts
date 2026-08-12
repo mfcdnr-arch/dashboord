@@ -26,6 +26,10 @@ export interface ExtractedTable {
 export interface ExtractionJob {
   status: string // none | queued | running | succeeded | needs_review | failed
   job_id?: string
+  /** Код датасета по умолчанию — от имени объекта (или уже использованный им).
+   *  Раньше в форме стояло жёсткое «dataset», из-за чего второй объект
+   *  сталкивался с первым: данные ищутся по коду без учёта объекта. */
+  suggested_code?: string
   document_version_id?: string
   confidence_score?: number | null
   warnings?: string[]

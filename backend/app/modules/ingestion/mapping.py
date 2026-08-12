@@ -23,6 +23,29 @@ class ReleaseConflict(Exception):
         super().__init__("Выпуск за этот период уже существует")
 
 
+async def assert_code_free(conn, org_id, code: str, object_id) -> None:
+    """Код датасета не должен быть занят ДРУГИМ объектом.
+
+    Данные ищутся по паре «организация + код», объект в поиске не участвует
+    (см. metrics/resolver._active_release), и ограничение уникальности в БД
+    устроено так же — `(organization_id, code, reporting_period_start)`.
+    Поэтому два объекта с одним кодом молча сливаются в один: выпуск за уже
+    занятый период заместил бы ЧУЖОЙ, а виджеты первого объекта начали бы
+    показывать данные второго. Отказ здесь дешевле разбора перепутанных
+    данных потом.
+    """
+    foreign = await conn.fetchrow(
+        "select o.name from dataset_releases r join objects o on o.id = r.object_id "
+        "where r.organization_id=$1 and r.code=$2 and r.object_id is distinct from $3 "
+        "limit 1", org_id, code, object_id)
+    if foreign is not None:
+        raise ValueError(
+            f"Код «{code}» уже занят объектом «{foreign['name']}». Возьмите другой — "
+            "иначе данные двух объектов смешаются: система ищет выпуски по коду, "
+            "не различая объекты."
+        )
+
+
 def _norm_name(name: str) -> str:
     """Ключ сопоставления показателя с уже заведённым полем объекта.
 
@@ -407,6 +430,8 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
                 "Переименуйте один из них или снимите лишний столбец."
             )
         seen_codes[code_] = f["field_name"]
+
+    await assert_code_free(conn, org_id, code, object_id)
 
     # конфликт по (организация, код, период) — только среди АКТИВНЫХ выпусков
     existing = await conn.fetchrow(

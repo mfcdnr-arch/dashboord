@@ -127,7 +127,13 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
   useEffect(() => {
     if (!doc.version_id) { setLoading(false); return }
     getExtractionForVersion(doc.version_id)
-      .then((j) => { setJob(j); if (j.tables?.length && j.job_id) selectTable(j, j.tables[0].id) })
+      .then((j) => {
+        setJob(j)
+        // Код датасета подсказывает сервер: от имени объекта либо тот, что
+        // объект уже использует. Жёсткое «dataset» сталкивало объекты между собой.
+        if (j.suggested_code) setCode(j.suggested_code)
+        if (j.tables?.length && j.job_id) selectTable(j, j.tables[0].id)
+      })
       .catch(fail)
       .finally(() => setLoading(false))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -169,6 +175,7 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
       let j = await getJob(job_id)
       while (j.status === 'queued' || j.status === 'running') { await sleep(1000); j = await getJob(job_id) }
       setJob(j)
+      if (j.suggested_code) setCode(j.suggested_code)
       if (j.tables.length && j.job_id) selectTable(j, j.tables[0].id)
     } catch (e) { fail(e) } finally { setStarting(false) }
   }

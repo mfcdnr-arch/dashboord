@@ -121,3 +121,44 @@ async def test_delete_release_is_blocked_by_dependents_and_needs_superadmin(
         if did:
             await purge_dashboard(did)
         await _purge()
+
+
+async def test_dataset_code_cannot_be_reused_by_another_object(client, admin_headers, ids):
+    """Код датасета уникален во всей организации, а не внутри объекта.
+
+    Данные ищутся по паре «организация + код», объект в поиске не участвует
+    (metrics/resolver._active_release), и ограничение уникальности в БД такое
+    же. Поэтому второй объект с тем же кодом молча слился бы с первым: выпуск
+    за занятый период заместил бы ЧУЖОЙ, а виджеты первого объекта показывали
+    бы данные второго.
+    """
+    from app.modules.ingestion.mapping import assert_code_free
+    code = "ztest_shared_code"
+    async with db.acquire() as conn:
+        own = await conn.fetchval(
+            "select id from objects where organization_id=$1 limit 1", ids["org"])
+        other = await conn.fetchval(
+            "insert into objects(organization_id, name, created_by) "
+            "values($1,'ztest_второй_объект',$2) returning id", ids["org"], ids["admin"])
+        await conn.execute(
+            "insert into dataset_releases(organization_id, object_id, code, name, status, "
+            "reporting_period_start, created_by) "
+            "values($1,$2,$3,'Занятый код','validated','2026-03-01',$4)",
+            ids["org"], own, code, ids["admin"])
+    try:
+        async with db.acquire() as conn:
+            # чужой объект с тем же кодом → отказ, и в тексте названо чьё это
+            with pytest.raises(ValueError) as e:
+                await assert_code_free(conn, ids["org"], code, other)
+            assert "уже занят объектом" in str(e.value)
+            assert "ztest_второй_объект" not in str(e.value), "назвать надо ВЛАДЕЛЬЦА кода, а не текущий объект"
+
+            # тот же объект с тем же кодом — норма: недельные формы идут в один ряд
+            await assert_code_free(conn, ids["org"], code, own)
+
+            # свободный код — норма
+            await assert_code_free(conn, ids["org"], "ztest_svobodny", other)
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from dataset_releases where code=$1", code)
+            await conn.execute("delete from objects where name='ztest_второй_объект'")
