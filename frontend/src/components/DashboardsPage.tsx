@@ -211,7 +211,10 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
     try { await deletePreset(sel.dashboard.id, p.id); reloadPresets() } catch (e) { fail(e) }
   }
   async function openPage(p: DashPage) {
-    setError(null); setPage(p)
+    // Список виджетов чистим ДО запроса. Иначе при сбое запроса на экране
+    // оставались виджеты предыдущей страницы: выглядело так, будто на всех
+    // вкладках одно и то же, а данные к ним не грузились.
+    setError(null); setPage(p); setWidgets([])
     try { setWidgets((await listPageWidgets(p.id)).widgets) } catch (e) { fail(e) }
   }
   async function reloadPage() {

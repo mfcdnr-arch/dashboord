@@ -509,7 +509,12 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     const showLegend = seriesNames.length > 1 && fit.h >= 170
     const opt: EChartsOption = {
       grid: { left: gridLeft((data.series || []).flatMap((x: any) => x.data || [])), right: 12, top: 12, bottom: catsRoom + (showLegend ? legendRoom : 0) },
-      tooltip: { trigger: 'axis' },
+      // У столбиков подсказка — про ТОТ столбик, на который навели. При
+      // trigger:'axis' ECharts вываливал список всех показателей сразу: на
+      // форме из четырнадцати граф это простыня во весь экран, в которой
+      // нужное число ещё надо найти. У линии осевая подсказка уместна — там
+      // сравнение серий в одной точке и есть смысл графика.
+      tooltip: data.viz === 'line' ? { trigger: 'axis' } : { trigger: 'item' },
       // Имена показателей одной формы совпадают началом и концом, поэтому в
       // легенде показываем только различающую часть (distinctLabels), а полное
       // имя остаётся в подсказке. Прокрутка — чтобы 5–6 показателей не съели график.
