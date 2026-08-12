@@ -17,6 +17,10 @@ from ._base import DashboardError
 # столько виджетов сделали бы страницу нечитаемой, а её открытие — медленным:
 # каждая карточка считается отдельно. Остальные графы видны в таблице ниже.
 MAX_AUTO_KPI = 24
+# Потолок графиков динамики. Тренд — самое ценное, когда форм много, но каждый
+# график считается отдельным запросом: на широкой форме страница открывалась бы
+# заметно дольше. Остальные показатели добавляются кнопкой «💡 Предложить ещё».
+MAX_AUTO_DYNAMICS = 16
 
 
 # --------------------------------------------------------------------------- #
@@ -159,14 +163,32 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None) -> dict:
         # Ряд графиков: столбцы + динамика заполняют 12 колонок целиком, иначе
         # страница вытягивается вниз при пустом месте справа. Без динамики
         # (один период в серии) график забирает освободившиеся колонки.
-        chart_w = 8 if has_dyn else 12
+        # Динамика в этом ряду нужна, только когда показатель ОДИН: при
+        # нескольких ниже идёт сетка трендов по каждому, и график первого
+        # показателя дублировался бы — два одинаковых виджета подряд.
+        grid_dyn = has_dyn and len(shown) > 1
+        chart_w = 8 if (has_dyn and not grid_dyn) else 12
         await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: {f0['name']} по строкам", "bar",
                             {"dataset_code": code, "value_field": f0["code"]},
                             {"position_x": 0, "position_y": y, "width": chart_w, "height": 6}); n += 1
-        if has_dyn:
+        if has_dyn and not grid_dyn:
             await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: динамика {f0['name']}", "dynamics",
                                 {"dataset_code": code, "value_field": f0["code"]},
                                 {"position_x": 8, "position_y": y, "width": 4, "height": 6}); n += 1
+        y += 6
+
+        # Динамика по КАЖДОМУ показателю, когда периодов несколько.
+        # Карточки, столбцы и таблица показывают ПОСЛЕДНИЙ выпуск — так и
+        # задумано (KPI это текущее значение). Но если в папке полтора десятка
+        # форм за разные даты, а тренд построен только для первого показателя,
+        # дашборд выглядит так, будто система взяла одну дату и забыла остальные.
+        if grid_dyn:
+            for i, f in enumerate(shown[:MAX_AUTO_DYNAMICS]):
+                await svc.create_widget(conn, org_id, user_id, pid, f"Динамика: {f['name']}", "dynamics",
+                                    {"dataset_code": code, "value_field": f["code"]},
+                                    {"position_x": (i % 3) * 4, "position_y": y + (i // 3) * 6,
+                                     "width": 4, "height": 6}); n += 1
+            y += ((min(len(shown), MAX_AUTO_DYNAMICS) + 2) // 3) * 6
         # Сравнение всех показателей одним графиком: десяток карточек даёт точные
         # числа, но не даёт увидеть соотношение между ними. Высота растёт с числом
         # показателей — на 13 столбиков стандартных 6 рядов мало: шапка и пояснение
@@ -178,10 +200,10 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None) -> dict:
             cmp_h = 8 if len(shown) > 4 else 6
             await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: сравнение показателей", "compare",
                                 {"dataset_code": code, "value_fields": [f["code"] for f in shown]},
-                                {"position_x": 0, "position_y": y + 6, "width": 12, "height": cmp_h}); n += 1
+                                {"position_x": 0, "position_y": y, "width": 12, "height": cmp_h}); n += 1
             y += cmp_h
         await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: таблица", "table",
                             {"dataset_code": code},
-                            {"position_x": 0, "position_y": y + 6, "width": 12, "height": 6}); n += 1
-        y += 12
+                            {"position_x": 0, "position_y": y, "width": 12, "height": 6}); n += 1
+        y += 6
     return {"dashboard_id": did, "page_id": pid, "widgets": n}

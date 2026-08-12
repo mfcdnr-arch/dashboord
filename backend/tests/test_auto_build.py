@@ -81,6 +81,32 @@ async def test_auto_build_makes_kpi_for_every_numeric_field(client, admin_header
         await _cleanup_fields(rel)
 
 
+async def test_auto_build_makes_one_dynamics_per_field_without_duplicates(
+        client, admin_headers, seed_dataset, ids):
+    """Когда периодов несколько, тренд строится по КАЖДОМУ показателю — иначе
+    дашборд по полутора десяткам форм выглядит так, будто взята одна дата.
+    И ровно ОДИН на показатель: первый показатель однажды получил два
+    одинаковых графика подряд (ряд графиков + сетка трендов)."""
+    rel = await _seed_fields(ids["org"])
+    did = None
+    try:
+        r = await client.post("/dashboards/auto", headers=admin_headers,
+                              json={"object_id": str(rel["object_id"]), "name": "ztest_auto_dyn"})
+        did = r.json()["dashboard_id"]
+        async with db.acquire() as conn:
+            rows = await conn.fetch(
+                "select config from widgets where dashboard_id=$1::uuid and widget_type='dynamics'", did)
+        import json
+        fields = [json.loads(w["config"])["value_field"] if isinstance(w["config"], str)
+                  else w["config"]["value_field"] for w in rows]
+        assert sorted(fields) == sorted(c for c, _ in FIELDS), \
+            f"тренд нужен по каждому показателю ровно один раз, получили: {sorted(fields)}"
+    finally:
+        if did:
+            await purge_dashboard(did)
+        await _cleanup_fields(rel)
+
+
 async def test_auto_build_widgets_do_not_overlap(client, admin_headers, seed_dataset, ids):
     """Виджеты не должны накладываться друг на друга: раскладка считается
     вручную, и смещение рядов легко сломать при правке."""

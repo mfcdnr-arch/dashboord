@@ -499,6 +499,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     // категории важнее, цвета серий читаются по подсказке при наведении.
     // Поворачиваем подписи категорий, только когда их несколько: единственная
     // повёрнутая подпись уходит влево и наезжает на ось значений.
+    const singleCat = cats.length === 1
     const rotated = cats.length > 1 && cats.some((c) => c.length > 6)
     // Единственная длинная подпись («Донецкая Народная Республика») шире узкой
     // карточки и вылезала за края графика — переносим её по словам.
@@ -537,7 +538,14 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
         : { type: 'value', splitNumber: fit.h < 140 ? 2 : fit.h < 200 ? 3 : 5 },
       series: (data.series || []).map((s: any, i: number) => ({
         name: s.name, type: data.viz === 'line' ? 'line' : 'bar', data: s.data,
-        smooth: data.viz === 'line', itemStyle: { color: C.palette[i % C.palette.length] }, barMaxWidth: 28,
+        smooth: data.viz === 'line', itemStyle: { color: C.palette[i % C.palette.length] },
+        // Ширина и зазоры зависят от числа категорий. При ОДНОЙ строке (частый
+        // случай: сводная форма по одному субъекту) все показатели попадают в
+        // единственную группу — с общим ограничением 28px они сбивались в
+        // узкий пучок посреди пустой карточки. Даём им занять ширину: группа
+        // почти на весь слот категории, между столбиками видимый зазор.
+        barMaxWidth: singleCat ? 52 : 28,
+        ...(singleCat ? { barGap: '40%', barCategoryGap: '5%' } : {}),
         // На логарифме длина столбика обманчива — подписываем точное число.
         label: useLog && data.viz !== 'line'
           ? { show: true, position: 'top', fontSize: 10, formatter: (p: any) => fmt(p.value) }
