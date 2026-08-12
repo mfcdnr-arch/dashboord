@@ -40,7 +40,19 @@ export async function downloadFile(url: string, filename: string): Promise<void>
 export async function errText(res: Response): Promise<string> {
   try {
     const e = await res.json()
-    return typeof e.detail === 'string' ? e.detail : `Ошибка (${res.status})`
+    if (typeof e.detail === 'string') return e.detail
+    // При 422 FastAPI отдаёт СПИСОК не пройденных проверок, а не строку.
+    // Раньше он молча превращался в «Ошибка (422)» — по такому сообщению
+    // невозможно понять, что именно не так (реальный случай: название метрики
+    // на 204 символа при пределе 200).
+    if (Array.isArray(e.detail) && e.detail.length) {
+      const parts = e.detail.map((d: { loc?: unknown[]; msg?: string }) => {
+        const field = Array.isArray(d.loc) && d.loc.length ? String(d.loc[d.loc.length - 1]) : ''
+        return [field, d.msg].filter(Boolean).join(': ')
+      })
+      return `Проверка не пройдена — ${parts.join('; ')}`
+    }
+    return `Ошибка (${res.status})`
   } catch {
     return `Ошибка (${res.status})`
   }

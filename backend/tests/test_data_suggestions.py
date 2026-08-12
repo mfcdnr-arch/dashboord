@@ -78,3 +78,34 @@ def test_every_suggestion_carries_explanation_and_source():
     for s in _build_specs(DS, FIELDS):
         assert s["why"], "у предложения должно быть пояснение, зачем оно"
         assert s["based_on"] and s["dataset_code"] == "max_vnedrenie"
+
+
+def test_suggestion_name_fits_api_limit():
+    """Название предложения обязано укладываться в предел поля метрики.
+
+    На настоящей форме заказчика «А — доля от «Б» (нарастающим итогом), %»
+    дало 204 символа при пределе 200: кнопка «Добавить как черновики»
+    отвечала 422, а на экране было голое «Ошибка (422)».
+    """
+    from app.modules.metrics.router import MetricIn
+    from app.modules.metrics.suggestions import METRIC_NAME_MAX, _assign_codes, _fit_name
+
+    long_subject = "Количество пользователей, записавшихся на посещение МФЦ (в MAX)"
+    whole = "Количество отправленных уведомлений о готовности результатов оказания услуг в МФЦ (из АИС МФЦ в Notify )"
+    name = f"{long_subject} — доля от «{whole}» (нарастающим итогом), %"
+    assert len(name) > METRIC_NAME_MAX, "исходное имя должно быть длиннее предела, иначе тест ничего не проверяет"
+
+    specs = [{"type": "percent_of_auto", "name": name}]
+    _assign_codes(specs, set())
+
+    assert len(specs[0]["name"]) <= METRIC_NAME_MAX
+    # Смысл по краям сохранён: видно, ЧТО считаем и в каком разрезе.
+    assert specs[0]["name"].startswith("Количество пользователей")
+    assert specs[0]["name"].endswith("(нарастающим итогом), %")
+    assert len(specs[0]["code"]) <= 100
+
+    # И то же самое глазами API: модель принимает результат без 422.
+    MetricIn(code=specs[0]["code"], name=specs[0]["name"])
+
+    # Короткие имена не трогаем.
+    assert _fit_name("Короткое имя") == "Короткое имя"
