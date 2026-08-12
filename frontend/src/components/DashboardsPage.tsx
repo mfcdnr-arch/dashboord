@@ -3,7 +3,7 @@ import GridLayout, { type Layout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import {
-  autoBuildDashboard, createDashboard, createPage, createPreset, createWidget, deleteDashboard, deletePage, deletePreset, deleteWidget, getDashboard,
+  createDashboard, createPage, createPreset, createWidget, deleteDashboard, deletePage, deletePreset, deleteWidget, getDashboard,
   exportPageXlsx, getDataSources, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listFolders, listObjects, listPageWidgets, listPresets,
   listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, updateDashboard, updatePage, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Folder, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
@@ -22,6 +22,7 @@ import { Comments } from './dashboards/Comments'
 import { AlertEditor } from './dashboards/AlertEditor'
 import { DashboardList } from './dashboards/DashboardList'
 import { FolderMoveDialog } from './dashboards/FolderMoveDialog'
+import AutoBuildWizard from './dashboards/AutoBuildWizard'
 import { AboutDashboard, EditDashboardDialog } from './dashboards/AboutDashboard'
 import { RenameDialog } from './dashboards/RenameDialog'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
@@ -91,6 +92,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   }, [page?.id, pFrom, pTo, crossRow, reloadKey]) // eslint-disable-line react-hooks/exhaustive-deps
   const pageRef = useRef<HTMLDivElement>(null)
   const [objects, setObjects] = useState<Obj[]>([])
+  const [wizardObj, setWizardObj] = useState<string | null>(null)
   const [autoObj, setAutoObj] = useState('')
   const [templates, setTemplates] = useState<DashTemplate[]>([])
   const [tpl, setTpl] = useState('')
@@ -221,11 +223,13 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
     try { const d = await createDashboard(newDash.trim()); setNewDash(''); await refresh(); openDashboard(d.id) }
     catch (e) { fail(e) } finally { setBusy(false) }
   }
-  async function autoBuild() {
+  // «Собрать» открывает мастер, а не собирает сразу: раньше нажатие давало
+  // непредсказуемый по объёму дашборд и каждый раз новый. Теперь состав виден
+  // до создания, лишнее снимается галочками, и можно пересобрать существующий.
+  function autoBuild() {
     if (!autoObj) return
-    setBusy(true); setError(null)
-    try { const r = await autoBuildDashboard(autoObj); setAutoObj(''); await refresh(); openDashboard(r.dashboard_id) }
-    catch (e) { fail(e) } finally { setBusy(false) }
+    setError(null)
+    setWizardObj(autoObj)
   }
   async function addPage(e: FormEvent) {
     e.preventDefault(); if (!sel) return; setBusy(true); setError(null)
@@ -798,6 +802,16 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       )}
       {rebind && (
         <RebindModal rebind={rebind} setRebind={setRebind} onConfirm={confirmRebind} busy={busy} />
+      )}
+      {wizardObj && (
+        <AutoBuildWizard
+          objectId={wizardObj}
+          objectName={objects.find((o) => o.id === wizardObj)?.name || 'объект'}
+          dashboards={dashboards}
+          onClose={() => setWizardObj(null)}
+          onError={(m) => setError(m)}
+          onDone={async (id) => { setWizardObj(null); setAutoObj(''); await refresh(); openDashboard(id) }}
+        />
       )}
       {folderTarget && (
         <FolderMoveDialog target={folderTarget} objects={objects} onClose={() => setFolderTarget(null)}

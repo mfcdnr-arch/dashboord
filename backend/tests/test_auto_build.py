@@ -33,6 +33,12 @@ async def _seed_fields(org_id):
     return rel
 
 
+async def _dataset_code(org_id) -> str:
+    async with db.acquire() as conn:
+        return await conn.fetchval(
+            "select code from dataset_releases where organization_id=$1 and code='t_ds' limit 1", org_id)
+
+
 async def _cleanup_fields(rel):
     async with db.acquire() as conn:
         codes = [c for c, _ in FIELDS]
@@ -126,6 +132,88 @@ async def test_auto_build_widgets_do_not_overlap(client, admin_headers, seed_dat
                 overlap = not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
                 assert not overlap, f"пересекаются «{a[4]}» и «{b[4]}»"
             assert a[2] <= 12, f"«{a[4]}» выходит за 12 колонок"
+    finally:
+        if did:
+            await purge_dashboard(did)
+        await _cleanup_fields(rel)
+
+
+async def test_plan_matches_what_gets_built(client, admin_headers, seed_dataset, ids):
+    """«Будет создано N виджетов» обязано совпасть с тем, что создалось.
+
+    План и сборка идут через ОДИН планировщик — тест защищает именно это
+    свойство: разойдясь, они превратили бы предпросмотр в обман.
+    """
+    rel = await _seed_fields(ids["org"])
+    did = None
+    try:
+        body = {"object_id": str(rel["object_id"]), "name": "ztest_plan"}
+        plan = (await client.post("/dashboards/auto/plan", headers=admin_headers, json=body)).json()
+        assert plan["widgets"] > 0
+        assert plan["object"]["id"] == str(rel["object_id"])
+
+        r = await client.post("/dashboards/auto", headers=admin_headers, json=body)
+        did = r.json()["dashboard_id"]
+        assert r.json()["widgets"] == plan["widgets"], "план разошёлся со сборкой"
+        async with db.acquire() as conn:
+            real = await conn.fetchval(
+                "select count(*) from widgets where dashboard_id=$1::uuid", did)
+        assert real == plan["widgets"]
+    finally:
+        if did:
+            await purge_dashboard(did)
+        await _cleanup_fields(rel)
+
+
+async def test_selection_narrows_the_build(client, admin_headers, seed_dataset, ids):
+    """Снятые галочки уменьшают сборку: два показателя и только карточки."""
+    rel = await _seed_fields(ids["org"])
+    did = None
+    try:
+        code = await _dataset_code(ids["org"])
+        body = {
+            "object_id": str(rel["object_id"]), "name": "ztest_sel",
+            "selection": {code: {"fields": ["f1", "f2"], "blocks": ["kpi"]}},
+        }
+        plan = (await client.post("/dashboards/auto/plan", headers=admin_headers, json=body)).json()
+        assert plan["widgets"] == 2, f"ожидали 2 карточки, план говорит {plan['widgets']}"
+
+        did = (await client.post("/dashboards/auto", headers=admin_headers, json=body)).json()["dashboard_id"]
+        async with db.acquire() as conn:
+            types = await conn.fetch(
+                "select widget_type from widgets where dashboard_id=$1::uuid", did)
+        assert [t["widget_type"] for t in types] == ["kpi", "kpi"]
+    finally:
+        if did:
+            await purge_dashboard(did)
+        await _cleanup_fields(rel)
+
+
+async def test_rebuild_replaces_content_and_keeps_dashboard(client, admin_headers, seed_dataset, ids):
+    """Пересборка меняет наполнение, но не плодит дашборды и не теряет сам
+    дашборд: на нём висят права доступа, обсуждение и история."""
+    rel = await _seed_fields(ids["org"])
+    did = None
+    try:
+        body = {"object_id": str(rel["object_id"]), "name": "ztest_rebuild"}
+        did = (await client.post("/dashboards/auto", headers=admin_headers, json=body)).json()["dashboard_id"]
+        async with db.acquire() as conn:
+            before = await conn.fetchval("select count(*) from widgets where dashboard_id=$1::uuid", did)
+
+        code = await _dataset_code(ids["org"])
+        r = await client.post("/dashboards/auto", headers=admin_headers, json={
+            **body, "dashboard_id": did,
+            "selection": {code: {"fields": ["f1"], "blocks": ["kpi"]}},
+        })
+        assert r.status_code in (200, 201), r.text
+        assert r.json()["dashboard_id"] == did, "пересборка не должна создавать новый дашборд"
+        async with db.acquire() as conn:
+            after = await conn.fetch(
+                "select widget_type from widgets where dashboard_id=$1::uuid", did)
+            pages = await conn.fetchval(
+                "select count(*) from dashboard_pages where dashboard_id=$1::uuid", did)
+        assert before > 1 and [w["widget_type"] for w in after] == ["kpi"], "старое наполнение должно уйти"
+        assert pages == 1, "страница ровно одна — старые не копятся"
     finally:
         if did:
             await purge_dashboard(did)

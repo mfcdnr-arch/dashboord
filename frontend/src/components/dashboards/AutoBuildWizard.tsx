@@ -1,0 +1,228 @@
+import { useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
+import {
+  autoBuildDashboard, autoBuildPlan,
+  type AutoPlan, type DatasetPick, type Dashboard,
+} from '../../api'
+
+/**
+ * Мастер авто-сборки: что нашли в объекте и что из этого собрать.
+ *
+ * До него «Собрать» был чёрным ящиком — нажал и получил, что дали, каждый раз
+ * новый дашборд. Здесь человек видит состав ДО создания, снимает лишнее
+ * галочками и решает, собрать новый или пересобрать существующий.
+ *
+ * Число «будет создано N виджетов» приходит с сервера от того же планировщика,
+ * который потом и создаёт виджеты, — иначе предпросмотр рано или поздно
+ * разошёлся бы с результатом и превратился в обман.
+ */
+const BLOCK_LABELS: Record<string, string> = {
+  kpi: 'Карточки показателей',
+  dynamics: 'Динамика по неделям',
+  compare: 'Сравнение показателей',
+  bar: 'График по строкам',
+  table: 'Таблица первичных данных',
+}
+
+export default function AutoBuildWizard(
+  { objectId, objectName, dashboards, onClose, onDone, onError }: {
+    objectId: string
+    objectName: string
+    dashboards: Dashboard[]
+    onClose: () => void
+    onDone: (dashboardId: string) => void
+    onError: (m: string) => void
+  },
+) {
+  const [plan, setPlan] = useState<AutoPlan | null>(null)
+  const [sel, setSel] = useState<Record<string, DatasetPick> | null>(null)
+  const [target, setTarget] = useState('')          // '' — новый дашборд
+  const [busy, setBusy] = useState(false)
+  const [loadErr, setLoadErr] = useState<string | null>(null)
+
+  // Первый запрос — без выбора: сервер отдаёт всё, что нашёл, и это же
+  // становится начальным состоянием галочек (по умолчанию отмечено всё).
+  useEffect(() => {
+    autoBuildPlan(objectId)
+      .then((p) => {
+        setPlan(p)
+        const init: Record<string, DatasetPick> = {}
+        for (const d of p.datasets) init[d.code] = { fields: d.fields.map((f) => f.code), blocks: [...p.blocks] }
+        setSel(init)
+      })
+      .catch((e) => setLoadErr((e as Error).message))
+  }, [objectId])
+
+  // Пересчёт итога при смене галочек. Дебаунс — чтобы клик по «снять все»
+  // не порождал запрос на каждую галочку.
+  const recount = useCallback((s: Record<string, DatasetPick>) => {
+    autoBuildPlan(objectId, s).then((p) => setPlan((cur) => (cur ? { ...cur, widgets: p.widgets, by_type: p.by_type } : p)))
+      .catch(() => {})
+  }, [objectId])
+  useEffect(() => {
+    if (!sel) return
+    const t = setTimeout(() => recount(sel), 250)
+    return () => clearTimeout(t)
+  }, [sel, recount])
+
+  function toggleField(code: string, field: string) {
+    setSel((s) => {
+      if (!s) return s
+      const cur = s[code]?.fields || []
+      const next = cur.includes(field) ? cur.filter((f) => f !== field) : [...cur, field]
+      return { ...s, [code]: { ...s[code], fields: next } }
+    })
+  }
+  function toggleBlock(code: string, block: string) {
+    setSel((s) => {
+      if (!s) return s
+      const cur = s[code]?.blocks || []
+      const next = cur.includes(block) ? cur.filter((b) => b !== block) : [...cur, block]
+      return { ...s, [code]: { ...s[code], blocks: next } }
+    })
+  }
+  function setAllFields(code: string, all: string[], on: boolean) {
+    setSel((s) => (s ? { ...s, [code]: { ...s[code], fields: on ? all : [] } } : s))
+  }
+
+  async function build() {
+    if (!sel) return
+    setBusy(true)
+    try {
+      const r = await autoBuildDashboard(objectId, {
+        name: `Дашборд «${objectName}»`, selection: sel, dashboardId: target || undefined,
+      })
+      onDone(r.dashboard_id)
+    } catch (e) { onError((e as Error).message); setBusy(false) }
+  }
+
+  return createPortal(
+    <div style={backdrop} onClick={onClose}>
+      <div style={card} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 16 }}>Собрать дашборд по объекту «{objectName}»</h3>
+          <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={onClose}>✕</button>
+        </div>
+
+        {loadErr && <div style={errBox}>{loadErr}</div>}
+        {!plan && !loadErr && <div style={muted}>Смотрим, что есть в объекте…</div>}
+
+        {plan && sel && (
+          <>
+            {plan.warnings.map((w, i) => <div key={i} style={warnBox}>⚠ {w}</div>)}
+
+            {plan.datasets.map((d) => {
+              const pick = sel[d.code] || {}
+              const allFields = d.fields.map((f) => f.code)
+              const on = pick.fields || []
+              return (
+                <div key={d.code} style={block}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{d.name}</div>
+                  <div style={{ ...muted, fontSize: 12.5, marginBottom: 8 }}>
+                    код {d.code} · периодов: {d.periods} · показателей: {d.fields.length}
+                    {d.periods > 1 && ' · динамика строится по всем периодам'}
+                  </div>
+
+                  <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Что показать</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+                    {plan.blocks.map((b) => (
+                      <label key={b} style={chk}>
+                        <input type="checkbox" checked={(pick.blocks || []).includes(b)}
+                          onChange={() => toggleBlock(d.code, b)} />
+                        {BLOCK_LABELS[b] || b}
+                      </label>
+                    ))}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>Показатели ({on.length} из {d.fields.length})</span>
+                    <button style={linkBtn} onClick={() => setAllFields(d.code, allFields, true)}>все</button>
+                    <button style={linkBtn} onClick={() => setAllFields(d.code, allFields, false)}>снять</button>
+                  </div>
+                  <div style={fieldBox}>
+                    {d.fields.map((f) => (
+                      <label key={f.code} style={{ ...chk, width: '100%' }} title={f.name}>
+                        <input type="checkbox" checked={on.includes(f.code)}
+                          onChange={() => toggleField(d.code, f.code)} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+
+            <div style={block}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Куда собрать</div>
+              <select style={input} value={target} onChange={(e) => setTarget(e.target.value)}>
+                <option value="">Новый дашборд</option>
+                {dashboards.map((d) => <option key={d.id} value={d.id}>Пересобрать «{d.name}»</option>)}
+              </select>
+              {target && (
+                <div style={{ ...muted, fontSize: 12.5, marginTop: 6 }}>
+                  Страницы и виджеты будут заменены. Права доступа, обсуждение и история версий останутся.
+                </div>
+              )}
+            </div>
+
+            <div style={total}>
+              Будет создано: <b>{plan.widgets}</b> {plural(plan.widgets)}
+              {plan.widgets > 0 && (
+                <span style={{ color: 'var(--text-muted)' }}>
+                  {' '}({Object.entries(plan.by_type).filter(([, n]) => n > 0)
+                    .map(([t, n]) => `${BLOCK_LABELS[t] || t}: ${n}`).join(', ')})
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+              <button style={btnGhost} onClick={onClose}>Отмена</button>
+              <button style={btn} disabled={busy || plan.widgets === 0} onClick={build}>
+                {busy ? 'Собираем…' : target ? 'Пересобрать' : 'Собрать'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function plural(n: number): string {
+  const t = n % 100
+  if (t >= 11 && t <= 14) return 'виджетов'
+  switch (n % 10) {
+    case 1: return 'виджет'
+    case 2: case 3: case 4: return 'виджета'
+    default: return 'виджетов'
+  }
+}
+
+const backdrop: React.CSSProperties = {
+  position: 'fixed', inset: 0, background: 'rgba(20,20,20,0.45)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16,
+}
+const card: React.CSSProperties = {
+  background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14,
+  padding: 18, width: 'min(720px, 100%)', maxHeight: '86vh', overflowY: 'auto',
+  display: 'flex', flexDirection: 'column', gap: 10,
+}
+const block: React.CSSProperties = {
+  border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px',
+}
+const fieldBox: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 190, overflowY: 'auto',
+  border: '1px solid var(--border-faint)', borderRadius: 8, padding: '6px 8px',
+}
+const chk: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, minWidth: 0, cursor: 'pointer' }
+const total: React.CSSProperties = {
+  background: 'var(--surface-2)', borderRadius: 8, padding: '9px 12px', fontSize: 13,
+}
+const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 13 }
+const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, width: '100%' }
+const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
+const btnGhost: React.CSSProperties = { height: 34, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', fontSize: 13, cursor: 'pointer' }
+const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', fontSize: 12, cursor: 'pointer', padding: 0 }
+const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8 }
+const warnBox: React.CSSProperties = { background: 'var(--warn-bg)', color: 'var(--warn)', fontSize: 13, padding: '8px 10px', borderRadius: 8 }

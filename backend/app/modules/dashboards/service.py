@@ -39,6 +39,7 @@ from ._suggest import (  # noqa: F401
     _existing_widget_signatures,
     _spec_signature,
     auto_build,
+    auto_build_plan,
     suggest_widgets,
 )
 from ._templates import (  # noqa: F401

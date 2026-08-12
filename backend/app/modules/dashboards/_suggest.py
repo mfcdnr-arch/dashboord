@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 from ..metrics import resolver as mr
 from ._alerts import _cfg
@@ -115,95 +115,190 @@ async def suggest_widgets(conn, org_id, dataset_code: str) -> dict:
     return {"specs": delta, "total_candidates": len(specs), "already_built": len(specs) - len(delta)}
 
 
-async def auto_build(conn, org_id, user_id, object_id: str, name=None) -> dict:
-    """Собирает черновик дашборда по объекту: на каждый датасет объекта — KPI,
-    столбчатый график, динамику (если >1 периода) и таблицу-первичку."""
+# --------------------------------------------------------------------------- #
+# Авто-сборка: сбор данных → план раскладки → создание
+#
+# Раскладка считается ОДНОЙ функцией `plan_auto_build`, а предпросмотр и
+# создание лишь по-разному ей пользуются. Иначе «будет создано N виджетов»
+# рано или поздно разошлось бы с тем, что получилось на самом деле, — та же
+# ловушка, из-за которой предпросмотр разметки считают тем же кодом, что и
+# выпуск датасета.
+# --------------------------------------------------------------------------- #
+BLOCKS = ["kpi", "compare", "dynamics", "bar", "table"]
+
+
+async def collect_object_datasets(conn, org_id, object_id: str) -> list:
+    """Наборы данных объекта с их показателями — основа и плана, и мастера."""
+    rows = await conn.fetch(
+        "select code, max(name) as name, count(distinct reporting_period_start) as periods, "
+        "  count(*) as releases "
+        "from dataset_releases where organization_id=$1 and object_id=$2::uuid and status<>'superseded' "
+        "group by code order by max(created_at) desc", org_id, object_id)
+    out = []
+    for d in rows:
+        fields = await _dataset_numeric_fields(conn, org_id, d["code"])
+        out.append({
+            "code": d["code"], "name": d["name"] or d["code"],
+            "periods": d["periods"] or 0, "releases": d["releases"] or 0,
+            "fields": fields,
+        })
+    return out
+
+
+def plan_auto_build(datasets: list, selection: Optional[dict] = None) -> list:
+    """Что именно будет создано — список виджетов с местом на сетке.
+
+    `selection` = {code: {"fields": [коды], "blocks": [виды]}}. Не передан —
+    берём всё: мастер по умолчанию предлагает полный набор.
+    """
+    specs: list = []
+    y = 0
+    for d in datasets:
+        code, dsname = d["code"], d["name"]
+        sel = (selection or {}).get(code)
+        if selection is not None and sel is None:
+            continue  # набор данных снят галочкой целиком
+        want_fields = set(sel["fields"]) if sel and sel.get("fields") is not None else None
+        blocks = set(sel["blocks"]) if sel and sel.get("blocks") is not None else set(BLOCKS)
+
+        fields = [f for f in d["fields"] if want_fields is None or f["code"] in want_fields]
+        if not fields:
+            continue
+        shown = fields[:MAX_AUTO_KPI]
+        f0 = shown[0]
+        has_dyn = d["periods"] > 1
+
+        # Карточка на КАЖДЫЙ выбранный показатель, по 4 в ряд (сетка 12 колонок).
+        # Имя карточки — только показатель: префикс с названием набора данных,
+        # повторённый на десятке карточек, съедал строку целиком.
+        if "kpi" in blocks:
+            for i, f in enumerate(shown):
+                specs.append({"name": f["name"], "widget_type": "kpi",
+                              "config": {"dataset_code": code, "value_field": f["code"]},
+                              "position_x": (i % 4) * 3, "position_y": y + (i // 4) * 3,
+                              "width": 3, "height": 3})
+            y += ((len(shown) + 3) // 4) * 3
+
+        # Динамика по каждому показателю нужна, когда периодов несколько: карточки
+        # и таблица показывают ПОСЛЕДНИЙ выпуск, и без трендов дашборд по полутора
+        # десяткам форм выглядит так, будто взята одна дата.
+        grid_dyn = has_dyn and "dynamics" in blocks and len(shown) > 1
+        if "bar" in blocks:
+            # Динамика в этом ряду — только когда показатель ОДИН: иначе тренд
+            # первого показателя дублировал бы карточку из сетки ниже.
+            solo_dyn = has_dyn and "dynamics" in blocks and not grid_dyn
+            specs.append({"name": f"{dsname}: {f0['name']} по строкам", "widget_type": "bar",
+                          "config": {"dataset_code": code, "value_field": f0["code"]},
+                          "position_x": 0, "position_y": y, "width": 8 if solo_dyn else 12, "height": 6})
+            if solo_dyn:
+                specs.append({"name": f"{dsname}: динамика {f0['name']}", "widget_type": "dynamics",
+                              "config": {"dataset_code": code, "value_field": f0["code"]},
+                              "position_x": 8, "position_y": y, "width": 4, "height": 6})
+            y += 6
+
+        if grid_dyn:
+            grid = shown[:MAX_AUTO_DYNAMICS]
+            for i, f in enumerate(grid):
+                specs.append({"name": f"Динамика: {f['name']}", "widget_type": "dynamics",
+                              "config": {"dataset_code": code, "value_field": f["code"]},
+                              "position_x": (i % 3) * 4, "position_y": y + (i // 3) * 6,
+                              "width": 4, "height": 6})
+            y += ((len(grid) + 2) // 3) * 6
+
+        # Сравнение: десяток карточек даёт точные числа, но не даёт увидеть
+        # соотношение. 8 рядов — замерено: при 6 график ужимается до полоски
+        # (легенда и пояснение съедают карточку), при 10 внизу пустое место.
+        if "compare" in blocks and len(shown) > 1:
+            specs.append({"name": f"{dsname}: сравнение показателей", "widget_type": "compare",
+                          "config": {"dataset_code": code, "value_fields": [f["code"] for f in shown]},
+                          "position_x": 0, "position_y": y, "width": 12,
+                          "height": 8 if len(shown) > 4 else 6})
+            y += 8 if len(shown) > 4 else 6
+
+        if "table" in blocks:
+            specs.append({"name": f"{dsname}: таблица", "widget_type": "table",
+                          "config": {"dataset_code": code},
+                          "position_x": 0, "position_y": y, "width": 12, "height": 6})
+            y += 6
+    return specs
+
+
+async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict] = None) -> dict:
+    """Предпросмотр мастера: что нашли в объекте и что будет создано."""
     obj = await conn.fetchrow(
         "select id, name from objects where id=$1::uuid and organization_id=$2", object_id, org_id)
     if obj is None:
         raise DashboardError("Объект не найден")
-    ds = await conn.fetch(
-        "select code, max(name) as name, count(distinct reporting_period_start) as periods "
-        "from dataset_releases where organization_id=$1 and object_id=$2::uuid and status<>'superseded' "
-        "group by code order by max(created_at) desc", org_id, object_id)
-    if not ds:
+    datasets = await collect_object_datasets(conn, org_id, object_id)
+    if not datasets:
         raise DashboardError("У объекта нет выпущенных датасетов — сначала распознайте документ")
 
+    warnings = []
+    if len(datasets) > 1:
+        warnings.append(
+            "В объекте несколько наборов данных: "
+            + ", ".join(f"«{d['code']}»" for d in datasets)
+            + ". Обычно у объекта один набор, а разные коды появляются, когда выпуск "
+              "сделали под новым именем — тогда недельные формы не складываются в один ряд.")
+    trimmed = [d for d in datasets if len(d["fields"]) > MAX_AUTO_KPI]
+    if trimmed:
+        warnings.append(
+            f"Показателей больше {MAX_AUTO_KPI} — на дашборд попадут первые {MAX_AUTO_KPI}, "
+            "остальные видны в таблице.")
+
+    specs = plan_auto_build(datasets, selection)
+    return {
+        "object": {"id": str(obj["id"]), "name": obj["name"]},
+        "datasets": [{k: v for k, v in d.items()} for d in datasets],
+        "blocks": BLOCKS,
+        "warnings": warnings,
+        "widgets": len(specs),
+        "by_type": {t: sum(1 for s in specs if s["widget_type"] == t) for t in BLOCKS},
+    }
+
+
+async def auto_build(conn, org_id, user_id, object_id: str, name=None,
+                     selection: Optional[dict] = None, dashboard_id: Optional[str] = None) -> dict:
+    """Создаёт (или пересобирает) дашборд по объекту.
+
+    `dashboard_id` — пересобрать существующий: страницы и виджеты заменяются,
+    сам дашборд с его правами, комментариями и историей остаётся. Без него
+    создаётся новый. Раньше каждое нажатие плодило новый дашборд.
+    """
+    obj = await conn.fetchrow(
+        "select id, name from objects where id=$1::uuid and organization_id=$2", object_id, org_id)
+    if obj is None:
+        raise DashboardError("Объект не найден")
+    datasets = await collect_object_datasets(conn, org_id, object_id)
+    if not datasets:
+        raise DashboardError("У объекта нет выпущенных датасетов — сначала распознайте документ")
+    specs = plan_auto_build(datasets, selection)
+    if not specs:
+        raise DashboardError("Нечего собирать — не выбрано ни одного показателя")
+
     from . import service as svc  # ленивый импорт: избегаем цикла модулей
-    dash = await svc.create_dashboard(conn, org_id, user_id, name or f"Дашборд «{obj['name']}»",
-                                  f"Авто-сборка по объекту «{obj['name']}»", None)
-    did = str(dash["id"])
+    if dashboard_id:
+        d = await conn.fetchrow(
+            "select id, name from dashboards where id=$1::uuid and organization_id=$2",
+            dashboard_id, org_id)
+        if d is None:
+            raise DashboardError("Дашборд не найден")
+        did = str(d["id"])
+        # Старое наполнение убираем: пересборка должна дать ровно то, что в плане,
+        # а не смесь нового со старым. Сам дашборд не трогаем — на нём висят
+        # права доступа, обсуждение и история версий.
+        await conn.execute("delete from widgets where dashboard_id=$1::uuid", did)
+        await conn.execute("delete from dashboard_pages where dashboard_id=$1::uuid", did)
+    else:
+        dash = await svc.create_dashboard(conn, org_id, user_id, name or f"Дашборд «{obj['name']}»",
+                                          f"Авто-сборка по объекту «{obj['name']}»", None)
+        did = str(dash["id"])
+
     page = await svc.create_page(conn, org_id, user_id, did, "Обзор", None)
     pid = str(page["id"])
-
-    n, y = 0, 0
-    for d in ds:
-        code, dsname = d["code"], (d["name"] or d["code"])
-        fields = await _dataset_numeric_fields(conn, org_id, code)
-        if not fields:
-            continue
-        # Карточка на КАЖДЫЙ числовой показатель, по 4 в ряд (сетка 12 колонок).
-        # Раньше брались только первые два поля — на форме из 14 граф человек
-        # видел в предпросмотре разметки 14 карточек, а на собранном дашборде
-        # две, и это выглядело как потеря данных.
-        f0 = fields[0]
-        has_dyn = (d["periods"] or 0) > 1
-        # В имени карточки — ТОЛЬКО показатель. Префикс с именем датасета,
-        # повторённый на десятке карточек, съедал строку целиком, и от самого
-        # показателя оставалось многоточие. Датасет виден по значку ⓘ и по
-        # графику с таблицей ниже — они подписаны полностью.
-        shown = fields[:MAX_AUTO_KPI]
-        for i, f in enumerate(shown):
-            await svc.create_widget(conn, org_id, user_id, pid, f["name"], "kpi",
-                                {"dataset_code": code, "value_field": f["code"]},
-                                {"position_x": (i % 4) * 3, "position_y": y + (i // 4) * 3,
-                                 "width": 3, "height": 3}); n += 1
-        y += ((len(shown) + 3) // 4) * 3
-
-        # Ряд графиков: столбцы + динамика заполняют 12 колонок целиком, иначе
-        # страница вытягивается вниз при пустом месте справа. Без динамики
-        # (один период в серии) график забирает освободившиеся колонки.
-        # Динамика в этом ряду нужна, только когда показатель ОДИН: при
-        # нескольких ниже идёт сетка трендов по каждому, и график первого
-        # показателя дублировался бы — два одинаковых виджета подряд.
-        grid_dyn = has_dyn and len(shown) > 1
-        chart_w = 8 if (has_dyn and not grid_dyn) else 12
-        await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: {f0['name']} по строкам", "bar",
-                            {"dataset_code": code, "value_field": f0["code"]},
-                            {"position_x": 0, "position_y": y, "width": chart_w, "height": 6}); n += 1
-        if has_dyn and not grid_dyn:
-            await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: динамика {f0['name']}", "dynamics",
-                                {"dataset_code": code, "value_field": f0["code"]},
-                                {"position_x": 8, "position_y": y, "width": 4, "height": 6}); n += 1
-        y += 6
-
-        # Динамика по КАЖДОМУ показателю, когда периодов несколько.
-        # Карточки, столбцы и таблица показывают ПОСЛЕДНИЙ выпуск — так и
-        # задумано (KPI это текущее значение). Но если в папке полтора десятка
-        # форм за разные даты, а тренд построен только для первого показателя,
-        # дашборд выглядит так, будто система взяла одну дату и забыла остальные.
-        if grid_dyn:
-            for i, f in enumerate(shown[:MAX_AUTO_DYNAMICS]):
-                await svc.create_widget(conn, org_id, user_id, pid, f"Динамика: {f['name']}", "dynamics",
-                                    {"dataset_code": code, "value_field": f["code"]},
-                                    {"position_x": (i % 3) * 4, "position_y": y + (i // 3) * 6,
-                                     "width": 4, "height": 6}); n += 1
-            y += ((min(len(shown), MAX_AUTO_DYNAMICS) + 2) // 3) * 6
-        # Сравнение всех показателей одним графиком: десяток карточек даёт точные
-        # числа, но не даёт увидеть соотношение между ними. Высота растёт с числом
-        # показателей — на 13 столбиков стандартных 6 рядов мало: шапка и пояснение
-        # под графиком съедают карточку, и на сам график остаётся полоска.
-        if len(shown) > 1:
-            # 8 рядов — замерено: при 6 график ужимается до полоски (легенда,
-            # пояснение про шкалу и подпись источника съедают карточку), при
-            # 10 внизу остаётся пустое место — график выше базовой высоты не растёт.
-            cmp_h = 8 if len(shown) > 4 else 6
-            await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: сравнение показателей", "compare",
-                                {"dataset_code": code, "value_fields": [f["code"] for f in shown]},
-                                {"position_x": 0, "position_y": y, "width": 12, "height": cmp_h}); n += 1
-            y += cmp_h
-        await svc.create_widget(conn, org_id, user_id, pid, f"{dsname}: таблица", "table",
-                            {"dataset_code": code},
-                            {"position_x": 0, "position_y": y, "width": 12, "height": 6}); n += 1
-        y += 6
-    return {"dashboard_id": did, "page_id": pid, "widgets": n}
+    for s in specs:
+        await svc.create_widget(
+            conn, org_id, user_id, pid, s["name"], s["widget_type"], s["config"],
+            {"position_x": s["position_x"], "position_y": s["position_y"],
+             "width": s["width"], "height": s["height"]})
+    return {"dashboard_id": did, "page_id": pid, "widgets": len(specs)}

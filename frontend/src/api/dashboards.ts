@@ -61,10 +61,47 @@ export async function createDashboard(name: string, description?: string): Promi
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
-export async function autoBuildDashboard(objectId: string, name?: string): Promise<{ dashboard_id: string; page_id: string; widgets: number }> {
+/** Что взять из одного набора данных. Пусто = всё. */
+export type DatasetPick = { fields?: string[]; blocks?: string[] }
+
+export type AutoPlanDataset = {
+  code: string
+  name: string
+  periods: number
+  releases: number
+  fields: { code: string; name: string }[]
+}
+
+export type AutoPlan = {
+  object: { id: string; name: string }
+  datasets: AutoPlanDataset[]
+  blocks: string[]
+  warnings: string[]
+  widgets: number
+  by_type: Record<string, number>
+}
+
+/** Предпросмотр мастера: что будет создано при таком выборе. Считается тем же
+ *  планировщиком, что и сама сборка, — цифра не может разойтись с результатом. */
+export async function autoBuildPlan(objectId: string, selection?: Record<string, DatasetPick>): Promise<AutoPlan> {
+  const res = await fetch('/dashboards/auto/plan', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ object_id: objectId, selection: selection || null }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function autoBuildDashboard(
+  objectId: string,
+  opts: { name?: string; selection?: Record<string, DatasetPick>; dashboardId?: string } = {},
+): Promise<{ dashboard_id: string; page_id: string; widgets: number }> {
   const res = await fetch('/dashboards/auto', {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
-    body: JSON.stringify({ object_id: objectId, name: name || null }),
+    body: JSON.stringify({
+      object_id: objectId, name: opts.name || null,
+      selection: opts.selection || null, dashboard_id: opts.dashboardId || null,
+    }),
   })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()

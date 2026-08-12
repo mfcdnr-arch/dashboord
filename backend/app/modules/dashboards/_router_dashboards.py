@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
@@ -26,9 +26,26 @@ class DashboardIn(BaseModel):
     folder_id: Optional[str] = None
 
 
+class DatasetPick(BaseModel):
+    """Что взять из одного набора данных. Пусто = всё."""
+
+    fields: Optional[List[str]] = None   # коды показателей
+    blocks: Optional[List[str]] = None   # kpi | compare | dynamics | bar | table
+
+
 class AutoIn(BaseModel):
     object_id: str
     name: Optional[str] = None
+    # Выбор мастера: {код набора: что из него взять}. Не передан — берём всё.
+    selection: Optional[Dict[str, DatasetPick]] = None
+    # Пересобрать существующий дашборд вместо создания нового: страницы и
+    # виджеты заменяются, права доступа и обсуждение остаются.
+    dashboard_id: Optional[str] = None
+
+    def as_selection(self) -> Optional[dict]:
+        if self.selection is None:
+            return None
+        return {code: pick.model_dump() for code, pick in self.selection.items()}
 
 
 class TemplateIn(BaseModel):
@@ -69,12 +86,29 @@ async def create_dashboard(body: DashboardIn, user: dict = Depends(manage)):
             raise _bad(e)
 
 
+@router.post("/dashboards/auto/plan")
+async def auto_build_plan(body: AutoIn, user: dict = Depends(manage)):
+    """Что мастер соберёт при этом выборе — до того, как что-то создано.
+
+    Считается ТЕМ ЖЕ планировщиком, что и сама сборка, поэтому «будет создано
+    N виджетов» не может разойтись с результатом.
+    """
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.auto_build_plan(
+                conn, user["organization_id"], body.object_id, body.as_selection())
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.post("/dashboards/auto", status_code=status.HTTP_201_CREATED)
 async def auto_build(body: AutoIn, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:
         try:
             async with conn.transaction():
-                return await service.auto_build(conn, user["organization_id"], user["id"], body.object_id, body.name)
+                return await service.auto_build(
+                    conn, user["organization_id"], user["id"], body.object_id, body.name,
+                    selection=body.as_selection(), dashboard_id=body.dashboard_id)
         except DashboardError as e:
             raise _bad(e)
 
