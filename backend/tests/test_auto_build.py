@@ -12,8 +12,17 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 from app import db  # noqa: E402
 from conftest import purge_dashboard  # noqa: E402
 
-FIELDS = [("f1", "Обращения"), ("f2", "Отправлено"), ("f3", "Доставлено"),
-          ("f4", "Записались"), ("f5", "Отказы"), ("f6", "Повторные")]
+# Имена как в госформе: «Показатель · Роль · Разрез». По ним система и решает,
+# что показать числом, что трендом и где есть пара «план + факт».
+FIELDS = [
+    ("f1", "Обращения · Факт · нарастающим итогом"),
+    ("f2", "Обращения · Факт · за отчетную неделю"),
+    ("f3", "Доставленные · План (до 1 сентября 2026 г.)"),
+    ("f4", "Доставленные · Факт · нарастающим итогом"),
+    ("f5", "Доставленные · Факт · за отчетную неделю"),
+    ("f6", "Записались · Факт · нарастающим итогом"),
+]
+WEEKLY = {"f2", "f5"}   # их система показывает и числом, и трендом
 
 
 async def _seed_fields(org_id):
@@ -87,12 +96,14 @@ async def test_auto_build_makes_kpi_for_every_numeric_field(client, admin_header
         await _cleanup_fields(rel)
 
 
-async def test_auto_build_makes_one_dynamics_per_field_without_duplicates(
-        client, admin_headers, seed_dataset, ids):
-    """Когда периодов несколько, тренд строится по КАЖДОМУ показателю — иначе
-    дашборд по полутора десяткам форм выглядит так, будто взята одна дата.
-    И ровно ОДИН на показатель: первый показатель однажды получил два
-    одинаковых графика подряд (ряд графиков + сетка трендов)."""
+async def test_view_is_chosen_by_role_of_the_indicator(client, admin_headers, seed_dataset, ids):
+    """Вид виджета подбирается по РОЛИ показателя, а не одинаково для всех.
+
+    Недельное значение само по себе мало что говорит — его смотрят в движении,
+    поэтому «за отчётную неделю» получает и карточку, и тренд. Накопительный
+    итог смотрят числом. Пара «План + Факт» одного показателя даёт полосу
+    выполнения вместо двух карточек, из которых процент считают в уме.
+    """
     rel = await _seed_fields(ids["org"])
     did = None
     try:
@@ -101,12 +112,22 @@ async def test_auto_build_makes_one_dynamics_per_field_without_duplicates(
         did = r.json()["dashboard_id"]
         async with db.acquire() as conn:
             rows = await conn.fetch(
-                "select config from widgets where dashboard_id=$1::uuid and widget_type='dynamics'", did)
+                "select widget_type, config from widgets where dashboard_id=$1::uuid", did)
         import json
-        fields = [json.loads(w["config"])["value_field"] if isinstance(w["config"], str)
-                  else w["config"]["value_field"] for w in rows]
-        assert sorted(fields) == sorted(c for c, _ in FIELDS), \
-            f"тренд нужен по каждому показателю ровно один раз, получили: {sorted(fields)}"
+        def fields_of(kind):
+            out = []
+            for w in rows:
+                if w["widget_type"] != kind:
+                    continue
+                cfg = json.loads(w["config"]) if isinstance(w["config"], str) else w["config"]
+                out.append(cfg.get("value_field"))
+            return sorted(f for f in out if f)
+
+        assert fields_of("dynamics") == sorted(WEEKLY), \
+            f"тренд — только у недельных показателей, получили {fields_of('dynamics')}"
+        assert fields_of("kpi") == sorted(c for c, _ in FIELDS), "карточка нужна каждому"
+        assert any(w["widget_type"] == "plan_fact" for w in rows), \
+            "у «Доставленные» есть и План, и Факт — должна быть полоса выполнения"
     finally:
         if did:
             await purge_dashboard(did)
@@ -124,14 +145,21 @@ async def test_auto_build_widgets_do_not_overlap(client, admin_headers, seed_dat
         did = r.json()["dashboard_id"]
         async with db.acquire() as conn:
             rows = await conn.fetch(
-                "select name, position_x x, position_y y, width w, height h "
+                "select page_id, name, position_x x, position_y y, width w, height h "
                 "from widgets where dashboard_id=$1::uuid", did)
-        boxes = [(w["x"], w["y"], w["x"] + w["w"], w["y"] + w["h"], w["name"]) for w in rows]
-        for i, a in enumerate(boxes):
-            for b in boxes[i + 1:]:
-                overlap = not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
-                assert not overlap, f"пересекаются «{a[4]}» и «{b[4]}»"
-            assert a[2] <= 12, f"«{a[4]}» выходит за 12 колонок"
+        # Координаты повторяются на РАЗНЫХ страницах — это норма, поэтому
+        # пересечения ищем внутри каждой страницы отдельно.
+        by_page: dict = {}
+        for w in rows:
+            by_page.setdefault(str(w["page_id"]), []).append(
+                (w["x"], w["y"], w["x"] + w["w"], w["y"] + w["h"], w["name"]))
+        assert len(by_page) > 1, "страницы должны быть разделены по смыслу"
+        for boxes in by_page.values():
+            for i, a in enumerate(boxes):
+                for b in boxes[i + 1:]:
+                    overlap = not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
+                    assert not overlap, f"пересекаются «{a[4]}» и «{b[4]}»"
+                assert a[2] <= 12, f"«{a[4]}» выходит за 12 колонок"
     finally:
         if did:
             await purge_dashboard(did)

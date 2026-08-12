@@ -62,7 +62,12 @@ export async function createDashboard(name: string, description?: string): Promi
   return res.json()
 }
 /** Что взять из одного набора данных. Пусто = всё. */
-export type DatasetPick = { fields?: string[]; blocks?: string[] }
+export type DatasetPick = {
+  fields?: string[]
+  blocks?: string[]
+  /** Вид конкретного показателя: kpi | dynamics | both | none. */
+  views?: Record<string, string>
+}
 
 export type AutoPlanDataset = {
   code: string
@@ -78,7 +83,10 @@ export type AutoPlan = {
   blocks: string[]
   warnings: string[]
   widgets: number
+  pages: { name: string; widgets: number }[]
   by_type: Record<string, number>
+  /** Как система предлагает показать каждый показатель: {код набора: {код поля: вид}}. */
+  views: Record<string, Record<string, string>>
 }
 
 /** Предпросмотр мастера: что будет создано при таком выборе. Считается тем же

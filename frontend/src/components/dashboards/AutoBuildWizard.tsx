@@ -17,12 +17,23 @@ import {
  * разошёлся бы с результатом и превратился в обман.
  */
 const BLOCK_LABELS: Record<string, string> = {
+  plan_fact: 'Полосы «план и факт»',
   kpi: 'Карточки показателей',
-  dynamics: 'Динамика по неделям',
+  dynamics: 'Динамика по периодам',
   compare: 'Сравнение показателей',
   bar: 'График по строкам',
   table: 'Таблица первичных данных',
 }
+
+// Вид конкретного показателя. Система предлагает его по роли столбца
+// («за отчётную неделю» смотрят в движении, накопительный итог — числом),
+// но последнее слово за человеком.
+const VIEW_LABELS: { v: string; t: string }[] = [
+  { v: 'kpi', t: 'карточка' },
+  { v: 'dynamics', t: 'тренд' },
+  { v: 'both', t: 'карточка и тренд' },
+  { v: 'none', t: 'не показывать' },
+]
 
 export default function AutoBuildWizard(
   { objectId, objectName, dashboards, onClose, onDone, onError }: {
@@ -47,7 +58,13 @@ export default function AutoBuildWizard(
       .then((p) => {
         setPlan(p)
         const init: Record<string, DatasetPick> = {}
-        for (const d of p.datasets) init[d.code] = { fields: d.fields.map((f) => f.code), blocks: [...p.blocks] }
+        for (const d of p.datasets) {
+          init[d.code] = {
+            fields: d.fields.map((f) => f.code),
+            blocks: [...p.blocks],
+            views: { ...(p.views?.[d.code] || {}) },
+          }
+        }
         setSel(init)
       })
       .catch((e) => setLoadErr((e as Error).message))
@@ -56,7 +73,8 @@ export default function AutoBuildWizard(
   // Пересчёт итога при смене галочек. Дебаунс — чтобы клик по «снять все»
   // не порождал запрос на каждую галочку.
   const recount = useCallback((s: Record<string, DatasetPick>) => {
-    autoBuildPlan(objectId, s).then((p) => setPlan((cur) => (cur ? { ...cur, widgets: p.widgets, by_type: p.by_type } : p)))
+    autoBuildPlan(objectId, s)
+      .then((p) => setPlan((cur) => (cur ? { ...cur, widgets: p.widgets, pages: p.pages, by_type: p.by_type } : p)))
       .catch(() => {})
   }, [objectId])
   useEffect(() => {
@@ -72,6 +90,9 @@ export default function AutoBuildWizard(
       const next = cur.includes(field) ? cur.filter((f) => f !== field) : [...cur, field]
       return { ...s, [code]: { ...s[code], fields: next } }
     })
+  }
+  function setView(code: string, field: string, view: string) {
+    setSel((s) => (s ? { ...s, [code]: { ...s[code], views: { ...(s[code]?.views || {}), [field]: view } } } : s))
   }
   function toggleBlock(code: string, block: string) {
     setSel((s) => {
@@ -141,11 +162,22 @@ export default function AutoBuildWizard(
                   </div>
                   <div style={fieldBox}>
                     {d.fields.map((f) => (
-                      <label key={f.code} style={{ ...chk, width: '100%' }} title={f.name}>
-                        <input type="checkbox" checked={on.includes(f.code)}
-                          onChange={() => toggleField(d.code, f.code)} />
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                      </label>
+                      <div key={f.code} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <label style={{ ...chk, flex: 1, minWidth: 0 }} title={f.name}>
+                          <input type="checkbox" checked={on.includes(f.code)}
+                            onChange={() => toggleField(d.code, f.code)} />
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                        </label>
+                        <select
+                          style={viewSel} value={(pick.views || {})[f.code] || 'kpi'}
+                          disabled={!on.includes(f.code)}
+                          title="Как показать этот показатель"
+                          onChange={(e) => setView(d.code, f.code, e.target.value)}
+                        >
+                          {VIEW_LABELS.filter((v) => d.periods > 1 || v.v === 'kpi' || v.v === 'none')
+                            .map((v) => <option key={v.v} value={v.v}>{v.t}</option>)}
+                        </select>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -166,7 +198,13 @@ export default function AutoBuildWizard(
             </div>
 
             <div style={total}>
-              Будет создано: <b>{plan.widgets}</b> {plural(plan.widgets)}
+              Будет создано: <b>{plan.pages?.length || 0}</b> {pagePlural(plan.pages?.length || 0)}
+              {' · '}<b>{plan.widgets}</b> {plural(plan.widgets)}
+              {(plan.pages || []).length > 0 && (
+                <div style={{ color: 'var(--text-muted)', marginTop: 3 }}>
+                  {plan.pages.map((p) => `${p.name}: ${p.widgets}`).join(' · ')}
+                </div>
+              )}
               {plan.widgets > 0 && (
                 <span style={{ color: 'var(--text-muted)' }}>
                   {' '}({Object.entries(plan.by_type).filter(([, n]) => n > 0)
@@ -187,6 +225,16 @@ export default function AutoBuildWizard(
     </div>,
     document.body,
   )
+}
+
+function pagePlural(n: number): string {
+  const t = n % 100
+  if (t >= 11 && t <= 14) return 'страниц'
+  switch (n % 10) {
+    case 1: return 'страница'
+    case 2: case 3: case 4: return 'страницы'
+    default: return 'страниц'
+  }
 }
 
 function plural(n: number): string {
@@ -215,6 +263,7 @@ const fieldBox: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 190, overflowY: 'auto',
   border: '1px solid var(--border-faint)', borderRadius: 8, padding: '6px 8px',
 }
+const viewSel: React.CSSProperties = { height: 26, fontSize: 12, border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--surface)', flexShrink: 0, maxWidth: 150 }
 const chk: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, minWidth: 0, cursor: 'pointer' }
 const total: React.CSSProperties = {
   background: 'var(--surface-2)', borderRadius: 8, padding: '9px 12px', fontSize: 13,

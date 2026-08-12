@@ -29,8 +29,12 @@ class DashboardIn(BaseModel):
 class DatasetPick(BaseModel):
     """Что взять из одного набора данных. Пусто = всё."""
 
-    fields: Optional[List[str]] = None   # коды показателей
-    blocks: Optional[List[str]] = None   # kpi | compare | dynamics | bar | table
+    fields: Optional[List[str]] = None      # какие показатели вообще берём
+    blocks: Optional[List[str]] = None      # plan_fact | kpi | compare | dynamics | bar | table
+    # Вид конкретного показателя: kpi | dynamics | both | none. Не задан —
+    # система подбирает по роли столбца («за неделю» смотрят в движении,
+    # накопительный итог — числом).
+    views: Optional[Dict[str, str]] = None
 
 
 class AutoIn(BaseModel):

@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from ..metrics import resolver as mr
+from ..metrics.data_suggestions import _is_main_slice, _split_name, _subject_key
 from ._alerts import _cfg
 from ._base import DashboardError
 
@@ -124,7 +125,10 @@ async def suggest_widgets(conn, org_id, dataset_code: str) -> dict:
 # ловушка, из-за которой предпросмотр разметки считают тем же кодом, что и
 # выпуск датасета.
 # --------------------------------------------------------------------------- #
-BLOCKS = ["kpi", "compare", "dynamics", "bar", "table"]
+# Общие блоки дашборда. «kpi» и «dynamics» остались для совместимости выбора,
+# но вид конкретного показателя задаётся отдельно (VIEWS) — так человек может
+# сказать «этот числом, этот трендом», а не только «все или никак».
+BLOCKS = ["plan_fact", "kpi", "compare", "dynamics", "bar", "table"]
 
 
 async def collect_object_datasets(conn, org_id, object_id: str) -> list:
@@ -145,14 +149,70 @@ async def collect_object_datasets(conn, org_id, object_id: str) -> list:
     return out
 
 
-def plan_auto_build(datasets: list, selection: Optional[dict] = None) -> list:
-    """Что именно будет создано — список виджетов с местом на сетке.
+# Вид показателя на дашборде. Раньше все получали одинаковую карточку; теперь
+# вид подбирается по РОЛИ показателя, которую система и так разбирает в имени
+# столбца госформы («Показатель · Роль · Разрез»).
+VIEWS = ["kpi", "dynamics", "both", "none"]
+PAGE_OVERVIEW, PAGE_DYNAMICS, PAGE_RAW = "Обзор", "Динамика", "Первичные данные"
 
-    `selection` = {code: {"fields": [коды], "blocks": [виды]}}. Не передан —
-    берём всё: мастер по умолчанию предлагает полный набор.
+
+def default_view(field_name: str, has_periods: bool) -> str:
+    """Как показать показатель, если человек не выбрал сам.
+
+    Недельное значение само по себе мало что говорит — его смотрят в движении,
+    поэтому «за отчётную неделю» получает и число, и тренд. Накопительный итог
+    смотрят числом. Без нескольких периодов тренда быть не может.
+    """
+    if not has_periods:
+        return "kpi"
+    parsed = _split_name(field_name)
+    slc = (parsed.get("slice") or "").lower()
+    if "недел" in slc:
+        return "both"
+    return "kpi"
+
+
+def _plan_fact_pairs(fields: list) -> list:
+    """Пары «План + Факт» одного показателя в основном разрезе.
+
+    Две карточки рядом заставляют считать процент в уме, а виджет «План-факт»
+    показывает полосу выполнения сразу. Пары ищем только в ОСНОВНОМ разрезе:
+    план в форме задан накопительный («до 1 сентября»), и сравнивать его с
+    недельным фактом было бы заведомо неверно.
+    """
+    # План берём в ЛЮБОМ разрезе: он и так задан накопительно («до 1 сентября»),
+    # а его собственная подпись под «нарастающим итогом» не подходит. Требование
+    # основного разреза относится к ФАКТУ — иначе план сравнивался бы с недельным
+    # или месячным срезом, что заведомо неверно. Правило то же, что в подборе
+    # метрик (metrics/data_suggestions), чтобы система не противоречила себе.
+    plans: dict = {}
+    for f in fields:
+        p = _split_name(f["name"])
+        if p.get("role") == "plan":
+            plans[_subject_key(p.get("subject", ""))] = f
+    out = []
+    for f in fields:
+        p = _split_name(f["name"])
+        if p.get("role") != "fact" or not _is_main_slice(p.get("slice", "")):
+            continue
+        plan = plans.get(_subject_key(p.get("subject", "")))
+        if plan:
+            out.append((plan, f))
+    return out
+
+
+def plan_auto_build(datasets: list, selection: Optional[dict] = None) -> list:
+    """Что именно будет создано — список виджетов с местом на сетке и страницей.
+
+    `selection` = {code: {"fields": [коды], "blocks": [виды], "views": {код: вид}}}.
+    Не передан — берём всё с автоматически подобранными видами.
+
+    Страницы разделены по смыслу: «Обзор» отвечает на «как сейчас», «Динамика» —
+    на «как менялось», «Первичные данные» — «откуда цифры». Одна длинная страница
+    со всем сразу читалась плохо, да и данные грузятся постранично.
     """
     specs: list = []
-    y = 0
+    ov_y = dyn_y = raw_y = 0
     for d in datasets:
         code, dsname = d["code"], d["name"]
         sel = (selection or {}).get(code)
@@ -160,66 +220,80 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None) -> list:
             continue  # набор данных снят галочкой целиком
         want_fields = set(sel["fields"]) if sel and sel.get("fields") is not None else None
         blocks = set(sel["blocks"]) if sel and sel.get("blocks") is not None else set(BLOCKS)
+        views = (sel or {}).get("views") or {}
 
         fields = [f for f in d["fields"] if want_fields is None or f["code"] in want_fields]
         if not fields:
             continue
         shown = fields[:MAX_AUTO_KPI]
-        f0 = shown[0]
         has_dyn = d["periods"] > 1
 
-        # Карточка на КАЖДЫЙ выбранный показатель, по 4 в ряд (сетка 12 колонок).
-        # Имя карточки — только показатель: префикс с названием набора данных,
-        # повторённый на десятке карточек, съедал строку целиком.
-        if "kpi" in blocks:
-            for i, f in enumerate(shown):
-                specs.append({"name": f["name"], "widget_type": "kpi",
-                              "config": {"dataset_code": code, "value_field": f["code"]},
-                              "position_x": (i % 4) * 3, "position_y": y + (i // 4) * 3,
-                              "width": 3, "height": 3})
-            y += ((len(shown) + 3) // 4) * 3
+        # views/has_dyn связываем явно: замыкание на переменную цикла — классическая
+        # ловушка (в следующей итерации функция увидела бы уже другой набор данных).
+        def view_of(f, views=views, has_dyn=has_dyn):
+            v = views.get(f["code"]) or default_view(f["name"], has_dyn)
+            return v if v in VIEWS else "kpi"
 
-        # Динамика по каждому показателю нужна, когда периодов несколько: карточки
-        # и таблица показывают ПОСЛЕДНИЙ выпуск, и без трендов дашборд по полутора
-        # десяткам форм выглядит так, будто взята одна дата.
-        grid_dyn = has_dyn and "dynamics" in blocks and len(shown) > 1
-        if "bar" in blocks:
-            # Динамика в этом ряду — только когда показатель ОДИН: иначе тренд
-            # первого показателя дублировал бы карточку из сетки ниже.
-            solo_dyn = has_dyn and "dynamics" in blocks and not grid_dyn
-            specs.append({"name": f"{dsname}: {f0['name']} по строкам", "widget_type": "bar",
-                          "config": {"dataset_code": code, "value_field": f0["code"]},
-                          "position_x": 0, "position_y": y, "width": 8 if solo_dyn else 12, "height": 6})
-            if solo_dyn:
-                specs.append({"name": f"{dsname}: динамика {f0['name']}", "widget_type": "dynamics",
-                              "config": {"dataset_code": code, "value_field": f0["code"]},
-                              "position_x": 8, "position_y": y, "width": 4, "height": 6})
-            y += 6
+        # ── Обзор: план-факт полосой, остальные — карточками, снизу сравнение ──
+        if "plan_fact" in blocks:
+            pairs = _plan_fact_pairs(shown)
+            for i, (plan, fact) in enumerate(pairs):
+                specs.append({"page": PAGE_OVERVIEW,
+                              "name": f"{_split_name(fact['name'])['subject']}: план и факт",
+                              "widget_type": "plan_fact",
+                              "config": {"dataset_code": code,
+                                         "plan_field": plan["code"], "fact_field": fact["code"]},
+                              "position_x": (i % 2) * 6, "position_y": ov_y + (i // 2) * 5,
+                              "width": 6, "height": 5})
+            if pairs:
+                # По 2 в ряд: пара «план-факт» шире карточки (в ней два числа,
+                # разница и полоса), а 2×6 заполняют 12 колонок ровно — иначе
+                # карточки затекали бы в остаток ряда сбоку от полос.
+                ov_y += ((len(pairs) + 1) // 2) * 5
 
-        if grid_dyn:
-            grid = shown[:MAX_AUTO_DYNAMICS]
-            for i, f in enumerate(grid):
-                specs.append({"name": f"Динамика: {f['name']}", "widget_type": "dynamics",
-                              "config": {"dataset_code": code, "value_field": f["code"]},
-                              "position_x": (i % 3) * 4, "position_y": y + (i // 3) * 6,
-                              "width": 4, "height": 6})
-            y += ((len(grid) + 2) // 3) * 6
+        cards = [f for f in shown if view_of(f) in ("kpi", "both")] if "kpi" in blocks else []
+        for i, f in enumerate(cards):
+            specs.append({"page": PAGE_OVERVIEW, "name": f["name"], "widget_type": "kpi",
+                          "config": {"dataset_code": code, "value_field": f["code"]},
+                          "position_x": (i % 4) * 3, "position_y": ov_y + (i // 4) * 3,
+                          "width": 3, "height": 3})
+        if cards:
+            ov_y += ((len(cards) + 3) // 4) * 3
 
         # Сравнение: десяток карточек даёт точные числа, но не даёт увидеть
-        # соотношение. 8 рядов — замерено: при 6 график ужимается до полоски
-        # (легенда и пояснение съедают карточку), при 10 внизу пустое место.
-        if "compare" in blocks and len(shown) > 1:
-            specs.append({"name": f"{dsname}: сравнение показателей", "widget_type": "compare",
-                          "config": {"dataset_code": code, "value_fields": [f["code"] for f in shown]},
-                          "position_x": 0, "position_y": y, "width": 12,
-                          "height": 8 if len(shown) > 4 else 6})
-            y += 8 if len(shown) > 4 else 6
+        # соотношение. 8 рядов — замерено: при 6 график ужимается до полоски.
+        if "compare" in blocks and len(cards) > 1:
+            specs.append({"page": PAGE_OVERVIEW, "name": f"{dsname}: сравнение показателей",
+                          "widget_type": "compare",
+                          "config": {"dataset_code": code, "value_fields": [f["code"] for f in cards]},
+                          "position_x": 0, "position_y": ov_y, "width": 12,
+                          "height": 8 if len(cards) > 4 else 6})
+            ov_y += 8 if len(cards) > 4 else 6
 
+        # ── Динамика: тренд по каждому показателю, которому он назначен ──
+        trends = ([f for f in shown if view_of(f) in ("dynamics", "both")][:MAX_AUTO_DYNAMICS]
+                  if has_dyn and "dynamics" in blocks else [])
+        for i, f in enumerate(trends):
+            specs.append({"page": PAGE_DYNAMICS, "name": f"Динамика: {f['name']}",
+                          "widget_type": "dynamics",
+                          "config": {"dataset_code": code, "value_field": f["code"]},
+                          "position_x": (i % 3) * 4, "position_y": dyn_y + (i // 3) * 6,
+                          "width": 4, "height": 6})
+        if trends:
+            dyn_y += ((len(trends) + 2) // 3) * 6
+
+        # ── Первичные данные: разрез по строкам и сама таблица ──
+        if "bar" in blocks:
+            specs.append({"page": PAGE_RAW, "name": f"{dsname}: {shown[0]['name']} по строкам",
+                          "widget_type": "bar",
+                          "config": {"dataset_code": code, "value_field": shown[0]["code"]},
+                          "position_x": 0, "position_y": raw_y, "width": 12, "height": 6})
+            raw_y += 6
         if "table" in blocks:
-            specs.append({"name": f"{dsname}: таблица", "widget_type": "table",
+            specs.append({"page": PAGE_RAW, "name": f"{dsname}: таблица", "widget_type": "table",
                           "config": {"dataset_code": code},
-                          "position_x": 0, "position_y": y, "width": 12, "height": 6})
-            y += 6
+                          "position_x": 0, "position_y": raw_y, "width": 12, "height": 6})
+            raw_y += 6
     return specs
 
 
@@ -253,7 +327,18 @@ async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict
         "blocks": BLOCKS,
         "warnings": warnings,
         "widgets": len(specs),
+        "pages": [
+            {"name": t, "widgets": sum(1 for s in specs if (s.get("page") or PAGE_OVERVIEW) == t)}
+            for t in (PAGE_OVERVIEW, PAGE_DYNAMICS, PAGE_RAW)
+            if any((s.get("page") or PAGE_OVERVIEW) == t for s in specs)
+        ],
         "by_type": {t: sum(1 for s in specs if s["widget_type"] == t) for t in BLOCKS},
+        # Как система предлагает показать каждый показатель — мастер выводит это
+        # рядом с ним и даёт поменять.
+        "views": {
+            d["code"]: {f["code"]: default_view(f["name"], d["periods"] > 1) for f in d["fields"]}
+            for d in datasets
+        },
     }
 
 
@@ -294,11 +379,19 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
                                           f"Авто-сборка по объекту «{obj['name']}»", None)
         did = str(dash["id"])
 
-    page = await svc.create_page(conn, org_id, user_id, did, "Обзор", None)
-    pid = str(page["id"])
-    for s in specs:
+    # Страницы создаём в осмысленном порядке и только те, на которых что-то есть:
+    # пустая вкладка «Динамика» у формы с одним периодом сбивала бы с толку.
+    pages: dict = {}
+    first_pid = None
+    for spec in specs:
+        title = spec.get("page") or PAGE_OVERVIEW
+        if title not in pages:
+            page = await svc.create_page(conn, org_id, user_id, did, title, None)
+            pages[title] = str(page["id"])
+            if first_pid is None:
+                first_pid = pages[title]
         await svc.create_widget(
-            conn, org_id, user_id, pid, s["name"], s["widget_type"], s["config"],
-            {"position_x": s["position_x"], "position_y": s["position_y"],
-             "width": s["width"], "height": s["height"]})
-    return {"dashboard_id": did, "page_id": pid, "widgets": len(specs)}
+            conn, org_id, user_id, pages[title], spec["name"], spec["widget_type"], spec["config"],
+            {"position_x": spec["position_x"], "position_y": spec["position_y"],
+             "width": spec["width"], "height": spec["height"]})
+    return {"dashboard_id": did, "page_id": first_pid, "pages": len(pages), "widgets": len(specs)}
