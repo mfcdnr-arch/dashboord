@@ -119,6 +119,11 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
     if user is not None and cfg.get("dataset_code"):
         allowed = await allowed_rows_for_dataset(conn, org_id, user, cfg["dataset_code"])
 
+    # Закреплённый период: виджет читает выпуск ЗА ЭТУ дату, а не последний.
+    # Так устроены страницы «по неделям» — они показывают срез и не меняются,
+    # когда приходит следующая неделя.
+    period = cfg.get("period") or None
+
     if t == "text":
         return {"type": "text", "title": name, "heading": cfg.get("heading"),
                 "body": cfg.get("body"), "align": cfg.get("align", "left")}
@@ -131,7 +136,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         fields = cfg.get("value_fields") or []
         if not cfg.get("dataset_code") or not fields:
             raise DashboardError("Сравнение: укажите dataset_code и value_fields")
-        res = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row, allowed)
+        res = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row, allowed, period)
         res["type"], res["viz"], res["title"] = "compare", cfg.get("viz", "bar"), name
         # Шкала: 'log' | 'linear' | не задано (тогда решает разброс значений на
         # фронте). Показатели одной формы различаются на два порядка — на линейной
@@ -146,7 +151,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         fields = cfg.get("value_fields") or []
         if not cfg.get("dataset_code") or not fields:
             raise DashboardError("Тепловая карта: укажите dataset_code и value_fields")
-        ms = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row, allowed)
+        ms = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row, allowed, period)
         # ms: {categories:[строки], series:[{name:поле, data:[значения по строкам]}]}
         cols = [s["name"] for s in ms["series"]]
         cells = []  # [col_idx, row_idx, value]
@@ -165,7 +170,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         fields = cfg.get("value_fields") or []
         if not cfg.get("dataset_code") or not fields:
             raise DashboardError("Сводная таблица: укажите dataset_code и value_fields")
-        ms = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row, allowed)
+        ms = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row, allowed, period)
         cols = [s["name"] for s in ms["series"]]
         col_totals = [0.0] * len(cols)
         grand = 0.0
@@ -188,7 +193,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         # Для МФЦ: из чего складывается общий объём (услуги → суммарно).
         if not cfg.get("dataset_code") or not cfg.get("value_field"):
             raise DashboardError("Водопад: укажите dataset_code и value_field")
-        series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed)
+        series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed, period)
         cats = [s["category"] for s in series]
         vals = [s["value"] for s in series]
         return {"type": "waterfall", "title": name, "categories": cats, "values": vals,
@@ -337,7 +342,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         elif cfg.get("metric_code"):
             value, unit = await _metric_value(conn, org_id, cfg["metric_code"])
         elif cfg.get("dataset_code") and cfg.get("value_field"):
-            series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed)
+            series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed, period)
             value, unit = sum(s["value"] for s in series), cfg.get("unit")
         else:
             raise DashboardError("KPI: укажите формулу, metric_code или dataset_code+value_field")
@@ -353,7 +358,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         elif cfg.get("metric_code"):
             value, unit = await _metric_value(conn, org_id, cfg["metric_code"])
         elif cfg.get("dataset_code") and cfg.get("value_field"):
-            series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed)
+            series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed, period)
             value, unit = sum(s["value"] for s in series), cfg.get("unit")
         else:
             raise DashboardError("Gauge: укажите формулу, metric_code или dataset_code+value_field")
@@ -371,9 +376,9 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
             fact, _ = await _metric_value(conn, org_id, cfg["fact_metric"])
         elif cfg.get("dataset_code") and cfg.get("plan_field") and cfg.get("fact_field"):
             plan = sum(s["value"] for s in await _dataset_series(
-                conn, org_id, cfg["dataset_code"], cfg["plan_field"], row, allowed))
+                conn, org_id, cfg["dataset_code"], cfg["plan_field"], row, allowed, period))
             fact = sum(s["value"] for s in await _dataset_series(
-                conn, org_id, cfg["dataset_code"], cfg["fact_field"], row, allowed))
+                conn, org_id, cfg["dataset_code"], cfg["fact_field"], row, allowed, period))
             unit = cfg.get("unit")
         else:
             raise DashboardError("План-факт: укажите plan_metric+fact_metric или dataset_code+plan_field+fact_field")
@@ -385,13 +390,13 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
     if t == "table":
         if not cfg.get("dataset_code"):
             raise DashboardError("Таблица: укажите dataset_code")
-        table = await _dataset_table(conn, org_id, cfg["dataset_code"], row, allowed)
+        table = await _dataset_table(conn, org_id, cfg["dataset_code"], row, allowed, period)
         return {"type": "table", "title": name, **table}
 
     # bar | line | pie
     if not cfg.get("dataset_code") or not cfg.get("value_field"):
         raise DashboardError("График: укажите dataset_code и value_field")
-    series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed)
+    series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed, period)
     return {"type": t, "title": name,
             "categories": [s["category"] for s in series],
             "values": [s["value"] for s in series]}

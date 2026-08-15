@@ -69,6 +69,8 @@ export type DatasetPick = {
   blocks?: string[]
   /** Вид конкретного показателя: kpi | dynamics | both | none. */
   views?: Record<string, string>
+  /** Отчётные даты, для которых нужны отдельные страницы-срезы. */
+  periods?: string[]
 }
 
 export type AutoPlanDataset = {
@@ -77,6 +79,8 @@ export type AutoPlanDataset = {
   periods: number
   releases: number
   fields: { code: string; name: string }[]
+  /** Отчётные даты, доступные для страниц-срезов (свежие сверху). */
+  period_dates?: string[]
 }
 
 export type AutoPlan = {

@@ -147,8 +147,18 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
           <button style={drillBtn} onClick={openDrill} title="Из чего собран показатель">🔍 подробнее</button>
         )}
         {data?.as_of && (
-          <span style={{ fontSize: 11, color: 'var(--text-faint)' }} title="Дата актуальности данных (активный выпуск датасета)">
-            🕓 данные на {fmtAsOf(data.as_of)}
+          // У виджета с закреплённым периодом это СРЕЗ: он не обновится, когда
+          // придёт следующая неделя. Не сказать об этом — значит выдать снимок
+          // за актуальные данные.
+          <span
+            style={{ fontSize: 11, color: data.period_locked ? 'var(--warn)' : 'var(--text-faint)' }}
+            title={data.period_locked
+              ? 'Виджет закреплён за отчётной датой: он показывает срез и не меняется, когда приходит новый отчёт'
+              : 'Дата актуальности данных (активный выпуск датасета)'}
+          >
+            {data.period_locked
+              ? `📌 срез за ${fmtAsOf(data.as_of)} · не обновляется`
+              : `🕓 данные на ${fmtAsOf(data.as_of)}`}
           </span>
         )}
         {data?.sources && (

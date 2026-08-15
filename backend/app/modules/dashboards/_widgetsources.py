@@ -81,8 +81,15 @@ def _row_acl_clause(params: list, allowed) -> str:
     return f" and row_label = any(${len(params)}::text[])"
 
 
-async def _dataset_series(conn, org_id, dataset_code: str, value_field: str, row=None, allowed=None):
-    rel = await mr._active_release(conn, org_id, dataset_code)
+async def _dataset_series(conn, org_id, dataset_code: str, value_field: str, row=None, allowed=None,
+                          period=None):
+    """`period` — брать выпуск ЗА ЭТУ отчётную дату, а не последний.
+
+    Нужен страницам «по неделям»: такая страница показывает данные конкретной
+    недели и не должна меняться, когда придёт следующая. Пусто — обычное
+    поведение: последний неотменённый выпуск, то есть свежие цифры.
+    """
+    rel = await mr._active_release(conn, org_id, dataset_code, period)
     if rel is None:
         raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
     params: list = [rel, value_field, row]
@@ -95,9 +102,10 @@ async def _dataset_series(conn, org_id, dataset_code: str, value_field: str, row
     return [{"category": r["row_label"], "value": float(r["value_number"])} for r in rows]
 
 
-async def _dataset_multi_series(conn, org_id, dataset_code: str, value_fields: List[str], row=None, allowed=None) -> dict:
+async def _dataset_multi_series(conn, org_id, dataset_code: str, value_fields: List[str], row=None,
+                                allowed=None, period=None) -> dict:
     """Несколько серий по одному датасету: категории=строки, серия=каждое поле."""
-    rel = await mr._active_release(conn, org_id, dataset_code)
+    rel = await mr._active_release(conn, org_id, dataset_code, period)
     if rel is None:
         raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
     names = {r["code"]: r["name"] for r in await conn.fetch(
@@ -149,8 +157,8 @@ async def _dataset_period_series(conn, org_id, dataset_code: str, value_field: s
     return out
 
 
-async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None):
-    rel = await mr._active_release(conn, org_id, dataset_code)
+async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None, period=None):
+    rel = await mr._active_release(conn, org_id, dataset_code, period)
     if rel is None:
         raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
     fields = await conn.fetch(
@@ -183,8 +191,14 @@ async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None
     return {"columns": cols, "column_titles": names, "rows": rows}
 
 
-async def _dataset_as_of(conn, org_id, dataset_code: str):
-    """Дата активного (не superseded) выпуска датасета — для метки свежести."""
+async def _dataset_as_of(conn, org_id, dataset_code: str, period=None):
+    """Дата выпуска, по которому посчитан виджет, — для метки свежести.
+
+    У виджета с закреплённым периодом это сам период: иначе страница «за
+    05.08» подписывалась бы датой последнего выпуска и вводила в заблуждение.
+    """
+    if period:
+        return str(period)
     d = await conn.fetchval(
         "select reporting_period_start from dataset_releases "
         "where organization_id=$1 and code=$2 and status<>'superseded' "
@@ -198,5 +212,9 @@ async def _attach_as_of(conn, org_id, cfg: dict, result):
     виджетов. Именованные метрики/объектные — без метки (объективны)."""
     ds = (cfg or {}).get("dataset_code")
     if ds and isinstance(result, dict) and "as_of" not in result:
-        result["as_of"] = await _dataset_as_of(conn, org_id, ds)
+        result["as_of"] = await _dataset_as_of(conn, org_id, ds, (cfg or {}).get("period"))
+        if (cfg or {}).get("period"):
+            # Страница «по неделям» показывает срез и не обновляется — об этом
+            # надо сказать, иначе её примут за устаревший дашборд.
+            result["period_locked"] = True
     return result

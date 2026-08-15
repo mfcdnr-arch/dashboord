@@ -35,6 +35,10 @@ const VIEW_LABELS: { v: string; t: string }[] = [
   { v: 'none', t: 'не показывать' },
 ]
 
+/** Отчётная дата по-русски: в системе принят ДД.ММ.ГГГГ. */
+const ruDate = (iso: string): string =>
+  (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').reverse().join('.') : iso)
+
 export default function AutoBuildWizard(
   { objectId, objectName, dashboards, onClose, onDone, onError }: {
     objectId: string
@@ -100,6 +104,16 @@ export default function AutoBuildWizard(
       const cur = s[code]?.blocks || []
       const next = cur.includes(block) ? cur.filter((b) => b !== block) : [...cur, block]
       return { ...s, [code]: { ...s[code], blocks: next } }
+    })
+  }
+  /** Отдельная страница-срез за эту отчётную дату.
+   *  Сводные страницы обновляются сами; страница периода — снимок и не меняется. */
+  function togglePeriod(code: string, period: string) {
+    setSel((s) => {
+      if (!s) return s
+      const cur = s[code]?.periods || []
+      const next = cur.includes(period) ? cur.filter((p) => p !== period) : [...cur, period]
+      return { ...s, [code]: { ...s[code], periods: next } }
     })
   }
   function setAllFields(code: string, all: string[], on: boolean) {
@@ -180,6 +194,33 @@ export default function AutoBuildWizard(
                       </div>
                     ))}
                   </div>
+                  {(d.period_dates || []).length > 1 && (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '12px 0 4px' }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 600 }}>
+                          Отдельные страницы по отчётам ({(pick.periods || []).length})
+                        </span>
+                      </div>
+                      <div style={{ ...muted, fontSize: 12, marginBottom: 6 }}>
+                        Страницы выше — сводные: они показывают последний отчёт и обновляются сами,
+                        когда приходит новый. Страница за конкретную дату — снимок: её цифры
+                        привязаны к этой дате и не меняются. Отметьте недели, которые нужно
+                        сохранить отдельно (не больше восьми).
+                      </div>
+                      <div style={{ ...fieldBox, maxHeight: 110 }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                          {(d.period_dates || []).map((p) => (
+                            <label key={p} style={chk}>
+                              <input type="checkbox" checked={(pick.periods || []).includes(p)}
+                                disabled={!(pick.periods || []).includes(p) && (pick.periods || []).length >= 8}
+                                onChange={() => togglePeriod(d.code, p)} />
+                              {ruDate(p)}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               )
             })}

@@ -141,10 +141,18 @@ async def collect_object_datasets(conn, org_id, object_id: str) -> list:
     out = []
     for d in rows:
         fields = await _dataset_numeric_fields(conn, org_id, d["code"])
+        # Сами отчётные даты нужны мастеру: по ним человек выбирает недели,
+        # для которых нужны отдельные страницы (этап 3).
+        dates = await conn.fetch(
+            "select distinct reporting_period_start as p from dataset_releases "
+            "where organization_id=$1 and code=$2 and status<>'superseded' "
+            "and reporting_period_start is not null order by 1 desc limit 60",
+            org_id, d["code"])
         out.append({
             "code": d["code"], "name": d["name"] or d["code"],
             "periods": d["periods"] or 0, "releases": d["releases"] or 0,
             "fields": fields,
+            "period_dates": [r["p"].isoformat() for r in dates],
         })
     return out
 
@@ -154,6 +162,10 @@ async def collect_object_datasets(conn, org_id, object_id: str) -> list:
 # столбца госформы («Показатель · Роль · Разрез»).
 VIEWS = ["kpi", "dynamics", "both", "none"]
 PAGE_OVERVIEW, PAGE_DYNAMICS, PAGE_RAW = "Обзор", "Динамика", "Первичные данные"
+PAGE_PERIOD_PREFIX = "Отчёт за"
+# Потолок страниц-срезов: каждая страница — это ещё десяток запросов данных,
+# а дашборд из полусотни вкладок невозможно листать.
+MAX_AUTO_PERIOD_PAGES = 8
 
 
 def default_view(field_name: str, has_periods: bool) -> str:
@@ -294,7 +306,48 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None) -> list:
                           "config": {"dataset_code": code},
                           "position_x": 0, "position_y": raw_y, "width": 12, "height": 6})
             raw_y += 6
+
+        # ── Страницы по отчётным периодам ────────────────────────────────────
+        # Сводные страницы обновляются сами: виджет читает последний выпуск.
+        # Страница периода — наоборот, СРЕЗ: у её виджетов закреплена дата, и
+        # приход новой недели их не меняет. Оба режима нужны заказчику, и
+        # разницу между ними человек должен понимать (о ней сказано на самой
+        # странице и в мастере).
+        for period in _selected_periods(sel, d):
+            py = 0
+            page = f"{PAGE_PERIOD_PREFIX} {_ru_date(period)}"
+            for i, f in enumerate(shown[:MAX_AUTO_KPI]):
+                specs.append({"page": page, "name": f["name"], "widget_type": "kpi",
+                              "config": {"dataset_code": code, "value_field": f["code"],
+                                         "period": period},
+                              "position_x": (i % 4) * 3, "position_y": py + (i // 4) * 3,
+                              "width": 3, "height": 3})
+            py += ((len(shown[:MAX_AUTO_KPI]) + 3) // 4) * 3
+            specs.append({"page": page, "name": f"{dsname}: таблица за {_ru_date(period)}",
+                          "widget_type": "table",
+                          "config": {"dataset_code": code, "period": period},
+                          "position_x": 0, "position_y": py, "width": 12, "height": 6})
     return specs
+
+
+def _ru_date(iso: str) -> str:
+    """Отчётная дата в подписи страницы — по-русски: ДД.ММ.ГГГГ."""
+    parts = str(iso).split("-")
+    return ".".join(reversed(parts)) if len(parts) == 3 else str(iso)
+
+
+def _selected_periods(sel: Optional[dict], dataset: dict) -> list:
+    """Отчётные даты, для которых человек попросил отдельные страницы.
+
+    Пусто по умолчанию: страницы по неделям создаются ТОЛЬКО по явному выбору.
+    У заказчика 15 недель — молча собрать 15 страниц значило бы сделать
+    дашборд, который невозможно открыть.
+    """
+    if not sel:
+        return []
+    wanted = sel.get("periods") or []
+    known = set(dataset.get("period_dates") or [])
+    return [p for p in wanted if p in known][:MAX_AUTO_PERIOD_PAGES]
 
 
 async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict] = None) -> dict:
