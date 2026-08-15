@@ -373,8 +373,11 @@ export default function ObjectsPage(
                   {folderTree(folders).map((f) => <option key={f.id} value={f.id}>{folderLabel(f)}</option>)}
                 </select>
               )}
-              <button style={btn} disabled={busy || !newFolder.trim()}>＋ Папка</button>
-              <button type="button" style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent)' }}
+              <button style={{ ...btn, whiteSpace: 'nowrap', flexShrink: 0 }}
+                disabled={busy || !newFolder.trim()}>＋ Папка</button>
+              <button type="button"
+                style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent)',
+                         whiteSpace: 'nowrap', flexShrink: 0 }}
                 onClick={() => setRowAclObj(obj)} title="Ограничить видимость строк данных по подразделению">
                 🔐 Доступ к строкам
               </button>
@@ -391,16 +394,23 @@ export default function ObjectsPage(
                   type="button"
                   onClick={(e) => { e.stopPropagation(); toggleAutoPrepare(f) }}
                   title={f.auto_prepare === false
-                    ? 'Файлы этой папки не готовятся автоматически — распознавание запускается вручную'
-                    : 'Новый файл распознаётся сам, разметка подставляется из прошлого выпуска. Выпуск всё равно подтверждает человек'}
+                    ? 'Сейчас выключено: новый файл ждёт, пока его отправят на распознавание вручную. Нажмите, чтобы включить'
+                    : 'Сейчас включено: новый файл распознаётся сам, разметка подставляется из прошлого выпуска. Выпуск всё равно подтверждает человек. Нажмите, чтобы выключить'}
                   style={{
-                    fontSize: 11, padding: '2px 9px', borderRadius: 10, cursor: 'pointer',
-                    border: '1px solid ' + (f.auto_prepare === false ? 'var(--border-strong)' : 'var(--accent)'),
-                    background: f.auto_prepare === false ? 'var(--surface)' : 'var(--accent-weak-bg)',
-                    color: f.auto_prepare === false ? 'var(--text-muted)' : 'var(--accent)',
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    fontSize: 11.5, padding: '3px 10px', borderRadius: 10, cursor: 'pointer',
+                    border: '1px solid ' + (f.auto_prepare === false ? 'var(--border-strong)' : 'var(--success)'),
+                    background: f.auto_prepare === false ? 'var(--surface)' : 'var(--success-bg)',
+                    color: f.auto_prepare === false ? 'var(--text-muted)' : 'var(--success)',
                     whiteSpace: 'nowrap',
                   }}
-                >{f.auto_prepare === false ? '⏸ готовить вручную' : '⚙ готовить автоматически'}</button>
+                >
+                  {/* Надпись говорит СОСТОЯНИЕ, а не действие: «готовить
+                      автоматически» читалось как предложение включить, хотя
+                      означало, что уже включено. */}
+                  <span>{f.auto_prepare === false ? '☐' : '☑'}</span>
+                  Автоподготовка: {f.auto_prepare === false ? 'выключена' : 'включена'}
+                </button>
               ) : undefined,
               actions: canManage ? (
                 <>
@@ -637,5 +647,9 @@ function fmtSize(n: number | null): string {
 const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 14, padding: 0 }
 const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 14 }
 const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }
-const rowForm: React.CSSProperties = { display: 'flex', gap: 8, marginBottom: 16 }
+// Кнопки в строке формы не сжимаем: при узкой колонке текст переносился внутрь
+// в три строки и вылезал за границу кнопки на соседний блок.
+const rowForm: React.CSSProperties = {
+  display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center',
+}
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }

@@ -393,3 +393,47 @@ async def current_values(conn, org_id, codes: Optional[List[str]] = None, limit:
                 item["error"] = f"ошибка расчёта: {e}"
         out.append(item)
     return {"items": out}
+
+
+async def bulk_set_status(conn, org_id, user_id, version_ids: List[str], target: str,
+                          roles: Optional[set] = None) -> dict:
+    """Проверить или одобрить несколько версий разом.
+
+    Заводя показатели пачкой (мастер и предложения по данным создают их
+    десятками), человек упирался в десяток одинаковых нажатий. Массовая
+    операция — та же самая `set_status` в цикле: **правила не ослаблены**,
+    и это главное. Свою версию по-прежнему нельзя одобрить (кроме
+    суперадминистратора), черновик нельзя одобрить в обход проверки.
+
+    Отказ по одной версии не отменяет остальные: возвращаем поимённо, что
+    прошло и что нет, — иначе одна чужая метрика в списке блокировала бы
+    работу со всеми, а человек не понял бы, какая именно.
+    """
+    done, failed = [], []
+    for vid in version_ids:
+        try:
+            await set_status(conn, org_id, user_id, vid, target, roles)
+            done.append(vid)
+        except MetricError as e:
+            failed.append({"version_id": vid, "error": str(e)})
+    return {"target": target, "done": done, "failed": failed,
+            "ok": len(done), "skipped": len(failed)}
+
+
+async def pending_versions(conn, org_id, target: str) -> list:
+    """Версии, к которым применима массовая операция: что именно будет затронуто.
+
+    Человек должен видеть список ДО нажатия: массовое одобрение — это решение
+    по каждому показателю, а не «нажать и забыть».
+    """
+    status = "draft" if target == "validated" else "validated"
+    rows = await conn.fetch(
+        "select mv.id as version_id, mv.version_no, mv.created_by, m.code, m.name "
+        "from metric_versions mv join metrics m on m.id = mv.metric_id "
+        "where m.organization_id=$1 and mv.status=$2 order by m.name",
+        org_id, status)
+    return [
+        {"version_id": str(r["version_id"]), "version_no": r["version_no"],
+         "code": r["code"], "name": r["name"], "created_by": str(r["created_by"])}
+        for r in rows
+    ]

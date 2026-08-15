@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import json
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -24,12 +24,14 @@ from .describe import build_info_draft
 from .parser import FormulaError, extract_dependencies
 from .service import (
     MetricError,
+    bulk_set_status,
     create_metric,
     create_version,
     current_values,
     delete_metric,
     evaluate_version,
     list_data_sources,
+    pending_versions,
     preview,
     set_status,
     update_metric,
@@ -160,6 +162,37 @@ async def build_template_formula(body: dict, user: dict = Depends(manage)):
     except FormulaError as e:
         raise HTTPException(400, str(e)) from None
     return {"formula": formula, "name": suggested_name(code, (body or {}).get("labels") or {})}
+
+
+class BulkStatusIn(BaseModel):
+    """Массовая проверка/одобрение. Правила те же, что у одиночной операции."""
+
+    version_ids: List[str] = Field(min_length=1)
+    target: str = "approved"   # validated | approved
+
+
+@router.get("/pending")
+async def metrics_pending(target: str = "approved", user: dict = Depends(manage)):
+    """Что попадёт под массовую операцию — список ДО нажатия."""
+    async with db.get_pool().acquire() as conn:
+        return {"items": await pending_versions(conn, user["organization_id"], target)}
+
+
+@router.post("/bulk-status")
+async def metrics_bulk_status(body: BulkStatusIn, user: dict = Depends(manage)):
+    """Проверить/одобрить несколько версий разом.
+
+    Ограничения не ослаблены: свою версию по-прежнему нельзя одобрить (кроме
+    суперадминистратора), черновик нельзя одобрить в обход проверки. Что не
+    прошло — возвращается поимённо с причиной.
+    """
+    if body.target not in ("validated", "approved"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Допустимо: validated или approved")
+    async with db.get_pool().acquire() as conn:
+        roles = set(user.get("roles") or ())
+        async with conn.transaction():
+            return await bulk_set_status(
+                conn, user["organization_id"], user["id"], body.version_ids, body.target, roles)
 
 
 @router.get("/values")

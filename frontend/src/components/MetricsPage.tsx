@@ -4,6 +4,7 @@ import {
   previewFormula, updateMetric, validateVersion, versionValue,
   type DataSources, type Dependencies, type Metric, type MetricVersion,
   metricValues, type MetricValue,
+  metricsPending, metricsBulkStatus, type PendingVersion,
 } from '../api'
 import FormulaBuilder from './FormulaBuilder'
 import { ConfirmDialog } from './dashboards/ConfirmDialog'
@@ -28,6 +29,11 @@ export default function MetricsPage({ canManage, isSuperadmin }: { canManage: bo
   // показателей — полтора десятка заходов, а сломанная формула вообще ничем
   // себя не выдавала.
   const [values, setValues] = useState<Record<string, MetricValue>>({})
+  // Массовая проверка/одобрение: показатели заводятся пачками (мастер и
+  // предложения по данным создают их десятками), и десять одинаковых нажатий —
+  // это ровно та ручная работа, от которой уходим.
+  const [bulk, setBulk] = useState<{ target: 'validated' | 'approved'; items: PendingVersion[] } | null>(null)
+  const [bulkNote, setBulkNote] = useState<string | null>(null)
   const [metricsTotal, setMetricsTotal] = useState(0)
   const [mq, setMq] = useState('')
   const [sel, setSel] = useState<{ metric: Metric; versions: MetricVersion[] } | null>(null)
@@ -55,6 +61,36 @@ export default function MetricsPage({ canManage, isSuperadmin }: { canManage: bo
   useEffect(() => { const t = setTimeout(() => loadMetrics(mq), 250); return () => clearTimeout(t) }, [mq]) // eslint-disable-line react-hooks/exhaustive-deps
   // Значения — отдельным запросом: расчёт формул дороже выборки списка, и
   // список не должен ждать его, чтобы показаться.
+  async function openBulk(target: 'validated' | 'approved') {
+    setBulkNote(null)
+    try {
+      const r = await metricsPending(target)
+      if (!r.items.length) {
+        setBulkNote(target === 'validated'
+          ? 'Черновиков нет — проверять нечего.'
+          : 'Проверенных версий нет. Сначала «Проверить все черновики».')
+        return
+      }
+      setBulk({ target, items: r.items })
+    } catch (e) { setError((e as Error).message) }
+  }
+
+  async function runBulk() {
+    if (!bulk) return
+    setBusy(true); setError(null)
+    try {
+      const r = await metricsBulkStatus(bulk.items.map((i) => i.version_id), bulk.target)
+      setBulk(null)
+      // Отказы называем поимённо: чаще всего это «нельзя одобрять свою версию»,
+      // и человек должен понимать, почему часть показателей осталась как была.
+      setBulkNote(r.skipped
+        ? `Готово: ${r.ok}. Не удалось: ${r.skipped} — ${r.failed[0]?.error || ''}`
+        : `Готово: ${r.ok}.`)
+      await loadMetrics(mq)
+      await loadValues()
+    } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
+  }
+
   const loadValues = () => metricValues()
     .then((r) => setValues(Object.fromEntries(r.items.map((v) => [v.code, v]))))
     .catch(() => setValues({}))
@@ -85,6 +121,28 @@ export default function MetricsPage({ canManage, isSuperadmin }: { canManage: bo
 
       {error && <div style={errBox}>{error}</div>}
 
+      {bulk && (
+        <ConfirmDialog
+          title={bulk.target === 'validated'
+            ? `Проверить черновиков: ${bulk.items.length}?`
+            : `Одобрить проверенных версий: ${bulk.items.length}?`}
+          message={
+            (bulk.target === 'approved'
+              ? 'Одобрение — это подтверждение, что формула считает верно. Свои версии система пропустит: '
+                + 'одобрять собственную работу нельзя (кроме суперадминистратора).\n\n'
+              : 'Проверка переводит черновик в состояние «проверена» — дальше его одобряет другой сотрудник.\n\n')
+            + bulk.items.slice(0, 12).map((i) => `• ${i.name}`).join('\n')
+            + (bulk.items.length > 12 ? `\n…и ещё ${bulk.items.length - 12}` : '')
+          }
+          confirmLabel={bulk.target === 'validated' ? 'Проверить' : 'Одобрить'}
+          busyLabel="Выполняем…"
+          tone="accent"
+          busy={busy}
+          onClose={() => setBulk(null)}
+          onConfirm={runBulk}
+        />
+      )}
+
       {!sel && (
         <div>
           {canManage && <DataSuggestPanel onCreated={refresh} />}
@@ -95,6 +153,17 @@ export default function MetricsPage({ canManage, isSuperadmin }: { canManage: bo
               <button style={btn} disabled={busy || !code.trim() || !name.trim()}>＋ Метрика</button>
             </form>
           )}
+          {canManage && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+              <button type="button" style={{ ...btnGhostSm }}
+                title="Отметить черновики как проверенные — по списку, который покажем перед этим"
+                onClick={() => openBulk('validated')}>✓ Проверить все черновики</button>
+              <button type="button" style={{ ...btnGhostSm }}
+                title="Одобрить проверенные версии. Свою версию одобрить нельзя — это разделение обязанностей"
+                onClick={() => openBulk('approved')}>✓✓ Одобрить все проверенные</button>
+              {bulkNote && <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{bulkNote}</span>}
+            </div>
+          )}
           <input style={{ ...input, width: '100%', maxWidth: 420, marginBottom: 12 }} placeholder="🔍 Поиск по коду или названию…" value={mq} onChange={(e) => setMq(e.target.value)} />
           {metrics.length === 0 ? (
             <div style={muted}>{mq.trim() ? 'Ничего не найдено.' : 'Пока нет метрик. Создайте первую и задайте ей формулу.'}</div>
@@ -102,13 +171,22 @@ export default function MetricsPage({ canManage, isSuperadmin }: { canManage: bo
             <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
               {metrics.map((m, i) => (
                 <div key={m.id} onClick={() => openMetric(m.id)} style={{ ...rowItem, borderTop: i ? '1px solid var(--border-faint)' : 'none' }}>
-                  <div>
-                    <div style={{ fontSize: 14 }}>{m.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>{m.code}</div>
+                  {/* Имя показателя длинное (составное имя госформы), поэтому
+                      колонке нужен minWidth: 0 — без него flex-элемент не может
+                      стать уже содержимого, имя распирает строку и наезжает на
+                      значение, а статус уезжает за край. */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, overflowWrap: 'anywhere' }}>{m.name}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-faint)', overflowWrap: 'anywhere' }}>{m.code}</div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+                    justifyContent: 'flex-end', textAlign: 'right',
+                  }}>
                     <MetricNow v={values[m.code]} unit={m.unit} />
-                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>версий: {m.versions ?? 0}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                      версий: {m.versions ?? 0}
+                    </span>
                     <StatusBadge status={m.best_status || (m.has_approved ? 'approved' : 'draft')} />
                   </div>
                 </div>
@@ -430,8 +508,11 @@ const btnGhost: React.CSSProperties = { height: 36, padding: '0 14px', border: '
 const btnSm: React.CSSProperties = { height: 28, padding: '0 10px', border: 'none', borderRadius: 6, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 12, cursor: 'pointer' }
 const btnDanger: React.CSSProperties = { height: 30, padding: '0 12px', border: '1px solid var(--danger)', borderRadius: 8, background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, fontWeight: 600, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }
 const btnGhostSm: React.CSSProperties = { height: 28, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 6, background: 'var(--surface)', fontSize: 12, cursor: 'pointer' }
-const rowItem: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', cursor: 'pointer' }
-const pill: React.CSSProperties = { fontSize: 11, padding: '2px 8px', borderRadius: 10 }
+const rowItem: React.CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
+  padding: '10px 14px', cursor: 'pointer',
+}
+const pill: React.CSSProperties = { fontSize: 11, padding: '2px 8px', borderRadius: 10, whiteSpace: 'nowrap' }
 const h3: React.CSSProperties = { fontSize: 14, margin: '0 0 8px' }
 const mono: React.CSSProperties = { fontFamily: 'ui-monospace, monospace', fontSize: 13, color: 'var(--text)', background: 'var(--surface-2)', padding: '6px 8px', borderRadius: 6, overflowX: 'auto' }
 const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 14 }

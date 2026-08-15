@@ -219,3 +219,32 @@ export async function metricValues(): Promise<{ items: MetricValue[] }> {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+
+/** Массовая проверка/одобрение версий. Правила те же, что у одиночной операции:
+ *  свою версию нельзя одобрить (кроме суперадминистратора), черновик нельзя
+ *  одобрить в обход проверки. Что не прошло — вернётся поимённо. */
+export interface PendingVersion {
+  version_id: string
+  version_no: number
+  code: string
+  name: string
+  created_by: string
+}
+
+export async function metricsPending(target: 'validated' | 'approved'): Promise<{ items: PendingVersion[] }> {
+  const res = await fetch(`/metrics/pending?target=${target}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function metricsBulkStatus(
+  versionIds: string[], target: 'validated' | 'approved',
+): Promise<{ ok: number; skipped: number; failed: { version_id: string; error: string }[] }> {
+  const res = await fetch('/metrics/bulk-status', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ version_ids: versionIds, target }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
