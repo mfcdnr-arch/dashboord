@@ -69,6 +69,13 @@ class InstantiateIn(BaseModel):
     # (старый код → новый). Пусто — использовать коды шаблона как есть.
     dataset_map: dict[str, str] = {}
     metric_map: dict[str, str] = {}
+    # Перепривязка ПОЛЕЙ: у другого объекта коды показателей свои, они
+    # выводятся из его заголовков. Обычно заполняется автоматически по именам
+    # (см. /bindings?object_id=…), но можно передать и вручную.
+    field_map: dict[str, str] = {}
+    # Папка нового дашборда: тиражируя на другой объект, логично сразу класть
+    # копию в его папку, а не оставлять «без папки».
+    folder_id: Optional[str] = None
 
 
 class PageIn(BaseModel):
@@ -217,10 +224,20 @@ async def list_templates(user: dict = Depends(get_current_user)):
 
 
 @router.get("/dashboard-templates/{template_id}/bindings")
-async def template_bindings(template_id: str, user: dict = Depends(get_current_user)):
-    """Коды датасетов/метрик, которые использует шаблон (для перепривязки при клоне)."""
+async def template_bindings(template_id: str, object_id: Optional[str] = None,
+                            user: dict = Depends(get_current_user)):
+    """Что использует шаблон и как это ляжет на другой объект.
+
+    Без `object_id` — просто коды датасетов/метрик/полей шаблона. С ним —
+    готовое сопоставление по ИМЕНАМ показателей плюс честный список того, что
+    в целевом объекте не нашлось: тиражировать вслепую нельзя, неверно
+    сопоставленный показатель выглядит рабочим и потому опаснее пустого.
+    """
     async with db.acquire(user["id"]) as conn:
         try:
+            if object_id:
+                return await service.suggest_binding(
+                    conn, user["organization_id"], template_id, object_id)
             return await service.template_bindings(conn, user["organization_id"], template_id)
         except DashboardError as e:
             raise _bad(e)
@@ -233,7 +250,7 @@ async def instantiate_template(template_id: str, body: InstantiateIn, user: dict
             async with conn.transaction():
                 return await service.create_from_template(
                     conn, user["organization_id"], user["id"], template_id, body.name,
-                    body.dataset_map, body.metric_map)
+                    body.dataset_map, body.metric_map, body.field_map, body.folder_id)
         except DashboardError as e:
             raise _bad(e)
 

@@ -29,6 +29,7 @@ import { useConfirm } from './dashboards/ConfirmDialog'
 import { dashboardFreshness, dashboardMissingFields } from '../api/dashboards'
 import { FreshnessBar } from './dashboards/FreshnessBar'
 import { MissingFieldsDialog } from './dashboards/MissingFieldsDialog'
+import { TemplateCloneDialog } from './dashboards/TemplateCloneDialog'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
 import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
 import { PubBadge, WT, alertBtn, btn, btnGhost, crumb, dialog, editBtn, editHint, errBox, input, linkDanger, muted, overlay, presetChip, rmBtn, tab, tabActive, widgetCard, wtBadge } from './dashboards/shared'
@@ -82,6 +83,8 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   const [freshAvailable, setFreshAvailable] = useState<string | null>(null)
   const [missingFields, setMissingFields] = useState<{ code: string; name: string; dataset_code: string }[] | null>(null)
   const [missingOpen, setMissingOpen] = useState(false)
+  // Тиражирование шаблона на другой объект (перепривязка показателей по именам).
+  const [cloneTpl, setCloneTpl] = useState<{ id: string; name: string } | null>(null)
   const [addingFields, setAddingFields] = useState(false)
 
   const [newDash, setNewDash] = useState('')
@@ -570,6 +573,10 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
             const t = templates.find((x) => x.id === tpl)
             setTplName(t ? `${t.name} (копия)` : 'Новый дашборд')
           }}
+          cloneTemplate={() => {
+            const t = templates.find((x) => x.id === tpl)
+            if (t) setCloneTpl({ id: t.id, name: t.name })
+          }}
           query={query} setQuery={setQuery} favOnly={favOnly} setFavOnly={setFavOnly}
           dashFrom={dashFrom} setDashFrom={setDashFrom} dashTo={dashTo} setDashTo={setDashTo}
           filterObjId={filterObjId} setFilterObjId={setFilterObjId} filterFolders={filterFolders}
@@ -865,6 +872,19 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
         </div>
       )}
       {confirmNode}
+      {cloneTpl && (
+        <TemplateCloneDialog
+          templateId={cloneTpl.id} templateName={cloneTpl.name} objects={objects} busy={busy}
+          onClose={() => setCloneTpl(null)}
+          onCreate={async ({ name, datasetMap, fieldMap }) => {
+            setBusy(true); setError(null)
+            try {
+              const r = await instantiateTemplate(cloneTpl.id, name, datasetMap, {}, fieldMap)
+              setCloneTpl(null); setTpl(''); await refresh(); openDashboard(r.dashboard_id)
+            } catch (e) { fail(e) } finally { setBusy(false) }
+          }}
+        />
+      )}
       {renamePageTarget && (
         <RenameDialog
           title="Переименовать страницу" label="Название страницы"

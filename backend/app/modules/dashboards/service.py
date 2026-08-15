@@ -48,6 +48,7 @@ from ._templates import (  # noqa: F401
     create_from_template,
     list_templates,
     save_as_template,
+    suggest_binding,
     template_bindings,
 )
 from ._widgetcalc import _compute_widget  # noqa: F401

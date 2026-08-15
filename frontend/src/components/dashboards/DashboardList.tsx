@@ -10,7 +10,7 @@ export function DashboardList({
   canManage, objects, templates,
   newDash, setNewDash, addDashboard, busy,
   autoObj, setAutoObj, autoBuild,
-  tpl, setTpl, createFromTemplate,
+  tpl, setTpl, createFromTemplate, cloneTemplate,
   query, setQuery, favOnly, setFavOnly,
   dashFrom, setDashFrom, dashTo, setDashTo,
   filterObjId, setFilterObjId, filterFolders, folderFilter, setFolderFilter,
@@ -21,6 +21,8 @@ export function DashboardList({
   newDash: string; setNewDash: (v: string) => void; addDashboard: (e: FormEvent) => void; busy: boolean
   autoObj: string; setAutoObj: (v: string) => void; autoBuild: () => void
   tpl: string; setTpl: (v: string) => void; createFromTemplate: () => void
+  /** Тиражировать шаблон на другой объект с перепривязкой показателей. */
+  cloneTemplate: () => void
   query: string; setQuery: (v: string) => void; favOnly: boolean; setFavOnly: (f: (v: boolean) => boolean) => void
   dashFrom: string; setDashFrom: (v: string) => void; dashTo: string; setDashTo: (v: string) => void
   filterObjId: string; setFilterObjId: (v: string) => void; filterFolders: Folder[]
@@ -56,6 +58,10 @@ export function DashboardList({
             {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           <button style={btnAuto} disabled={busy || !tpl} onClick={createFromTemplate}>📋 Создать</button>
+          <button style={btnAuto} disabled={busy || !tpl} onClick={cloneTemplate}
+            title="Создать копию для другого объекта: показатели сопоставятся по названиям">
+            🧬 На другой объект
+          </button>
         </div>
       )}
       <div>

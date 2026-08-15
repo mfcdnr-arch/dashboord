@@ -174,10 +174,12 @@ export async function getTemplateBindings(templateId: string): Promise<TemplateB
   return res.json()
 }
 export async function instantiateTemplate(templateId: string, name: string,
-  datasetMap: Record<string, string> = {}, metricMap: Record<string, string> = {}): Promise<{ dashboard_id: string }> {
+  datasetMap: Record<string, string> = {}, metricMap: Record<string, string> = {},
+  /** Перепривязка ПОЛЕЙ: у другого объекта коды показателей свои. */
+  fieldMap: Record<string, string> = {}): Promise<{ dashboard_id: string }> {
   const res = await fetch(`/dashboard-templates/${templateId}/instantiate`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
-    body: JSON.stringify({ name, dataset_map: datasetMap, metric_map: metricMap }),
+    body: JSON.stringify({ name, dataset_map: datasetMap, metric_map: metricMap, field_map: fieldMap }),
   })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
@@ -390,3 +392,21 @@ export async function dashboardMissingFields(
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+
+/** Как шаблон ляжет на другой объект: сопоставление показателей по именам. */
+export type TemplateBinding = {
+  target: { dataset_code: string; dataset_name: string; fields: { code: string; name: string }[] }
+  dataset_map: Record<string, string>
+  field_map: Record<string, string>
+  matched: { from: string; from_name: string; to: string }[]
+  missing: { from: string; from_name: string }[]
+  metrics: string[]
+}
+
+export async function templateBinding(templateId: string, objectId: string): Promise<TemplateBinding> {
+  const res = await fetch(`/dashboard-templates/${templateId}/bindings?object_id=${objectId}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
