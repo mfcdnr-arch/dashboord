@@ -48,6 +48,9 @@ class AutoIn(BaseModel):
     # Пересобрать существующий дашборд вместо создания нового: страницы и
     # виджеты заменяются, права доступа и обсуждение остаются.
     dashboard_id: Optional[str] = None
+    # Коды расчётных показателей, отмеченных в мастере: они будут заведены
+    # черновиками, и по каждому появится карточка.
+    metrics: Optional[List[str]] = None
 
     def as_selection(self) -> Optional[dict]:
         if self.selection is None:
@@ -115,7 +118,8 @@ async def auto_build(body: AutoIn, user: dict = Depends(manage)):
             async with conn.transaction():
                 return await service.auto_build(
                     conn, user["organization_id"], user["id"], body.object_id, body.name,
-                    selection=body.as_selection(), dashboard_id=body.dashboard_id)
+                    selection=body.as_selection(), dashboard_id=body.dashboard_id,
+                    metrics=body.metrics)
         except DashboardError as e:
             raise _bad(e)
 

@@ -51,6 +51,11 @@ export default function AutoBuildWizard(
 ) {
   const [plan, setPlan] = useState<AutoPlan | null>(null)
   const [sel, setSel] = useState<Record<string, DatasetPick> | null>(null)
+  // Расчётные показатели, отмеченные галочками: заводятся черновиками, и по
+  // каждому появляется карточка — раньше принятие предложения давало только
+  // метрику, а виджет по ней человек добавлял руками.
+  const [metricPicks, setMetricPicks] = useState<Set<string>>(new Set())
+  const [restored, setRestored] = useState(false)
   const [target, setTarget] = useState('')          // '' — новый дашборд
   const [busy, setBusy] = useState(false)
   const [loadErr, setLoadErr] = useState<string | null>(null)
@@ -68,6 +73,29 @@ export default function AutoBuildWizard(
             blocks: [...p.blocks],
             views: { ...(p.views?.[d.code] || {}) },
           }
+        }
+        // Прошлый выбор — как черновик: мастер не должен каждую неделю
+        // спрашивать одно и то же. Берём только то, что ещё существует в данных.
+        const saved = p.saved_selection
+        if (saved?.selection) {
+          for (const [code, pick] of Object.entries(saved.selection)) {
+            const ds = p.datasets.find((d) => d.code === code)
+            if (!ds || !init[code]) continue
+            const known = new Set(ds.fields.map((f) => f.code))
+            init[code] = {
+              ...init[code],
+              fields: (pick.fields || []).filter((f) => known.has(f)),
+              blocks: pick.blocks || init[code].blocks,
+              views: { ...init[code].views, ...(pick.views || {}) },
+              periods: (pick.periods || []).filter((x) => (ds.period_dates || []).includes(x)),
+            }
+            setRestored(true)
+          }
+        }
+        if (saved?.metrics?.length) {
+          const codes = new Set((p.metrics || []).map((m) => m.code))
+          setMetricPicks(new Set(saved.metrics.filter((c) => codes.has(c))))
+          setRestored(true)
         }
         setSel(init)
       })
@@ -126,6 +154,7 @@ export default function AutoBuildWizard(
     try {
       const r = await autoBuildDashboard(objectId, {
         name: `Дашборд «${objectName}»`, selection: sel, dashboardId: target || undefined,
+        metrics: [...metricPicks],
       })
       onDone(r.dashboard_id)
     } catch (e) { onError((e as Error).message); setBusy(false) }
@@ -144,6 +173,11 @@ export default function AutoBuildWizard(
 
         {plan && sel && (
           <>
+            {restored && (
+              <div style={{ ...muted, fontSize: 12.5, marginBottom: 10 }}>
+                ↩ Восстановлен выбор прошлой сборки — поменяйте, если нужно иначе.
+              </div>
+            )}
             {plan.warnings.map((w, i) => <div key={i} style={warnBox}>⚠ {w}</div>)}
 
             {plan.datasets.map((d) => {
@@ -224,6 +258,40 @@ export default function AutoBuildWizard(
                 </div>
               )
             })}
+
+            {(plan.metrics || []).length > 0 && (
+              <div style={block}>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>
+                  Расчётные показатели ({metricPicks.size} из {(plan.metrics || []).length})
+                </div>
+                <div style={{ ...muted, fontSize: 12, margin: '4px 0 8px' }}>
+                  Система нашла их по самим данным и проверила расчётом. Отмеченные будут
+                  заведены черновиками и сразу показаны карточками — согласование формулы
+                  идёт обычным порядком, на дашборде число видно уже сейчас.
+                </div>
+                <div style={{ ...fieldBox, maxHeight: 190 }}>
+                  {(plan.metrics || []).map((m) => (
+                    <label key={m.code} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5 }}>
+                      <input type="checkbox" checked={metricPicks.has(m.code)}
+                        style={{ marginTop: 3 }}
+                        onChange={() => setMetricPicks((s2) => {
+                          const n = new Set(s2)
+                          if (n.has(m.code)) n.delete(m.code); else n.add(m.code)
+                          return n
+                        })} />
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ overflowWrap: 'anywhere' }}>{m.name}</span>
+                        {m.preview_value != null && (
+                          <span style={{ color: 'var(--accent)' }}> = {m.preview_value.toLocaleString('ru-RU')}
+                            {m.unit ? ` ${m.unit}` : ''}</span>
+                        )}
+                        {m.why && <span style={{ ...muted, display: 'block', fontSize: 11.5 }}>{m.why}</span>}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div style={block}>
               <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Куда собрать</div>

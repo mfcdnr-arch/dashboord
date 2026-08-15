@@ -83,8 +83,23 @@ export type AutoPlanDataset = {
   period_dates?: string[]
 }
 
+/** Расчётный показатель, который можно завести прямо в мастере. */
+export type AutoMetricOption = {
+  code: string
+  name: string
+  formula: string
+  unit?: string | null
+  why?: string | null
+  preview_value?: number | null
+  dataset_code?: string
+}
+
 export type AutoPlan = {
   object: { id: string; name: string }
+  /** Что можно посчитать по данным: проценты выполнения, доли, приросты. */
+  metrics?: AutoMetricOption[]
+  /** Выбор прошлой сборки — им мастер открывается в следующий раз. */
+  saved_selection?: { selection?: Record<string, DatasetPick>; metrics?: string[] } | null
   datasets: AutoPlanDataset[]
   blocks: string[]
   warnings: string[]
@@ -108,13 +123,18 @@ export async function autoBuildPlan(objectId: string, selection?: Record<string,
 
 export async function autoBuildDashboard(
   objectId: string,
-  opts: { name?: string; selection?: Record<string, DatasetPick>; dashboardId?: string } = {},
-): Promise<{ dashboard_id: string; page_id: string; widgets: number }> {
+  opts: {
+    name?: string; selection?: Record<string, DatasetPick>; dashboardId?: string
+    /** Коды расчётных показателей: заводятся черновиками, по каждому — карточка. */
+    metrics?: string[]
+  } = {},
+): Promise<{ dashboard_id: string; page_id: string; widgets: number; metrics?: number }> {
   const res = await fetch('/dashboards/auto', {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
     body: JSON.stringify({
       object_id: objectId, name: opts.name || null,
       selection: opts.selection || null, dashboard_id: opts.dashboardId || null,
+      metrics: opts.metrics && opts.metrics.length ? opts.metrics : null,
     }),
   })
   if (!res.ok) throw new Error(await errText(res))

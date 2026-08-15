@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import json
 from typing import List, Optional
 
 from ..metrics import resolver as mr
@@ -374,15 +375,26 @@ async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict
             "остальные видны в таблице.")
 
     specs = plan_auto_build(datasets, selection)
+
+    # Расчётные показатели («% выполнения плана», «доля доставленных»…): их
+    # находит разбор имён столбцов — тот же, что в разделе «Метрики». Здесь они
+    # нужны, чтобы человек мог поставить галочку прямо при сборке, а не заводить
+    # метрику отдельно и потом руками добавлять по ней виджет.
+    metrics = await _metric_options(conn, org_id, object_id)
+
+    page_names = [PAGE_OVERVIEW, PAGE_DYNAMICS, PAGE_RAW] + sorted(
+        {s["page"] for s in specs if str(s.get("page", "")).startswith(PAGE_PERIOD_PREFIX)})
     return {
         "object": {"id": str(obj["id"]), "name": obj["name"]},
+        "metrics": metrics,
+        "saved_selection": await _saved_selection(conn, object_id),
         "datasets": [{k: v for k, v in d.items()} for d in datasets],
         "blocks": BLOCKS,
         "warnings": warnings,
         "widgets": len(specs),
         "pages": [
             {"name": t, "widgets": sum(1 for s in specs if (s.get("page") or PAGE_OVERVIEW) == t)}
-            for t in (PAGE_OVERVIEW, PAGE_DYNAMICS, PAGE_RAW)
+            for t in page_names
             if any((s.get("page") or PAGE_OVERVIEW) == t for s in specs)
         ],
         "by_type": {t: sum(1 for s in specs if s["widget_type"] == t) for t in BLOCKS},
@@ -395,8 +407,89 @@ async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict
     }
 
 
+async def _metric_options(conn, org_id, object_id: str) -> list:
+    """Расчётные показатели, которые можно завести по данным этого объекта.
+
+    Разбор имён столбцов живёт в `metrics/data_suggestions` и уже используется
+    разделом «Метрики» — берём его же, чтобы система не предлагала в двух местах
+    разное. Каждое предложение там проверено расчётом на реальных данных, то
+    есть заведомо считается.
+
+    Сбой не должен ронять мастер: без расчётных показателей он просто соберёт
+    дашборд по сырым графам, как раньше.
+    """
+    try:
+        from ..metrics.data_suggestions import suggest_from_data
+        res = await suggest_from_data(conn, org_id, object_id=str(object_id))
+    except Exception:  # noqa: BLE001 — подсказка не важнее самой сборки
+        return []
+    return [
+        {"code": s["code"], "name": s["name"], "formula": s["formula"], "unit": s.get("unit"),
+         "why": s.get("why"), "preview_value": s.get("preview_value"),
+         "dataset_code": s.get("dataset_code")}
+        for s in res.get("specs", [])
+    ]
+
+
+async def _saved_selection(conn, object_id: str) -> Optional[dict]:
+    """Выбор прошлой сборки — им мастер открывается в следующий раз."""
+    raw = await conn.fetchval("select build_preferences from objects where id=$1::uuid", object_id)
+    if not raw:
+        return None
+    return json.loads(raw) if isinstance(raw, str) else raw
+
+
+async def _remember_selection(conn, object_id: str, selection: Optional[dict],
+                              metrics: Optional[list]) -> None:
+    """Запомнить выбор: мастер не должен каждую неделю спрашивать одно и то же."""
+    if selection is None and not metrics:
+        return
+    payload = {"selection": selection or {}, "metrics": list(metrics or [])}
+    await conn.execute(
+        "update objects set build_preferences=$2::jsonb where id=$1::uuid",
+        object_id, json.dumps(payload, ensure_ascii=False, default=str))
+
+
+async def _create_metric_widgets(conn, org_id, user_id, object_id: str, codes: list,
+                                 page_id: str, start_y: int) -> int:
+    """Завести выбранные расчётные показатели и поставить по ним карточки.
+
+    Метрика создаётся ЧЕРНОВИКОМ и проходит обычный путь проверки; виджет при
+    этом работает сразу, потому что берёт лучшую доступную версию формулы
+    (одобренная → проверенная → черновик). Так человек видит число сразу, а
+    порядок согласования не нарушается.
+    """
+    if not codes:
+        return 0
+    from ..metrics import service as msvc
+
+    options = {m["code"]: m for m in await _metric_options(conn, org_id, object_id)}
+    made = 0
+    for code in codes:
+        spec = options.get(code)
+        if spec is None:
+            continue  # предложение устарело (метрику уже завели) — молча пропускаем
+        try:
+            metric = await msvc.create_metric(
+                conn, org_id, user_id, spec["code"], spec["name"], spec.get("why"), None)
+            await msvc.create_version(
+                conn, org_id, user_id, str(metric["id"]), spec["formula"],
+                spec.get("unit"), None, "formula")
+        except Exception:  # noqa: BLE001 — метрика с таким кодом уже есть
+            pass
+        from . import service as svc
+        await svc.create_widget(
+            conn, org_id, user_id, page_id, spec["name"], "kpi",
+            {"metric_code": spec["code"], "unit": spec.get("unit")},
+            {"position_x": (made % 4) * 3, "position_y": start_y + (made // 4) * 3,
+             "width": 3, "height": 3})
+        made += 1
+    return made
+
+
 async def auto_build(conn, org_id, user_id, object_id: str, name=None,
-                     selection: Optional[dict] = None, dashboard_id: Optional[str] = None) -> dict:
+                     selection: Optional[dict] = None, dashboard_id: Optional[str] = None,
+                     metrics: Optional[list] = None) -> dict:
     """Создаёт (или пересобирает) дашборд по объекту.
 
     `dashboard_id` — пересобрать существующий: страницы и виджеты заменяются,
@@ -411,7 +504,7 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
     if not datasets:
         raise DashboardError("У объекта нет выпущенных датасетов — сначала распознайте документ")
     specs = plan_auto_build(datasets, selection)
-    if not specs:
+    if not specs and not metrics:
         raise DashboardError("Нечего собирать — не выбрано ни одного показателя")
 
     from . import service as svc  # ленивый импорт: избегаем цикла модулей
@@ -458,4 +551,24 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
             conn, org_id, user_id, pages[title], spec["name"], spec["widget_type"], spec["config"],
             {"position_x": spec["position_x"], "position_y": spec["position_y"],
              "width": spec["width"], "height": spec["height"]})
-    return {"dashboard_id": did, "page_id": first_pid, "pages": len(pages), "widgets": len(specs)}
+
+    # Расчётные показатели: заводим выбранные метрики и ставим по ним карточки
+    # на «Обзор» — раньше принятие предложения создавало только черновик, а
+    # виджет по нему человек добавлял руками и часто про это забывал.
+    made_metrics = 0
+    if metrics:
+        if PAGE_OVERVIEW not in pages:
+            page = await svc.create_page(conn, org_id, user_id, did, PAGE_OVERVIEW, None)
+            pages[PAGE_OVERVIEW] = str(page["id"])
+            if first_pid is None:
+                first_pid = pages[PAGE_OVERVIEW]
+        # Ниже всего, что уже разложено на «Обзоре», — иначе карточки наложились бы.
+        below = max(
+            [s["position_y"] + s["height"] for s in specs
+             if (s.get("page") or PAGE_OVERVIEW) == PAGE_OVERVIEW] or [0])
+        made_metrics = await _create_metric_widgets(
+            conn, org_id, user_id, object_id, metrics, pages[PAGE_OVERVIEW], below)
+
+    await _remember_selection(conn, object_id, selection, metrics)
+    return {"dashboard_id": did, "page_id": first_pid, "pages": len(pages),
+            "widgets": len(specs) + made_metrics, "metrics": made_metrics}
