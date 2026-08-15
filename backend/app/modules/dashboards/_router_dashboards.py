@@ -313,6 +313,15 @@ async def place_metric(body: PlaceMetricIn, user: dict = Depends(manage)):
             raise _bad(e)
 
 
+@router.get("/dashboards/{dashboard_id}/metrics")
+async def dashboard_metrics(dashboard_id: str, user: dict = Depends(manage)):
+    """Показатели, уже размещённые на дашборде: чтобы не предлагать их дважды."""
+    async with db.get_pool().acquire() as conn:
+        if not await service._can_view(conn, user["organization_id"], user, dashboard_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Дашборд не найден")
+        return {"codes": await service.dashboard_metric_codes(conn, dashboard_id)}
+
+
 @router.get("/dashboards/{dashboard_id}/freshness")
 async def dashboard_freshness(dashboard_id: str, user: dict = Depends(get_current_user)):
     """Дата самых свежих данных под дашбордом — лёгкий запрос для автообновления.

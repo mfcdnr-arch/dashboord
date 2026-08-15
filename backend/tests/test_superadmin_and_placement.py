@@ -126,6 +126,39 @@ async def test_metric_card_lands_next_to_related_widget(client, admin_headers, s
             await conn.execute("delete from dashboards where id=$1::uuid", did)
 
 
+async def test_metric_card_does_not_land_on_occupied_cell(client, admin_headers, seed_dataset):
+    """Место справа занято — карточка ищет свободное, а не садится поверх.
+
+    Иначе сетка при отрисовке растолкает чужие виджеты, и человек увидит, что
+    дашборд «поехал» сам по себе.
+    """
+    r = await client.post("/dashboards", headers=admin_headers, json={"name": "ztest_place_busy"})
+    did = r.json()["id"]
+    r = await client.post(f"/dashboards/{did}/pages", headers=admin_headers, json={"name": "Обзор"})
+    pid = r.json()["id"]
+    try:
+        for x, field in ((0, "plan"), (3, "fact")):
+            await client.post(f"/dashboard-pages/{pid}/widgets", headers=admin_headers, json={
+                "name": f"Карточка {x}", "widget_type": "kpi", "width": 3, "height": 3,
+                "position_x": x, "position_y": 0,
+                "config": {"dataset_code": seed_dataset["code"], "value_field": field}})
+
+        r = await client.post("/dashboards/place-metric", headers=admin_headers, json={
+            "page_id": pid, "metric_code": "ztest_busy_metric", "name": "Доля",
+            "based_on": ["plan"], "dataset_code": seed_dataset["code"]})
+        pos = r.json()["position"]
+        # Справа от родственника (x=0,w=3) стоит чужая карточка на x=3 —
+        # значит место должно найтись дальше по ряду, но не поверх неё.
+        assert (pos["position_x"], pos["position_y"]) not in ((0, 0), (3, 0)), pos
+        assert pos["position_x"] + 3 <= 12, pos
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from widgets where dashboard_id=$1::uuid", did)
+            await conn.execute("delete from dashboard_pages where dashboard_id=$1::uuid", did)
+            await conn.execute("delete from securable_objects where object_id=$1::uuid", did)
+            await conn.execute("delete from dashboards where id=$1::uuid", did)
+
+
 async def test_metric_card_falls_back_when_no_relative(client, admin_headers, seed_dataset):
     """Родственника нет — карточка просто уходит в конец страницы, без ошибки."""
     r = await client.post("/dashboards", headers=admin_headers, json={"name": "ztest_place_empty"})

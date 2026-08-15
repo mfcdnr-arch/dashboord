@@ -8,6 +8,7 @@ import {
 } from '../api'
 import FormulaBuilder from './FormulaBuilder'
 import { ConfirmDialog } from './dashboards/ConfirmDialog'
+import { PlaceMetricsDialog } from './metrics/PlaceMetricsDialog'
 import TemplatePicker from './metrics/TemplatePicker'
 import DataSuggestPanel from './metrics/DataSuggestPanel'
 import { fmtNumber as fmtNum } from '../lib/format'
@@ -34,6 +35,9 @@ export default function MetricsPage({ canManage, isSuperadmin }: { canManage: bo
   // это ровно та ручная работа, от которой уходим.
   const [bulk, setBulk] = useState<{ target: 'validated' | 'approved'; items: PendingVersion[] } | null>(null)
   const [bulkNote, setBulkNote] = useState<string | null>(null)
+  // Разместить уже заведённые показатели на дашборде: до этого их можно
+  // было вывести только добавляя виджеты по одному руками.
+  const [placeOpen, setPlaceOpen] = useState(false)
   const [metricsTotal, setMetricsTotal] = useState(0)
   const [mq, setMq] = useState('')
   const [sel, setSel] = useState<{ metric: Metric; versions: MetricVersion[] } | null>(null)
@@ -121,6 +125,22 @@ export default function MetricsPage({ canManage, isSuperadmin }: { canManage: bo
 
       {error && <div style={errBox}>{error}</div>}
 
+      {placeOpen && (
+        <PlaceMetricsDialog
+          metrics={metrics.map((m) => values[m.code] || {
+            code: m.code, name: m.name, status: m.best_status || null,
+            value: null, unit: m.unit || null, error: null,
+          })}
+          onClose={() => setPlaceOpen(false)}
+          onDone={(placed) => {
+            setPlaceOpen(false)
+            setBulkNote(placed
+              ? `Размещено карточек: ${placed}. Откройте дашборд — они встали рядом с близкими показателями.`
+              : 'Ничего не размещено.')
+          }}
+        />
+      )}
+
       {bulk && (
         <ConfirmDialog
           title={bulk.target === 'validated'
@@ -161,6 +181,9 @@ export default function MetricsPage({ canManage, isSuperadmin }: { canManage: bo
               <button type="button" style={{ ...btnGhostSm }}
                 title="Одобрить проверенные версии. Свою версию одобрить нельзя — это разделение обязанностей"
                 onClick={() => openBulk('approved')}>✓✓ Одобрить все проверенные</button>
+              <button type="button" style={{ ...btnGhostSm, borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                title="Вывести показатели на дашборд карточками — рядом с тем, из чего они считаются"
+                onClick={() => setPlaceOpen(true)}>📊 Разместить на дашборде</button>
               {bulkNote && <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{bulkNote}</span>}
             </div>
           )}

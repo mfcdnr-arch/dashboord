@@ -592,6 +592,12 @@ async def place_metric_widget(conn, org_id, user_id, *, page_id: str, metric_cod
     from . import service as svc
 
     fields = set(based_on or [])
+    # Если поля не переданы, достаём их из САМОЙ формулы показателя: для
+    # размещения важно, из чего он считается, а человек этого знать не обязан.
+    if not fields:
+        derived = await _metric_fields(conn, org_id, metric_code)
+        fields = set(derived["fields"])
+        dataset_code = dataset_code or (derived["datasets"][0] if derived["datasets"] else None)
     rows = await conn.fetch(
         "select id, config, position_x, position_y, width, height "
         "from widgets where page_id=$1::uuid order by position_y, position_x", page_id)
@@ -617,17 +623,46 @@ async def place_metric_widget(conn, org_id, user_id, *, page_id: str, metric_cod
             best, best_score = r, score
 
     width, height = 3, 3
+
+    def free(x: int, y: int) -> bool:
+        """Свободна ли клетка: иначе сетка растолкает соседей при отрисовке."""
+        if x + width > 12:
+            return False
+        for r in rows:
+            rx, ry, rw, rh = r["position_x"], r["position_y"], r["width"], r["height"]
+            if x < rx + rw and rx < x + width and y < ry + rh and ry < y + height:
+                return False
+        return True
+
     if best is None:
         # Родственника нет — в конец страницы (сетка сама подожмёт вверх).
         pos = {"position_x": 0, "position_y": 999, "width": width, "height": height}
     else:
-        right = best["position_x"] + best["width"]
-        if right + width <= 12:
-            pos = {"position_x": right, "position_y": best["position_y"],
-                   "width": width, "height": height}
+        bx, by, bw = best["position_x"], best["position_y"], best["width"]
+        # Ищем ближайшее СВОБОДНОЕ место: сначала справа от родственника, затем
+        # свободные клетки его ряда, затем строка под ним. Ставить в занятую
+        # клетку нельзя — сетка при отрисовке сдвинет чужие карточки, и человек
+        # увидит, что дашборд «поехал» сам по себе.
+        spot = None
+        # Сначала вплотную справа, затем свободные места ряда, затем ряды ниже —
+        # чем дальше, тем хуже, поэтому спускаемся недалеко (4 ряда карточек).
+        for dy in range(0, 4 * height, height):
+            y = by + dy
+            order = ([bx + bw] if dy == 0 else [bx]) + [c * 3 for c in range(4)]
+            for x in order:
+                if free(x, y):
+                    spot = (x, y)
+                    break
+            if spot:
+                break
+        if spot:
+            pos = {"position_x": spot[0], "position_y": spot[1], "width": width, "height": height}
         else:
-            pos = {"position_x": best["position_x"],
-                   "position_y": best["position_y"] + best["height"],
+            # Свободного места поблизости нет: ставим ВПЛОТНУЮ справа от
+            # родственника и позволяем сетке подвинуть остальных. Соседство
+            # важнее неподвижности: карточка, уехавшая в конец страницы, теряет
+            # весь смысл «рядом с показателем, из которого считается».
+            pos = {"position_x": min(bx + bw, 9), "position_y": by,
                    "width": width, "height": height}
 
     cfg = {"metric_code": metric_code}
@@ -636,3 +671,58 @@ async def place_metric_widget(conn, org_id, user_id, *, page_id: str, metric_cod
     w = await svc.create_widget(conn, org_id, user_id, page_id, name, "kpi", cfg, pos)
     return {"widget_id": w["id"], "placed_near": str(best["id"]) if best is not None else None,
             "position": pos}
+
+
+async def _metric_fields(conn, org_id, metric_code: str) -> dict:
+    """Поля и датасеты, на которых стоит формула показателя.
+
+    Берём лучшую версию (одобренная → проверенная → черновик) — ту же, по
+    которой виджет и будет считать. Разбираем разобранный AST, а не текст:
+    в тексте те же ссылки пришлось бы искать регулярками.
+    """
+    ast = await conn.fetchval(
+        "select mv.formula_ast from metric_versions mv join metrics m on m.id = mv.metric_id "
+        "where m.organization_id=$1 and m.code=$2 "
+        "order by case mv.status when 'approved' then 0 when 'validated' then 1 "
+        "                        when 'draft' then 2 else 3 end, mv.version_no desc limit 1",
+        org_id, metric_code)
+    if not ast:
+        return {"fields": [], "datasets": []}
+    if isinstance(ast, str):
+        ast = json.loads(ast)
+
+    fields: List[str] = []
+    datasets: List[str] = []
+
+    def walk(node) -> None:
+        if not isinstance(node, dict):
+            return
+        if node.get("t") in ("field", "cell"):
+            if node.get("field") and node["field"] not in fields:
+                fields.append(node["field"])
+            if node.get("col") and node["col"] not in fields:
+                fields.append(node["col"])
+            if node.get("dataset") and node["dataset"] not in datasets:
+                datasets.append(node["dataset"])
+        for val in node.values():
+            if isinstance(val, dict):
+                walk(val)
+            elif isinstance(val, list):
+                for it in val:
+                    walk(it)
+
+    walk(ast)
+    return {"fields": fields, "datasets": datasets}
+
+
+async def dashboard_metric_codes(conn, dashboard_id: str) -> list:
+    """Коды показателей, уже показанных на дашборде: не предлагаем их дважды."""
+    rows = await conn.fetch(
+        "select config from widgets where dashboard_id=$1::uuid", dashboard_id)
+    out: set = set()
+    for r in rows:
+        cfg = _cfg(r)
+        for key in ("metric_code", "plan_metric", "fact_metric"):
+            if cfg.get(key):
+                out.add(cfg[key])
+    return sorted(out)

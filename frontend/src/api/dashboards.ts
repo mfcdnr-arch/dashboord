@@ -429,3 +429,11 @@ export async function placeMetricOnDashboard(body: {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+
+/** Показатели, уже размещённые на дашборде: чтобы не предлагать их повторно. */
+export async function dashboardMetricCodes(id: string): Promise<{ codes: string[] }> {
+  const res = await fetch(`/dashboards/${id}/metrics`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
