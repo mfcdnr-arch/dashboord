@@ -11,6 +11,16 @@ const OPS = [
   { v: 'lt', t: '<' }, { v: 'lte', t: '≤' }, { v: 'gt', t: '>' }, { v: 'gte', t: '≥' },
   { v: 'eq', t: '=' }, { v: 'between', t: 'в диапазоне' }, { v: 'outside', t: 'вне диапазона' },
 ]
+// Готовый набор «нормы плана» — тот же, что авто-сборка ставит сама
+// (backend `_suggest.PLAN_PCT_ALERTS`). Пустое окно с предложением составить
+// правило с нуля мало кому помогало: человек знает, что «ниже плана — плохо»,
+// но не обязан переводить это в набор условий.
+const PLAN_PRESET: AlertRule[] = [
+  { level: 'danger', op: 'lt', value: '90', label: 'ниже 90 % плана' },
+  { level: 'warn', op: 'lt', value: '100', label: 'план не выполнен' },
+  { level: 'good', op: 'gte', value: '100', label: 'план выполнен' },
+]
+
 const ALERT_ON: Record<string, { v: string; t: string }[]> = {
   plan_fact: [{ v: 'pct', t: 'Выполнение, %' }, { v: 'fact', t: 'Факт' }, { v: 'delta', t: 'Δ (факт−план)' }, { v: 'plan', t: 'План' }],
   dynamics: [{ v: 'last', t: 'Последний период' }, { v: 'change', t: 'Δ к пред.' }, { v: 'change_pct', t: 'Δ %, к пред.' }],
@@ -27,6 +37,11 @@ export function AlertEditor({ widget, onClose, onSaved }: { widget: Widget; onCl
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const onOpts = ALERT_ON[widget.widget_type]
+  // Готовую норму предлагаем только там, где сравнивается процент: у полосы
+  // «план-факт» это выполнение, у карточки и спидометра — само значение, и
+  // «90 / 100» имеет смысл, лишь когда оно в процентах.
+  const planPresetFits = widget.widget_type === 'plan_fact'
+    || String((cfg.unit as string) || '').includes('%')
 
   const set = (i: number, patch: Partial<AlertRule>) => setRules((rs) => rs.map((r, k) => k === i ? { ...r, ...patch } : r))
   const add = () => setRules((rs) => [...rs, { level: 'danger', op: 'lt', value: '', value2: '', label: '' }])
@@ -56,11 +71,13 @@ export function AlertEditor({ widget, onClose, onSaved }: { widget: Widget; onCl
     <div style={overlay} onClick={onClose}>
       <div style={{ ...dialog, width: 640 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>⚠ Пороги KPI-алерта: {widget.name}</div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>⚠ Подсветка по порогам: {widget.name}</div>
           <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-          Правила проверяются сверху вниз; срабатывает первое подходящее и задаёт цвет виджета.
+          Виджет красится, когда значение переходит заданную границу: красным — когда всё плохо,
+          жёлтым — когда близко, зелёным — когда норма достигнута. Правила проверяются сверху
+          вниз, срабатывает первое подходящее.
         </div>
 
         {onOpts && (
@@ -73,7 +90,20 @@ export function AlertEditor({ widget, onClose, onSaved }: { widget: Widget; onCl
           </div>
         )}
 
-        {rules.length === 0 && <div style={{ ...muted, marginBottom: 10 }}>Порогов пока нет. Добавьте правило ниже.</div>}
+        {rules.length === 0 && (
+          <div style={{ ...muted, marginBottom: 10 }}>
+            Порогов пока нет — виджет всегда одного цвета.
+            {planPresetFits && (
+              <>
+                {' '}Если это выполнение плана, подставьте готовую норму:{' '}
+                <button style={{ ...btnGhost, height: 26, padding: '0 8px', fontSize: 12 }}
+                  onClick={() => setRules(PLAN_PRESET.map((r) => ({ ...r })))}>
+                  90 / 100 %
+                </button>
+              </>
+            )}
+          </div>
+        )}
         {rules.map((r, i) => (
           <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 8, borderBottom: '1px solid var(--surface-2)', paddingBottom: 8 }}>
             <F t="Уровень"><select style={sel} value={r.level} onChange={(e) => set(i, { level: e.target.value })}>{LEVELS.map((l) => <option key={l.v} value={l.v}>{l.t}</option>)}</select></F>

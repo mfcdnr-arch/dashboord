@@ -4,6 +4,9 @@ import {
   autoBuildDashboard, autoBuildPlan,
   type AutoPlan, type DatasetPick, type Dashboard,
 } from '../../api'
+// Тот же формат числа, что на дашборде и в предложениях метрик: два знака
+// после запятой. Свой toLocaleString печатал «656,868 %» там, где везде «656,87 %».
+import { fmtNumber } from '../../lib/format'
 
 /**
  * Мастер авто-сборки: что нашли в объекте и что из этого собрать.
@@ -292,7 +295,7 @@ export default function AutoBuildWizard(
                         )}
                         <span style={{ overflowWrap: 'anywhere' }}>{m.name}</span>
                         {m.preview_value != null && (
-                          <span style={{ color: 'var(--accent)' }}> = {m.preview_value.toLocaleString('ru-RU')}
+                          <span style={{ color: 'var(--accent)' }}> = {fmtNumber(m.preview_value)}
                             {m.unit ? ` ${m.unit}` : ''}</span>
                         )}
                         {m.why && <span style={{ ...muted, display: 'block', fontSize: 11.5 }}>{m.why}</span>}

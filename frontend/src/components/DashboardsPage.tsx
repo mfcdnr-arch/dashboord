@@ -790,10 +790,16 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                   max-width, и сетка выезжала за неё — на странице дашборда
                   появлялась горизонтальная прокрутка, правый виджет обрезался. */}
               <div ref={gridRef}>
+              {/* draggableCancel: кнопки шапки лежат ВНУТРИ ручки перетаскивания,
+                  и без этого исключения клик по ним срывался — стоило мыши
+                  сместиться на пару пикселей между нажатием и отпусканием, как
+                  react-grid-layout начинал тащить виджет, а события click не
+                  возникало вовсе. Кнопка при этом получала фокус и выглядела
+                  сломанной (жалоба на ⚠ «нажимаю — ничего не происходит»). */}
               {widgets.length === 0 ? <div style={muted}>На странице пока нет виджетов.</div> : gridWidth !== undefined && (
                 <GridLayout className="layout" width={gridWidth} cols={12} rowHeight={40} margin={[12, 12]}
                   isDraggable={canManage && editMode} isResizable={canManage && editMode}
-                  draggableHandle=".wdrag" compactType="vertical"
+                  draggableHandle=".wdrag" draggableCancel=".wnodrag" compactType="vertical"
                   onDragStop={(_l, _o, n) => persistItem(n)} onResizeStop={(_l, _o, n) => persistItem(n)}
                   layout={widgets.map((w) => ({
                     i: w.id, x: w.position_x || 0, y: w.position_y || 0, w: w.width || 4,
@@ -819,7 +825,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                           даже кнопка разворачивания. */}
                       <div className={editMode ? 'wdrag' : ''} style={{ marginBottom: 8, flexShrink: 0, cursor: editMode ? 'move' : 'default' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
-                          <button style={{ ...editBtn, cursor: 'pointer', flexShrink: 0 }} onClick={() => toggleCollapse(w.id)}
+                          <button className="wnodrag" style={{ ...editBtn, cursor: 'pointer', flexShrink: 0 }} onClick={() => toggleCollapse(w.id)}
                             title={collapsed.has(w.id) ? 'Развернуть виджет' : 'Свернуть виджет'}>{collapsed.has(w.id) ? '▸' : '▾'}</button>
                           {/* У развёрнутого виджета имя занимает до ДВУХ строк: имена
                               из авто-сборки длинные («… · Факт · нарастающим итогом»),
@@ -849,7 +855,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                             под число оставалось меньше, чем у администратора —
                             хотя именно зритель смотрит на цифру, а не правит. */}
                         {!collapsed.has(w.id) && editMode && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                          <div className="wnodrag" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
                             <span style={wtBadge}>{WT.find((x) => x.v === w.widget_type)?.t || w.widget_type}</span>
                             <InfoTip text={widgetTip(w)} />
                             <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
