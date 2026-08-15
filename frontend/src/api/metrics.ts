@@ -200,3 +200,22 @@ export async function metricInfoDraft(metricId: string): Promise<{ draft: string
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+
+/** Что показатели считают прямо сейчас — по лучшей версии формулы.
+ *  Отдельным запросом: расчёт формул дороже выборки списка, а список нужен и там,
+ *  где значения не требуются (пикеры KPI). */
+export interface MetricValue {
+  code: string
+  name: string
+  status: string | null
+  value: number | null
+  unit: string | null
+  error: string | null
+}
+
+export async function metricValues(): Promise<{ items: MetricValue[] }> {
+  const res = await fetch('/metrics/values', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

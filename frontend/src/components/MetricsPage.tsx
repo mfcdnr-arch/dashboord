@@ -3,6 +3,7 @@ import {
   approveVersion, createMetric, createVersion, deleteMetric, getDataSources, getMetric, listMetrics, metricInfoDraft,
   previewFormula, updateMetric, validateVersion, versionValue,
   type DataSources, type Dependencies, type Metric, type MetricVersion,
+  metricValues, type MetricValue,
 } from '../api'
 import FormulaBuilder from './FormulaBuilder'
 import { ConfirmDialog } from './dashboards/ConfirmDialog'
@@ -22,6 +23,11 @@ const METRICS_PAGE = 50
 
 export default function MetricsPage({ canManage, isSuperadmin }: { canManage: boolean; isSuperadmin?: boolean }) {
   const [metrics, setMetrics] = useState<Metric[]>([])
+  // Что каждый показатель считает прямо сейчас. Раньше это можно было узнать,
+  // только открыв показатель и нажав предпросмотр: при полутора десятках
+  // показателей — полтора десятка заходов, а сломанная формула вообще ничем
+  // себя не выдавала.
+  const [values, setValues] = useState<Record<string, MetricValue>>({})
   const [metricsTotal, setMetricsTotal] = useState(0)
   const [mq, setMq] = useState('')
   const [sel, setSel] = useState<{ metric: Metric; versions: MetricVersion[] } | null>(null)
@@ -47,6 +53,12 @@ export default function MetricsPage({ canManage, isSuperadmin }: { canManage: bo
 
   // Список — по поиску с дебаунсом (он же начальная загрузка).
   useEffect(() => { const t = setTimeout(() => loadMetrics(mq), 250); return () => clearTimeout(t) }, [mq]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Значения — отдельным запросом: расчёт формул дороже выборки списка, и
+  // список не должен ждать его, чтобы показаться.
+  const loadValues = () => metricValues()
+    .then((r) => setValues(Object.fromEntries(r.items.map((v) => [v.code, v]))))
+    .catch(() => setValues({}))
+  useEffect(() => { loadValues() }, [])
 
   async function openMetric(id: string) {
     setError(null)
@@ -95,7 +107,7 @@ export default function MetricsPage({ canManage, isSuperadmin }: { canManage: bo
                     <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>{m.code}</div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    {m.unit && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{m.unit}</span>}
+                    <MetricNow v={values[m.code]} unit={m.unit} />
                     <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>версий: {m.versions ?? 0}</span>
                     <StatusBadge status={m.best_status || (m.has_approved ? 'approved' : 'draft')} />
                   </div>
@@ -370,6 +382,31 @@ function MetricDetail({ data, canManage, isSuperadmin, onError, onChanged, onDel
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * Что показатель считает прямо сейчас.
+ *
+ * Значение важнее статуса: по списку сразу видно и текущую цифру, и то, что
+ * формула сломалась. Ошибку показываем словами — сломанный показатель, молча
+ * стоящий в списке как обычный, обнаруживается только на дашборде и в самый
+ * неподходящий момент.
+ */
+function MetricNow({ v, unit }: { v?: MetricValue; unit?: string | null }) {
+  if (!v) return <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>…</span>
+  if (v.error) {
+    return (
+      <span style={{ fontSize: 12, color: 'var(--danger)', maxWidth: 260, textAlign: 'right' }}
+        title={v.error}>⚠ не считается</span>
+    )
+  }
+  const num = v.value == null ? '—' : v.value.toLocaleString('ru-RU', { maximumFractionDigits: 2 })
+  return (
+    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)', whiteSpace: 'nowrap' }}
+      title="Значение по лучшей версии формулы на текущих данных">
+      {num}{(v.unit || unit) ? ` ${v.unit || unit}` : ''}
+    </span>
   )
 }
 

@@ -26,6 +26,7 @@ from .service import (
     MetricError,
     create_metric,
     create_version,
+    current_values,
     delete_metric,
     evaluate_version,
     list_data_sources,
@@ -159,6 +160,18 @@ async def build_template_formula(body: dict, user: dict = Depends(manage)):
     except FormulaError as e:
         raise HTTPException(400, str(e)) from None
     return {"formula": formula, "name": suggested_name(code, (body or {}).get("labels") or {})}
+
+
+@router.get("/values")
+async def metric_values(user: dict = Depends(get_current_user)):
+    """Что показатели считают прямо сейчас — по лучшей версии формулы.
+
+    Отдельным запросом, а не внутри списка: расчёт формул стоит заметно дороже
+    выборки строк, а список нужен и там, где значения не нужны (пикеры KPI).
+    Определён ДО /{metric_id}, иначе «values» уехало бы в него как id.
+    """
+    async with db.get_pool().acquire() as conn:
+        return await current_values(conn, user["organization_id"])
 
 
 @router.get("/data-suggestions")

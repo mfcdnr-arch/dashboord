@@ -346,3 +346,50 @@ async def evaluate_version(conn, org_id, version_id: str) -> dict:
     except FormulaError as e:
         raise MetricError(str(e))
     return {"value": value, "unit": row["unit"]}
+
+
+async def current_values(conn, org_id, codes: Optional[List[str]] = None, limit: int = 60) -> dict:
+    """Что показатели считают ПРЯМО СЕЙЧАС — по лучшей версии формулы.
+
+    В списке показателей были только имя и статус: понять, что метрика даёт на
+    сегодняшних данных, можно было лишь открыв её и нажав предпросмотр. При
+    полутора десятках показателей это означало полтора десятка заходов, а
+    сломанная формула вообще ничем себя не выдавала — она выглядела как
+    обычная строка списка.
+
+    Берём ту же версию, что берёт виджет (одобренная → проверенная →
+    черновик), — иначе список показывал бы одно, а дашборд считал другое.
+    Ошибку не прячем: не посчиталось — так и говорим, это и есть самый ценный
+    ответ для модератора.
+    """
+    where = "m.organization_id=$1"
+    params: list = [org_id]
+    if codes:
+        params.append(list(codes))
+        where += f" and m.code = any(${len(params)}::text[])"
+    rows = await conn.fetch(
+        "select m.code, m.name, "
+        "  (select mv.id from metric_versions mv where mv.metric_id=m.id "
+        "     order by case mv.status when 'approved' then 0 when 'validated' then 1 "
+        "                             when 'draft' then 2 else 3 end, mv.version_no desc limit 1) as version_id, "
+        "  (select mv.status from metric_versions mv where mv.metric_id=m.id "
+        "     order by case mv.status when 'approved' then 0 when 'validated' then 1 "
+        "                             when 'draft' then 2 else 3 end, mv.version_no desc limit 1) as status "
+        f"from metrics m where {where} order by m.name limit {int(limit)}", *params)
+
+    out = []
+    for r in rows:
+        item = {"code": r["code"], "name": r["name"], "status": r["status"],
+                "value": None, "unit": None, "error": None}
+        if r["version_id"] is None:
+            item["error"] = "у показателя нет ни одной версии формулы"
+        else:
+            try:
+                got = await evaluate_version(conn, org_id, str(r["version_id"]))
+                item["value"], item["unit"] = got["value"], got["unit"]
+            except MetricError as e:
+                item["error"] = str(e)
+            except Exception as e:  # noqa: BLE001 — одна кривая формула не должна ронять весь список
+                item["error"] = f"ошибка расчёта: {e}"
+        out.append(item)
+    return {"items": out}
