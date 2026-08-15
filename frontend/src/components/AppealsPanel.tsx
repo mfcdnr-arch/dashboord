@@ -24,7 +24,9 @@ function StatusBadge({ status }: { status: string }) {
   return <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: s.bg, color: s.c, whiteSpace: 'nowrap' }}>{s.t}</span>
 }
 
-export default function AppealsPanel({ scope }: { scope: 'mine' | 'all' }) {
+export default function AppealsPanel(
+  { scope, initialAppealId }: { scope: 'mine' | 'all'; initialAppealId?: string | null },
+) {
   const isStaff = scope === 'all'
   const [items, setItems] = useState<AppealSummary[]>([])
   const [statusFilter, setStatusFilter] = useState('')
@@ -41,10 +43,22 @@ export default function AppealsPanel({ scope }: { scope: 'mine' | 'all' }) {
     p.then((r) => setItems(r.items)).catch((e) => setErr((e as Error).message))
   }
   useEffect(() => { load() }, [statusFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Переход из уведомления: открываем сразу нужную переписку, а не список.
+  useEffect(() => {
+    if (initialAppealId) openThread(initialAppealId)
+  }, [initialAppealId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openThread(id: string) {
     setErr(null)
-    try { setDetail(await getAppeal(id)); setOpenId(id) } catch (e) { setErr((e as Error).message) }
+    try {
+      setDetail(await getAppeal(id))
+      setOpenId(id)
+    } catch (e) {
+      // Обращение могли удалить, а уведомление о нём осталось: объясняем это
+      // словами, иначе сухое «не найдено» читается как поломка перехода.
+      const msg = (e as Error).message
+      setErr(/не найден/i.test(msg) ? 'Обращение не найдено — возможно, оно уже удалено.' : msg)
+    }
   }
   function back() { setOpenId(null); setDetail(null); setReply(''); load() }
 

@@ -283,6 +283,42 @@ async def run_retention(conn, org_id, months: int | None = None, notify_admins: 
     return {"enabled": True, "months": m, "deleted_releases": deleted}
 
 
+NOTIFICATION_KEEP_DAYS = 90
+
+
+async def prune_notifications(conn, org_id, keep_days: int = NOTIFICATION_KEEP_DAYS) -> dict:
+    """Чистка ленты уведомлений: прочитанное старьё и события «в никуда».
+
+    Уведомления копились без ограничения: на стенде их набралось больше четырёх
+    тысяч, и колокольчик показывал «99+» из событий полугодовой давности —
+    такую ленту перестают читать вовсе, и в ней теряется важное.
+
+    Удаляем два вида. (1) Прочитанные всеми получателями и старше окна —
+    непрочитанное не трогаем никогда, каким бы старым оно ни было: это
+    единственное, на что человек ещё может отреагировать. (2) События, чья
+    сущность удалена: клик по такому уведомлению приводит в пустоту («Обращение
+    не найдено»), пользы от него нет.
+    """
+    orphan = await conn.execute(
+        "delete from notification_events e where e.organization_id=$1 and ("
+        "  (e.entity_type='appeal'    and not exists (select 1 from appeals a    where a.id = e.entity_id)) or"
+        "  (e.entity_type='dashboard' and not exists (select 1 from dashboards d where d.id = e.entity_id)) or"
+        "  (e.entity_type='object'    and not exists (select 1 from objects o    where o.id = e.entity_id)) or"
+        "  (e.entity_type='widget'    and not exists (select 1 from widgets w    where w.id = e.entity_id)))",
+        org_id)
+    old = await conn.execute(
+        "delete from notification_events e where e.organization_id=$1 "
+        "  and e.created_at < now() - make_interval(days => $2) "
+        "  and not exists (select 1 from notification_recipients r "
+        "                  where r.notification_event_id = e.id and not r.is_read)",
+        org_id, keep_days)
+
+    def _n(res: str) -> int:
+        return int(res.rsplit(" ", 1)[-1]) if res.startswith("DELETE") else 0
+
+    return {"orphaned": _n(orphan), "old_read": _n(old), "keep_days": keep_days}
+
+
 async def heal_history(conn, limit: int = 20) -> list[dict]:
     """Последние heal-события (ручные и автоматические) для UI «Здоровье системы»."""
     rows = await conn.fetch(

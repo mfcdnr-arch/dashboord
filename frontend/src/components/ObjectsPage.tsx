@@ -11,7 +11,10 @@ import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
 
 const DOCS_PAGE = 50
 
-export default function ObjectsPage({ canManage, isSuperadmin }: { canManage: boolean; isSuperadmin?: boolean }) {
+export default function ObjectsPage(
+  { canManage, isSuperadmin, initialObjectId }:
+  { canManage: boolean; isSuperadmin?: boolean; initialObjectId?: string | null },
+) {
   // Подтверждения — своим окном: системное браузер вправе подавить, и кнопка
   // необратимого действия выглядит нерабочей (см. ConfirmDialog).
   const { ask, node: confirmNode } = useConfirm()
@@ -40,8 +43,14 @@ export default function ObjectsPage({ canManage, isSuperadmin }: { canManage: bo
   }
 
   useEffect(() => {
-    listObjects().then(setObjects).catch(fail)
-  }, [])
+    listObjects().then((list) => {
+      setObjects(list)
+      // Переход из уведомления «данные не поступили»: открываем тот объект,
+      // о котором речь, а не общий список.
+      const target = initialObjectId && list.find((o) => o.id === initialObjectId)
+      if (target) openObject(target)
+    }).catch(fail)
+  }, [initialObjectId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openObject(o: Obj) {
     setError(null)

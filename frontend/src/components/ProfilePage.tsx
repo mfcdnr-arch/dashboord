@@ -21,8 +21,12 @@ const ACTION_RU: Record<string, string> = {
   archive: 'архивация', unarchive: 'возврат из архива', export: 'выгрузка',
 }
 
-export default function ProfilePage({ me }: { me: Me }) {
-  const [tab, setTab] = useState<'profile' | 'appeals'>('profile')
+export default function ProfilePage(
+  { me, initialAppealId }: { me: Me; initialAppealId?: string | null },
+) {
+  // Переход из уведомления: сразу вкладка «Обращения», иначе человек попадал бы
+  // в профиль и искал переписку сам.
+  const [tab, setTab] = useState<'profile' | 'appeals'>(initialAppealId ? 'appeals' : 'profile')
   return (
     <div>
       <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Личный кабинет</h2>
@@ -30,7 +34,7 @@ export default function ProfilePage({ me }: { me: Me }) {
         <button onClick={() => setTab('profile')} style={tab === 'profile' ? tabActive : tabBtn}>Профиль и активность</button>
         <button onClick={() => setTab('appeals')} style={tab === 'appeals' ? tabActive : tabBtn}>💬 Мои обращения</button>
       </div>
-      {tab === 'profile' ? <ProfileTab me={me} /> : <AppealsPanel scope="mine" />}
+      {tab === 'profile' ? <ProfileTab me={me} /> : <AppealsPanel scope="mine" initialAppealId={initialAppealId} />}
     </div>
   )
 }

@@ -49,8 +49,10 @@ async def daily_freshness(ctx) -> None:
 
 
 async def weekly_retention(ctx) -> None:
-    """Планировщик: еженедельная ретенция (скользящее окно хранения)."""
+    """Планировщик: еженедельная ретенция (скользящее окно хранения) и чистка
+    ленты уведомлений (прочитанное старьё и события об удалённых сущностях)."""
     await _for_each_org(maint.run_retention)
+    await _for_each_org(maint.prune_notifications)
 
 
 async def monthly_auto_archive(ctx) -> None:

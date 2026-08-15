@@ -36,7 +36,41 @@ function message(n: NotificationItem): string {
   return n.label
 }
 
-export default function NotificationBell() {
+/**
+   * Куда ведёт уведомление.
+   *
+   * Уведомление без перехода — тупик: человек прочитал «ztest: не работает
+   * выгрузка» и должен сам вспомнить, в каком разделе искать это обращение.
+   * Поэтому каждое событие знает свою сущность (entity_type/entity_id), и клик
+   * открывает именно её. Обычного пользователя ведём в «Кабинет»: раздела
+   * «Обращения» у него нет, его переписка живёт там.
+   */
+function targetOf(n: NotificationItem, staff: boolean): NotifyTarget | null {
+  const id = n.entity_id || undefined
+  if (n.event_type.startsWith('appeal.')) {
+    return { section: staff ? 'appeals' : 'profile', appealId: id }
+  }
+  if (n.event_type === 'dashboard.comment' || n.event_type === 'dashboard.review_requested') {
+    return { section: 'dashboards', dashboardId: id }
+  }
+  if (n.event_type === 'data.stale' || n.event_type === 'data.missing') {
+    return { section: 'objects', objectId: id }
+  }
+  if (n.event_type === 'data.retention') return { section: 'settings' }
+  if (n.event_type === 'system.degraded') return { section: 'reports' }
+  return null
+}
+
+export type NotifyTarget = {
+  section: string
+  appealId?: string
+  dashboardId?: string
+  objectId?: string
+}
+
+export default function NotificationBell(
+  { staff, onNavigate }: { staff: boolean; onNavigate?: (t: NotifyTarget) => void },
+) {
   const [data, setData] = useState<NotificationsResult | null>(null)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
@@ -52,6 +86,8 @@ export default function NotificationBell() {
   const unread = data?.unread ?? 0
   async function readOne(n: NotificationItem) {
     if (!n.is_read) { try { await markNotificationRead(n.recipient_id); load() } catch { /* ignore */ } }
+    const target = targetOf(n, staff)
+    if (target && onNavigate) { setOpen(false); onNavigate(target) }
   }
   async function readAll() { try { await markAllNotificationsRead(); load() } catch { /* ignore */ } }
 
@@ -77,7 +113,14 @@ export default function NotificationBell() {
             : data.items.length === 0 ? <div style={{ padding: 14, color: 'var(--text-faint)', fontSize: 13 }}>Уведомлений нет.</div>
               : data.items.map((n) => (
                 <div key={n.recipient_id} onClick={() => readOne(n)}
-                  style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-faint)', cursor: n.is_read ? 'default' : 'pointer', background: n.is_read ? 'var(--surface)' : 'var(--surface-accent)' }}>
+                  title={targetOf(n, staff) ? 'Открыть' : undefined}
+                  style={{
+                    padding: '10px 12px', borderBottom: '1px solid var(--border-faint)',
+                    // Курсор-указатель, пока есть куда вести: у прочитанного
+                    // уведомления переход остаётся, и «default» врал бы.
+                    cursor: targetOf(n, staff) || !n.is_read ? 'pointer' : 'default',
+                    background: n.is_read ? 'var(--surface)' : 'var(--surface-accent)',
+                  }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     {!n.is_read && <span style={{ width: 7, height: 7, borderRadius: 4, background: 'var(--accent)', flexShrink: 0 }} />}
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{n.label}</span>

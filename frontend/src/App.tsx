@@ -121,6 +121,11 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const staff = me.roles.some((r) => ['admin', 'moderator', 'superadmin'].includes(r))
   const [section, setSection] = useState(staff ? 'home' : 'dashboards')
   const [openDash, setOpenDash] = useState<string | null>(null)
+  // Куда ведёт клик по уведомлению: раздел + сущность внутри него. Без этого
+  // уведомление было тупиком — человек читал «не работает выгрузка» и должен
+  // был сам вспомнить, где искать это обращение.
+  const [openAppeal, setOpenAppeal] = useState<string | null>(null)
+  const [openObject, setOpenObject] = useState<string | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null))
@@ -195,7 +200,15 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             🧭{narrow ? '' : ' Настройка'}
           </button>
         )}
-        <NotificationBell />
+        <NotificationBell
+          staff={staff}
+          onNavigate={(t) => {
+            setOpenDash(t.dashboardId ?? null)
+            setOpenAppeal(t.appealId ?? null)
+            setOpenObject(t.objectId ?? null)
+            setSection(t.section)
+          }}
+        />
         <ThemeToggle />
         <button onClick={onLogout} style={{ height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer', fontSize: 13 }}>Выйти</button>
       </header>
@@ -211,7 +224,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {nav.map((n) => (
             <button
               key={n.key}
-              onClick={() => { setOpenDash(null); setSection(n.key) }}
+              onClick={() => { setOpenDash(null); setOpenAppeal(null); setOpenObject(null); setSection(n.key) }}
               style={{
                 display: 'block', width: narrow ? 'auto' : '100%', whiteSpace: 'nowrap', textAlign: 'left',
                 padding: '8px 12px', marginBottom: narrow ? 0 : 4,
@@ -239,7 +252,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {section === 'home' ? (
             <HomePage me={me} canManage={canManage} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'objects' ? (
-            <ObjectsPage canManage={canManage} isSuperadmin={isSuperadmin} />
+            <ObjectsPage canManage={canManage} isSuperadmin={isSuperadmin} initialObjectId={openObject} />
           ) : section === 'metrics' ? (
             <MetricsPage canManage={canManage} isSuperadmin={isSuperadmin} />
           ) : section === 'dashboards' ? (
@@ -257,13 +270,13 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ) : section === 'moderation' ? (
             <ModerationPage me={me} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'appeals' ? (
-            <AppealsPage />
+            <AppealsPage initialAppealId={openAppeal} />
           ) : section === 'catalog' ? (
             <CatalogPage me={me} />
           ) : section === 'settings' ? (
             <SettingsPage me={me} />
           ) : section === 'profile' ? (
-            <ProfilePage me={me} />
+            <ProfilePage me={me} initialAppealId={openAppeal} />
           ) : (
             <div style={{ color: 'var(--text-faint)' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>
           )}
