@@ -13,6 +13,7 @@ import json
 from typing import Optional
 
 from ..audit import service as audit_svc
+from ..notifications import service as notif
 
 # 6 блоков чек-листа проверки (совпадают с moderation_check_result.check_block).
 CHECK_BLOCKS = ["structure", "data", "metrics", "filters", "access", "visual"]
@@ -93,6 +94,15 @@ async def submit_for_review(conn, org_id, user: dict, dashboard_id: str) -> dict
         "values($1::uuid,$2,'pending_moderation',$3,now())", dashboard_id, version_id, user["id"])
     await conn.execute(
         "update dashboards set publication_status='review', updated_at=now() where id=$1::uuid", dashboard_id)
+
+    # Заявка лежала в очереди, пока модератор сам туда не заглянет: счётчик на
+    # «Главной» был, а уведомления — нет. Автору сообщать незачем, он и отправил.
+    recipients = [uid for uid in await notif.management_user_ids(conn, org_id) if uid != user["id"]]
+    await notif.notify(
+        conn, org_id, "dashboard.review_requested", "dashboard", dashboard_id,
+        {"dashboard_name": d["name"], "author": user.get("full_name") or user.get("login") or "",
+         "version_no": vno},
+        recipients)
     return {"publication_status": "review", "version_no": vno}
 
 

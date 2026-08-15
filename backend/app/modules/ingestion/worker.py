@@ -38,8 +38,14 @@ async def _for_each_org(fn) -> None:
 
 
 async def daily_freshness(ctx) -> None:
-    """Планировщик: ежедневная проверка свежести данных → уведомления."""
+    """Планировщик: ежедневная проверка данных → уведомления.
+
+    Две разные проверки: свежесть (данных давно нет вообще) и ритм (форма
+    приходила еженедельно и не пришла). Вторая молчит там, где ритма нет,
+    поэтому лишнего беспокойства не создаёт.
+    """
     await _for_each_org(maint.check_freshness)
+    await _for_each_org(maint.check_cadence)
 
 
 async def weekly_retention(ctx) -> None:

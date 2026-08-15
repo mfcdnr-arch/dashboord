@@ -2,6 +2,8 @@
 
 - check_freshness: по каждому объекту смотрит дату последней загрузки; если
   данные не поступали дольше stale_days — создаёт уведомление (антидубль 7 дней).
+- check_cadence: вычисляет ритм поступления формы по её же истории и сообщает
+  о ПРОПУЩЕННОМ отчёте («приходило каждую неделю, за 12.08 файла нет»).
 - retention_preview / run_retention: считает/удаляет релизы датасетов старше окна
   (reporting_period_start < сегодня − N месяцев). Каскад чистит values/поля/связи.
 """
@@ -10,6 +12,8 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from datetime import timedelta
+from typing import Optional
 
 from ...config import settings
 from ..audit import service as audit
@@ -135,6 +139,76 @@ async def check_freshness(conn, org_id, stale_days: int | None = None) -> dict:
             recipients)
         created += 1
     return {"stale_objects": stale, "notifications_created": created}
+
+
+def infer_cadence(periods: list) -> Optional[int]:
+    """Периодичность формы в днях по её же истории (медиана интервалов).
+
+    Ритм не задаётся руками: заказчик просто кладёт файлы, а система смотрит,
+    как они приходили. Нужно минимум 4 отчёта (три интервала) — на двух-трёх
+    «ритм» был бы случайностью.
+
+    Ритм признаётся, только если он УСТОЙЧИВ: не меньше двух третей интервалов
+    отклоняются от медианы не больше чем на четверть. Иначе форма приходит
+    как придётся, и говорить о пропуске нельзя — получилось бы ложное
+    беспокойство на каждой нерегулярной папке.
+    """
+    days = sorted({p for p in periods if p is not None})
+    if len(days) < 4:
+        return None
+    gaps = [(b - a).days for a, b in zip(days, days[1:], strict=False) if (b - a).days > 0]
+    if len(gaps) < 3:
+        return None
+    gaps_sorted = sorted(gaps)
+    median = gaps_sorted[len(gaps_sorted) // 2]
+    if median <= 0:
+        return None
+    tolerance = max(1, round(median * 0.25))
+    steady = sum(1 for g in gaps if abs(g - median) <= tolerance)
+    return median if steady * 3 >= len(gaps) * 2 else None
+
+
+async def check_cadence(conn, org_id) -> dict:
+    """Уведомления о ПРОПУЩЕННОМ отчёте: форма приходила ритмично и не пришла.
+
+    Проверка свежести (`check_freshness`) смотрит на возраст последней загрузки
+    вообще и одинаково молчит и про недельную форму, и про годовую. Здесь
+    другой вопрос: система знает, что этот датасет приходил каждую неделю
+    пятнадцать раз подряд, — значит, отсутствие свежего отчёта это событие, а
+    не тишина.
+    """
+    rows = await conn.fetch(
+        "select r.code, max(o.name) as object_name, max(r.object_id::text) as object_id, "
+        "array_agg(distinct r.reporting_period_start) as periods "
+        "from dataset_releases r left join objects o on o.id = r.object_id "
+        "where r.organization_id=$1 and r.status <> 'superseded' "
+        "  and r.reporting_period_start is not null and r.object_id is not null "
+        "group by r.code", org_id)
+    recipients = await notif.management_user_ids(conn, org_id)
+    missing, created = [], 0
+    today = await conn.fetchval("select current_date")
+
+    for row in rows:
+        cadence = infer_cadence(list(row["periods"]))
+        if cadence is None:
+            continue
+        last = max(p for p in row["periods"] if p is not None)
+        expected = last + timedelta(days=cadence)
+        # Полритма форы: отчёт за период почти никогда не кладут день в день.
+        overdue = (today - expected).days
+        if overdue < max(2, cadence // 2):
+            continue
+        item = {"dataset_code": row["code"], "object_name": row["object_name"],
+                "expected_period": expected.isoformat(), "last_period": last.isoformat(),
+                "cadence_days": cadence, "overdue_days": overdue,
+                "periods_seen": len(row["periods"])}
+        missing.append(item)
+        # Антидубль на один цикл: напоминаем не чаще, чем форма и должна приходить.
+        if await notif.recent_event_exists(conn, org_id, "data.missing", row["object_id"], max(3, cadence)):
+            continue
+        await notif.notify(conn, org_id, "data.missing", "object", row["object_id"], item, recipients)
+        created += 1
+    return {"missing": missing, "notifications_created": created}
 
 
 PREVIEW_ITEMS_LIMIT = 100

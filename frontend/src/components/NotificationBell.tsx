@@ -12,9 +12,22 @@ function fmtDt(iso: string): string {
   return d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 }
 
+/** Отчётные даты показываем по-русски: в системе принят ДД.ММ.ГГГГ. */
+function ruDate(v: unknown): string {
+  const s = String(v ?? '')
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s.split('-').reverse().join('.') : s
+}
+
 function message(n: NotificationItem): string {
   const p = n.payload || {}
   if (n.event_type === 'data.stale') return `Объект «${p.object_name}»: нет новых данных ${p.days_since_upload} дн. (порог ${p.threshold_days}).`
+  if (n.event_type === 'data.missing') {
+    return `Объект «${p.object_name}»: отчёт за ${ruDate(p.expected_period)} не поступил `
+      + `(форма приходит раз в ${p.cadence_days} дн., последний — за ${ruDate(p.last_period)}).`
+  }
+  if (n.event_type === 'dashboard.review_requested') {
+    return `«${p.dashboard_name}» ждёт проверки${p.author ? ` — отправил ${p.author}` : ''}.`
+  }
   if (n.event_type === 'data.retention') return `Ретенция: удалено релизов — ${p.deleted_releases} (окно ${p.window_months} мес.).`
   if (n.event_type === 'widget.created.no_explicit_access') return `Новый виджет без явных прав: ${p.widget_name ?? ''}`
   if (n.event_type === 'system.degraded') return `Автопочинка не устранила все проблемы (статус: ${p.status_after ?? 'degraded'}). Посмотрите раздел «Отчёты» → «Здоровье системы».`
