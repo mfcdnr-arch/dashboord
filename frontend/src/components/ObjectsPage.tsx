@@ -8,8 +8,15 @@ import { folderLabel, folderTree } from '../lib/folderTree'
 import ExtractionPage from './ExtractionPage'
 import RowAclEditor from './RowAclEditor'
 import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
+import AutoBuildWizard from './dashboards/AutoBuildWizard'
+import { getBuildSuggestion, type BuildSuggestion } from '../api/objects'
+import { listDashboards, type Dashboard } from '../api/dashboards'
 
 const DOCS_PAGE = 50
+
+/** Отчётные даты — по-русски: ДД.ММ.ГГГГ. */
+const ruDate = (iso?: string | null): string =>
+  (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').reverse().join('.') : iso || '')
 
 export default function ObjectsPage(
   { canManage, isSuperadmin, initialObjectId }:
@@ -37,6 +44,11 @@ export default function ObjectsPage(
   const [date, setDate] = useState('')
   const [busy, setBusy] = useState(false)
   const [askDelDoc, setAskDelDoc] = useState<Doc | null>(null)
+  // Предложение собрать дашборд: данные копятся сами, а дашборда может не быть
+  // месяцами — человек не всегда знает, что система уже готова его собрать.
+  const [suggestion, setSuggestion] = useState<BuildSuggestion | null>(null)
+  const [wizardOpen, setWizardOpen] = useState(false)
+  const [dashList, setDashList] = useState<Dashboard[]>([])
 
   function fail(e: unknown) {
     setError((e as Error).message)
@@ -55,6 +67,10 @@ export default function ObjectsPage(
   async function openObject(o: Obj) {
     setError(null)
     setObj(o)
+    setSuggestion(null)
+    if (canManage) {
+      getBuildSuggestion(o.id).then(setSuggestion).catch(() => setSuggestion(null))
+    }
     setFolder(null)
     setOpenDoc(null)
     setDocs([])
@@ -308,6 +324,41 @@ export default function ObjectsPage(
             empty="Пока нет объектов"
           />
         </Section>
+      )}
+
+      {obj && canManage && suggestion?.suggest && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          background: 'var(--accent-weak-bg)', color: 'var(--accent)', fontSize: 13,
+          padding: '10px 12px', borderRadius: 10, marginBottom: 14,
+        }}>
+          <span>
+            ✨ По объекту накоплено данных: {suggestion.periods === 1
+              ? 'один отчёт'
+              : `${suggestion.periods} отч. периодов`}
+            {suggestion.first_period && suggestion.last_period
+              ? ` (с ${ruDate(suggestion.first_period)} по ${ruDate(suggestion.last_period)})`
+              : ''}, а дашборда на них нет. Собрать?
+          </span>
+          <button type="button" style={{ ...btn, height: 30, fontSize: 13, marginLeft: 'auto' }}
+            onClick={async () => {
+              try { setDashList((await listDashboards('', false, 200)).items) } catch { /* список для «пересобрать» */ }
+              setWizardOpen(true)
+            }}>Собрать дашборд</button>
+        </div>
+      )}
+
+      {wizardOpen && obj && (
+        <AutoBuildWizard
+          objectId={obj.id} objectName={obj.name} dashboards={dashList}
+          onClose={() => setWizardOpen(false)}
+          onDone={() => {
+            setWizardOpen(false)
+            // Дашборд появился — предложение больше не актуально.
+            getBuildSuggestion(obj.id).then(setSuggestion).catch(() => setSuggestion(null))
+          }}
+          onError={setError}
+        />
       )}
 
       {obj && !folder && (

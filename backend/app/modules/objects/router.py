@@ -167,6 +167,58 @@ async def delete_object(object_id: str, user: dict = Depends(manage)):
             await conn.execute("delete from objects where id=$1::uuid", object_id)
 
 
+@router.get("/{object_id}/build-suggestion")
+async def build_suggestion(object_id: str, user: dict = Depends(manage)):
+    """Стоит ли предложить собрать дашборд по этому объекту.
+
+    Данные копятся сами, а дашборда может не быть месяцами: человек не всегда
+    знает, что система уже готова его собрать. Предлагаем, когда выпуски есть,
+    а дашборда, который на них смотрит, нет.
+
+    «Дашборд есть» считаем двумя способами сразу: он лежит в папке объекта
+    (мастер теперь ставит папку сам) ИЛИ его виджеты ссылаются на коды
+    датасетов объекта. Одного признака мало: дашборд могли собрать до
+    автопривязки или перенести в другую папку.
+    """
+    org_id = user["organization_id"]
+    async with db.get_pool().acquire() as conn:
+        obj = await conn.fetchrow(
+            "select id, name from objects where id=$1::uuid and organization_id=$2", object_id, org_id)
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
+
+        rel = await conn.fetchrow(
+            "select count(*) as releases, count(distinct reporting_period_start) as periods, "
+            "min(reporting_period_start) as first_period, max(reporting_period_start) as last_period, "
+            "array_agg(distinct code) as codes "
+            "from dataset_releases where object_id=$1::uuid and status <> 'superseded'", object_id)
+        releases = int(rel["releases"] or 0)
+        codes = [c for c in (rel["codes"] or []) if c]
+        if not releases:
+            return {"suggest": False, "reason": "no_data", "releases": 0, "periods": 0}
+
+        in_folder = await conn.fetchval(
+            "select count(*) from dashboards d join folders f on f.id = d.folder_id "
+            "where f.object_id=$1::uuid and d.publication_status <> 'archived'", object_id)
+        by_widget = await conn.fetchval(
+            "select count(distinct w.dashboard_id) from widgets w "
+            "where w.organization_id=$1 and w.config->>'dataset_code' = any($2::text[])",
+            org_id, codes) if codes else 0
+        existing = int(in_folder or 0) + int(by_widget or 0)
+
+        return {
+            "suggest": existing == 0,
+            "reason": "has_dashboard" if existing else "ready",
+            "object_name": obj["name"],
+            "releases": releases,
+            "periods": int(rel["periods"] or 0),
+            "first_period": rel["first_period"].isoformat() if rel["first_period"] else None,
+            "last_period": rel["last_period"].isoformat() if rel["last_period"] else None,
+            "dataset_codes": codes,
+            "dashboards": existing,
+        }
+
+
 @router.get("/{object_id}/folders")
 async def list_folders(object_id: str, user: dict = Depends(get_current_user)):
     async with db.get_pool().acquire() as conn:

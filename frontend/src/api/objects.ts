@@ -144,3 +144,23 @@ export async function uploadDocument(folderId: string, file: File, reportingDate
   if (!res.ok) throw new Error(await errText(res))
 }
 
+
+
+/** Стоит ли предложить собрать дашборд по объекту (данные есть, дашборда нет). */
+export interface BuildSuggestion {
+  suggest: boolean
+  reason: string
+  object_name?: string
+  releases: number
+  periods: number
+  first_period?: string | null
+  last_period?: string | null
+  dataset_codes?: string[]
+  dashboards?: number
+}
+
+export async function getBuildSuggestion(objectId: string): Promise<BuildSuggestion> {
+  const res = await fetch(`/objects/${objectId}/build-suggestion`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
