@@ -82,9 +82,12 @@ async def test_auto_build_makes_kpi_for_every_numeric_field(client, admin_header
                       else w["config"]["value_field"] for w in kpis)
         assert used == sorted(c for c, _ in FIELDS)
 
-        # по 4 карточки в ряд, сетка 12 колонок заполняется без дыр
-        assert {w["position_x"] for w in kpis} == {0, 3, 6, 9}
-        assert all(w["width"] == 3 for w in kpis)
+        # По ТРИ карточки в ряд (ширина 4): на четверти ширины длинные имена
+        # госформ обрезались до «Количестı отправ…», и карточка переставала
+        # отвечать на вопрос, что за число она показывает. 3 × 4 = 12 колонок
+        # заполняются без дыр.
+        assert {w["position_x"] for w in kpis} == {0, 4, 8}
+        assert all(w["width"] == 4 for w in kpis)
 
         types = [w["widget_type"] for w in rows]
         assert "table" in types, "таблица-первичка обязательна"

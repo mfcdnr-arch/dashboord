@@ -265,13 +265,21 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None) -> list:
                 ov_y += ((len(pairs) + 1) // 2) * 5
 
         cards = [f for f in shown if view_of(f) in ("kpi", "both")] if "kpi" in blocks else []
+        # По ТРИ в ряд, а не по четыре: имена госформ длинные («Количество
+        # отправленных уведомлений … · Факт · нарастающим итогом»), и на
+        # четверти ширины от них оставалось «Количестı отправ…» — карточка
+        # переставала отвечать на вопрос, что за число она показывает.
+        # Высота 4 вместо 3: под числом помещается прирост к прошлому отчёту.
         for i, f in enumerate(cards):
             specs.append({"page": PAGE_OVERVIEW, "name": f["name"], "widget_type": "kpi",
-                          "config": {"dataset_code": code, "value_field": f["code"]},
-                          "position_x": (i % 4) * 3, "position_y": ov_y + (i // 4) * 3,
-                          "width": 3, "height": 3})
+                          "config": {"dataset_code": code, "value_field": f["code"],
+                                     # Прирост к прошлому отчёту показываем, когда
+                                     # периодов больше одного: иначе сравнивать не с чем.
+                                     **({"compare_prev": True} if has_dyn else {})},
+                          "position_x": (i % 3) * 4, "position_y": ov_y + (i // 3) * 5,
+                          "width": 4, "height": 5})
         if cards:
-            ov_y += ((len(cards) + 3) // 4) * 3
+            ov_y += ((len(cards) + 2) // 3) * 5
 
         # Сравнение: десяток карточек даёт точные числа, но не даёт увидеть
         # соотношение. 8 рядов — замерено: при 6 график ужимается до полоски.
@@ -622,7 +630,7 @@ async def place_metric_widget(conn, org_id, user_id, *, page_id: str, metric_cod
         if score > best_score:
             best, best_score = r, score
 
-    width, height = 3, 3
+    width, height = 4, 5
 
     def free(x: int, y: int) -> bool:
         """Свободна ли клетка: иначе сетка растолкает соседей при отрисовке."""
@@ -648,7 +656,7 @@ async def place_metric_widget(conn, org_id, user_id, *, page_id: str, metric_cod
         # чем дальше, тем хуже, поэтому спускаемся недалеко (4 ряда карточек).
         for dy in range(0, 4 * height, height):
             y = by + dy
-            order = ([bx + bw] if dy == 0 else [bx]) + [c * 3 for c in range(4)]
+            order = ([bx + bw] if dy == 0 else [bx]) + [c * 4 for c in range(3)]
             for x in order:
                 if free(x, y):
                     spot = (x, y)
@@ -662,7 +670,7 @@ async def place_metric_widget(conn, org_id, user_id, *, page_id: str, metric_cod
             # родственника и позволяем сетке подвинуть остальных. Соседство
             # важнее неподвижности: карточка, уехавшая в конец страницы, теряет
             # весь смысл «рядом с показателем, из которого считается».
-            pos = {"position_x": min(bx + bw, 9), "position_y": by,
+            pos = {"position_x": min(bx + bw, 8), "position_y": by,
                    "width": width, "height": height}
 
     cfg = {"metric_code": metric_code}

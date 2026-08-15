@@ -347,6 +347,22 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         else:
             raise DashboardError("KPI: укажите формулу, metric_code или dataset_code+value_field")
         res = {"type": "kpi", "value": value, "unit": unit, "title": name}
+        # Два необязательных украшения, которые превращают голое число в
+        # показатель: прирост к прошлому отчёту и мини-график по периодам.
+        # Оба ВЫКЛЮЧЕНЫ по умолчанию — это лишние запросы, а на странице
+        # карточек бывает полтора десятка.
+        if cfg.get("dataset_code") and cfg.get("value_field") and (cfg.get("compare_prev") or cfg.get("spark")):
+            trend = await _dataset_period_series(
+                conn, org_id, cfg["dataset_code"], cfg["value_field"], None, None, row, allowed)
+            if cfg.get("spark") and len(trend) > 1:
+                res["spark"] = [v for _p, v in trend]
+                res["spark_periods"] = [p for p, _v in trend]
+            if cfg.get("compare_prev") and len(trend) > 1:
+                prev_period, prev_value = trend[-2]
+                res["prev_value"], res["prev_period"] = prev_value, prev_period
+                res["delta"] = value - prev_value
+                res["delta_pct"] = (
+                    round((value - prev_value) / prev_value * 100, 2) if prev_value else None)
         _apply_target(res, cfg, value)
         res["alert"] = evaluate_alert("kpi", cfg, res)
         return res

@@ -215,6 +215,10 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const [name, setName] = useState(initial?.name || '')
   const [help, setHelp] = useState<string>(cfg0.help || '')  // авторская подсказка-тултип
   const [type, setType] = useState(initial?.widget_type || 'kpi')
+  // Украшения карточки KPI: прирост к прошлому отчёту и мини-график динамики.
+  // Оба стоят по одному дополнительному запросу, поэтому включаются осознанно.
+  const [cmpPrev, setCmpPrev] = useState(Boolean((initial?.config as Record<string, unknown> | undefined)?.compare_prev))
+  const [spark, setSpark] = useState(Boolean((initial?.config as Record<string, unknown> | undefined)?.spark))
   const [source, setSource] = useState<'metric' | 'dataset' | 'formula'>(cfg0.formula ? 'formula' : (cfg0.metric_code || cfg0.plan_metric) ? 'metric' : (cfg0.dataset_code ? 'dataset' : 'metric'))
   const [formulaDsl, setFormulaDsl] = useState<string>(cfg0.formula || '')
   const [formulaUnit, setFormulaUnit] = useState<string>(cfg0.unit || '')
@@ -313,6 +317,10 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       if (!base) return null
       if (type === 'gauge' && gaugeMax.trim() && !isNaN(Number(gaugeMax))) (base as Record<string, unknown>).gauge_max = Number(gaugeMax)
       if (target.trim() && !isNaN(Number(target))) (base as Record<string, unknown>).target = Number(target)
+      if (type === 'kpi' && source === 'dataset') {
+        if (cmpPrev) (base as Record<string, unknown>).compare_prev = true
+        if (spark) (base as Record<string, unknown>).spark = true
+      }
       return base
     }
     if (type === 'plan_fact') return source === 'metric' ? ((metricCode && factMetric) ? { plan_metric: metricCode, fact_metric: factMetric } : null) : ((dataset && planField && factField) ? { dataset_code: dataset, plan_field: planField, fact_field: factField } : null)
@@ -514,6 +522,23 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       )}
       {['kpi', 'gauge'].includes(type) && (
         <F t="Цель (пусто — нет)"><input style={{ ...sel, width: 130 }} type="number" placeholder="напр. 200" value={target} onChange={(e) => setTarget(e.target.value)} /></F>
+      )}
+      {/* Карточка с одним числом не отвечает на вопрос «много это или мало».
+          Прирост к прошлому отчёту и мини-график отвечают — но каждый стоит
+          дополнительного запроса, поэтому включаются осознанно. */}
+      {type === 'kpi' && source === 'dataset' && (
+        <>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }}
+            title="Показать прирост к предыдущему отчётному периоду — стрелкой и цветом">
+            <input type="checkbox" checked={cmpPrev} onChange={(e) => setCmpPrev(e.target.checked)} />
+            Прирост к прошлому отчёту
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }}
+            title="Мини-график по всем отчётным периодам прямо в карточке">
+            <input type="checkbox" checked={spark} onChange={(e) => setSpark(e.target.checked)} />
+            Мини-график динамики
+          </label>
+        </>
       )}
       {type === 'dynamics' && (
         <>

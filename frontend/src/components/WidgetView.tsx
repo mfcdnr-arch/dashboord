@@ -178,6 +178,29 @@ export function WidgetPreviewBody({ data }: { data: any }) {
 }
 
 // Цель/бенчмарк под показателем: значение цели + % достижения (зелёный при ≥100%).
+/** Мини-график динамики внутри карточки: только форма движения, без осей. */
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  const w = 100, h = 22
+  const min = Math.min(...values), max = Math.max(...values)
+  const span = max - min || 1
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * w
+    const y = h - ((v - min) / span) * (h - 3) - 1.5
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+  const last = values[values.length - 1]
+  const lastY = h - ((last - min) / span) * (h - 3) - 1.5
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none"
+      style={{ width: '100%', height: 22, marginTop: 4, display: 'block' }}
+      aria-label="Динамика по отчётным периодам">
+      <polyline points={pts} fill="none" stroke={color} strokeWidth={1.5}
+        vectorEffect="non-scaling-stroke" />
+      <circle cx={w} cy={lastY} r={2} fill={color} />
+    </svg>
+  )
+}
+
 function TargetLine({ data }: { data: any }) {
   if (data.target == null) return null
   const pct = data.target_pct
@@ -261,11 +284,35 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
   }
   if (data.type === 'kpi') {
     const kpiText = fmt(data.value) + (data.unit ? ' ' + data.unit : '')
+    const up = (data.delta ?? 0) > 0
+    const flat = !data.delta
     return (
       <div>
-        <FitText size={30} title={kpiText} style={{ fontWeight: 700, color: data.alert?.color || 'var(--accent)' }}>{fmt(data.value)}
+        {/* При наличии прироста число чуть мельче: иначе карточка не вмещает
+            обе строки и появляется полоса прокрутки. */}
+        <FitText size={data.prev_value != null ? 26 : 30} title={kpiText}
+          style={{ fontWeight: 700, color: data.alert?.color || 'var(--accent)' }}>{fmt(data.value)}
           {data.unit && <span style={{ fontSize: '0.5em', color: 'var(--text-muted)', marginLeft: 6 }}>{data.unit}</span>}
         </FitText>
+        {/* Прирост к прошлому отчёту: голое число не отвечает на вопрос «это
+            много или мало» — а «+38 174 (+4,3 %) к 22.07» отвечает. */}
+        {data.prev_value != null && (
+          // Дату прошлого отчёта держим в подсказке, а не в строке: на узкой
+          // карточке она обрезалась хвостом «к 22.0…» и только мешала.
+          <div style={{ fontSize: 12, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        color: flat ? 'var(--text-muted)' : up ? 'var(--success)' : 'var(--danger)' }}
+            title={`Прошлый отчёт за ${fmtAsOf(String(data.prev_period))}: ${fmt(data.prev_value)}`}>
+            {flat ? '= столько же, что и в прошлом отчёте'
+              : `${up ? '▲' : '▼'} ${up ? '+' : ''}${fmt(data.delta)}`}
+            {data.delta_pct != null && !flat && ` (${data.delta_pct > 0 ? '+' : ''}${fmt(data.delta_pct)} %)`}
+          </div>
+        )}
+        {/* Мини-график: форма движения важнее отдельных значений, поэтому без
+            осей и подписей — они на такой высоте всё равно нечитаемы. */}
+        {Array.isArray(data.spark) && data.spark.length > 1 && (
+          <Sparkline values={data.spark as number[]} color={data.alert?.color || 'var(--accent)'} />
+        )}
         <TargetLine data={data} />
       </div>
     )

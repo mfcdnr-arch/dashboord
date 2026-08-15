@@ -801,8 +801,14 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                     isDraggable: canManage && editMode && !collapsed.has(w.id),
                     isResizable: canManage && editMode && !collapsed.has(w.id),
                   }))}>
+                  {/* Карточка — колонка: шапка занимает сколько нужно, тело
+                      забирает остаток. Раньше высота тела считалась вычитанием
+                      «магических» 78px, и при любой правке шапки число KPI
+                      снова начинало обрезаться. */}
                   {widgets.map((w) => (
-                    <div key={w.id} style={{ ...widgetCard, height: '100%', overflow: 'hidden', outline: editMode ? '1px dashed var(--text-faint)' : 'none' }}>
+                    <div key={w.id} style={{ ...widgetCard, height: '100%', overflow: 'hidden',
+                      display: 'flex', flexDirection: 'column',
+                      outline: editMode ? '1px dashed var(--text-faint)' : 'none' }}>
                       {/* Шапка в два ряда: сверху ИМЯ (оно главное — виджет без
                           названия ничего не сообщает), снизу значок типа и
                           действия. Когда всё было одной строкой, на узкой
@@ -811,7 +817,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                           пропадало. У СВЁРНУТОГО виджета высота всего 40px —
                           там оставляем только ▸ и имя, иначе не поместится
                           даже кнопка разворачивания. */}
-                      <div className={editMode ? 'wdrag' : ''} style={{ marginBottom: 8, cursor: editMode ? 'move' : 'default' }}>
+                      <div className={editMode ? 'wdrag' : ''} style={{ marginBottom: 8, flexShrink: 0, cursor: editMode ? 'move' : 'default' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
                           <button style={{ ...editBtn, cursor: 'pointer', flexShrink: 0 }} onClick={() => toggleCollapse(w.id)}
                             title={collapsed.has(w.id) ? 'Развернуть виджет' : 'Свернуть виджет'}>{collapsed.has(w.id) ? '▸' : '▾'}</button>
@@ -820,15 +826,25 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                               и в одну строку на карточке видно только «Внедре…» —
                               руководитель не понимает, что за число перед ним.
                               У свёрнутого (высота 40px) вторая строка не помещается. */}
+                          {/* Обрезает ЛИБО стиль (по строкам), ЛИБО elideMiddle —
+                              вместе они давали двойное многоточие («обращений……»).
+                              У развёрнутого виджета обрезаем стилем: три строки на
+                              карточке шириной в треть ряда вмещают осмысленный
+                              кусок имени, а полное имя — в подсказке. */}
                           <div style={{
                             fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden',
                             ...(collapsed.has(w.id)
                               ? { textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-                              : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.25 }),
+                              : { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', lineHeight: 1.25 }),
                           }}
-                            title={w.name}>{elideMiddle(w.name, 70)}</div>
+                            title={w.name}>{collapsed.has(w.id) ? elideMiddle(w.name, 70) : w.name}</div>
                         </div>
-                        {!collapsed.has(w.id) && (
+                        {/* Служебный ряд (тип виджета, правка, пороги, удаление)
+                            показываем ТОЛЬКО в режиме правки. В обычном просмотре
+                            он съедал треть маленькой карточки — из-за него у KPI
+                            обрезалось само число, ради которого карточка и стоит.
+                            Значок ⓘ остаётся всегда: он объясняет, что за цифра. */}
+                        {!collapsed.has(w.id) && (editMode || !canManage) && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
                             <span style={wtBadge}>{WT.find((x) => x.v === w.widget_type)?.t || w.widget_type}</span>
                             <InfoTip text={widgetTip(w)} />
@@ -842,11 +858,14 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                             </span>
                           </div>
                         )}
+                        {/* Вне режима правки оставляем только пояснение — одной
+                            строкой рядом с именем, чтобы не занимать высоту. */}
+                        {!collapsed.has(w.id) && canManage && !editMode && (
+                          <div style={{ marginTop: 2 }}><InfoTip text={widgetTip(w)} /></div>
+                        )}
                       </div>
-                      {/* Шапка: имя (до двух строк) + ряд действий — под неё нужно 78px,
-                          иначе низ виджета обрезается. */}
                       {!collapsed.has(w.id) && (
-                        <div style={{ overflow: 'auto', maxHeight: 'calc(100% - 78px)' }}>
+                        <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>
                           <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} row={crossRow || undefined}
                             onPick={(name) => setCrossRow((cur) => cur === name ? null : name)}
                             batched={!batchFailed} injData={pageData[w.id]?.data} injError={pageData[w.id]?.error} />
