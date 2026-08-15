@@ -28,6 +28,7 @@ import { RenameDialog } from './dashboards/RenameDialog'
 import { useConfirm } from './dashboards/ConfirmDialog'
 import { dashboardFreshness, dashboardMissingFields } from '../api/dashboards'
 import { FreshnessBar } from './dashboards/FreshnessBar'
+import { MissingFieldsDialog } from './dashboards/MissingFieldsDialog'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
 import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
 import { PubBadge, WT, alertBtn, btn, btnGhost, crumb, dialog, editBtn, editHint, errBox, input, linkDanger, muted, overlay, presetChip, rmBtn, tab, tabActive, widgetCard, wtBadge } from './dashboards/shared'
@@ -79,7 +80,9 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   // смотрит на вчерашние числа и уверен, что они сегодняшние.
   const [asOf, setAsOf] = useState<string | null>(null)
   const [freshAvailable, setFreshAvailable] = useState<string | null>(null)
-  const [missingFields, setMissingFields] = useState<{ code: string; name: string }[] | null>(null)
+  const [missingFields, setMissingFields] = useState<{ code: string; name: string; dataset_code: string }[] | null>(null)
+  const [missingOpen, setMissingOpen] = useState(false)
+  const [addingFields, setAddingFields] = useState(false)
 
   const [newDash, setNewDash] = useState('')
   const [newPage, setNewPage] = useState('')
@@ -382,6 +385,24 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       setSel(await getDashboard(sel.dashboard.id))
     } catch (e) { fail(e) }
   }
+  /** Добавить выбранные показатели карточками на текущую страницу.
+   *  Карточка — самый безопасный вид по умолчанию: она не зависит от числа
+   *  периодов и читается на любой ширине. Вид и размер меняются потом. */
+  async function addMissingFields(picked: { code: string; name: string; dataset_code: string }[]) {
+    if (!sel || !page || !picked.length) return
+    setAddingFields(true)
+    try {
+      await addWidgetsBatch(picked.map((f) => ({
+        name: f.name, widget_type: 'kpi',
+        config: { dataset_code: f.dataset_code, value_field: f.code },
+        width: 3, height: 3,
+      })))
+      setMissingOpen(false)
+      const left = await dashboardMissingFields(sel.dashboard.id)
+      setMissingFields(left.fields)
+    } catch (e) { fail(e) } finally { setAddingFields(false) }
+  }
+
   async function toggleSuggestFields() {
     if (!sel) return
     try {
@@ -635,10 +656,25 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                 {missingFields.slice(0, 3).map((f) => `«${f.name}»`).join(', ')}
                 {missingFields.length > 3 ? ' и другие' : ''}.
               </span>
-              <button type="button" style={{ ...btnGhost, height: 28, fontSize: 12.5, marginLeft: 'auto' }}
+              <button type="button" style={{ ...btn, height: 28, fontSize: 12.5, marginLeft: 'auto' }}
+                disabled={!page}
+                title={page
+                  ? 'Выбрать показатели и добавить их карточками на эту страницу'
+                  : 'Сначала откройте страницу дашборда'}
+                onClick={() => setMissingOpen(true)}>Добавить на дашборд</button>
+              <button type="button" style={{ ...btnGhost, height: 28, fontSize: 12.5 }}
                 title="Отключить подсказку для этого дашборда"
                 onClick={toggleSuggestFields}>Больше не подсказывать</button>
             </div>
+          )}
+
+          {missingOpen && missingFields && (
+            <MissingFieldsDialog
+              fields={missingFields}
+              busy={addingFields}
+              onClose={() => setMissingOpen(false)}
+              onAdd={addMissingFields}
+            />
           )}
 
           {versions && (
