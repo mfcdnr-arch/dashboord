@@ -378,6 +378,17 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
         dash = await svc.create_dashboard(conn, org_id, user_id, name or f"Дашборд «{obj['name']}»",
                                           f"Авто-сборка по объекту «{obj['name']}»", None)
         did = str(dash["id"])
+        # Папку проставляем сами: мастер и так знает объект, а раньше человек
+        # шёл в дашборд и назначал её отдельным действием — иначе дашборд
+        # висел «без папки» и не находился фильтром по банку отделов.
+        folder_id = await conn.fetchval(
+            "select d.folder_id from dataset_releases r "
+            "join document_versions dv on dv.id = r.source_document_version_id "
+            "join documents d on d.id = dv.document_id "
+            "where r.object_id=$1::uuid and r.status <> 'superseded' and d.folder_id is not null "
+            "group by d.folder_id order by count(*) desc limit 1", object_id)
+        if folder_id:
+            await conn.execute("update dashboards set folder_id=$2 where id=$1::uuid", did, folder_id)
 
     # Страницы создаём в осмысленном порядке и только те, на которых что-то есть:
     # пустая вкладка «Динамика» у формы с одним периодом сбивала бы с толку.

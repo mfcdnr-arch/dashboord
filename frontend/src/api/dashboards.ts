@@ -8,6 +8,8 @@ export interface Dashboard {
   description: string | null
   publication_status: string
   auto_archive?: boolean
+  /** Подсказывать ли о показателях, которых нет на дашборде. */
+  suggest_new_fields?: boolean
   created_at: string
   updated_at?: string
   pages?: number
@@ -178,7 +180,7 @@ export async function updatePage(pageId: string, patch: { name?: string; descrip
 
 /** Правка дашборда: название и/или описание (передаём только изменяемое). */
 export async function updateDashboard(
-  id: string, patch: { name?: string; description?: string | null },
+  id: string, patch: { name?: string; description?: string | null; suggest_new_fields?: boolean },
 ): Promise<{ id: string; name: string; description: string | null }> {
   const res = await fetch(`/dashboards/${id}`, {
     method: 'PATCH',
@@ -345,3 +347,22 @@ export async function getWidgetDrill(widgetId: string): Promise<any> {
   return res.json()
 }
 
+
+
+/** Дата самых свежих данных под дашбордом — для тихой проверки «не появилось ли новое». */
+export async function dashboardFreshness(
+  id: string,
+): Promise<{ as_of: string | null; datasets: number; releases?: number }> {
+  const res = await fetch(`/dashboards/${id}/freshness`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+/** Показатели, которые есть в данных, но не показаны на дашборде. */
+export async function dashboardMissingFields(
+  id: string,
+): Promise<{ count: number; fields: { code: string; name: string; dataset_code: string }[] }> {
+  const res = await fetch(`/dashboards/${id}/missing-fields`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

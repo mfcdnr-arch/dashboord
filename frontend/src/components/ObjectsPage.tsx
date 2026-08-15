@@ -189,12 +189,23 @@ export default function ObjectsPage(
     }
   }
 
+  /** Готовить ли выпуски этой папки автоматически. Выпуск всё равно за человеком —
+   *  галочка управляет только подготовкой (распознавание + подстановка разметки). */
+  async function toggleAutoPrepare(f: Folder) {
+    if (!obj) return
+    setError(null)
+    try {
+      await updateFolder(obj.id, f.id, { auto_prepare: f.auto_prepare === false })
+      setFolders(await listFolders(obj.id))
+    } catch (e) { fail(e) }
+  }
+
   async function saveFolder(vals: Record<string, string>) {
     if (!obj || !editFolder) return
     setBusy(true)
     setError(null)
     try {
-      await updateFolder(obj.id, editFolder.id, vals.name.trim())
+      await updateFolder(obj.id, editFolder.id, { name: vals.name.trim() })
       setEditFolder(null)
       setFolders(await listFolders(obj.id))
     } catch (e) {
@@ -324,6 +335,22 @@ export default function ObjectsPage(
               title: folderLabel(f),
               sub: '',
               onClick: () => openFolder(f),
+              badge: canManage ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); toggleAutoPrepare(f) }}
+                  title={f.auto_prepare === false
+                    ? 'Файлы этой папки не готовятся автоматически — распознавание запускается вручную'
+                    : 'Новый файл распознаётся сам, разметка подставляется из прошлого выпуска. Выпуск всё равно подтверждает человек'}
+                  style={{
+                    fontSize: 11, padding: '2px 9px', borderRadius: 10, cursor: 'pointer',
+                    border: '1px solid ' + (f.auto_prepare === false ? 'var(--border-strong)' : 'var(--accent)'),
+                    background: f.auto_prepare === false ? 'var(--surface)' : 'var(--accent-weak-bg)',
+                    color: f.auto_prepare === false ? 'var(--text-muted)' : 'var(--accent)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >{f.auto_prepare === false ? '⏸ готовить вручную' : '⚙ готовить автоматически'}</button>
+              ) : undefined,
               actions: canManage ? (
                 <>
                   <IconBtn title="Переименовать папку" onClick={() => setEditFolder(f)}>✏️</IconBtn>

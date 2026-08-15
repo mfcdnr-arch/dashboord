@@ -173,7 +173,8 @@ async def get_dashboard(conn, org_id, user: dict, dashboard_id: str) -> dict:
     if not await _can_view(conn, org_id, user, dashboard_id):
         raise DashboardError("Дашборд не найден")
     d = await conn.fetchrow(
-        "select d.id, d.name, d.description, d.publication_status, d.auto_archive, d.created_at, d.updated_at, "
+        "select d.id, d.name, d.description, d.publication_status, d.auto_archive, d.suggest_new_fields, "
+        "d.created_at, d.updated_at, "
         "d.folder_id, fo.name as folder_name, ob.name as object_name, "
         "(select count(*) from dashboard_comments c where c.dashboard_id=d.id) as comments_count "
         "from dashboards d left join folders fo on fo.id=d.folder_id left join objects ob on ob.id=fo.object_id "
@@ -186,6 +187,84 @@ async def get_dashboard(conn, org_id, user: dict, dashboard_id: str) -> dict:
         "where dashboard_id=$1::uuid order by position, created_at", dashboard_id,
     )
     return {"dashboard": dict(d), "pages": [dict(p) for p in pages]}
+
+
+def _widget_dataset_codes(configs) -> set:
+    """Коды датасетов, на которых стоит дашборд (из конфигураций виджетов)."""
+    codes: set = set()
+    for cfg in configs:
+        c = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
+        if c.get("dataset_code"):
+            codes.add(c["dataset_code"])
+        for s in c.get("series") or []:
+            if isinstance(s, dict) and s.get("dataset_code"):
+                codes.add(s["dataset_code"])
+    return codes
+
+
+async def dashboard_freshness(conn, org_id, dashboard_id: str) -> dict:
+    """Дата самых свежих данных под дашбордом.
+
+    Виджеты читают последний неотменённый выпуск, то есть цифры обновляются
+    сами. Но открытый на экране дашборд об этом не знает: руководитель, не
+    закрывший вкладку, смотрит на вчерашние числа и уверен, что они сегодняшние.
+    Лёгкий запрос (одна строка) позволяет странице раз в минуту спросить «не
+    появилось ли свежее» и предложить обновиться — без перезагрузки данных.
+    """
+    configs = await conn.fetch(
+        "select config from widgets where dashboard_id=$1::uuid", dashboard_id)
+    codes = _widget_dataset_codes([c["config"] for c in configs])
+    if not codes:
+        return {"as_of": None, "datasets": 0}
+    row = await conn.fetchrow(
+        "select max(reporting_period_start) as as_of, count(*) as releases "
+        "from dataset_releases where organization_id=$1 and code = any($2::text[]) "
+        "and status <> 'superseded'", org_id, list(codes))
+    return {
+        "as_of": row["as_of"].isoformat() if row and row["as_of"] else None,
+        "datasets": len(codes),
+        "releases": int(row["releases"]) if row else 0,
+    }
+
+
+async def missing_dashboard_fields(conn, org_id, dashboard_id: str) -> dict:
+    """Показатели, которые есть в данных, но не показаны на дашборде.
+
+    Форма со временем прирастает графами, а дашборд остаётся прежним — и никто
+    об этом не узнаёт, пока кто-нибудь не сверит их вручную. Система подсказывает,
+    но НЕ добавляет виджеты сама: дашборд, который сам себе дорисовывает
+    карточки, однажды поедет вёрсткой прямо на совещании.
+    """
+    configs = await conn.fetch("select config from widgets where dashboard_id=$1::uuid", dashboard_id)
+    codes = _widget_dataset_codes([c["config"] for c in configs])
+    if not codes:
+        return {"fields": [], "count": 0}
+
+    used: set = set()
+    for c in configs:
+        cfg = json.loads(c["config"]) if isinstance(c["config"], str) else (c["config"] or {})
+        for key in ("value_field", "plan_field", "fact_field", "label_field"):
+            if cfg.get(key):
+                used.add(cfg[key])
+        for f in cfg.get("value_fields") or []:
+            used.add(f)
+        for s in cfg.get("series") or []:
+            if isinstance(s, dict) and s.get("value_field"):
+                used.add(s["value_field"])
+
+    rows = await conn.fetch(
+        "select distinct v.canonical_field_code as code, cf.name, r.code as dataset_code "
+        "from dataset_releases r "
+        "join dataset_values v on v.dataset_release_id = r.id and v.value_number is not null "
+        "left join canonical_fields cf on cf.object_id = r.object_id and cf.code = v.canonical_field_code "
+        "where r.organization_id=$1 and r.code = any($2::text[]) and r.status <> 'superseded'",
+        org_id, list(codes))
+    missing = [
+        {"code": r["code"], "name": r["name"] or r["code"], "dataset_code": r["dataset_code"]}
+        for r in rows if r["code"] not in used
+    ]
+    missing.sort(key=lambda f: f["name"])
+    return {"fields": missing, "count": len(missing)}
 
 
 async def _owns_dashboard(conn, org_id, dashboard_id: str) -> bool:
@@ -233,6 +312,9 @@ async def update_dashboard(conn, org_id, user: dict, dashboard_id: str, patch: d
         desc = patch["description"]
         params.append(desc.strip() if isinstance(desc, str) and desc.strip() else None)
         sets.append(f"description=${len(params)}")
+    if "suggest_new_fields" in patch:
+        params.append(bool(patch["suggest_new_fields"]))
+        sets.append(f"suggest_new_fields=${len(params)}")
     if not sets:
         raise DashboardError("Нечего изменять")
 
@@ -240,7 +322,7 @@ async def update_dashboard(conn, org_id, user: dict, dashboard_id: str, patch: d
     row = await conn.fetchrow(
         f"update dashboards set {', '.join(sets)}, updated_at=now() "
         f"where id=${len(params) - 1}::uuid and organization_id=${len(params)} "
-        "returning id, name, description, publication_status, created_at, updated_at",
+        "returning id, name, description, publication_status, suggest_new_fields, created_at, updated_at",
         *params,
     )
     return dict(row)

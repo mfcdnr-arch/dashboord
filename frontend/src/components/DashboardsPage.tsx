@@ -26,6 +26,8 @@ import AutoBuildWizard from './dashboards/AutoBuildWizard'
 import { AboutDashboard, EditDashboardDialog } from './dashboards/AboutDashboard'
 import { RenameDialog } from './dashboards/RenameDialog'
 import { useConfirm } from './dashboards/ConfirmDialog'
+import { dashboardFreshness, dashboardMissingFields } from '../api/dashboards'
+import { FreshnessBar } from './dashboards/FreshnessBar'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
 import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
 import { PubBadge, WT, alertBtn, btn, btnGhost, crumb, dialog, editBtn, editHint, errBox, input, linkDanger, muted, overlay, presetChip, rmBtn, tab, tabActive, widgetCard, wtBadge } from './dashboards/shared'
@@ -72,6 +74,12 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   const [sources, setSources] = useState<DataSources | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  // Свежесть данных под дашбордом. Цифры в виджетах обновляются сами, но
+  // ОТКРЫТАЯ страница об этом не знает: руководитель с незакрытой вкладкой
+  // смотрит на вчерашние числа и уверен, что они сегодняшние.
+  const [asOf, setAsOf] = useState<string | null>(null)
+  const [freshAvailable, setFreshAvailable] = useState<string | null>(null)
+  const [missingFields, setMissingFields] = useState<{ code: string; name: string }[] | null>(null)
 
   const [newDash, setNewDash] = useState('')
   const [newPage, setNewPage] = useState('')
@@ -188,6 +196,36 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
     }
     if (initialDashboardId) openDashboard(initialDashboardId)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Тихая проверка свежести раз в минуту. Данные не перезагружаем — только
+  // сравниваем дату последнего выпуска и предлагаем обновиться: перезагружать
+  // страницу под руками у человека нельзя, он мог что-то настраивать.
+  useEffect(() => {
+    const id = sel?.dashboard.id
+    if (!id) { setAsOf(null); setFreshAvailable(null); return }
+    let stop = false
+    const check = async (first: boolean) => {
+      try {
+        const f = await dashboardFreshness(id)
+        if (stop) return
+        if (first) { setAsOf(f.as_of); setFreshAvailable(null) }
+        else if (f.as_of && f.as_of !== asOf) setFreshAvailable(f.as_of)
+      } catch { /* свежесть — подсказка, её сбой не мешает работе */ }
+    }
+    check(true)
+    const t = setInterval(() => check(false), 60000)
+    return () => { stop = true; clearInterval(t) }
+  }, [sel?.dashboard.id, asOf])
+
+  // Показатели, которых нет на дашборде: система подсказывает, но НЕ добавляет
+  // виджеты сама — дашборд, который сам себе дорисовывает карточки, однажды
+  // поедет вёрсткой прямо на совещании.
+  useEffect(() => {
+    if (!sel || !canManage || sel.dashboard.suggest_new_fields === false) { setMissingFields(null); return }
+    dashboardMissingFields(sel.dashboard.id)
+      .then((r) => setMissingFields(r.fields))
+      .catch(() => setMissingFields(null))
+  }, [sel?.dashboard.id, sel?.dashboard.suggest_new_fields, canManage]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openDashboard(id: string) {
     setError(null); setPage(null); setWidgets([]); setPFrom(''); setPTo(''); setCrossRow(null)
@@ -342,6 +380,14 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
     try {
       await setAutoArchive(sel.dashboard.id, !sel.dashboard.auto_archive)
       setSel(await getDashboard(sel.dashboard.id))
+    } catch (e) { fail(e) }
+  }
+  async function toggleSuggestFields() {
+    if (!sel) return
+    try {
+      await updateDashboard(sel.dashboard.id, { suggest_new_fields: false })
+      setSel(await getDashboard(sel.dashboard.id))
+      setMissingFields(null)
     } catch (e) { fail(e) }
   }
   async function doArchive(topic: string, note: string) {
@@ -569,6 +615,32 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
               </button>
             )}
           </div>
+          <FreshnessBar
+            asOf={asOf} available={freshAvailable}
+            onRefresh={() => {
+              setAsOf(freshAvailable)
+              setFreshAvailable(null)
+              setReloadKey((k) => k + 1)
+            }}
+          />
+
+          {canManage && missingFields && missingFields.length > 0 && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+              background: 'var(--surface-2)', fontSize: 13, padding: '8px 12px',
+              borderRadius: 8, margin: '0 0 12px', color: 'var(--text-2)',
+            }}>
+              <span>
+                💡 В данных есть показатели, которых нет на дашборде ({missingFields.length}):{' '}
+                {missingFields.slice(0, 3).map((f) => `«${f.name}»`).join(', ')}
+                {missingFields.length > 3 ? ' и другие' : ''}.
+              </span>
+              <button type="button" style={{ ...btnGhost, height: 28, fontSize: 12.5, marginLeft: 'auto' }}
+                title="Отключить подсказку для этого дашборда"
+                onClick={toggleSuggestFields}>Больше не подсказывать</button>
+            </div>
+          )}
+
           {versions && (
             <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, marginBottom: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>

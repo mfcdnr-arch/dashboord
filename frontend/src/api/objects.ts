@@ -12,6 +12,9 @@ export interface Folder {
   id: string
   name: string
   parent_folder_id: string | null
+  /** Готовить ли выпуск автоматически: распознавать новый файл и подставлять
+   *  разметку прошлого выпуска. Сам выпуск всё равно подтверждает человек. */
+  auto_prepare?: boolean
   created_at: string
 }
 export interface Doc {
@@ -64,11 +67,15 @@ export async function deleteObject(objectId: string): Promise<void> {
   if (!res.ok) throw new Error(await errText(res))
 }
 
-export async function updateFolder(objectId: string, folderId: string, name: string): Promise<Folder> {
+export async function updateFolder(
+  objectId: string, folderId: string,
+  patch: string | { name?: string; auto_prepare?: boolean },
+): Promise<Folder> {
+  const body = typeof patch === 'string' ? { name: patch } : patch
   const res = await fetch(`/objects/${objectId}/folders/${folderId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...authH() },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()

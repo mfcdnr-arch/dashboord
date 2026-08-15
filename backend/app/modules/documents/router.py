@@ -127,12 +127,16 @@ async def upload_document(
         # интерфейс, и файл, залитый мимо формы, оставался нераспознанным
         # навсегда. Сбой очереди не проваливает загрузку — файл уже в
         # хранилище, а повисшие задания добирает ежедневное задание воркера.
+        # Галочка папки «готовить автоматически» это отключает: бывают папки,
+        # куда файлы складывают на хранение, а не под выпуск.
         job_id = None
-        try:
-            job_id = await ing_service.enqueue_or_run(conn, str(ver["id"]))
-            await queue.enqueue_extraction(job_id)
-        except Exception as exc:  # noqa: BLE001 — очередь недоступна
-            log.warning("Не удалось поставить распознавание документа %s: %s", doc_id, exc)
+        auto = await conn.fetchval("select auto_prepare from folders where id=$1::uuid", folder_id)
+        if auto:
+            try:
+                job_id = await ing_service.enqueue_or_run(conn, str(ver["id"]))
+                await queue.enqueue_extraction(job_id)
+            except Exception as exc:  # noqa: BLE001 — очередь недоступна
+                log.warning("Не удалось поставить распознавание документа %s: %s", doc_id, exc)
 
     return {
         "extraction_job_id": job_id,

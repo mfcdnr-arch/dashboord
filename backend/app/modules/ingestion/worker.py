@@ -78,7 +78,9 @@ async def pickup_pending(ctx) -> None:
     async with db.get_pool().acquire() as conn:
         rows = await conn.fetch(
             "select dv.id from document_versions dv "
-            "where dv.created_at < now() - interval '10 minutes' "
+            "join documents d on d.id = dv.document_id "
+            "join folders f on f.id = d.folder_id "
+            "where f.auto_prepare and dv.created_at < now() - interval '10 minutes' "
             "  and not exists (select 1 from extraction_jobs j "
             "                  where j.document_version_id = dv.id "
             "                    and (j.status in ('queued','running','succeeded','needs_review'))) "

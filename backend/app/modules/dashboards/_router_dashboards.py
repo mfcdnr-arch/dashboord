@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ... import db
@@ -158,6 +158,8 @@ class DashboardPatch(BaseModel):
 
     name: Optional[str] = Field(default=None, max_length=200)
     description: Optional[str] = None
+    # Подсказывать ли о показателях, которых нет на дашборде.
+    suggest_new_fields: Optional[bool] = None
 
 
 @router.patch("/dashboards/{dashboard_id}")
@@ -258,6 +260,29 @@ async def unpublish_dashboard(dashboard_id: str, user: dict = Depends(manage)):
             return await service.unpublish(conn, user["organization_id"], dashboard_id)
         except DashboardError as e:
             raise _bad(e)
+
+
+@router.get("/dashboards/{dashboard_id}/freshness")
+async def dashboard_freshness(dashboard_id: str, user: dict = Depends(get_current_user)):
+    """Дата самых свежих данных под дашбордом — лёгкий запрос для автообновления.
+
+    Открытая страница спрашивает раз в минуту и предлагает обновиться, если
+    появился новый выпуск: иначе руководитель с незакрытой вкладкой смотрит на
+    вчерашние числа и уверен, что они сегодняшние.
+    """
+    async with db.get_pool().acquire() as conn:
+        if not await service._can_view(conn, user["organization_id"], user, dashboard_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Дашборд не найден")
+        return await service.dashboard_freshness(conn, user["organization_id"], dashboard_id)
+
+
+@router.get("/dashboards/{dashboard_id}/missing-fields")
+async def dashboard_missing_fields(dashboard_id: str, user: dict = Depends(manage)):
+    """Показатели, которые есть в данных, но не показаны на этом дашборде."""
+    async with db.get_pool().acquire() as conn:
+        if not await service._can_view(conn, user["organization_id"], user, dashboard_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Дашборд не найден")
+        return await service.missing_dashboard_fields(conn, user["organization_id"], dashboard_id)
 
 
 @router.get("/dashboards/{dashboard_id}/versions")

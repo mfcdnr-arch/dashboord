@@ -41,7 +41,10 @@ class FolderIn(BaseModel):
 
 
 class FolderPatch(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
+    name: Optional[str] = Field(default=None, max_length=200)
+    # Готовить ли выпуск автоматически: распознавать новый файл и подставлять
+    # разметку прошлого выпуска. Сам выпуск всё равно подтверждает человек.
+    auto_prepare: Optional[bool] = None
 
 
 @router.get("")
@@ -174,7 +177,7 @@ async def list_folders(object_id: str, user: dict = Depends(get_current_user)):
         if not obj:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
         rows = await conn.fetch(
-            "select id, name, parent_folder_id, created_at from folders "
+            "select id, name, parent_folder_id, auto_prepare, created_at from folders "
             "where object_id=$1::uuid order by name",
             object_id,
         )
@@ -201,7 +204,8 @@ async def create_folder(object_id: str, data: FolderIn, user: dict = Depends(man
 async def _folder_of_object(conn, object_id: str, folder_id: str, org_id):
     """Папка запрошенного объекта в организации пользователя либо 404."""
     row = await conn.fetchrow(
-        "select id, name from folders where id=$1::uuid and object_id=$2::uuid and organization_id=$3",
+        "select id, name, auto_prepare from folders "
+        "where id=$1::uuid and object_id=$2::uuid and organization_id=$3",
         folder_id, object_id, org_id,
     )
     if not row:
@@ -211,20 +215,36 @@ async def _folder_of_object(conn, object_id: str, folder_id: str, org_id):
 
 @router.patch("/{object_id}/folders/{folder_id}")
 async def update_folder(object_id: str, folder_id: str, data: FolderPatch, user: dict = Depends(manage)):
-    """Переименование папки (перемещение между объектами/родителями — отдельная операция)."""
-    name = data.name.strip()
-    if not name:
+    """Правка папки: имя и признак автоподготовки выпуска.
+
+    Частичность как у объекта: передаём только то, что меняем, — галочку можно
+    переключить, не трогая название.
+    """
+    patch = data.model_dump(exclude_unset=True)
+    if not patch:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Нечего изменять")
+    name = (patch.get("name") or "").strip() if "name" in patch else None
+    if "name" in patch and not name:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Название не может быть пустым")
+
     async with db.get_pool().acquire() as conn:
         old = await _folder_of_object(conn, object_id, folder_id, user["organization_id"])
+        sets, params = [], []
+        if name is not None:
+            params.append(name); sets.append(f"name=${len(params)}")
+        if "auto_prepare" in patch:
+            params.append(bool(patch["auto_prepare"])); sets.append(f"auto_prepare=${len(params)}")
+        params.append(folder_id)
         async with conn.transaction():
             row = await conn.fetchrow(
-                "update folders set name=$1 where id=$2::uuid returning id, name, parent_folder_id, created_at",
-                name, folder_id,
+                f"update folders set {', '.join(sets)} where id=${len(params)}::uuid "
+                "returning id, name, parent_folder_id, auto_prepare, created_at",
+                *params,
             )
             await write_event(
                 conn, user["organization_id"], user["id"], "update", "folder", folder_id,
-                old_data={"name": old["name"]}, new_data={"name": name},
+                old_data={"name": old["name"], "auto_prepare": old.get("auto_prepare")},
+                new_data={k: v for k, v in patch.items()},
             )
     return dict(row)
 
