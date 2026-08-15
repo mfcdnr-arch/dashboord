@@ -6,20 +6,32 @@
 #   ./deploy.sh
 #
 # Флаги: --no-build (не пересобирать образы), --skip-smoke (без проверки),
-#        --skip-backup (не бэкапить БД перед накатом миграций при обновлении).
+#        --skip-backup (не бэкапить БД перед накатом миграций при обновлении),
+#        --offline-build (сборка без обращения к реестру: классический сборщик).
 set -euo pipefail
 cd "$(dirname "$0")"
 
-NO_BUILD=""; SKIP_SMOKE=""; TLS=""; SKIP_BACKUP=""
+NO_BUILD=""; SKIP_SMOKE=""; TLS=""; SKIP_BACKUP=""; OFFLINE_BUILD=""
 for a in "$@"; do
   case "$a" in
     --no-build) NO_BUILD=1 ;;
     --skip-smoke) SKIP_SMOKE=1 ;;
     --tls) TLS=1 ;;
     --skip-backup) SKIP_BACKUP=1 ;;
+    --offline-build) OFFLINE_BUILD=1 ;;
     *) echo "Неизвестный флаг: $a"; exit 2 ;;
   esac
 done
+
+# Сборка без интернета. На сервере заказчика (Astra в LAN) сеть до Docker Hub
+# ненадёжна: короткие запросы проходят, длинные рвутся с TLS handshake timeout.
+# Причина в сборщике: BuildKit идёт в реестр за манифестом базового образа
+# ДАЖЕ когда образ уже лежит локально. Классический сборщик так не делает.
+# Раньше эти две переменные набирали руками перед каждым деплоем и забывали.
+if [ -n "$OFFLINE_BUILD" ]; then
+  export DOCKER_BUILDKIT=0
+  export COMPOSE_BAKE=false
+fi
 
 log() { printf '\033[1;34m[deploy]\033[0m %s\n' "$1"; }
 err() { printf '\033[1;31m[deploy] ОШИБКА:\033[0m %s\n' "$1" >&2; }
@@ -154,7 +166,11 @@ ensure_dir_writable ops-triggers
 
 # 2. Сборка образов -------------------------------------------------------
 if [ -z "$NO_BUILD" ]; then
-  log "Сборка образов (api, web)…"
+  if [ -n "$OFFLINE_BUILD" ]; then
+    log "Сборка образов (api, web) без обращения к реестру — классический сборщик…"
+  else
+    log "Сборка образов (api, web)…"
+  fi
   $COMPOSE build
 else
   log "Пропуск сборки (--no-build)"
