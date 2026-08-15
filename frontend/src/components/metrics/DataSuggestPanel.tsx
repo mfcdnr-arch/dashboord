@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { fmtNumber } from '../../lib/format'
-import { createMetric, createVersion, dataSuggestions, type DataSuggestion, type SuggestDataset } from '../../api'
+import {
+  createMetric, createVersion, dataSuggestions, getDashboard, listDashboards,
+  placeMetricOnDashboard, type Dashboard, type DataSuggestion, type SuggestDataset,
+} from '../../api'
 
 const TYPE_RU: Record<string, string> = {
   plan_fact_pct: 'План/факт',
@@ -30,6 +33,11 @@ export default function DataSuggestPanel({ onCreated }: { onCreated: () => void 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
+  // Куда сразу поставить карточки: список дашбордов и выбранный.
+  // Раньше принятие предложения давало только черновик метрики, а виджет по
+  // ней человек добавлял руками — шаг, о котором легко забыть.
+  const [dashboards, setDashboards] = useState<Dashboard[]>([])
+  const [placeIn, setPlaceIn] = useState('')
 
   function load(code: string) {
     setSpecs(null); setError(null); setDone(null)
@@ -42,6 +50,9 @@ export default function DataSuggestPanel({ onCreated }: { onCreated: () => void 
       .catch((e) => setError((e as Error).message))
   }
   useEffect(() => { load(dsCode) }, [dsCode])
+  useEffect(() => {
+    listDashboards('', false, 200).then((r) => setDashboards(r.items)).catch(() => setDashboards([]))
+  }, [])
 
   function toggle(code: string) {
     setPicked((p) => {
@@ -55,13 +66,33 @@ export default function DataSuggestPanel({ onCreated }: { onCreated: () => void 
     if (!specs) return
     setBusy(true); setError(null)
     let created = 0
+    let placed = 0
     try {
+      // Страницу выбираем один раз: карточки логичнее держать вместе, а место
+      // на странице система подберёт для каждой отдельно — рядом с виджетом,
+      // который показывает те же показатели.
+      let pageId = ''
+      if (placeIn) {
+        const d = await getDashboard(placeIn)
+        pageId = d.pages[0]?.id || ''
+        if (!pageId) throw new Error('У выбранного дашборда нет ни одной страницы — создайте её и повторите')
+      }
       for (const s of specs.filter((x) => picked.has(x.code))) {
         const m = await createMetric(s.code, s.name)
         await createVersion(m.id, { formula: s.formula, unit: s.unit })
         created += 1
+        if (pageId) {
+          await placeMetricOnDashboard({
+            page_id: pageId, metric_code: s.code, name: s.name, unit: s.unit,
+            based_on: s.based_on, dataset_code: s.dataset_code,
+          })
+          placed += 1
+        }
       }
-      setDone(`Создано черновиков: ${created}. Откройте метрику, проверьте предпросмотр и отправьте на одобрение.`)
+      setDone(placed
+        ? `Создано черновиков: ${created}, размещено на дашборде: ${placed}. `
+          + 'Карточки встали рядом с близкими по смыслу показателями — их можно переставить мышью.'
+        : `Создано черновиков: ${created}. Откройте метрику, проверьте предпросмотр и отправьте на одобрение.`)
       onCreated()
       load(dsCode)
     } catch (e) {
@@ -87,11 +118,20 @@ export default function DataSuggestPanel({ onCreated }: { onCreated: () => void 
           </select>
         )}
         <button type="button" onClick={() => load(dsCode)} style={ghost}>↻ Пересчитать</button>
+        {specs && specs.length > 0 && dashboards.length > 0 && (
+          <select style={sl} value={placeIn} onChange={(e) => setPlaceIn(e.target.value)}
+            title="Сразу поставить карточки на дашборд — система выберет место рядом с близким по смыслу показателем">
+            <option value="">только завести показатели</option>
+            {dashboards.map((d) => <option key={d.id} value={d.id}>на дашборд «{d.name}»</option>)}
+          </select>
+        )}
         {specs && specs.length > 0 && (
           <button type="button" onClick={accept} disabled={busy || picked.size === 0}
             style={{ marginLeft: 'auto', height: 32, padding: '0 14px', borderRadius: 8, border: 'none',
               cursor: 'pointer', background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, fontWeight: 600 }}>
-            {busy ? 'Создаю…' : `Добавить как черновики (${picked.size})`}
+            {busy ? 'Создаю…' : placeIn
+              ? `Завести и разместить (${picked.size})`
+              : `Добавить как черновики (${picked.size})`}
           </button>
         )}
       </div>

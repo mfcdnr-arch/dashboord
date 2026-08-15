@@ -16,7 +16,7 @@ from . import service
 from .service import ShowcasesError
 
 router = APIRouter(prefix="/showcases", tags=["showcases"])
-manage = require_roles("admin", "moderator")
+manage = require_roles("superadmin", "admin", "moderator")
 
 
 def _bad(e: ShowcasesError) -> HTTPException:

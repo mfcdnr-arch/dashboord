@@ -35,7 +35,7 @@ from . import storage
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["documents"])
-manage = require_roles("admin", "moderator")
+manage = require_roles("superadmin", "admin", "moderator")
 
 ALLOWED = {"xlsx", "xls", "csv", "pdf", "docx"}
 MAX_DOCS_LIMIT = 200

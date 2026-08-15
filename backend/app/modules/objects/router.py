@@ -16,7 +16,7 @@ from ..auth.deps import get_current_user, require_roles
 
 router = APIRouter(prefix="/objects", tags=["objects"])
 
-manage = require_roles("admin", "moderator")
+manage = require_roles("superadmin", "admin", "moderator")
 
 
 class ObjectIn(BaseModel):

@@ -410,3 +410,22 @@ export async function templateBinding(templateId: string, objectId: string): Pro
   return res.json()
 }
 
+
+
+/** Поставить карточку показателя на страницу рядом с близким по смыслу виджетом.
+ *  Место выбирает сервер: он знает, какие виджеты уже стоят и что они показывают. */
+export async function placeMetricOnDashboard(body: {
+  page_id: string
+  metric_code: string
+  name: string
+  unit?: string | null
+  based_on?: string[]
+  dataset_code?: string | null
+}): Promise<{ widget_id: string; placed_near: string | null }> {
+  const res = await fetch('/dashboards/place-metric', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

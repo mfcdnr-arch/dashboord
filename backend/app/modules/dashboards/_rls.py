@@ -6,7 +6,9 @@
 алерты наследуют видимость дашборда. Лист-модуль (работает только через conn)."""
 from __future__ import annotations
 
-PRIVILEGED_ROLES = {"admin", "moderator", "senior_moderator"}
+# Верхняя роль иерархии не может видеть меньше, чем admin: без неё носитель
+# ОДНОЙ роли superadmin не увидел бы чужие дашборды, хотя вправе удалять их.
+PRIVILEGED_ROLES = {"superadmin", "admin", "moderator", "senior_moderator"}
 
 
 async def _user_ctx(conn, user: dict) -> dict:

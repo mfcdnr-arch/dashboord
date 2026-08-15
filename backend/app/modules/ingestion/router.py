@@ -21,7 +21,7 @@ from ..auth.deps import get_current_user, require_roles
 from . import analyze, mapping, queue, service
 
 router = APIRouter(tags=["ingestion"])
-manage = require_roles("admin", "moderator")
+manage = require_roles("superadmin", "admin", "moderator")
 
 
 async def _version_in_org(conn, version_id: str, org_id) -> bool:

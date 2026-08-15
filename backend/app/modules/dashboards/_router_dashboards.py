@@ -286,6 +286,33 @@ async def unpublish_dashboard(dashboard_id: str, user: dict = Depends(manage)):
             raise _bad(e)
 
 
+class PlaceMetricIn(BaseModel):
+    """Поставить карточку показателя на страницу дашборда."""
+
+    page_id: str
+    metric_code: str
+    name: str
+    unit: Optional[str] = None
+    # Поля, на которых стоит формула: по ним ищется близкий по смыслу виджет,
+    # рядом с которым логично встать.
+    based_on: List[str] = []
+    dataset_code: Optional[str] = None
+
+
+@router.post("/dashboards/place-metric", status_code=status.HTTP_201_CREATED)
+async def place_metric(body: PlaceMetricIn, user: dict = Depends(manage)):
+    """Разместить показатель на дашборде рядом с близким по смыслу виджетом."""
+    async with db.acquire(user["id"]) as conn:
+        try:
+            async with conn.transaction():
+                return await service.place_metric_widget(
+                    conn, user["organization_id"], user["id"], page_id=body.page_id,
+                    metric_code=body.metric_code, name=body.name, unit=body.unit,
+                    based_on=body.based_on, dataset_code=body.dataset_code)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.get("/dashboards/{dashboard_id}/freshness")
 async def dashboard_freshness(dashboard_id: str, user: dict = Depends(get_current_user)):
     """Дата самых свежих данных под дашбордом — лёгкий запрос для автообновления.

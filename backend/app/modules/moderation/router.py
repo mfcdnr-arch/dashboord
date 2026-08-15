@@ -17,7 +17,7 @@ from . import service
 from .service import ModerationError
 
 router = APIRouter(tags=["moderation"])
-moderator = require_roles("admin", "moderator", "senior_moderator")
+moderator = require_roles("superadmin", "admin", "moderator", "senior_moderator")
 
 
 def _bad(e: ModerationError) -> HTTPException:

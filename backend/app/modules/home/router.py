@@ -10,7 +10,7 @@ from . import service
 from .service import HomeError
 
 router = APIRouter(tags=["home"])
-manage = require_roles("admin", "moderator")
+manage = require_roles("superadmin", "admin", "moderator")
 
 
 class KpiIn(BaseModel):

@@ -40,6 +40,7 @@ from ._suggest import (  # noqa: F401
     _spec_signature,
     auto_build,
     auto_build_plan,
+    place_metric_widget,
     suggest_widgets,
 )
 from ._templates import (  # noqa: F401

@@ -572,3 +572,67 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
     await _remember_selection(conn, object_id, selection, metrics)
     return {"dashboard_id": did, "page_id": first_pid, "pages": len(pages),
             "widgets": len(specs) + made_metrics, "metrics": made_metrics}
+
+
+async def place_metric_widget(conn, org_id, user_id, *, page_id: str, metric_code: str,
+                              name: str, unit: Optional[str] = None,
+                              based_on: Optional[List[str]] = None,
+                              dataset_code: Optional[str] = None) -> dict:
+    """Поставить карточку показателя РЯДОМ с близким по смыслу виджетом.
+
+    Новый виджет, добавленный «в конец страницы», уезжает вниз и теряется:
+    руководитель смотрит на «Обзор» и не видит, что доля посчитана рядом с тем
+    показателем, от которого она берётся. Поэтому ищем виджет, который уже
+    показывает поля, лежащие в основе формулы, и встаём вплотную к нему —
+    справа, если в ряду есть место, иначе следующей строкой под ним.
+
+    Место выбирает система, но последнее слово за человеком: виджеты можно
+    двигать мышью, и перестановка ничего не ломает.
+    """
+    from . import service as svc
+
+    fields = set(based_on or [])
+    rows = await conn.fetch(
+        "select id, config, position_x, position_y, width, height "
+        "from widgets where page_id=$1::uuid order by position_y, position_x", page_id)
+
+    best: Optional[dict] = None
+    best_score = 0.0
+    for r in rows:
+        cfg = _cfg(r)
+        used = {cfg.get(k) for k in ("value_field", "plan_field", "fact_field") if cfg.get(k)}
+        used |= set(cfg.get("value_fields") or [])
+        hit = len(used & fields)
+        # Родство считаем ДОЛЕЙ совпадения, а не числом совпавших полей.
+        # Иначе общий график «Сравнение показателей», перечисляющий все графы
+        # формы, всегда выигрывал у карточки нужного показателя — и новая
+        # карточка уезжала под него в самый низ страницы, вместо того чтобы
+        # встать рядом с показателем, от которого она считается.
+        score = (hit / len(used)) if used and hit else 0.0
+        # Тот же датасет — слабое родство: лучше, чем ничего, но заведомо
+        # уступает совпадению по конкретным показателям.
+        if not score and dataset_code and cfg.get("dataset_code") == dataset_code:
+            score = 0.1
+        if score > best_score:
+            best, best_score = r, score
+
+    width, height = 3, 3
+    if best is None:
+        # Родственника нет — в конец страницы (сетка сама подожмёт вверх).
+        pos = {"position_x": 0, "position_y": 999, "width": width, "height": height}
+    else:
+        right = best["position_x"] + best["width"]
+        if right + width <= 12:
+            pos = {"position_x": right, "position_y": best["position_y"],
+                   "width": width, "height": height}
+        else:
+            pos = {"position_x": best["position_x"],
+                   "position_y": best["position_y"] + best["height"],
+                   "width": width, "height": height}
+
+    cfg = {"metric_code": metric_code}
+    if unit:
+        cfg["unit"] = unit
+    w = await svc.create_widget(conn, org_id, user_id, page_id, name, "kpi", cfg, pos)
+    return {"widget_id": w["id"], "placed_near": str(best["id"]) if best is not None else None,
+            "position": pos}
