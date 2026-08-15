@@ -127,8 +127,18 @@ async def _job_payload(conn, job_id: str) -> dict:
             "data_rect": json.loads(t["data_rect"]) if t["data_rect"] else None,
             "columns": [dict(c) for c in cols],
         })
+    # Разметка прошлого выпуска этой же формы: если структура совпала, конструктор
+    # откроется уже размеченным. Не совпала — шаблон приходит с пометкой, что
+    # применить его нельзя (чужая разметка молча дала бы неверные цифры).
+    ctx = await mapping.resolve_context(conn, job_id)
+    template = None
+    if ctx is not None and ctx["object_id"] is not None:
+        template = await mapping.layout_template_for_tables(
+            conn, ctx["object_id"], [t["id"] for t in out_tables])
+
     return {
         "job_id": str(job["id"]),
+        "layout_template": template,
         "suggested_code": await _suggest_dataset_code(conn, str(job["document_version_id"])),
         "document_version_id": str(job["document_version_id"]),
         "status": job["status"],

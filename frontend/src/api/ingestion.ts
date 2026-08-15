@@ -23,9 +23,32 @@ export interface ExtractedTable {
   data_rect: number[] | null
   columns: ExtractedColumn[]
 }
+/** Разметка прошлого выпуска этой же формы (шаблон объекта).
+ *
+ *  `match: 'exact'` — структура файла совпала с прошлым выпуском, разметку
+ *  можно подставить (`table_id` — к какой таблице). `structure_differs` —
+ *  форма изменилась: применять нельзя, иначе цифры будут неверными молча. */
+export interface LayoutTemplate {
+  match: 'exact' | 'structure_differs'
+  mode: 'table' | 'cells'
+  table_id: string | null
+  layout: { data_rect: number[] | null; header_rows: number | null; orientation: 'columns' | 'rows'; skip_rows: number[] }
+  fields: FieldMap[]
+  cells: { row: number; col: number; field_code: string; field_name: string; data_type?: string }[]
+  dataset_code: string | null
+  updated_at: string
+  source_release_name: string | null
+  source_release_period: string | null
+  /** Число строк изменилось или область расширена — человеку стоит проверить границы. */
+  rows_differ: boolean
+  note: string
+}
+
 export interface ExtractionJob {
   status: string // none | queued | running | succeeded | needs_review | failed
   job_id?: string
+  /** Как размечали эту форму в прошлый раз — конструктор открывается размеченным. */
+  layout_template?: LayoutTemplate | null
   /** Код датасета по умолчанию — от имени объекта (или уже использованный им).
    *  Раньше в форме стояло жёсткое «dataset», из-за чего второй объект
    *  сталкивался с первым: данные ищутся по коду без учёта объекта. */

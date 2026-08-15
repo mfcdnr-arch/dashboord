@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any, List, Optional, Sequence
 
@@ -323,6 +324,157 @@ async def layout_preview(
     }
 
 
+# --------------------------------------------------------------------------- #
+# Шаблон разметки объекта: как размечали эту форму в прошлый раз
+# --------------------------------------------------------------------------- #
+def _jsonb(value, default):
+    """jsonb из asyncpg приходит строкой; в тестах и словарём."""
+    if value is None:
+        return default
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def structure_fingerprint(area: List[List[str]], header_rows: int, orientation: str = "columns") -> str:
+    """Отпечаток СТРУКТУРЫ формы: состав и порядок заголовков + геометрия шапки.
+
+    Нужен, чтобы отличить «та же форма за новую неделю» от «форма изменилась».
+    Имя файла и контрольная сумма для этого не годятся: у заказчика недельные
+    формы называются по-разному и различаются каждой цифрой, хотя бланк один.
+    Значения в отпечаток НЕ входят — иначе он менялся бы каждую неделю.
+    """
+    cols = analyze.analyze_columns(area, max(0, int(header_rows or 0)))
+    parts = [_norm_name(c.source_header) for c in cols]
+    raw = f"{orientation}|{int(header_rows or 0)}|{len(parts)}|" + "|".join(parts)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
+def _last_filled_row(grid: List[List[str]]) -> int:
+    for i in range(len(grid) - 1, -1, -1):
+        if any(str(v).strip() for v in grid[i]):
+            return i
+    return -1
+
+
+def fit_rect(rect, grid: List[List[str]]) -> tuple[Optional[List[int]], bool]:
+    """Область прошлой разметки, приложенная к новому файлу.
+
+    Границы подрезаются под размер новой сетки, а если ниже области есть
+    заполненные строки — область расширяется до последней из них: в этих формах
+    список субъектов со временем растёт, и жёсткая нижняя граница молча
+    отрезала бы новые строки. Расширение возвращается флагом — человеку
+    сообщается, что границу стоит проверить (в подвал бланка тоже можно заехать,
+    но такие строки ловит обычная подсказка о служебных строках).
+    """
+    if not rect or not grid:
+        return (list(rect) if rect else None), False
+    height = len(grid)
+    width = max((len(r) for r in grid), default=0)
+    r1, c1, r2, c2 = (int(v) for v in rect)
+    r1 = max(0, min(r1, height - 1))
+    c1 = max(0, min(c1, max(0, width - 1)))
+    c2 = max(c1, min(c2, max(0, width - 1)))
+    r2 = max(r1, min(r2, height - 1))
+    last = _last_filled_row(grid)
+    extended = last > r2
+    if extended:
+        r2 = last
+    return [r1, c1, r2, c2], extended
+
+
+async def save_layout_template(conn, *, object_id, fingerprint: str, mode: str, layout: dict,
+                               fields: List[dict], cells: List[dict], row_count: int,
+                               dataset_code: str, release_id, user_id) -> None:
+    """Запоминает разметку последнего выпуска. Один шаблон на объект."""
+    await conn.execute(
+        "insert into object_layout_templates(object_id, fingerprint, mode, layout, fields, cells, "
+        "row_count, dataset_code, source_release_id, updated_by, updated_at) "
+        "values($1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7,$8,$9,$10,now()) "
+        "on conflict (object_id) do update set fingerprint=excluded.fingerprint, mode=excluded.mode, "
+        "layout=excluded.layout, fields=excluded.fields, cells=excluded.cells, "
+        "row_count=excluded.row_count, dataset_code=excluded.dataset_code, "
+        "source_release_id=excluded.source_release_id, updated_by=excluded.updated_by, updated_at=now()",
+        object_id, fingerprint, mode,
+        json.dumps(layout, ensure_ascii=False, default=str),
+        json.dumps(fields, ensure_ascii=False, default=str),
+        json.dumps(cells, ensure_ascii=False, default=str),
+        int(row_count or 0), dataset_code, release_id, user_id,
+    )
+
+
+async def layout_template_for_tables(conn, object_id, table_ids: Sequence[str]) -> Optional[dict]:
+    """Шаблон объекта, приложенный к таблицам текущего задания.
+
+    Подставляем разметку ТОЛЬКО при совпадении отпечатка: не совпал — значит
+    форма другая, и чужая разметка дала бы неверные цифры молча. В этом случае
+    шаблон всё равно возвращается (с `match=structure_differs`), чтобы человек
+    видел, что система его помнит, но применить не может.
+    """
+    tpl = await conn.fetchrow(
+        "select t.fingerprint, t.mode, t.layout, t.fields, t.cells, t.row_count, t.dataset_code, "
+        "t.updated_at, r.name as release_name, r.reporting_period_start as release_period "
+        "from object_layout_templates t "
+        "left join dataset_releases r on r.id = t.source_release_id "
+        "where t.object_id=$1", object_id)
+    if tpl is None:
+        return None
+
+    lay = {**DEFAULT_LAYOUT, **_jsonb(tpl["layout"], {})}
+    out: dict[str, Any] = {
+        "mode": tpl["mode"],
+        "fields": _jsonb(tpl["fields"], []),
+        "cells": _jsonb(tpl["cells"], []),
+        "dataset_code": tpl["dataset_code"],
+        "updated_at": tpl["updated_at"],
+        "source_release_name": tpl["release_name"],
+        "source_release_period": (
+            tpl["release_period"].isoformat() if tpl["release_period"] else None),
+        "table_id": None,
+        "match": "structure_differs",
+        "layout": lay,
+        "rows_differ": False,
+        "note": "Форма отличается от прошлого выпуска — изменился состав или порядок граф. "
+                "Разметьте её вручную: прошлая разметка дала бы неверные цифры.",
+    }
+
+    for tid in table_ids:
+        row = await conn.fetchrow(
+            "select data, merges, header_rows from extracted_tables where id=$1::uuid", tid)
+        if row is None:
+            continue
+        grid = _jsonb(row["data"], [])
+        merges = [tuple(m) for m in _jsonb(row["merges"], [])]
+        rect, extended = fit_rect(lay["data_rect"], grid)
+        hdr = int((lay["header_rows"] if lay["header_rows"] is not None else row["header_rows"]) or 0)
+        area = analysis_grid(grid, merges, rect, lay["orientation"])
+        if structure_fingerprint(area, hdr, lay["orientation"]) != tpl["fingerprint"]:
+            continue
+
+        rows_now = max(0, len(area) - hdr)
+        same_rows = tpl["row_count"] in (None, 0) or rows_now == tpl["row_count"]
+        note = "Разметка подставлена из прошлого выпуска — проверьте и подтвердите выпуск."
+        if not same_rows or extended:
+            note = (f"Разметка подставлена из прошлого выпуска, но строк в файле другое количество "
+                    f"({rows_now} вместо {tpl['row_count']}). Область данных расширена до последней "
+                    "заполненной строки, исключённые ранее строки не перенесены — проверьте область.")
+        out.update({
+            "table_id": str(tid),
+            "match": "exact",
+            "layout": {
+                "data_rect": rect,
+                "header_rows": hdr,
+                "orientation": lay["orientation"],
+                # Исключённые строки позиционные: при другом числе строк они
+                # указали бы на ЧУЖИЕ строки и молча выбросили бы данные.
+                "skip_rows": list(lay["skip_rows"] or []) if same_rows else [],
+            },
+            "rows_differ": (not same_rows) or extended,
+            "note": note,
+        })
+        break
+
+    return out
+
+
 def _cast(value: str, data_type: str) -> dict:
     """Строковое значение ячейки → типизированные поля dataset_values."""
     out: dict[str, Any] = {"value_text": value if value != "" else None, "value_number": None, "value_date": None}
@@ -511,6 +663,10 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
     header_rows = int(header_rows or 0)
     field_type = {f["field_code"]: f["data_type"] for f in value_fields}
 
+    # Сетка разметки нужна обоим режимам: по ней материализуются значения и по
+    # ней же считается отпечаток структуры для шаблона объекта.
+    area = analysis_grid(grid, merges, rect, lay["orientation"])
+
     n_values = 0
     if cells:
         # Режим отдельных ячеек: один «ряд» значений, подписанный названием
@@ -531,9 +687,8 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         warnings = []
         n_rows = 1
     else:
-        # Сетка разметки: область данных, ориентация, развёрнутые объединения.
-        # Без области в значения уехал бы текст письма над таблицей.
-        area = analysis_grid(grid, merges, rect, lay["orientation"])
+        # Область данных, ориентация, развёрнутые объединения: без области в
+        # значения уехал бы текст письма над таблицей.
         rows_used = data_rows(area, header_rows, lay["skip_rows"] or [])
         for row_index, row in enumerate(rows_used):
             row_label = row[label_col] if label_col is not None and label_col < len(row) else None
@@ -551,6 +706,24 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
                 n_values += 1
         warnings = _validate_grid(rows_used, value_fields, label_col, field_type)
         n_rows = len(rows_used)
+
+    # Запоминаем разметку: следующий файл этой же формы придёт размеченным, и
+    # человеку останется проверить и подтвердить, а не размечать заново.
+    await save_layout_template(
+        conn, object_id=object_id,
+        fingerprint=structure_fingerprint(area, header_rows, lay["orientation"]),
+        mode="cells" if cells else "table",
+        layout={
+            "data_rect": rect, "header_rows": header_rows,
+            "orientation": lay["orientation"], "skip_rows": list(lay["skip_rows"] or []),
+        },
+        fields=fields, cells=cells or [],
+        # Строк в области ДО исключений: с этим числом сравнивается новый файл,
+        # чтобы понять, можно ли перенести позиционные «снятые строки». Число
+        # выпущенных строк (n_rows) для этого не годится — оно уже за вычетом.
+        row_count=max(0, len(area) - header_rows),
+        dataset_code=code, release_id=release_id, user_id=user["id"],
+    )
 
     # проставляем ссылку на замещающий выпуск (сам статус уже 'superseded')
     superseded_id = None

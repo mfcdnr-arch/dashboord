@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   createRelease, getExtractionForVersion, getJob, layoutPreview, startExtraction,
-  type CellPick, type Doc, type ExtractionJob, type FieldMap, type LayoutPreview, type ReleaseResult,
+  type CellPick, type Doc, type ExtractionJob, type FieldMap, type LayoutPreview,
+  type LayoutTemplate, type ReleaseResult,
 } from '../api'
 import DashboardDraft from './DashboardDraft'
 import { elideMiddle } from '../lib/text'
@@ -104,24 +105,56 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
   // Счётчик строк снимается автоматически только при первом расчёте разметки
   // для таблицы: иначе пользователь не смог бы вернуть столбец обратно.
   const trimmed = useRef(false)
+  // Показатели из шаблона ждут первого расчёта разметки: до него неизвестно,
+  // какие столбцы вообще нашлись в этом файле.
+  const pendingFields = useRef<FieldMap[] | null>(null)
+  const [tplApplied, setTplApplied] = useState(false)
 
-  const selectTable = useCallback((j: ExtractionJob, tid: string) => {
+  /**
+   * Выбор таблицы. `useTemplate` — подставлять ли разметку прошлого выпуска:
+   * недельные формы одного объекта размечаются одинаково, и переразмечать их
+   * каждую неделю руками незачем. Человек может отказаться от шаблона кнопкой
+   * «Разметить заново» — последнее слово за ним.
+   */
+  const selectTable = useCallback((j: ExtractionJob, tid: string, useTemplate = true) => {
     const t = j.tables.find((x) => x.id === tid)
     if (!t) return
+    const tplRaw = j.layout_template
+    const tpl = useTemplate && tplRaw && tplRaw.match === 'exact' && tplRaw.table_id === tid ? tplRaw : null
+
     trimmed.current = false
+    pendingFields.current = null
     setTableId(tid)
     const width = t.preview.reduce((w, r) => Math.max(w, r.length), 0)
-    const r = (t.data_rect && t.data_rect.length === 4
+    const fallback = (t.data_rect && t.data_rect.length === 4
       ? t.data_rect
       : [0, 0, Math.max(0, t.preview.length - 1), Math.max(0, width - 1)]) as Rect
+    const r = (tpl?.layout.data_rect && tpl.layout.data_rect.length === 4
+      ? tpl.layout.data_rect : fallback) as Rect
     setRect(r)
-    setHeaderRows(t.header_rows ?? 1)
-    setExcludedCols(new Set())
-    setExcludedRows(new Set())
+    setHeaderRows(tpl?.layout.header_rows ?? t.header_rows ?? 1)
+    setOrientation(tpl?.layout.orientation ?? 'columns')
+
+    // Исключённые строки шаблон хранит в координатах области, интерфейс — в
+    // координатах листа (их видит пользователь), поэтому сдвигаем на границу.
+    const skip = tpl?.layout.skip_rows || []
+    const rowsFromSkip = tpl?.layout.orientation === 'rows'
+    setExcludedCols(new Set(rowsFromSkip ? skip.map((i) => i + r[1]) : []))
+    setExcludedRows(new Set(rowsFromSkip ? [] : skip.map((i) => i + r[0])))
+
     setNames({})
     setTypes({})
     setLabelField(null)
-    setPicked([])
+    setPicked(tpl?.mode === 'cells'
+      ? tpl.cells.map((c) => ({ row: c.row, col: c.col, field_code: c.field_code, field_name: c.field_name }))
+      : [])
+    if (tpl?.mode === 'cells') setMode('cells')
+    if (tpl && tpl.mode === 'table') {
+      // Счётчик строк уже учтён прошлой разметкой — второй раз не вмешиваемся.
+      pendingFields.current = tpl.fields
+      trimmed.current = true
+    }
+    setTplApplied(Boolean(tpl))
   }, [])
 
   useEffect(() => {
@@ -152,6 +185,21 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
         .then((p) => {
           setPreview(p)
           setLabelField((cur) => (cur === null ? p.row_label_column : cur))
+          // Показатели из шаблона: применяем к тем столбцам, которые реально
+          // нашлись в этом файле. Снятые в прошлый раз графы остаются снятыми,
+          // имена и типы — те, что человек уже выправил.
+          const pend = pendingFields.current
+          if (pend) {
+            pendingFields.current = null
+            const keep = new Map(pend.map((f) => [f.column_index, f]))
+            const missing = p.columns.filter((c) => !keep.has(c.column_index)).map((c) => c.column_index)
+            if (orientation === 'rows') setExcludedRows((s) => new Set([...s, ...missing.map((i) => i + rect[0])]))
+            else setExcludedCols((s) => new Set([...s, ...missing]))
+            setNames(Object.fromEntries(pend.map((f) => [f.column_index, f.field_name])))
+            setTypes(Object.fromEntries(pend.map((f) => [f.column_index, f.data_type])))
+            const lbl = pend.find((f) => f.is_row_label)
+            if (lbl) setLabelField(lbl.column_index)
+          }
           // Один раз на таблицу снимаем счётчик строк бланка («№ п/п»):
           // на дашборде это не показатель, а номер по порядку. Дальше
           // выбор за пользователем — повторно не вмешиваемся.
@@ -340,6 +388,15 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
             )}
           </div>
 
+          {canManage && job?.layout_template && tableId && (
+            <TemplateBanner
+              tpl={job.layout_template}
+              applied={tplApplied}
+              onApply={() => selectTable(job!, tableId, true)}
+              onDrop={() => selectTable(job!, tableId, false)}
+            />
+          )}
+
           {table && (
             <>
               <Toolbar
@@ -461,6 +518,47 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
       {conflict && (
         <ConflictDialog conflict={conflict} busy={submitting}
           onSupersede={() => submit(true)} onCancel={() => setConflict(null)} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Разметка прошлого выпуска этой же формы.
+ *
+ * Недельная форма приходит каждую неделю одинаковой, и размечать её заново —
+ * ровно та ручная работа, от которой уходим. Но подстановка молча — плохой
+ * помощник: человек должен видеть, что разметка не его, и уметь от неё
+ * отказаться одной кнопкой. При изменившейся структуре шаблон не применяется
+ * вовсе — чужая разметка дала бы неверные цифры без единого признака ошибки.
+ */
+function TemplateBanner({ tpl, applied, onApply, onDrop }: {
+  tpl: LayoutTemplate; applied: boolean; onApply: () => void; onDrop: () => void
+}) {
+  const from = tpl.source_release_period
+    ? `выпуска за ${new Date(tpl.source_release_period).toLocaleDateString('ru-RU')}`
+    : 'прошлого выпуска'
+  const differs = tpl.match !== 'exact'
+  const warn = differs || tpl.rows_differ
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+      background: warn ? 'var(--warn-bg)' : 'var(--accent-weak-bg)',
+      color: warn ? 'var(--warn)' : 'var(--accent)',
+      fontSize: 13, padding: '8px 12px', borderRadius: 8, margin: '0 0 12px',
+    }}>
+      <span>
+        {differs ? '⚠ ' : applied ? '✓ ' : '💡 '}
+        {differs || applied ? tpl.note : `Разметка ${from} сохранена — можно подставить её и не размечать файл заново.`}
+      </span>
+      {!differs && (
+        <button type="button" style={{ ...chip, marginLeft: 'auto' }}
+          title={applied
+            ? 'Сбросить подставленную разметку и разметить файл с нуля'
+            : 'Подставить область, показатели и их названия из прошлого выпуска'}
+          onClick={applied ? onDrop : onApply}>
+          {applied ? 'Разметить заново' : 'Подставить разметку'}
+        </button>
       )}
     </div>
   )
