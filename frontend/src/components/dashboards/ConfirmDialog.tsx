@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { btnGhost, dialog, overlay, rmBtn } from './shared'
 
@@ -14,10 +14,16 @@ import { btnGhost, dialog, overlay, rmBtn } from './shared'
  * Портал в body — чтобы окно не обрезалось карточкой или сеткой дашборда.
  */
 export function ConfirmDialog(
-  { title, message, confirmLabel = 'Удалить', busy, onClose, onConfirm, extraAction }: {
+  { title, message, confirmLabel = 'Удалить', busyLabel = 'Удаление…', tone = 'danger',
+    busy, onClose, onConfirm, extraAction }: {
     title: string
     message: React.ReactNode
     confirmLabel?: string
+    /** Подпись кнопки во время выполнения. У неразрушительных действий
+     *  («Вернуть из архива», «Откатить») «Удаление…» читалось бы как угроза. */
+    busyLabel?: string
+    /** danger — необратимое (красная кнопка), accent — обычное подтверждение. */
+    tone?: 'danger' | 'accent'
     busy?: boolean
     onClose: () => void
     onConfirm: () => void
@@ -56,13 +62,53 @@ export function ConfirmDialog(
           <button
             autoFocus={false} disabled={busy} onClick={onConfirm}
             style={{
-              height: 36, padding: '0 14px', border: '1px solid var(--danger)', borderRadius: 8,
-              background: 'var(--danger)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer',
+              height: 36, padding: '0 14px',
+              border: `1px solid var(--${tone})`, borderRadius: 8,
+              background: `var(--${tone})`, color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer',
               opacity: busy ? 0.6 : 1,
             }}
-          >{busy ? 'Удаление…' : confirmLabel}</button>
+          >{busy ? busyLabel : confirmLabel}</button>
         </div>
       </div>
     </div>
   ), document.body)
+}
+
+type ConfirmOpts = {
+  title: string
+  message: React.ReactNode
+  confirmLabel?: string
+  busyLabel?: string
+  tone?: 'danger' | 'accent'
+}
+
+/**
+ * Подтверждение как вызов функции: `if (!await ask({...})) return`.
+ *
+ * Заменяет системный `confirm()` без переписывания логики страницы: тот тоже
+ * возвращал «да/нет» одним выражением. Системный диалог браузер вправе
+ * подавить — тогда он молча отвечает «нет», и кнопка выглядит сломанной; на
+ * удалении файла это уже стоило заказчику разбирательства.
+ *
+ * Компонент окна рендерится один раз: `const { ask, node } = useConfirm()` и
+ * `{node}` в разметке.
+ */
+export function useConfirm() {
+  const [state, setState] = useState<{ opts: ConfirmOpts; resolve: (v: boolean) => void } | null>(null)
+
+  const ask = useCallback(
+    (opts: ConfirmOpts) => new Promise<boolean>((resolve) => setState({ opts, resolve })),
+    [],
+  )
+
+  const finish = (answer: boolean) => {
+    state?.resolve(answer)
+    setState(null)
+  }
+
+  const node = state
+    ? <ConfirmDialog {...state.opts} onClose={() => finish(false)} onConfirm={() => finish(true)} />
+    : null
+
+  return { ask, node }
 }

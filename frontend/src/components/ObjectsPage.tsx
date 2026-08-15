@@ -7,11 +7,14 @@ import {
 import { folderLabel, folderTree } from '../lib/folderTree'
 import ExtractionPage from './ExtractionPage'
 import RowAclEditor from './RowAclEditor'
-import { ConfirmDialog } from './dashboards/ConfirmDialog'
+import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
 
 const DOCS_PAGE = 50
 
 export default function ObjectsPage({ canManage, isSuperadmin }: { canManage: boolean; isSuperadmin?: boolean }) {
+  // Подтверждения — своим окном: системное браузер вправе подавить, и кнопка
+  // необратимого действия выглядит нерабочей (см. ConfirmDialog).
+  const { ask, node: confirmNode } = useConfirm()
   const [objects, setObjects] = useState<Obj[]>([])
   const [obj, setObj] = useState<Obj | null>(null)
   const [folders, setFolders] = useState<Folder[]>([])
@@ -147,7 +150,11 @@ export default function ObjectsPage({ canManage, isSuperadmin }: { canManage: bo
   }
 
   async function removeObject(o: Obj) {
-    if (!confirm(`Удалить объект «${o.name}»?\n\nУдаление возможно, только если внутри ничего нет.`)) return
+    if (!await ask({
+      title: `Удалить объект «${o.name}»?`,
+      message: 'Удаление возможно, только если внутри ничего нет — ни папок, ни справочника показателей. '
+        + 'Иначе система откажет и покажет, что именно мешает.',
+    })) return
     setBusy(true)
     setError(null)
     try {
@@ -181,7 +188,11 @@ export default function ObjectsPage({ canManage, isSuperadmin }: { canManage: bo
 
   async function removeFolder(f: Folder) {
     if (!obj) return
-    if (!confirm(`Удалить папку «${f.name}»?\n\nУдаление возможно, только если внутри ничего нет.`)) return
+    if (!await ask({
+      title: `Удалить папку «${f.name}»?`,
+      message: 'Удаление возможно, только если внутри ничего нет — ни вложенных папок, ни документов, '
+        + 'ни привязанных дашбордов. Иначе система откажет и назовёт помеху.',
+    })) return
     setBusy(true)
     setError(null)
     try {
@@ -232,6 +243,7 @@ export default function ObjectsPage({ canManage, isSuperadmin }: { canManage: bo
 
   return (
     <div>
+      {confirmNode}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, marginBottom: 16 }}>
         <button style={crumb} onClick={() => { setObj(null); setFolder(null); setOpenDoc(null) }}>Объекты</button>
         {obj && <><span style={{ color: 'var(--text-faint)' }}>/</span><button style={crumb} onClick={() => { setFolder(null); setOpenDoc(null) }}>{obj.name}</button></>}

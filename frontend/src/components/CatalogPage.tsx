@@ -3,12 +3,16 @@ import {
   createRefDoc, createService, deleteRefDoc, deleteService, listRefDocs, listServices, updateService,
   type RefDoc, type Service,
 } from '../api'
+import { useConfirm } from './dashboards/ConfirmDialog'
 
 // Раздел «Справочники» (admin/moderator): перечень услуг + служебные документы,
 // которыми пользуется модератор при проверке дашбордов (FR-8.16 / FR-8.17).
 // Правка — только admin; модератор видит для сверки.
 
 export default function CatalogPage({ me }: { me: { roles: string[] } }) {
+  // Подтверждения — своим окном: системное браузер вправе подавить, и кнопка
+  // необратимого действия выглядит нерабочей (см. ConfirmDialog).
+  const { ask, node: confirmNode } = useConfirm()
   const [services, setServices] = useState<Service[]>([])
   const [docs, setDocs] = useState<RefDoc[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -35,7 +39,10 @@ export default function CatalogPage({ me }: { me: { roles: string[] } }) {
     try { await updateService(s.id, { is_active: !s.is_active }); reload() } catch (e) { fail(e) }
   }
   async function delService(s: Service) {
-    if (!confirm(`Удалить услугу «${s.name}»?`)) return
+    if (!await ask({
+      title: `Удалить услугу «${s.name}»?`,
+      message: 'Услуга исчезнет из справочника. Уже выпущенные данные и дашборды не пострадают.',
+    })) return
     try { await deleteService(s.id); reload() } catch (e) { fail(e) }
   }
   async function addDoc(e: FormEvent) {
@@ -49,12 +56,16 @@ export default function CatalogPage({ me }: { me: { roles: string[] } }) {
     try { await createRefDoc({ title, url: url || null, description: description || null }); f.reset(); reload() } catch (e) { fail(e) }
   }
   async function delDoc(d: RefDoc) {
-    if (!confirm(`Удалить документ «${d.title}»?`)) return
+    if (!await ask({
+      title: `Удалить документ «${d.title}»?`,
+      message: 'Запись справочника документов будет удалена. На загруженные файлы это не влияет.',
+    })) return
     try { await deleteRefDoc(d.id); reload() } catch (e) { fail(e) }
   }
 
   return (
     <div>
+      {confirmNode}
       <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Справочники</h2>
       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
         Перечень услуг и служебные документы для проверки дашбордов.{!isAdmin && ' Редактирование — у администратора.'}

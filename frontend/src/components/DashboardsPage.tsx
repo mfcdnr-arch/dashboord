@@ -25,6 +25,7 @@ import { FolderMoveDialog } from './dashboards/FolderMoveDialog'
 import AutoBuildWizard from './dashboards/AutoBuildWizard'
 import { AboutDashboard, EditDashboardDialog } from './dashboards/AboutDashboard'
 import { RenameDialog } from './dashboards/RenameDialog'
+import { useConfirm } from './dashboards/ConfirmDialog'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
 import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
 import { PubBadge, WT, alertBtn, btn, btnGhost, crumb, dialog, editBtn, editHint, errBox, input, linkDanger, muted, overlay, presetChip, rmBtn, tab, tabActive, widgetCard, wtBadge } from './dashboards/shared'
@@ -47,6 +48,9 @@ function surfaceColor(): string {
 }
 
 export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initialDashboardId }: { canManage: boolean; isAdmin?: boolean; isSuperadmin?: boolean; initialDashboardId?: string | null }) {
+  // Подтверждения — своим окном: системное браузер вправе подавить, и кнопка
+  // необратимого действия выглядит нерабочей (см. ConfirmDialog).
+  const { ask, node: confirmNode } = useConfirm()
   const [dashboards, setDashboards] = useState<Dashboard[]>([])
   const [dashTotal, setDashTotal] = useState(0)
   const [query, setQuery] = useState('')
@@ -207,7 +211,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
     } catch (e) { fail(e) }
   }
   async function removePreset(p: DashPreset) {
-    if (!sel || !confirm(`Удалить пресет «${p.name}»?`)) return
+    if (!sel || !await ask({ title: `Удалить пресет «${p.name}»?`, message: 'Сохранённый набор фильтров будет удалён. Сами данные и виджеты не пострадают.' })) return
     try { await deletePreset(sel.dashboard.id, p.id); reloadPresets() } catch (e) { fail(e) }
   }
   async function openPage(p: DashPage) {
@@ -255,7 +259,10 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
     } catch (e) { fail(e) }
   }
   async function delPage(p: DashPage) {
-    if (!sel || !confirm(`Удалить страницу «${p.name}» со всеми виджетами?`)) return
+    if (!sel || !await ask({
+      title: `Удалить страницу «${p.name}»?`,
+      message: 'Вместе со страницей удалятся все её виджеты. Действие необратимо.',
+    })) return
     try { await deletePage(p.id); const d = await getDashboard(sel.dashboard.id); setSel(d); setPage(null); setWidgets([]) }
     catch (e) { fail(e) }
   }
@@ -312,10 +319,11 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
 
   async function doDeleteDashboard() {
     if (!sel) return
-    if (!confirm(
-      `Удалить дашборд «${sel.dashboard.name}»?\n\n` +
-      'Вместе с ним удалятся его страницы, виджеты, права доступа и комментарии. ' +
-      'Слепки в архиве сохранятся. Действие необратимо.')) return
+    if (!await ask({
+      title: `Удалить дашборд «${sel.dashboard.name}»?`,
+      message: 'Вместе с ним удалятся его страницы, виджеты, права доступа и комментарии. '
+        + 'Слепки в архиве сохранятся. Действие необратимо.',
+    })) return
     // Гасим прошлую ошибку: иначе после удачного удаления наверху остаётся
     // висеть предыдущий отказ («…снимите с публикации») — читается так, будто
     // и эта попытка провалилась.
@@ -350,7 +358,12 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
     try { setVersions(await listDashboardVersions(sel.dashboard.id)) } catch (e) { fail(e) }
   }
   async function doRestore(v: number) {
-    if (!sel || !confirm(`Откатить к версии ${v}? Текущие страницы и виджеты будут заменены снимком.`)) return
+    if (!sel || !await ask({
+      title: `Откатить к версии ${v}?`,
+      message: 'Текущие страницы и виджеты будут заменены снимком этой версии. '
+        + 'Сама текущая раскладка сохранится в истории как отдельная версия.',
+      confirmLabel: 'Откатить', busyLabel: 'Откат…', tone: 'accent',
+    })) return
     try {
       await restoreDashboardVersion(sel.dashboard.id, v)
       const d = await getDashboard(sel.dashboard.id); setSel(d); setVersions(null)
@@ -743,6 +756,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
           )}
         </div>
       )}
+      {confirmNode}
       {renamePageTarget && (
         <RenameDialog
           title="Переименовать страницу" label="Название страницы"

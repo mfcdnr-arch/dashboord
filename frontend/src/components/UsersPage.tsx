@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import UserCard from './users/UserCard'
 import { RenameDialog } from './dashboards/RenameDialog'
+import { useConfirm } from './dashboards/ConfirmDialog'
 import {
   checkPassword, createDepartment, createUser, deleteDepartment, deleteUser, exportLoginEvents, getLoginEvents, getPasswordPolicy,
   grantAuditAccess, listAuditAccess, listDepartments, listRoles, listUsers, passwordHint, resetUserPassword,
@@ -23,6 +24,9 @@ function fmtDt(iso: string | null): string {
 const USERS_PAGE = 50
 
 export default function UsersPage({ me }: { me: { id: string; roles: string[] } }) {
+  // Подтверждения — своим окном: системное браузер вправе подавить, и кнопка
+  // необратимого действия выглядит нерабочей (см. ConfirmDialog).
+  const { ask, node: confirmNode } = useConfirm()
   const [users, setUsers] = useState<AppUser[]>([])
   const [usersTotal, setUsersTotal] = useState(0)
   const [uq, setUq] = useState('')
@@ -92,7 +96,11 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
     try { await createDepartment(name); el.value = ''; reload() } catch (e) { fail(e) }
   }
   async function delDept(d: Department) {
-    if (!confirm(`Удалить отдел «${d.name}»? Пользователи останутся без отдела.`)) return
+    if (!await ask({
+      title: `Удалить отдел «${d.name}»?`,
+      message: 'Сотрудники отдела останутся в системе, но без подразделения — доступ к строкам данных, '
+        + 'выданный на этот отдел, перестанет действовать.',
+    })) return
     try { await deleteDepartment(d.id); reload() } catch (e) { fail(e) }
   }
   async function toggleActive(u: AppUser) {
@@ -110,7 +118,11 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
     } catch (e) { fail(e) }
   }
   async function removeUser(u: AppUser) {
-    if (!confirm(`Удалить пользователя «${u.login}»?\n\nЖёсткое удаление возможно только если пользователь ничего не создавал. Если у него есть данные/история — предложу заблокировать (сохранит аудит).`)) return
+    if (!await ask({
+      title: `Удалить пользователя «${u.login}»?`,
+      message: 'Удалить можно только того, кто ничего не создавал. Если за пользователем есть данные '
+        + 'или история действий, система предложит заблокировать его — так сохранится журнал аудита.',
+    })) return
     setError(null)
     try {
       await deleteUser(u.id)
@@ -119,7 +131,12 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
       const msg = (e as Error).message
       // Удаление заблокировано наличием данных → сразу предлагаем блокировку.
       if (/заблокир/i.test(msg) && u.is_active) {
-        if (confirm(`${msg}\n\nЗаблокировать пользователя «${u.login}» вместо удаления?`)) {
+        if (await ask({
+          title: `Заблокировать «${u.login}» вместо удаления?`,
+          message: `${msg}\n\nБлокировка закроет вход, но сохранит всё, что пользователь создал, `
+            + 'и его след в журнале аудита. Действие обратимо.',
+          confirmLabel: 'Заблокировать', busyLabel: 'Блокировка…',
+        })) {
           try { await setUserActive(u.id, false); reload() } catch (e2) { fail(e2) }
           return
         }
@@ -133,6 +150,7 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
 
   return (
     <div>
+      {confirmNode}
       <h2 style={{ fontSize: 20, margin: '0 0 16px' }}>Пользователи</h2>
       {error && <div style={errBox}>{error}</div>}
       {notice && (

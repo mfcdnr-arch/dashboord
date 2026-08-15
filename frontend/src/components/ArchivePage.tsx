@@ -8,6 +8,7 @@ import {
 } from '../api/archive'
 import { listUsers, AppUser } from '../api/users'
 import WidgetView from './WidgetView'
+import { useConfirm } from './dashboards/ConfirmDialog'
 import { btn, btnGhost, crumb, dialog, errBox, input, linkDanger, muted, overlay, sel, widgetCard, wtBadge } from './dashboards/shared'
 
 const MONTHS_RU = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
@@ -19,6 +20,9 @@ export function monthLabel(m: string): string {
 const fmtDT = (s: string) => new Date(s).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 export default function ArchivePage({ canManage, isAdmin }: { canManage: boolean; isAdmin: boolean }) {
+  // Подтверждения — своим окном: системное браузер вправе подавить, и кнопка
+  // необратимого действия выглядит нерабочей (см. ConfirmDialog).
+  const { ask, node: confirmNode } = useConfirm()
   const [months, setMonths] = useState<ArchiveMonth[]>([])
   const [topics, setTopics] = useState<string[]>([])
   const [month, setMonth] = useState<string>('')
@@ -43,12 +47,20 @@ export default function ArchivePage({ canManage, isAdmin }: { canManage: boolean
 
   const open = (id: string) => { setPage(0); getArchive(id).then(setOpened).catch((e) => setErr((e as Error).message)) }
 
-  const doUnarchive = (a: ArchiveItem) => {
-    if (!window.confirm(`Вернуть дашборд «${a.dashboard_name}» из архива в работу?`)) return
+  const doUnarchive = async (a: ArchiveItem) => {
+    if (!await ask({
+      title: `Вернуть дашборд «${a.dashboard_name}» в работу?`,
+      message: 'Дашборд снова появится в разделе «Дашборды». Слепок останется в архиве.',
+      confirmLabel: 'Вернуть', busyLabel: 'Возврат…', tone: 'accent',
+    })) return
     unarchive(a.id).then(reload).catch((e) => setErr((e as Error).message))
   }
-  const doDelete = (a: ArchiveItem) => {
-    if (!window.confirm(`Удалить архивный слепок «${a.dashboard_name}» (${monthLabel(a.archive_month)}) БЕЗВОЗВРАТНО?`)) return
+  const doDelete = async (a: ArchiveItem) => {
+    if (!await ask({
+      title: `Удалить слепок «${a.dashboard_name}»?`,
+      message: `Слепок за ${monthLabel(a.archive_month)} и все замороженные в нём данные будут удалены `
+        + 'безвозвратно — восстановить их будет нечем.',
+    })) return
     deleteArchive(a.id).then(reload).catch((e) => setErr((e as Error).message))
   }
 
@@ -100,6 +112,7 @@ export default function ArchivePage({ canManage, isAdmin }: { canManage: boolean
   // ── Список ──────────────────────────────────────────────────────────────────
   return (
     <div>
+      {confirmNode}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0, fontSize: 20 }}>Архив дашбордов</h2>
         {canManage && <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={() => setAccessOpen(true)}>🔑 Доступ к архиву</button>}

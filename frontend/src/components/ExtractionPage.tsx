@@ -8,7 +8,7 @@ import DashboardDraft from './DashboardDraft'
 import { elideMiddle } from '../lib/text'
 import InfoTip from './InfoTip'
 import SheetGrid, { colName, fillMerges, type PickedCell, type Rect } from './SheetGrid'
-import { ConfirmDialog } from './dashboards/ConfirmDialog'
+import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
 import { cancelRelease, deleteRelease, listVersionReleases, restoreRelease, type VersionRelease } from '../api/ingestion'
 
 const TYPES = [
@@ -34,6 +34,9 @@ const baseName = (f: string) => f.replace(/\.[^.]+$/, '')
  * таблицу целиком незачем.
  */
 export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }: { doc: Doc; canManage: boolean; isSuperadmin?: boolean; onBack: () => void }) {
+  // Подтверждения — своим окном: системное браузер вправе подавить, и кнопка
+  // необратимого действия выглядит нерабочей (см. ConfirmDialog).
+  const { ask, node: confirmNode } = useConfirm()
   const [job, setJob] = useState<ExtractionJob | null>(null)
   const [loading, setLoading] = useState(true)
   const [starting, setStarting] = useState(false)
@@ -330,6 +333,7 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
 
   return (
     <div>
+      {confirmNode}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
         <button style={crumb} onClick={onBack}>← Назад к документам</button>
         <StatusBadge status={starting ? 'running' : job?.status || 'none'} />
@@ -382,7 +386,14 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
                 просто не доходят. */}
             {canManage && (
               <button type="button" style={{ ...chip, marginLeft: 'auto' }} title="Разобрать файл заново — текущая разметка сбросится"
-                onClick={() => { if (confirm('Разобрать документ заново? Текущая разметка сбросится.')) runExtraction() }}>
+                onClick={async () => {
+                  if (await ask({
+                    title: 'Разобрать документ заново?',
+                    message: 'Файл будет распознан текущей версией разбора. Незавершённая разметка на экране '
+                      + 'сбросится; уже выпущенные из этого файла данные не пострадают.',
+                    confirmLabel: 'Распознать заново', busyLabel: 'Распознавание…', tone: 'accent',
+                  })) runExtraction()
+                }}>
                 ↻ Распознать заново
               </button>
             )}

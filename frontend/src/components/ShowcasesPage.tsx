@@ -5,6 +5,7 @@ import {
   type Dashboard, type ShowcaseData, type ShowcaseDetail, type ShowcaseSummary,
 } from '../api'
 import PagePreview from './PagePreview'
+import { useConfirm } from './dashboards/ConfirmDialog'
 
 // Витрины (волна E): именованная подборка из N ЦЕЛЫХ дашбордов на одном
 // экране («Состав» — управление списком, «Просмотр» — живая сетка панелей).
@@ -13,6 +14,7 @@ import PagePreview from './PagePreview'
 export default function ShowcasesPage({ canManage, onOpenDashboard }: {
   canManage: boolean; onOpenDashboard: (id: string) => void
 }) {
+  const { ask, node: confirmNode } = useConfirm()
   const [list, setList] = useState<ShowcaseSummary[]>([])
   const [sel, setSel] = useState<ShowcaseDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -49,7 +51,10 @@ export default function ShowcasesPage({ canManage, onOpenDashboard }: {
     catch (e) { fail(e) } finally { setBusy(false) }
   }
   async function removeShowcase() {
-    if (!sel || !confirm(`Удалить витрину «${sel.name}»? Сами дашборды не пострадают.`)) return
+    if (!sel || !await ask({
+      title: `Удалить витрину «${sel.name}»?`,
+      message: 'Удалится только подборка. Сами дашборды, их данные и права доступа останутся на месте.',
+    })) return
     try { await deleteShowcase(sel.id); setSel(null); await refreshList() } catch (e) { fail(e) }
   }
   useEffect(() => {
@@ -96,6 +101,7 @@ export default function ShowcasesPage({ canManage, onOpenDashboard }: {
 
   return (
     <div>
+      {confirmNode}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, marginBottom: 16 }}>
         <button style={crumb} onClick={() => setSel(null)}>Витрины</button>
         {sel && <><span style={{ color: 'var(--text-faint)' }}>/</span><span>{sel.name}</span></>}
