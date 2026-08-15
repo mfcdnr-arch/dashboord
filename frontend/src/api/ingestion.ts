@@ -188,6 +188,24 @@ export async function createRelease(
 }
 
 
+/** Замечания по качеству ДО выпуска: сверка с предыдущей неделей.
+ *  Считает та же функция, что и выпуск, — расхождение невозможно. */
+export async function qualityCheck(
+  jobId: string,
+  body: {
+    table_id: string; code: string; name: string; reporting_period_start: string | null
+    fields: FieldMap[]; layout?: Layout
+  },
+): Promise<{ warnings: ValidationWarning[]; ok: boolean }> {
+  const res = await fetch(`/extraction-jobs/${jobId}/quality-check`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ ...body, supersede: false }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 export type VersionRelease = {
   id: string
   code: string

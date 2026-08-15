@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  createRelease, getExtractionForVersion, getJob, layoutPreview, startExtraction,
+  createRelease, getExtractionForVersion, getJob, layoutPreview, qualityCheck, startExtraction,
   type CellPick, type Doc, type ExtractionJob, type FieldMap, type LayoutPreview,
-  type LayoutTemplate, type ReleaseResult,
+  type LayoutTemplate, type ReleaseResult, type ValidationWarning,
 } from '../api'
 import DashboardDraft from './DashboardDraft'
 import { elideMiddle } from '../lib/text'
 import InfoTip from './InfoTip'
 import SheetGrid, { colName, fillMerges, type PickedCell, type Rect } from './SheetGrid'
 import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
+import { buildReleaseFields } from '../lib/releaseFields'
 import { cancelRelease, deleteRelease, listVersionReleases, restoreRelease, type VersionRelease } from '../api/ingestion'
 
 const TYPES = [
@@ -62,6 +63,10 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
   const [name, setName] = useState(baseName(doc.original_filename))
   const [period, setPeriod] = useState(doc.reporting_period_start || '')
 
+  // Замечания по качеству: сверка с прошлой неделей ДО выпуска. Считает тот же
+  // код, что и выпуск, поэтому «до было чисто, после появились» невозможно.
+  const [quality, setQuality] = useState<ValidationWarning[] | null>(null)
+  const [checking, setChecking] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [conflict, setConflict] = useState<{ id: string; name: string; created_at: string } | null>(null)
   const [result, setResult] = useState<ReleaseResult | null>(null)
@@ -112,6 +117,11 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
   // какие столбцы вообще нашлись в этом файле.
   const pendingFields = useRef<FieldMap[] | null>(null)
   const [tplApplied, setTplApplied] = useState(false)
+  // Коды показателей из прошлого выпуска. Держим отдельно от имён: показатель
+  // склеивается по КОДУ, и если новый файл получит другой код, прошлые недели
+  // отвалятся от него на дашборде — ровно тот дефект, который уже чинили,
+  // когда коды «уплывали» между выпусками одной формы.
+  const [tplCodes, setTplCodes] = useState<Record<number, string>>({})
 
   /**
    * Выбор таблицы. `useTemplate` — подставлять ли разметку прошлого выпуска:
@@ -147,6 +157,9 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
 
     setNames({})
     setTypes({})
+    setTplCodes(tpl && tpl.mode === 'table'
+      ? Object.fromEntries(tpl.fields.map((f) => [f.column_index, f.field_code]))
+      : {})
     setLabelField(null)
     setPicked(tpl?.mode === 'cells'
       ? tpl.cells.map((c) => ({ row: c.row, col: c.col, field_code: c.field_code, field_name: c.field_name }))
@@ -288,6 +301,36 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
     })
   }
 
+  /** Показатели по текущей разметке. Одна сборка на выпуск и на проверку
+   *  качества — иначе проверка считала бы не то, что уедет в датасет. */
+  const tableFields = useMemo(
+    () => buildReleaseFields(preview?.columns || [], {
+      excluded: excludedFields, labelColumn: labelField,
+      templateCodes: tplCodes, names, types,
+    }),
+    [preview, excludedFields, labelField, names, types, tplCodes],
+  )
+
+  // Сверка с прошлой неделей, пока человек ещё не нажал «Выпустить».
+  const qualityKey = JSON.stringify([code.trim(), period, tableFields, rect, headerRows, orientation, skipRows])
+  useEffect(() => {
+    if (!job?.job_id || !tableId || mode !== 'table' || !code.trim() || !tableFields.length) {
+      setQuality(null); return
+    }
+    const id = setTimeout(() => {
+      setChecking(true)
+      qualityCheck(job.job_id!, {
+        table_id: tableId, code: code.trim(), name: name.trim() || doc.original_filename,
+        reporting_period_start: period || null, fields: tableFields,
+        layout: { data_rect: rect, header_rows: headerRows, orientation, skip_rows: skipRows },
+      })
+        .then((r) => setQuality(r.warnings))
+        .catch(() => setQuality(null))   // проверка — подсказка, её сбой не мешает работе
+        .finally(() => setChecking(false))
+    }, 600)
+    return () => clearTimeout(id)
+  }, [qualityKey, job?.job_id, tableId, mode]) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function submit(supersede: boolean) {
     if (!job?.job_id || !tableId) return
     if (!code.trim() || !name.trim()) { setError('Заполните код и название датасета'); return }
@@ -300,16 +343,11 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
         row: p.row, col: p.col, field_code: p.field_code, field_name: p.field_name, data_type: 'number',
       }))
     } else {
-      const cols = (preview?.columns || []).filter((c) => !excludedFields.has(c.column_index))
-      if (!cols.length) { setError('Не выбрано ни одного столбца'); return }
+      if (!(preview?.columns || []).some((c) => !excludedFields.has(c.column_index))) {
+        setError('Не выбрано ни одного столбца'); return
+      }
       if (labelField === null) { setError('Отметьте, где лежат названия строк (◉)'); return }
-      fields = cols.map((c) => ({
-        column_index: c.column_index,
-        field_code: c.field_code,
-        field_name: (names[c.column_index] ?? c.field_name).trim() || c.field_name,
-        data_type: types[c.column_index] ?? c.data_type,
-        is_row_label: c.column_index === labelField,
-      }))
+      fields = tableFields
       if (!fields.some((f) => f.is_row_label)) {
         setError('Столбец с названиями строк исключён — верните его или выберите другой')
         return
@@ -513,6 +551,7 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
           {table && canManage && (
             <div style={{ marginTop: 20 }}>
               <h3 style={h3}>Выпуск датасета</h3>
+              <QualityPanel warnings={quality} checking={checking} />
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <Field label="Код"><input style={input} value={code} onChange={(e) => setCode(e.target.value)} /></Field>
                 <Field label="Название"><input style={{ ...input, width: 240 }} value={name} onChange={(e) => setName(e.target.value)} /></Field>
@@ -530,6 +569,48 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
         <ConflictDialog conflict={conflict} busy={submitting}
           onSupersede={() => submit(true)} onCancel={() => setConflict(null)} />
       )}
+    </div>
+  )
+}
+
+/**
+ * Замечания по качеству до выпуска.
+ *
+ * Форму заполняет человек, и самая дорогая ошибка здесь — не опечатка, а
+ * перенос цифр прошлой недели без обновления: по одному файлу это не видно
+ * никак, а на дашборде выглядит как настоящие данные. Поэтому сверка идёт с
+ * предыдущим выпуском и показывается ДО нажатия «Подтвердить выпуск».
+ *
+ * Замечания не блокируют: решение за человеком, а ошибочный выпуск обратим
+ * кнопкой «Отменить выпуск».
+ */
+function QualityPanel({ warnings, checking }: { warnings: ValidationWarning[] | null; checking: boolean }) {
+  if (checking && warnings === null) {
+    return <div style={{ ...muted, fontSize: 12.5, margin: '0 0 10px' }}>Сверяем с прошлой неделей…</div>
+  }
+  if (warnings === null) return null
+  if (!warnings.length) {
+    return (
+      <div style={{ fontSize: 12.5, color: 'var(--success)', margin: '0 0 10px' }}>
+        ✓ Сверено с предыдущим выпуском — расхождений не найдено.
+      </div>
+    )
+  }
+  return (
+    <div style={{
+      border: '1px solid var(--warn)', background: 'var(--warn-bg)', color: 'var(--warn)',
+      borderRadius: 10, padding: '10px 12px', margin: '0 0 12px', fontSize: 13,
+    }}>
+      <div style={{ fontWeight: 600, marginBottom: 6 }}>
+        ⚠ Проверьте данные перед выпуском ({warnings.length})
+      </div>
+      <ul style={{ margin: 0, paddingLeft: 18 }}>
+        {warnings.map((w) => <li key={w.code} style={{ marginBottom: 2 }}>{w.message}</li>)}
+      </ul>
+      <div style={{ fontSize: 12, marginTop: 6, opacity: 0.85 }}>
+        Это подсказка, а не запрет: выпустить можно, а ошибочный выпуск потом снимается кнопкой
+        «Отменить выпуск».
+      </div>
     </div>
   )
 }

@@ -280,6 +280,41 @@ async def layout_preview(job_id: str, body: LayoutPreviewIn, user: dict = Depend
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err))
 
 
+@router.post("/extraction-jobs/{job_id}/quality-check")
+async def quality_check(job_id: str, body: ReleaseIn, user: dict = Depends(manage)):
+    """Замечания по качеству ДО выпуска: сверка с предыдущей неделей.
+
+    Считает та же функция, что и выпуск, поэтому «перед выпуском было чисто, а
+    после появились замечания» невозможно. Отдельный маршрут, а не часть
+    предпросмотра разметки: предпросмотр дёргается на каждое движение мышью, а
+    здесь нужен ещё и код датасета, который человек задаёт в форме выпуска.
+    """
+    async with db.get_pool().acquire() as conn:
+        ctx = await mapping.resolve_context(conn, job_id)
+        if ctx is None or ctx["organization_id"] != user["organization_id"]:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание извлечения не найдено")
+        table = await conn.fetchrow(
+            "select header_rows, data, merges, data_rect from extracted_tables "
+            "where id=$1::uuid and extraction_job_id=$2::uuid", body.table_id, job_id)
+        if table is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Таблица не найдена в задании")
+
+        grid = json.loads(table["data"]) if table["data"] else []
+        merges = [tuple(m) for m in (json.loads(table["merges"]) if table["merges"] else [])]
+        lay = {**mapping.DEFAULT_LAYOUT, **(body.layout.model_dump() if body.layout else {})}
+        rect = lay["data_rect"] or (json.loads(table["data_rect"]) if table["data_rect"] else None)
+        hdr = int((table["header_rows"] if lay["header_rows"] is None else lay["header_rows"]) or 0)
+        area = mapping.analysis_grid(grid, merges, rect, lay["orientation"])
+        rows = mapping.data_rows(area, hdr, lay["skip_rows"] or [])
+
+        fields = [f.model_dump() for f in body.fields]
+        label = next((f["column_index"] for f in fields if f.get("is_row_label")), None)
+        warnings = await mapping.quality_warnings(
+            conn, user["organization_id"], code=body.code, period=body.reporting_period_start,
+            rows=rows, fields=fields, label_col=label)
+    return {"warnings": warnings, "ok": not warnings}
+
+
 @router.post("/extraction-jobs/{job_id}/release", status_code=status.HTTP_201_CREATED)
 async def create_release(job_id: str, body: ReleaseIn, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:

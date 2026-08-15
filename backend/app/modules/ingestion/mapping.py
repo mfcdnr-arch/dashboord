@@ -571,6 +571,23 @@ async def layout_template_for_tables(conn, object_id, table_ids: Sequence[str]) 
     return out
 
 
+async def quality_warnings(conn, org_id, *, code: str, period, rows: List[List[str]],
+                           fields: List[dict], label_col: Optional[int]) -> List[dict]:
+    """Замечания по качеству: сверка готовящихся данных с предыдущим выпуском.
+
+    Одна функция и для предпросмотра, и для выпуска — иначе «перед выпуском
+    замечаний не было, а после выпуска появились» стало бы неизбежным.
+    """
+    from . import quality
+
+    previous, prev_period = await quality.previous_release_values(conn, org_id, code, period)
+    if not previous:
+        return []
+    current = quality.values_from_rows(rows, fields, label_col)
+    names = {f["field_code"]: f["field_name"] for f in fields}
+    return quality.compare_with_previous(current, previous, names, prev_period)
+
+
 def _cast(value: str, data_type: str) -> dict:
     """Строковое значение ячейки → типизированные поля dataset_values."""
     out: dict[str, Any] = {"value_text": value if value != "" else None, "value_number": None, "value_date": None}
@@ -801,6 +818,11 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
                 )
                 n_values += 1
         warnings = _validate_grid(rows_used, value_fields, label_col, field_type)
+        # Сверка с прошлой неделей: перенесённые без обновления цифры — самая
+        # дорогая ошибка в этих формах, и заметить её по одному файлу нельзя.
+        warnings += await quality_warnings(
+            conn, org_id, code=code, period=reporting_period_start,
+            rows=rows_used, fields=fields, label_col=label_col)
         n_rows = len(rows_used)
 
     # Запоминаем разметку: следующий файл этой же формы придёт размеченным, и
