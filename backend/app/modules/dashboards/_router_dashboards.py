@@ -51,6 +51,10 @@ class AutoIn(BaseModel):
     # Коды расчётных показателей, отмеченных в мастере: они будут заведены
     # черновиками, и по каждому появится карточка.
     metrics: Optional[List[str]] = None
+    # Проставлять ли пороги невыполнения плана (полоса «план и факт» и
+    # спидометр «выполнение плана» краснеют ниже нормы). Пороги потом
+    # правятся кнопкой ⚠ у самого виджета.
+    alerts: bool = True
 
     def as_selection(self) -> Optional[dict]:
         if self.selection is None:
@@ -113,7 +117,7 @@ async def auto_build_plan(body: AutoIn, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:
         try:
             return await service.auto_build_plan(
-                conn, user["organization_id"], body.object_id, body.as_selection())
+                conn, user["organization_id"], body.object_id, body.as_selection(), body.alerts)
         except DashboardError as e:
             raise _bad(e)
 
@@ -126,7 +130,7 @@ async def auto_build(body: AutoIn, user: dict = Depends(manage)):
                 return await service.auto_build(
                     conn, user["organization_id"], user["id"], body.object_id, body.name,
                     selection=body.as_selection(), dashboard_id=body.dashboard_id,
-                    metrics=body.metrics)
+                    metrics=body.metrics, alerts=body.alerts)
         except DashboardError as e:
             raise _bad(e)
 

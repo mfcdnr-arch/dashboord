@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import math
 import statistics
 from typing import Dict, List, Optional
 
@@ -34,6 +35,14 @@ def _apply_target(res: dict, cfg: dict, value) -> None:
     res["target"] = tgt
     res["target_label"] = cfg.get("target_label") or "Цель"
     res["target_pct"] = (float(value) / tgt * 100.0) if tgt else None
+
+
+def _nice_ceiling(v: float) -> float:
+    """Верх шкалы — круглое число: деления спидометра должны читаться."""
+    if v <= 0:
+        return 100
+    step = 50 if v <= 1000 else 10 ** (len(str(int(v))) - 1)
+    return math.ceil(v / step) * step
 
 
 def _linear_trend(values: list) -> Optional[dict]:
@@ -380,7 +389,13 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
             raise DashboardError("Gauge: укажите формулу, metric_code или dataset_code+value_field")
         gmax = cfg.get("gauge_max")
         if gmax is None:
-            gmax = 100 if (unit and "%" in unit) else (round((value or 0) * 1.25) or 100)
+            if unit and "%" in unit:
+                # Обычная шкала процента — 100. Но выполнение плана бывает и
+                # 187 %, и 656 %: при жёстком потолке стрелка упиралась бы в
+                # край, и перевыполнение выглядело бы как «ровно предел».
+                gmax = 100 if (value or 0) <= 100 else _nice_ceiling(float(value) * 1.1)
+            else:
+                gmax = round((value or 0) * 1.25) or 100
         res = {"type": "gauge", "value": value, "unit": unit, "max": gmax, "title": name}
         _apply_target(res, cfg, value)
         res["alert"] = evaluate_alert("kpi", cfg, res)  # те же пороги, что и KPI

@@ -55,6 +55,10 @@ export default function AutoBuildWizard(
   // каждому появляется карточка — раньше принятие предложения давало только
   // метрику, а виджет по ней человек добавлял руками.
   const [metricPicks, setMetricPicks] = useState<Set<string>>(new Set())
+  // Пороги невыполнения плана. По умолчанию включены: недобор плана — это то,
+  // ради чего дашборд и открывают, а увидеть его цветом быстрее, чем вычитая
+  // проценты глазами. Выключается здесь, правится потом кнопкой ⚠ у виджета.
+  const [alerts, setAlerts] = useState(true)
   const [restored, setRestored] = useState(false)
   const [target, setTarget] = useState('')          // '' — новый дашборд
   const [busy, setBusy] = useState(false)
@@ -92,6 +96,7 @@ export default function AutoBuildWizard(
             setRestored(true)
           }
         }
+        if (saved && saved.alerts === false) { setAlerts(false); setRestored(true) }
         if (saved?.metrics?.length) {
           const codes = new Set((p.metrics || []).map((m) => m.code))
           setMetricPicks(new Set(saved.metrics.filter((c) => codes.has(c))))
@@ -154,7 +159,7 @@ export default function AutoBuildWizard(
     try {
       const r = await autoBuildDashboard(objectId, {
         name: `Дашборд «${objectName}»`, selection: sel, dashboardId: target || undefined,
-        metrics: [...metricPicks],
+        metrics: [...metricPicks], alerts,
       })
       onDone(r.dashboard_id)
     } catch (e) { onError((e as Error).message); setBusy(false) }
@@ -266,8 +271,10 @@ export default function AutoBuildWizard(
                 </div>
                 <div style={{ ...muted, fontSize: 12, margin: '4px 0 8px' }}>
                   Система нашла их по самим данным и проверила расчётом. Отмеченные будут
-                  заведены черновиками и сразу показаны карточками — согласование формулы
+                  заведены черновиками и сразу показаны на дашборде — согласование формулы
                   идёт обычным порядком, на дашборде число видно уже сейчас.
+                  Проценты показываются спидометром (⏱ рядом с названием): на шкале
+                  сразу видно, близко ли к 100 %, — остальные карточкой.
                 </div>
                 <div style={{ ...fieldBox, maxHeight: 190 }}>
                   {(plan.metrics || []).map((m) => (
@@ -280,6 +287,9 @@ export default function AutoBuildWizard(
                           return n
                         })} />
                       <span style={{ minWidth: 0 }}>
+                        {(m.unit || '').includes('%') && (
+                          <span title="Будет показан спидометром">⏱ </span>
+                        )}
                         <span style={{ overflowWrap: 'anywhere' }}>{m.name}</span>
                         {m.preview_value != null && (
                           <span style={{ color: 'var(--accent)' }}> = {m.preview_value.toLocaleString('ru-RU')}
@@ -292,6 +302,20 @@ export default function AutoBuildWizard(
                 </div>
               </div>
             )}
+
+            <div style={block}>
+              <label style={{ ...chk, fontWeight: 600 }}>
+                <input type="checkbox" checked={alerts} onChange={() => setAlerts((v) => !v)} />
+                🚦 Подсвечивать невыполнение плана
+              </label>
+              <div style={{ ...muted, fontSize: 12, marginTop: 4 }}>
+                Полоса «план и факт» и спидометр «выполнение плана, %» будут краснеть
+                ниже 90 % и желтеть ниже 100 %, а от 100 % — зеленеть. Норма здесь не
+                выдумана: 100 % — это сам план. У показателей без известной нормы
+                (например, доля доставленных) порогов не будет. Пороги любого виджета
+                потом правятся кнопкой ⚠ в режиме «Двигать и менять размер».
+              </div>
+            </div>
 
             <div style={block}>
               <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Куда собрать</div>

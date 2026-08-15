@@ -263,6 +263,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
   // Хук объявлен до ветвления по типу виджета: тип может смениться при правке
   // виджета, а порядок хуков между рендерами меняться не должен.
   const fit = useFitHeight(196)
+  const gaugeFit = useFitHeight(190)
   if (data.type === 'text') {
     const align = data.align === 'center' ? 'center' : 'left'
     if (!data.heading && !data.body) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Пустая аннотация</div>
@@ -320,24 +321,57 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
   if (data.type === 'gauge') {
     const max = data.max || 100
     const color = data.alert?.color || C.c1
+    // Высота шкалы была константой 190px — и как только над ней встал бейдж
+    // порога («⚠ план выполнен»), содержимое перестало помещаться и карточка
+    // включила прокрутку. Тот же приём, что у динамики: ужимаем сам график.
     const opt: EChartsOption = {
       series: [{
         type: 'gauge', min: 0, max,
         progress: { show: true, width: 12, itemStyle: { color } },
         axisLine: { lineStyle: { width: 12, color: [[1, '#eef0f3']] } },
         axisTick: { show: false },
+        // Делений пять, а не десять по умолчанию: на шкале 0…750 одиннадцать
+        // подписей сливались в кашу по дуге.
+        splitNumber: 5,
         splitLine: { length: 8, lineStyle: { color: '#c9ccd1' } },
-        axisLabel: { fontSize: 10, color: '#9aa4b2', distance: 12 },
+        // Подписаны только КРАЯ шкалы. Радиус на карточке в треть ряда мал, и
+        // промежуточные подписи наползали друг на друга у центра дуги; границы
+        // дают тот же ориентир «сколько это по шкале», а само значение и так
+        // напечатано под дугой.
+        // Подписей делений на дуге нет. На карточке в треть ряда радиус мал:
+        // внутри дуги они сходились к центру и слипались, снаружи наезжали на
+        // само значение. Верх шкалы подписан ниже обычным текстом — там место
+        // есть, и он не конкурирует с числом за одни и те же пиксели.
+        axisLabel: { show: false },
         pointer: { itemStyle: { color } },
         title: { show: false },
         detail: {
-          valueAnimation: true, fontSize: 22, fontWeight: 700, color, offsetCenter: [0, '58%'],
+          // Число сидело внутри дуги и налезало на подписи делений — при
+          // трёхзначном проценте («656,87 %») перекрывало их полностью.
+          // Уводим его ниже дуги; на ужатой карточке уменьшаем и шрифт.
+          valueAnimation: true, fontSize: gaugeFit.h < 150 ? 16 : 20, fontWeight: 700,
+          color, offsetCenter: [0, '86%'],
           formatter: (v: number) => fmt(v) + (data.unit ? ' ' + data.unit : ''),
         },
         data: [{ value: data.value ?? 0 }],
       }],
     }
-    return <div><EChart option={opt} height={190} /><div style={{ marginTop: -14 }}><TargetLine data={data} /></div></div>
+    return (
+      <div ref={gaugeFit.box}>
+        <EChart option={opt} height={gaugeFit.h} />
+        <div ref={gaugeFit.labels} style={{ marginTop: -14 }}>
+          {/* Шкалу подписываем, только когда она НЕ стандартная: у обычного
+              процента верх 100 и так подразумевается, а вот 750 объясняет,
+              почему дуга при 656 % не полна. */}
+          {max !== 100 && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>
+              шкала 0…{fmt(max)}{data.unit ? ` ${data.unit}` : ''}
+            </div>
+          )}
+          <TargetLine data={data} />
+        </div>
+      </div>
+    )
   }
   if (data.type === 'plan_fact') {
     const pct = data.pct

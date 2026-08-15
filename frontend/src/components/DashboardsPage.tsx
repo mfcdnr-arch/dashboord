@@ -843,8 +843,12 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                             показываем ТОЛЬКО в режиме правки. В обычном просмотре
                             он съедал треть маленькой карточки — из-за него у KPI
                             обрезалось само число, ради которого карточка и стоит.
-                            Значок ⓘ остаётся всегда: он объясняет, что за цифра. */}
-                        {!collapsed.has(w.id) && (editMode || !canManage) && (
+                            Значок ⓘ остаётся всегда: он объясняет, что за цифра.
+                            У зрителя режима правки нет, поэтому раньше ряд висел
+                            у него ПОСТОЯННО: бейдж типа занимал строку, и места
+                            под число оставалось меньше, чем у администратора —
+                            хотя именно зритель смотрит на цифру, а не правит. */}
+                        {!collapsed.has(w.id) && editMode && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
                             <span style={wtBadge}>{WT.find((x) => x.v === w.widget_type)?.t || w.widget_type}</span>
                             <InfoTip text={widgetTip(w)} />
@@ -859,8 +863,10 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                           </div>
                         )}
                         {/* Вне режима правки оставляем только пояснение — одной
-                            строкой рядом с именем, чтобы не занимать высоту. */}
-                        {!collapsed.has(w.id) && canManage && !editMode && (
+                            строкой рядом с именем, чтобы не занимать высоту.
+                            Одинаково для всех ролей: зрителю пояснение «что за
+                            цифра» нужно даже больше, чем тому, кто её настроил. */}
+                        {!collapsed.has(w.id) && !editMode && (
                           <div style={{ marginTop: 2 }}><InfoTip text={widgetTip(w)} /></div>
                         )}
                       </div>

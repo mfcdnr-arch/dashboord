@@ -92,6 +92,8 @@ export type AutoMetricOption = {
   why?: string | null
   preview_value?: number | null
   dataset_code?: string
+  /** Вид предложения: у «plan_fact_pct» норма известна — ему ставятся пороги. */
+  type?: string | null
 }
 
 export type AutoPlan = {
@@ -99,7 +101,9 @@ export type AutoPlan = {
   /** Что можно посчитать по данным: проценты выполнения, доли, приросты. */
   metrics?: AutoMetricOption[]
   /** Выбор прошлой сборки — им мастер открывается в следующий раз. */
-  saved_selection?: { selection?: Record<string, DatasetPick>; metrics?: string[] } | null
+  saved_selection?: {
+    selection?: Record<string, DatasetPick>; metrics?: string[]; alerts?: boolean
+  } | null
   datasets: AutoPlanDataset[]
   blocks: string[]
   warnings: string[]
@@ -127,6 +131,8 @@ export async function autoBuildDashboard(
     name?: string; selection?: Record<string, DatasetPick>; dashboardId?: string
     /** Коды расчётных показателей: заводятся черновиками, по каждому — карточка. */
     metrics?: string[]
+    /** Пороги невыполнения плана: полоса и спидометр краснеют ниже нормы. */
+    alerts?: boolean
   } = {},
 ): Promise<{ dashboard_id: string; page_id: string; widgets: number; metrics?: number }> {
   const res = await fetch('/dashboards/auto', {
@@ -135,6 +141,7 @@ export async function autoBuildDashboard(
       object_id: objectId, name: opts.name || null,
       selection: opts.selection || null, dashboard_id: opts.dashboardId || null,
       metrics: opts.metrics && opts.metrics.length ? opts.metrics : null,
+      alerts: opts.alerts !== false,
     }),
   })
   if (!res.ok) throw new Error(await errText(res))

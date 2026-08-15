@@ -24,6 +24,52 @@ MAX_AUTO_KPI = 24
 # заметно дольше. Остальные показатели добавляются кнопкой «💡 Предложить ещё».
 MAX_AUTO_DYNAMICS = 16
 
+# Пороги «нормы» для процента выполнения плана. Норма здесь не выдумана: 100 %
+# — это сам план, а ниже 90 % отставание уже не наверстать незаметно. Первое
+# сработавшее правило определяет цвет, поэтому danger стоит раньше warn.
+PLAN_PCT_ALERTS = [
+    {"level": "danger", "op": "lt", "value": 90, "label": "ниже 90 % плана"},
+    {"level": "warn", "op": "lt", "value": 100, "label": "план не выполнен"},
+    {"level": "good", "op": "gte", "value": 100, "label": "план выполнен"},
+]
+
+
+def _is_percent(unit) -> bool:
+    return bool(unit) and "%" in str(unit)
+
+
+def metric_widget_spec(unit, *, plan_execution: bool) -> tuple:
+    """Каким виджетом показать расчётный показатель и с какими порогами.
+
+    Процент — доля от известного целого, и на шкале он читается сразу: видно,
+    близко ли к 100 %, а не только само число. Поэтому процентные показатели
+    получают спидометр, остальные — карточку.
+
+    Пороги ставим ТОЛЬКО проценту ВЫПОЛНЕНИЯ ПЛАНА: у него норма известна (сам
+    план). У «доли доставленных» нормы нет — раскрасить её красным значило бы
+    выдать выдумку за правило. Заданные пороги видны и правятся кнопкой ⚠.
+    """
+    cfg: dict = {}
+    if plan_execution:
+        cfg["alerts"] = [dict(r) for r in PLAN_PCT_ALERTS]
+    return ("gauge" if _is_percent(unit) else "kpi"), cfg
+
+
+def _grid_rows(items: list, start_y: int, per_row: int, width: int, height: int):
+    """Позиции карточек: по `per_row` в ряд, ряды идут вниз от `start_y`.
+
+    Высота в пределах одной пачки одинаковая — карточки разной высоты в одном
+    ряду наложились бы друг на друга (y считается по номеру ряда).
+    """
+    for i, item in enumerate(items):
+        yield item, {"position_x": (i % per_row) * width,
+                     "position_y": start_y + (i // per_row) * height,
+                     "width": width, "height": height}
+
+
+def _rows_height(count: int, per_row: int, height: int) -> int:
+    return ((count + per_row - 1) // per_row) * height if count else 0
+
 
 # --------------------------------------------------------------------------- #
 # Авто-сборка дашборда из объекта (rule-based, не ИИ)
@@ -214,11 +260,13 @@ def _plan_fact_pairs(fields: list) -> list:
     return out
 
 
-def plan_auto_build(datasets: list, selection: Optional[dict] = None) -> list:
+def plan_auto_build(datasets: list, selection: Optional[dict] = None,
+                    alerts: bool = True) -> list:
     """Что именно будет создано — список виджетов с местом на сетке и страницей.
 
     `selection` = {code: {"fields": [коды], "blocks": [виды], "views": {код: вид}}}.
     Не передан — берём всё с автоматически подобранными видами.
+    `alerts` — проставлять ли пороги невыполнения плана (галочка в мастере).
 
     Страницы разделены по смыслу: «Обзор» отвечает на «как сейчас», «Динамика» —
     на «как менялось», «Первичные данные» — «откуда цифры». Одна длинная страница
@@ -250,19 +298,29 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None) -> list:
         # ── Обзор: план-факт полосой, остальные — карточками, снизу сравнение ──
         if "plan_fact" in blocks:
             pairs = _plan_fact_pairs(shown)
+            # С порогами над полосой встаёт бейдж «план выполнен» и рамка — при
+            # прежней высоте карточка включала прокрутку (замерено: не хватало
+            # 18px). Ряд считается по номеру строки, поэтому высота у всей
+            # пачки одна.
+            pf_h = 6 if alerts else 5
             for i, (plan, fact) in enumerate(pairs):
                 specs.append({"page": PAGE_OVERVIEW,
                               "name": f"{_split_name(fact['name'])['subject']}: план и факт",
                               "widget_type": "plan_fact",
+                              # Полоса и без порогов показывает процент, но
+                              # «187 %» и «64 %» выглядят одинаково спокойно.
+                              # Порог красит недобор — его видно, не читая цифр.
                               "config": {"dataset_code": code,
-                                         "plan_field": plan["code"], "fact_field": fact["code"]},
-                              "position_x": (i % 2) * 6, "position_y": ov_y + (i // 2) * 5,
-                              "width": 6, "height": 5})
+                                         "plan_field": plan["code"], "fact_field": fact["code"],
+                                         **({"alerts": [dict(r) for r in PLAN_PCT_ALERTS]}
+                                            if alerts else {})},
+                              "position_x": (i % 2) * 6, "position_y": ov_y + (i // 2) * pf_h,
+                              "width": 6, "height": pf_h})
             if pairs:
                 # По 2 в ряд: пара «план-факт» шире карточки (в ней два числа,
                 # разница и полоса), а 2×6 заполняют 12 колонок ровно — иначе
                 # карточки затекали бы в остаток ряда сбоку от полос.
-                ov_y += ((len(pairs) + 1) // 2) * 5
+                ov_y += ((len(pairs) + 1) // 2) * pf_h
 
         cards = [f for f in shown if view_of(f) in ("kpi", "both")] if "kpi" in blocks else []
         # По ТРИ в ряд, а не по четыре: имена госформ длинные («Количество
@@ -359,7 +417,8 @@ def _selected_periods(sel: Optional[dict], dataset: dict) -> list:
     return [p for p in wanted if p in known][:MAX_AUTO_PERIOD_PAGES]
 
 
-async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict] = None) -> dict:
+async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict] = None,
+                          alerts: bool = True) -> dict:
     """Предпросмотр мастера: что нашли в объекте и что будет создано."""
     obj = await conn.fetchrow(
         "select id, name from objects where id=$1::uuid and organization_id=$2", object_id, org_id)
@@ -382,7 +441,7 @@ async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict
             f"Показателей больше {MAX_AUTO_KPI} — на дашборд попадут первые {MAX_AUTO_KPI}, "
             "остальные видны в таблице.")
 
-    specs = plan_auto_build(datasets, selection)
+    specs = plan_auto_build(datasets, selection, alerts)
 
     # Расчётные показатели («% выполнения плана», «доля доставленных»…): их
     # находит разбор имён столбцов — тот же, что в разделе «Метрики». Здесь они
@@ -434,7 +493,10 @@ async def _metric_options(conn, org_id, object_id: str) -> list:
     return [
         {"code": s["code"], "name": s["name"], "formula": s["formula"], "unit": s.get("unit"),
          "why": s.get("why"), "preview_value": s.get("preview_value"),
-         "dataset_code": s.get("dataset_code")}
+         "dataset_code": s.get("dataset_code"),
+         # Вид предложения («plan_fact_pct», «percent_of», …) нужен, чтобы
+         # выбрать виджет и решить, есть ли у показателя известная норма.
+         "type": s.get("type")}
         for s in res.get("specs", [])
     ]
 
@@ -448,56 +510,67 @@ async def _saved_selection(conn, object_id: str) -> Optional[dict]:
 
 
 async def _remember_selection(conn, object_id: str, selection: Optional[dict],
-                              metrics: Optional[list]) -> None:
+                              metrics: Optional[list], alerts: bool = True) -> None:
     """Запомнить выбор: мастер не должен каждую неделю спрашивать одно и то же."""
     if selection is None and not metrics:
         return
-    payload = {"selection": selection or {}, "metrics": list(metrics or [])}
+    payload = {"selection": selection or {}, "metrics": list(metrics or []), "alerts": alerts}
     await conn.execute(
         "update objects set build_preferences=$2::jsonb where id=$1::uuid",
         object_id, json.dumps(payload, ensure_ascii=False, default=str))
 
 
 async def _create_metric_widgets(conn, org_id, user_id, object_id: str, codes: list,
-                                 page_id: str, start_y: int) -> int:
-    """Завести выбранные расчётные показатели и поставить по ним карточки.
+                                 page_id: str, start_y: int, alerts: bool = True) -> int:
+    """Завести выбранные расчётные показатели и поставить по ним виджеты.
 
     Метрика создаётся ЧЕРНОВИКОМ и проходит обычный путь проверки; виджет при
     этом работает сразу, потому что берёт лучшую доступную версию формулы
     (одобренная → проверенная → черновик). Так человек видит число сразу, а
     порядок согласования не нарушается.
+
+    Процентные показатели становятся спидометрами, остальные — карточками.
+    Спидометры кладём отдельной пачкой ВЫШЕ карточек: шкале нужна карточка
+    повыше, а разная высота в одном ряду наложилась бы.
     """
     if not codes:
         return 0
     from ..metrics import service as msvc
+    from . import service as svc
 
     options = {m["code"]: m for m in await _metric_options(conn, org_id, object_id)}
-    made = 0
-    for code in codes:
-        spec = options.get(code)
-        if spec is None:
-            continue  # предложение устарело (метрику уже завели) — молча пропускаем
-        try:
-            metric = await msvc.create_metric(
-                conn, org_id, user_id, spec["code"], spec["name"], spec.get("why"), None)
-            await msvc.create_version(
-                conn, org_id, user_id, str(metric["id"]), spec["formula"],
-                spec.get("unit"), None, "formula")
-        except Exception:  # noqa: BLE001 — метрика с таким кодом уже есть
-            pass
-        from . import service as svc
-        await svc.create_widget(
-            conn, org_id, user_id, page_id, spec["name"], "kpi",
-            {"metric_code": spec["code"], "unit": spec.get("unit")},
-            {"position_x": (made % 4) * 3, "position_y": start_y + (made // 4) * 3,
-             "width": 3, "height": 3})
-        made += 1
-    return made
+    # Устаревшие предложения (метрику успели завести) молча пропускаем.
+    picked = [options[c] for c in codes if c in options]
+    gauges = [s for s in picked if _is_percent(s.get("unit"))]
+    cards = [s for s in picked if not _is_percent(s.get("unit"))]
+
+    async def place(specs: list, y: int, height: int) -> int:
+        for spec, pos in _grid_rows(specs, y, per_row=3, width=4, height=height):
+            try:
+                metric = await msvc.create_metric(
+                    conn, org_id, user_id, spec["code"], spec["name"], spec.get("why"), None)
+                await msvc.create_version(
+                    conn, org_id, user_id, str(metric["id"]), spec["formula"],
+                    spec.get("unit"), None, "formula")
+            except Exception:  # noqa: BLE001 — метрика с таким кодом уже есть
+                pass
+            wt, extra = metric_widget_spec(
+                spec.get("unit"),
+                plan_execution=alerts and spec.get("type") == "plan_fact_pct")
+            await svc.create_widget(
+                conn, org_id, user_id, page_id, spec["name"], wt,
+                {"metric_code": spec["code"], "unit": spec.get("unit"), **extra}, pos)
+        return y + _rows_height(len(specs), 3, height)
+
+    # Спидометру нужна карточка выше: под шкалой идут бейдж порога и подпись.
+    y = await place(gauges, start_y, 7)
+    await place(cards, y, 5)
+    return len(picked)
 
 
 async def auto_build(conn, org_id, user_id, object_id: str, name=None,
                      selection: Optional[dict] = None, dashboard_id: Optional[str] = None,
-                     metrics: Optional[list] = None) -> dict:
+                     metrics: Optional[list] = None, alerts: bool = True) -> dict:
     """Создаёт (или пересобирает) дашборд по объекту.
 
     `dashboard_id` — пересобрать существующий: страницы и виджеты заменяются,
@@ -511,7 +584,7 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
     datasets = await collect_object_datasets(conn, org_id, object_id)
     if not datasets:
         raise DashboardError("У объекта нет выпущенных датасетов — сначала распознайте документ")
-    specs = plan_auto_build(datasets, selection)
+    specs = plan_auto_build(datasets, selection, alerts)
     if not specs and not metrics:
         raise DashboardError("Нечего собирать — не выбрано ни одного показателя")
 
@@ -575,9 +648,9 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
             [s["position_y"] + s["height"] for s in specs
              if (s.get("page") or PAGE_OVERVIEW) == PAGE_OVERVIEW] or [0])
         made_metrics = await _create_metric_widgets(
-            conn, org_id, user_id, object_id, metrics, pages[PAGE_OVERVIEW], below)
+            conn, org_id, user_id, object_id, metrics, pages[PAGE_OVERVIEW], below, alerts)
 
-    await _remember_selection(conn, object_id, selection, metrics)
+    await _remember_selection(conn, object_id, selection, metrics, alerts)
     return {"dashboard_id": did, "page_id": first_pid, "pages": len(pages),
             "widgets": len(specs) + made_metrics, "metrics": made_metrics}
 
@@ -599,11 +672,12 @@ async def place_metric_widget(conn, org_id, user_id, *, page_id: str, metric_cod
     """
     from . import service as svc
 
+    # Формулу разбираем всегда: из неё видно и на каких полях стоит показатель
+    # (по ним ищется соседний виджет), и считает ли он выполнение плана — то
+    # есть можно ли ему проставить пороги «нормы».
+    derived = await _metric_fields(conn, org_id, metric_code)
     fields = set(based_on or [])
-    # Если поля не переданы, достаём их из САМОЙ формулы показателя: для
-    # размещения важно, из чего он считается, а человек этого знать не обязан.
     if not fields:
-        derived = await _metric_fields(conn, org_id, metric_code)
         fields = set(derived["fields"])
         dataset_code = dataset_code or (derived["datasets"][0] if derived["datasets"] else None)
     rows = await conn.fetch(
@@ -630,7 +704,10 @@ async def place_metric_widget(conn, org_id, user_id, *, page_id: str, metric_cod
         if score > best_score:
             best, best_score = r, score
 
-    width, height = 4, 5
+    # Процент читается на шкале, а не голым числом; спидометру нужна карточка
+    # повыше. Пороги — только выполнению плана: у него норма известна.
+    wt, extra = metric_widget_spec(unit, plan_execution="PLAN_FACT_PCT" in derived["funcs"])
+    width, height = 4, (7 if wt == "gauge" else 5)
 
     def free(x: int, y: int) -> bool:
         """Свободна ли клетка: иначе сетка растолкает соседей при отрисовке."""
@@ -673,16 +750,16 @@ async def place_metric_widget(conn, org_id, user_id, *, page_id: str, metric_cod
             pos = {"position_x": min(bx + bw, 8), "position_y": by,
                    "width": width, "height": height}
 
-    cfg = {"metric_code": metric_code}
+    cfg = {"metric_code": metric_code, **extra}
     if unit:
         cfg["unit"] = unit
-    w = await svc.create_widget(conn, org_id, user_id, page_id, name, "kpi", cfg, pos)
+    w = await svc.create_widget(conn, org_id, user_id, page_id, name, wt, cfg, pos)
     return {"widget_id": w["id"], "placed_near": str(best["id"]) if best is not None else None,
             "position": pos}
 
 
 async def _metric_fields(conn, org_id, metric_code: str) -> dict:
-    """Поля и датасеты, на которых стоит формула показателя.
+    """Поля, датасеты и функции, из которых собрана формула показателя.
 
     Берём лучшую версию (одобренная → проверенная → черновик) — ту же, по
     которой виджет и будет считать. Разбираем разобранный AST, а не текст:
@@ -695,16 +772,23 @@ async def _metric_fields(conn, org_id, metric_code: str) -> dict:
         "                        when 'draft' then 2 else 3 end, mv.version_no desc limit 1",
         org_id, metric_code)
     if not ast:
-        return {"fields": [], "datasets": []}
+        return {"fields": [], "datasets": [], "funcs": []}
     if isinstance(ast, str):
         ast = json.loads(ast)
 
     fields: List[str] = []
     datasets: List[str] = []
+    funcs: List[str] = []
 
     def walk(node) -> None:
         if not isinstance(node, dict):
             return
+        # Имя функции («PLAN_FACT_PCT», «PERCENT_OF») говорит о СМЫСЛЕ
+        # показателя: по нему видно, есть ли у него известная норма.
+        if node.get("fn"):
+            funcs.append(str(node["fn"]))
+        elif node.get("t") == "percent_of":
+            funcs.append("PERCENT_OF")
         if node.get("t") in ("field", "cell"):
             if node.get("field") and node["field"] not in fields:
                 fields.append(node["field"])
@@ -720,7 +804,7 @@ async def _metric_fields(conn, org_id, metric_code: str) -> dict:
                     walk(it)
 
     walk(ast)
-    return {"fields": fields, "datasets": datasets}
+    return {"fields": fields, "datasets": datasets, "funcs": funcs}
 
 
 async def dashboard_metric_codes(conn, dashboard_id: str) -> list:
