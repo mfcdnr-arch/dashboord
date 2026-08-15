@@ -28,6 +28,8 @@ from fastapi.concurrency import run_in_threadpool
 from ... import db
 from ..audit.service import write_event
 from ..auth.deps import get_current_user, require_roles
+from ..ingestion import queue
+from ..ingestion import service as ing_service
 from . import storage
 
 log = logging.getLogger(__name__)
@@ -120,7 +122,20 @@ async def upload_document(
                 "values($1,1,$2,$3,$4,$5) returning id",
                 doc_id, storage_path, checksum, len(content), user["id"],
             )
+
+        # Распознавание запускаем САМИ: раньше его отдельным вызовом делал
+        # интерфейс, и файл, залитый мимо формы, оставался нераспознанным
+        # навсегда. Сбой очереди не проваливает загрузку — файл уже в
+        # хранилище, а повисшие задания добирает ежедневное задание воркера.
+        job_id = None
+        try:
+            job_id = await ing_service.enqueue_or_run(conn, str(ver["id"]))
+            await queue.enqueue_extraction(job_id)
+        except Exception as exc:  # noqa: BLE001 — очередь недоступна
+            log.warning("Не удалось поставить распознавание документа %s: %s", doc_id, exc)
+
     return {
+        "extraction_job_id": job_id,
         "id": str(doc_id),
         "original_filename": filename,
         "source_type": ext,
@@ -299,10 +314,18 @@ async def list_documents(
         rows = await conn.fetch(
             "select d.id, d.original_filename, d.source_type, d.status, "
             "d.reporting_period_start, d.reporting_period_end, d.created_at, "
-            "v.id as version_id, v.file_size_bytes as size "
+            "v.id as version_id, v.file_size_bytes as size, "
+            # Состояние конвейера: распознан ли файл, подошла ли разметка
+            # прошлого выпуска, выпущены ли из него данные. Человек видит это
+            # прямо в списке папки и заходит только туда, где нужен он сам.
+            "j.status as job_status, j.template_match, j.template_note, "
+            "(select count(*) from dataset_releases r "
+            "   where r.source_document_version_id = v.id and r.status <> 'superseded') as releases "
             "from documents d "
             "left join lateral (select id, file_size_bytes from document_versions v "
             "  where v.document_id=d.id order by version_no desc limit 1) v on true "
+            "left join lateral (select status, template_match, template_note from extraction_jobs j "
+            "  where j.document_version_id = v.id order by created_at desc limit 1) j on true "
             # Порядок — по ОТЧЁТНОЙ дате (свежие сверху), а не по времени загрузки:
             # формы загружают вразнобой, и список выглядел вперемешку. Документы без
             # отчётной даты уходят вниз, между собой — по времени загрузки.
@@ -311,4 +334,31 @@ async def list_documents(
             "limit $2 offset $3",
             folder_id, limit, offset,
         )
-    return {"total": total, "limit": limit, "offset": offset, "items": [dict(r) for r in rows]}
+    return {"total": total, "limit": limit, "offset": offset,
+            "items": [_with_pipeline(dict(r)) for r in rows]}
+
+
+def _with_pipeline(row: dict) -> dict:
+    """Одно понятное состояние файла вместо трёх технических полей.
+
+    Порядок проверок — от конца конвейера к началу: выпущенные данные важнее
+    того, как файл распознавался, а «требует внимания» должно перекрывать
+    «распознан», иначе человек решит, что файл готов.
+    """
+    job, match = row.get("job_status"), row.get("template_match")
+    if row.get("releases"):
+        state, hint = "released", "Данные выпущены и уже считаются на дашбордах."
+    elif job in (None, "queued", "running"):
+        state = "parsing" if job else "new"
+        hint = "Идёт распознавание…" if job else "Файл ещё не распознавался."
+    elif job == "failed":
+        state, hint = "failed", "Распознать файл не удалось — откройте его и посмотрите причину."
+    elif match == "exact":
+        state, hint = "ready", row.get("template_note") or "Разметка подставится из прошлого выпуска."
+    elif match == "structure_differs":
+        state, hint = "attention", row.get("template_note") or "Форма отличается от прошлого выпуска."
+    else:
+        state, hint = "needs_markup", row.get("template_note") or "Файл распознан — разметьте и выпустите данные."
+    row["pipeline"] = state
+    row["pipeline_hint"] = hint
+    return row

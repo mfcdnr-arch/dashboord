@@ -10,13 +10,18 @@
 """
 from __future__ import annotations
 
+import logging
+
 from arq import cron
 
 from ... import db
 from ..maintenance import service as maint
 from ..reports import service as reports_svc
+from . import queue, service
 from .queue import redis_settings
 from .service import run_extraction
+
+log = logging.getLogger(__name__)
 
 
 async def extract_document(ctx, job_id: str) -> None:
@@ -49,6 +54,34 @@ async def monthly_auto_archive(ctx) -> None:
     await _for_each_org(_archive.run_monthly_auto_archive)
 
 
+async def pickup_pending(ctx) -> None:
+    """Добор файлов, которые не дошли до распознавания.
+
+    Загрузка ставит задание сама, но очередь могла быть недоступна, воркер —
+    перезапущен на середине, а файлы старых загрузок вообще заливались без
+    задания. Без добора такой файл лежит в папке молча и навсегда: человек
+    видит его в списке и уверен, что система им занимается.
+
+    Берём версии документов, у которых нет ни одного успешного или живого
+    задания и с загрузки прошло больше 10 минут (чтобы не гнаться за тем, что
+    прямо сейчас в работе). Потолок за прогон — 50 файлов: разбор тяжёлый, а
+    хвост доберётся следующим запуском.
+    """
+    async with db.get_pool().acquire() as conn:
+        rows = await conn.fetch(
+            "select dv.id from document_versions dv "
+            "where dv.created_at < now() - interval '10 minutes' "
+            "  and not exists (select 1 from extraction_jobs j "
+            "                  where j.document_version_id = dv.id "
+            "                    and (j.status in ('queued','running','succeeded','needs_review'))) "
+            "order by dv.created_at desc limit 50")
+        for r in rows:
+            job_id = await service.enqueue_or_run(conn, str(r["id"]))
+            await queue.enqueue_extraction(job_id)
+    if rows:
+        log.info("Добор распознавания: поставлено заданий — %s", len(rows))
+
+
 async def system_watchdog(ctx) -> None:
     """Планировщик: каждые 10 мин — если система в статусе degraded, безопасно
     починить (heal) и залогировать; если после починки всё ещё плохо — уведомить
@@ -73,6 +106,7 @@ async def on_shutdown(ctx) -> None:
 class WorkerSettings:
     functions = [extract_document]
     cron_jobs = [
+        cron(pickup_pending, hour=6, minute=30),                   # ежедневно 06:30 — добор нераспознанных
         cron(daily_freshness, hour=7, minute=0),                 # ежедневно 07:00 — свежесть
         cron(weekly_retention, weekday="sun", hour=3, minute=0),  # вс 03:00 — ретенция
         cron(monthly_auto_archive, day=1, hour=2, minute=0),      # 1-е число 02:00 — автоархив за прошлый месяц

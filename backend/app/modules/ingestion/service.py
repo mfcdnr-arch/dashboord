@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import List
 
 from ... import db
 from ..documents import storage
 from . import analyze, parsers
+
+log = logging.getLogger(__name__)
 
 PREVIEW_ROWS = 100  # усечение предпросмотра для UI (открытый вопрос док-06 — дефолт)
 
@@ -95,9 +98,42 @@ async def run_extraction(job_id: str) -> None:
             job_id, status, avg_conf,
             json.dumps(result.warnings, ensure_ascii=False),
         )
+        await _check_template(conn, job_id)
         await conn.execute(
             "update documents set status='extracted' where id=$1", job["document_id"]
         )
+
+
+async def _check_template(conn, job_id: str) -> None:
+    """Сверка с шаблоном объекта сразу после распознавания.
+
+    Вердикт пишется в задание, чтобы список документов в папке показывал
+    состояние каждого файла («данные подготовлены» / «требует внимания») без
+    пересчёта разметки на каждый файл: разбор сетки стоит дорого, а в папке их
+    десятки. Сам конструктор считает сверку заново — он должен работать и на
+    заданиях, распознанных до появления этой проверки.
+
+    Сбой сверки не должен ронять распознавание: файл уже разобран, и потерять
+    результат из-за подсказки было бы обиднее всего.
+    """
+    from . import mapping  # локальный импорт: mapping тянет analyze/parsers
+    try:
+        ctx = await mapping.resolve_context(conn, job_id)
+        if ctx is None or ctx["object_id"] is None:
+            return
+        tables = await conn.fetch(
+            "select id from extracted_tables where extraction_job_id=$1::uuid order by table_index", job_id)
+        tpl = await mapping.layout_template_for_tables(
+            conn, ctx["object_id"], [str(t["id"]) for t in tables])
+        if tpl is None:
+            match, note = "none", "Разметка этой формы ещё не сохранена — разметьте файл, и следующий придёт готовым."
+        else:
+            match, note = tpl["match"], tpl["note"]
+        await conn.execute(
+            "update extraction_jobs set template_match=$2, template_note=$3 where id=$1::uuid",
+            job_id, match, note)
+    except Exception as exc:  # noqa: BLE001 — подсказка не важнее самого разбора
+        log.warning("Сверка с шаблоном не удалась для задания %s: %s", job_id, exc)
 
 
 async def _fail(job_id: str, document_id, message: str) -> None:

@@ -84,6 +84,15 @@ export default function ObjectsPage({ canManage, isSuperadmin }: { canManage: bo
     }
   }
 
+  // Пока файл распознаётся, список сам догоняет состояние: загрузка теперь
+  // сразу ставит распознавание, и без этого человек видел бы «распознаётся…»
+  // до тех пор, пока не переоткроет папку.
+  useEffect(() => {
+    if (!folder || !docs.some((d) => d.pipeline === 'parsing' || d.pipeline === 'new')) return
+    const t = setTimeout(() => { loadDocs(folder.id).catch(() => {}) }, 3000)
+    return () => clearTimeout(t)
+  }, [docs, folder]) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function loadMoreDocs() {
     if (!folder) return
     try {
@@ -375,7 +384,8 @@ export default function ObjectsPage({ canManage, isSuperadmin }: { canManage: bo
             items={docs.map((d) => ({
               id: d.id,
               title: d.original_filename,
-              sub: `${d.source_type.toUpperCase()} · ${d.reporting_period_start} · ${fmtSize(d.size)} · ${statusLabel(d.status)}`,
+              sub: `${d.source_type.toUpperCase()} · ${d.reporting_period_start} · ${fmtSize(d.size)}`,
+              badge: <PipelineBadge state={d.pipeline} hint={d.pipeline_hint} />,
               onClick: () => setOpenDoc(d),
               actions: canManage ? (
                 <IconBtn title="Удалить документ" danger disabled={busy} onClick={() => setAskDelDoc(d)}>🗑</IconBtn>
@@ -405,7 +415,37 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-type ListItem = { id: string; title: string; sub: string; onClick?: () => void; actions?: React.ReactNode }
+type ListItem = {
+  id: string; title: string; sub: string
+  badge?: React.ReactNode
+  onClick?: () => void; actions?: React.ReactNode
+}
+
+/**
+ * Состояние файла в конвейере — прямо в списке папки.
+ *
+ * Раньше строка сообщала технический статус документа («распознан»), и чтобы
+ * понять, нужен ли тут человек, приходилось открывать каждый файл. Теперь
+ * видно главное: готов к выпуску, требует внимания или уже выпущен.
+ */
+function PipelineBadge({ state, hint }: { state?: string; hint?: string }) {
+  const map: Record<string, { t: string; bg: string; c: string }> = {
+    new: { t: 'ожидает распознавания', bg: 'var(--surface-3)', c: 'var(--text-muted)' },
+    parsing: { t: 'распознаётся…', bg: 'var(--warn-bg)', c: 'var(--warn)' },
+    failed: { t: '⚠ не распознан', bg: 'var(--danger-bg)', c: 'var(--danger)' },
+    ready: { t: '✓ данные подготовлены', bg: 'var(--success-bg)', c: 'var(--success)' },
+    attention: { t: '⚠ требует внимания', bg: 'var(--warn-bg)', c: 'var(--warn)' },
+    needs_markup: { t: 'нужна разметка', bg: 'var(--accent-weak-bg)', c: 'var(--accent)' },
+    released: { t: 'данные выпущены', bg: 'var(--surface-3)', c: 'var(--text-muted)' },
+  }
+  const s = map[state || ''] || map.new
+  return (
+    <span title={hint || ''} style={{
+      fontSize: 11, padding: '2px 9px', borderRadius: 10, whiteSpace: 'nowrap',
+      background: s.bg, color: s.c,
+    }}>{s.t}</span>
+  )
+}
 
 function List({ items, empty }: { items: ListItem[]; empty: string }) {
   if (items.length === 0) return <div style={{ color: 'var(--text-faint)', fontSize: 14, padding: '8px 0' }}>{empty}</div>
@@ -422,6 +462,7 @@ function List({ items, empty }: { items: ListItem[]; empty: string }) {
         >
           <span style={{ fontSize: 14 }}>{it.title}</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {it.badge}
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{it.sub}</span>
             {/* Клик по действию не должен открывать строку. */}
             {it.actions && <span style={{ display: 'flex', gap: 4 }} onClick={(e) => e.stopPropagation()}>{it.actions}</span>}
@@ -504,15 +545,6 @@ function fmtSize(n: number | null): string {
   if (n < 1024) return `${n} Б`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} КБ`
   return `${(n / 1024 / 1024).toFixed(1)} МБ`
-}
-
-function statusLabel(s: string): string {
-  const m: Record<string, string> = {
-    uploaded: 'загружен', parsing: 'распознаётся', extracted: 'распознан',
-    period_pending: 'ожидает период', confirmed: 'подтверждён', mapped: 'размечен',
-    rejected: 'отклонён', released: 'опубликован',
-  }
-  return m[s] || s
 }
 
 const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 14, padding: 0 }

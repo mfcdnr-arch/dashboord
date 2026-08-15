@@ -348,6 +348,53 @@ def structure_fingerprint(area: List[List[str]], header_rows: int, orientation: 
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
 
+def structure_headers(area: List[List[str]], header_rows: int) -> List[str]:
+    """Заголовки формы в порядке следования — для объяснения расхождений."""
+    return [c.source_header for c in analyze.analyze_columns(area, max(0, int(header_rows or 0)))]
+
+
+def describe_structure_change(old: Sequence[str], new: Sequence[str],
+                              old_header_rows: int, new_header_rows: int) -> str:
+    """Чем новый файл отличается от формы прошлого выпуска — словами.
+
+    Отпечаток отвечает только «не совпало». Человеку нужно знать, ЧТО именно
+    изменилось: одно дело добавили графу (разметить заново — минута), другое —
+    прислали вообще другую форму.
+    """
+    old_norm = {_norm_name(h): h for h in old}
+    new_norm = {_norm_name(h): h for h in new}
+    added = [new_norm[k] for k in new_norm if k not in old_norm]
+    gone = [old_norm[k] for k in old_norm if k not in new_norm]
+    parts: List[str] = []
+
+    # Ровно одна пропала и ровно одна появилась на том же месте — это
+    # переименование, а не смена состава: так понятнее, чем два списка.
+    if len(added) == 1 and len(gone) == 1:
+        parts.append(f"графа «{_short(gone[0])}» переименована в «{_short(added[0])}»")
+    else:
+        if added:
+            parts.append("добавились графы: " + ", ".join(f"«{_short(h)}»" for h in added[:5]))
+        if gone:
+            parts.append("пропали графы: " + ", ".join(f"«{_short(h)}»" for h in gone[:5]))
+
+    if not added and not gone and list(old) != list(new):
+        parts.append("изменился порядок граф")
+    if int(old_header_rows or 0) != int(new_header_rows or 0):
+        parts.append(f"этажей шапки было {old_header_rows}, стало {new_header_rows}")
+    if len(old) != len(new) and not added and not gone:
+        parts.append(f"столбцов было {len(old)}, стало {len(new)}")
+
+    if not parts:
+        return "структура формы отличается от прошлого выпуска"
+    return "; ".join(parts)
+
+
+def _short(header: str, limit: int = 60) -> str:
+    """Хвост составного заголовка: различие у госформ как раз в конце."""
+    h = " ".join((header or "").split())
+    return h if len(h) <= limit else "…" + h[-(limit - 1):]
+
+
 def _last_filled_row(grid: List[List[str]]) -> int:
     for i in range(len(grid) - 1, -1, -1):
         if any(str(v).strip() for v in grid[i]):
@@ -383,22 +430,61 @@ def fit_rect(rect, grid: List[List[str]]) -> tuple[Optional[List[int]], bool]:
 
 async def save_layout_template(conn, *, object_id, fingerprint: str, mode: str, layout: dict,
                                fields: List[dict], cells: List[dict], row_count: int,
-                               dataset_code: str, release_id, user_id) -> None:
+                               dataset_code: str, release_id, user_id,
+                               headers: Optional[List[str]] = None) -> None:
     """Запоминает разметку последнего выпуска. Один шаблон на объект."""
     await conn.execute(
         "insert into object_layout_templates(object_id, fingerprint, mode, layout, fields, cells, "
-        "row_count, dataset_code, source_release_id, updated_by, updated_at) "
-        "values($1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7,$8,$9,$10,now()) "
+        "row_count, dataset_code, source_release_id, updated_by, updated_at, headers) "
+        "values($1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7,$8,$9,$10,now(),$11::jsonb) "
         "on conflict (object_id) do update set fingerprint=excluded.fingerprint, mode=excluded.mode, "
         "layout=excluded.layout, fields=excluded.fields, cells=excluded.cells, "
         "row_count=excluded.row_count, dataset_code=excluded.dataset_code, "
-        "source_release_id=excluded.source_release_id, updated_by=excluded.updated_by, updated_at=now()",
+        "source_release_id=excluded.source_release_id, updated_by=excluded.updated_by, "
+        "updated_at=now(), headers=excluded.headers",
         object_id, fingerprint, mode,
         json.dumps(layout, ensure_ascii=False, default=str),
         json.dumps(fields, ensure_ascii=False, default=str),
         json.dumps(cells, ensure_ascii=False, default=str),
         int(row_count or 0), dataset_code, release_id, user_id,
+        json.dumps(list(headers or []), ensure_ascii=False, default=str),
     )
+
+
+async def refresh_template_verdicts(conn, object_id, limit: int = 50) -> int:
+    """Пересчитать «готов / требует внимания» у файлов объекта, ещё не выпущенных.
+
+    Вердикт считается один раз — сразу после распознавания. Но шаблон объекта
+    появляется ПОЗЖЕ, с первым выпуском: файлы, залитые до него, так и остались
+    бы в состоянии «нужна разметка», хотя разметка для них уже есть. Человек
+    увидел бы в папке стопку файлов, требующих его внимания, и не понял бы, что
+    система уже умеет их разметить.
+
+    Считаем только по невыпущенным файлам и с потолком: разбор сетки дорогой,
+    а у выпущенных состояние всё равно «данные выпущены».
+    """
+    jobs = await conn.fetch(
+        "select j.id from extraction_jobs j "
+        "join document_versions dv on dv.id = j.document_version_id "
+        "join documents d on d.id = dv.document_id "
+        "join folders f on f.id = d.folder_id "
+        "where f.object_id = $1 and j.status in ('succeeded','needs_review') "
+        "  and not exists (select 1 from dataset_releases r "
+        "                  where r.source_document_version_id = dv.id and r.status <> 'superseded') "
+        "order by d.reporting_period_start desc nulls last limit $2",
+        object_id, limit)
+    updated = 0
+    for j in jobs:
+        tables = await conn.fetch(
+            "select id from extracted_tables where extraction_job_id=$1 order by table_index", j["id"])
+        tpl = await layout_template_for_tables(conn, object_id, [str(t["id"]) for t in tables])
+        if tpl is None:
+            continue
+        await conn.execute(
+            "update extraction_jobs set template_match=$2, template_note=$3 where id=$1",
+            j["id"], tpl["match"], tpl["note"])
+        updated += 1
+    return updated
 
 
 async def layout_template_for_tables(conn, object_id, table_ids: Sequence[str]) -> Optional[dict]:
@@ -410,7 +496,7 @@ async def layout_template_for_tables(conn, object_id, table_ids: Sequence[str]) 
     видел, что система его помнит, но применить не может.
     """
     tpl = await conn.fetchrow(
-        "select t.fingerprint, t.mode, t.layout, t.fields, t.cells, t.row_count, t.dataset_code, "
+        "select t.fingerprint, t.mode, t.layout, t.fields, t.cells, t.row_count, t.dataset_code, t.headers, "
         "t.updated_at, r.name as release_name, r.reporting_period_start as release_period "
         "from object_layout_templates t "
         "left join dataset_releases r on r.id = t.source_release_id "
@@ -432,6 +518,7 @@ async def layout_template_for_tables(conn, object_id, table_ids: Sequence[str]) 
         "match": "structure_differs",
         "layout": lay,
         "rows_differ": False,
+        "diff": None,
         "note": "Форма отличается от прошлого выпуска — изменился состав или порядок граф. "
                 "Разметьте её вручную: прошлая разметка дала бы неверные цифры.",
     }
@@ -447,6 +534,15 @@ async def layout_template_for_tables(conn, object_id, table_ids: Sequence[str]) 
         hdr = int((lay["header_rows"] if lay["header_rows"] is not None else row["header_rows"]) or 0)
         area = analysis_grid(grid, merges, rect, lay["orientation"])
         if structure_fingerprint(area, hdr, lay["orientation"]) != tpl["fingerprint"]:
+            # Не совпало — объясняем словами, ЧТО изменилось в бланке: по хешу
+            # видно только «не то», а человеку решать, разметить заново или
+            # искать, почему прислали другую форму.
+            diff = describe_structure_change(
+                _jsonb(tpl["headers"], []), structure_headers(area, hdr),
+                int(lay["header_rows"] or 0), hdr)
+            out["note"] = (f"Форма отличается от прошлого выпуска: {diff}. "
+                           "Разметьте её вручную — прошлая разметка дала бы неверные цифры.")
+            out["diff"] = diff
             continue
 
         rows_now = max(0, len(area) - hdr)
@@ -717,6 +813,7 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
             "data_rect": rect, "header_rows": header_rows,
             "orientation": lay["orientation"], "skip_rows": list(lay["skip_rows"] or []),
         },
+        headers=structure_headers(area, header_rows),
         fields=fields, cells=cells or [],
         # Строк в области ДО исключений: с этим числом сравнивается новый файл,
         # чтобы понять, можно ли перенести позиционные «снятые строки». Число
@@ -724,6 +821,9 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         row_count=max(0, len(area) - header_rows),
         dataset_code=code, release_id=release_id, user_id=user["id"],
     )
+    # Файлы, залитые ДО появления шаблона, должны узнать, что разметка для них
+    # теперь есть: иначе папка показывала бы «нужна разметка» на всей пачке.
+    await refresh_template_verdicts(conn, object_id)
 
     # проставляем ссылку на замещающий выпуск (сам статус уже 'superseded')
     superseded_id = None

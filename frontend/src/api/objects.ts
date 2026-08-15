@@ -24,6 +24,11 @@ export interface Doc {
   size: number | null
   created_at: string
   version_id: string | null
+  /** Состояние конвейера: new | parsing | failed | ready | attention | needs_markup | released.
+   *  Считается на сервере из статуса распознавания, сверки со шаблоном и наличия выпуска. */
+  pipeline?: string
+  /** Что это значит для человека и что делать дальше. */
+  pipeline_hint?: string
 }
 
 export async function listObjects(): Promise<Obj[]> {
