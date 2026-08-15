@@ -119,11 +119,18 @@ export default function DataSuggestPanel({ onCreated }: { onCreated: () => void 
         )}
         <button type="button" onClick={() => load(dsCode)} style={ghost}>↻ Пересчитать</button>
         {specs && specs.length > 0 && dashboards.length > 0 && (
-          <select style={sl} value={placeIn} onChange={(e) => setPlaceIn(e.target.value)}
-            title="Сразу поставить карточки на дашборд — система выберет место рядом с близким по смыслу показателем">
-            <option value="">только завести показатели</option>
-            {dashboards.map((d) => <option key={d.id} value={d.id}>на дашборд «{d.name}»</option>)}
-          </select>
+          // Подпись обязательна: без неё выпадающий список читался как фильтр,
+          // и человек не догадывался, что здесь выбирается размещение.
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5,
+                          color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+            Разместить:
+            <select style={{ ...sl, maxWidth: 280 }} value={placeIn}
+              onChange={(e) => setPlaceIn(e.target.value)}
+              title="Поставить карточки сразу на дашборд — место система выберет рядом с близким по смыслу показателем">
+              <option value="">не размещать, только завести</option>
+              {dashboards.map((d) => <option key={d.id} value={d.id}>на дашборд «{d.name}»</option>)}
+            </select>
+          </label>
         )}
         {specs && specs.length > 0 && (
           <button type="button" onClick={accept} disabled={busy || picked.size === 0}
@@ -136,6 +143,13 @@ export default function DataSuggestPanel({ onCreated }: { onCreated: () => void 
         )}
       </div>
 
+      {specs && specs.length > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+          Отмеченные показатели будут заведены черновиками. Если в поле «Разместить» выбрать
+          дашборд, по каждому сразу появится карточка — рядом с показателем, из которого он
+          считается; переставить её можно мышью.
+        </div>
+      )}
       {error && <div style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 8 }}>{error}</div>}
       {done && <div style={{ color: 'var(--success)', fontSize: 13, marginBottom: 8 }}>{done}</div>}
       {!specs && !error && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Разбираю столбцы…</div>}
