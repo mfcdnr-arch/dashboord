@@ -27,6 +27,7 @@ from ._alerts import (  # noqa: F401
 from ._base import ANNOTATION_TYPES, WIDGET_TYPES, DashboardError  # noqa: F401
 from ._comments import add_comment, delete_comment, list_comments  # noqa: F401
 from ._describe import describe_dashboard  # noqa: F401
+from ._explain import explain_widgets, widget_configs  # noqa: F401
 from ._rls import (  # noqa: F401
     PRIVILEGED_ROLES,
     _can_view,
@@ -488,9 +489,13 @@ async def list_page_widgets(conn, org_id, page_id: str, user: dict) -> dict:
     )
     if allowed is not None:
         rows = [w for w in rows if str(w["id"]) in allowed]
+    # Пояснение «что это за цифра» считаем ЗДЕСЬ, пачкой на всю страницу:
+    # значок ⓘ должен отвечать сразу при наведении, а догрузка по одному
+    # значку показала бы пустоту ровно в тот момент, когда на неё смотрят.
+    explain = await explain_widgets(conn, org_id, widget_configs(rows))
     return {"page_id": page_id, "widgets": [
         {**{k: w[k] for k in ("id", "name", "widget_type", "position_x", "position_y", "width", "height")},
-         "config": _cfg(w)} for w in rows]}
+         "config": _cfg(w), "explain": explain.get(str(w["id"]))} for w in rows]}
 
 
 # --------------------------------------------------------------------------- #

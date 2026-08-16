@@ -37,12 +37,18 @@ import { PubBadge, WT, alertBtn, btn, btnGhost, crumb, dialog, editBtn, editHint
 
 const DASH_PAGE = 50
 
-// Текст тултипа виджета: подсказка по типу (из галереи) + авторская заметка
-// (config.help), если задана в форме виджета.
-function widgetTip(w: { widget_type: string; config: Record<string, unknown> }): string {
+// Текст тултипа виджета. Порядок частей отвечает на вопросы в том порядке, в
+// котором их задают: ЧТО это за цифра (пояснение с сервера — показатель,
+// формула, состояние согласования), потом авторская заметка, и лишь потом —
+// что за тип виджета. Раньше первым (и часто единственным) шёл тип, то есть
+// подсказка объясняла то, что и так видно.
+function widgetTip(w: { widget_type: string; config: Record<string, unknown>; explain?: string | null }): string {
   const typeHint = WIDGET_META[w.widget_type]?.hint || ''
   const help = typeof w.config?.help === 'string' ? (w.config.help as string).trim() : ''
-  return [typeHint, help].filter(Boolean).join('. ')
+  // Тип виджета дописываем, ТОЛЬКО когда сказать о самой цифре нечего:
+  // рядом с «Графа «…» из формы «…»» хвост «Крупное значение метрики»
+  // объясняет то, что и так видно.
+  return [w.explain || typeHint, help].filter(Boolean).join(' ')
 }
 
 // html2canvas не понимает CSS-переменные в backgroundColor — резолвим токен

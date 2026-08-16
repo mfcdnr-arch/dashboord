@@ -35,6 +35,9 @@ export interface Widget {
   width: number
   height: number
   config: Record<string, unknown>
+  /** «Что это за цифра»: показатель, формула, состояние согласования — для ⓘ.
+   *  Считается на сервере пачкой на всю страницу. */
+  explain?: string | null
 }
 
 export async function listDashboards(q = '', fav = false, limit = 50, offset = 0, fromDate = '', toDate = '', folderId = ''): Promise<Page<Dashboard>> {
