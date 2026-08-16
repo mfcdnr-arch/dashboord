@@ -123,3 +123,32 @@ export async function getMyActivity(): Promise<UserActivity> {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// Доступ к дашбордам глазами сотрудника (пп. 10–11): один список вместо
+// обхода всех дашбордов по очереди. Пишет в те же гранты, что и окно
+// «🔒 Доступ» на дашборде — второй системы прав нет.
+export interface UserDashboardAccessItem {
+  dashboard_id: string; name: string; publication_status: string; featured: boolean
+  folder_name: string | null; object_name: string | null
+  granted: boolean; grant_id: string | null
+  via_roles: string[]; is_author: boolean; widget_limited: boolean; visible: boolean
+}
+export interface UserDashboardAccess {
+  user: { id: string; login: string; full_name: string | null; is_active: boolean; roles: string[]; privileged: boolean }
+  items: UserDashboardAccessItem[]
+}
+export async function getUserDashboardAccess(userId: string): Promise<UserDashboardAccess> {
+  const res = await fetch(`/users/${userId}/dashboard-access`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function setUserDashboardAccess(
+  userId: string, grant: string[], revoke: string[],
+): Promise<{ granted: number; revoked: number }> {
+  const res = await fetch(`/users/${userId}/dashboard-access`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ grant, revoke }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

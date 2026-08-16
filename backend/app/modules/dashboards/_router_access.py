@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from ... import db
 from ..auth.deps import get_current_user
 from . import service
-from ._router_base import _bad, manage
+from ._router_base import _bad, admin_only, manage
 from .service import DashboardError
 
 router = APIRouter()
@@ -56,6 +56,36 @@ async def remove_grant(dashboard_id: str, grant_id: str, user: dict = Depends(ma
         try:
             async with conn.transaction():
                 await service.remove_grant(conn, user["organization_id"], dashboard_id, grant_id, user["id"])
+        except DashboardError as e:
+            raise _bad(e)
+
+
+# --- Доступ глазами пользователя: «что видит этот сотрудник» ---
+# Живёт в модуле дашбордов (пишет в access_grants и переиспользует RLS), но
+# отвечает по пути /users/... — так его находит карточка сотрудника в разделе
+# «Пользователи». Корень /users уже проксируется, новых путей заводить не надо.
+class UserAccessIn(BaseModel):
+    grant: list[str] = []
+    revoke: list[str] = []
+
+
+@router.get("/users/{user_id}/dashboard-access")
+async def user_dashboard_access(user_id: str, user: dict = Depends(admin_only)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.user_dashboard_access(conn, user["organization_id"], user_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.post("/users/{user_id}/dashboard-access")
+async def set_user_dashboard_access(user_id: str, body: UserAccessIn, user: dict = Depends(admin_only)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            async with conn.transaction():
+                return await service.set_user_dashboard_access(
+                    conn, user["organization_id"], user["id"], user_id,
+                    grant=body.grant, revoke=body.revoke)
         except DashboardError as e:
             raise _bad(e)
 

@@ -56,6 +56,7 @@ from ._templates import (  # noqa: F401
     suggest_binding,
     template_bindings,
 )
+from ._useraccess import set_user_dashboard_access, user_dashboard_access  # noqa: F401
 from ._widgetcalc import _compute_widget  # noqa: F401
 from ._widgetdata import (  # noqa: F401
     compute_page_data,

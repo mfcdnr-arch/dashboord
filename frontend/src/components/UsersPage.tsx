@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import UserCard from './users/UserCard'
+import UserAccessPanel from './users/UserAccessPanel'
 import { RenameDialog } from './dashboards/RenameDialog'
 import { useConfirm } from './dashboards/ConfirmDialog'
 import {
@@ -432,19 +433,36 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 // /audit (superadmin всегда, admin — по гранту), поэтому 403 показываем как
 // понятное сообщение, а не общую ошибку.
 function UserActivityPanel({ user, onClose }: { user: AppUser; onClose: () => void }) {
+  // Две вкладки, а не один свиток: активность и доступ отвечают на разные
+  // вопросы («что человек делал» и «что ему видно»), и грузятся они разными
+  // правами — активность требует гранта аудита, доступ нет. Общий экран
+  // означал бы, что администратор без гранта аудита не доберётся и до доступов.
+  const [tab, setTab] = useState<'activity' | 'access'>('activity')
   return (
     <div style={overlay} onClick={onClose}>
-      <div style={{ ...dialog, width: 720 }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...dialog, width: 760 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ fontSize: 16, fontWeight: 600 }}>
             📊 Кабинет: {user.login}{user.full_name ? ` (${user.full_name})` : ''}
           </div>
           <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
         </div>
-        <UserCard userId={user.id} />
+        <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+          <button style={tab === 'activity' ? tabOn : tabOff} onClick={() => setTab('activity')}>Активность</button>
+          <button style={tab === 'access' ? tabOn : tabOff} onClick={() => setTab('access')}>🔒 Доступ к дашбордам</button>
+        </div>
+        {tab === 'activity' ? <UserCard userId={user.id} /> : <UserAccessPanel userId={user.id} />}
       </div>
     </div>
   )
+}
+
+const tabOff: React.CSSProperties = {
+  height: 30, padding: '0 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer',
+  border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text-2)',
+}
+const tabOn: React.CSSProperties = {
+  ...tabOff, border: '1px solid var(--accent)', background: 'var(--accent)', color: 'var(--on-accent)',
 }
 
 function L({ t, children }: { t: string; children: React.ReactNode }) {
