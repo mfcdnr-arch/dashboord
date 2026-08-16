@@ -498,3 +498,25 @@ export async function dashboardMetricCodes(id: string): Promise<{ codes: string[
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// «Куда можно перейти от этой цифры» (п. 1). Пункты строятся сервером по
+// данным — из формул и настроек виджетов, а не из связок, настроенных руками:
+// такие связки устаревают молча и ведут в никуда.
+export interface RelatedWidgetRef {
+  widget_id: string; widget_name: string; widget_type: string
+  dashboard_id: string; dashboard_name: string
+  page_id: string | null; page_name: string | null
+}
+export interface WidgetRelated {
+  widget_id: string
+  widget_name: string
+  subject: { kind: string; code: string | null; name: string | null; dataset_code?: string }
+  elsewhere: RelatedWidgetRef[]
+  siblings: { field: string; name: string }[]
+  dynamics: { available: boolean; periods: number; first?: string | null; last?: string | null }
+}
+export async function getWidgetRelated(widgetId: string): Promise<WidgetRelated> {
+  const res = await fetch(`/widgets/${widgetId}/related`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

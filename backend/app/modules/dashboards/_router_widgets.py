@@ -157,6 +157,18 @@ async def widget_data(widget_id: str, user: dict = Depends(get_current_user),
             raise _bad(e)
 
 
+@router.get("/widgets/{widget_id}/related")
+async def widget_related(widget_id: str, user: dict = Depends(get_current_user)):
+    """Куда можно перейти от этой цифры (п. 1). Пункты строятся по данным —
+    из формул и настроек виджетов, а не из настроенных руками связок: те
+    устаревают молча и ведут в никуда."""
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.widget_related(conn, user["organization_id"], user, widget_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.get("/widgets/{widget_id}/drill")
 async def widget_drill(widget_id: str, user: dict = Depends(get_current_user)):
     async with db.acquire(user["id"]) as conn:

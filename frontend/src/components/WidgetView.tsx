@@ -5,6 +5,7 @@ import { getWidgetData, getWidgetDrill } from '../api'
 import { chartColors, useThemeVersion } from '../theme'
 import EChart from './EChartLazy'
 import FitText from './dashboards/FitText'
+import RelatedMenu from './dashboards/RelatedMenu'
 import { fmtNumber as fmt, logScaleAdvice } from '../lib/format'
 import { distinctLabels, elideMiddle } from '../lib/text'
 
@@ -122,14 +123,18 @@ function chartOption(data: any): EChartsOption {
   }
 }
 
-export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf, stripe = true }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string;
+export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf, stripe = true, onNavigate }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string;
   /** Рисовать ли цветную ленту состояния вокруг тела. На дашборде её рисует
    *  САМА карточка (по всей высоте, включая имя) — там лента здесь была бы
    *  второй полосой внутри первой. */
-  stripe?: boolean }) {
+  stripe?: boolean
+  /** Переход к другому виджету из меню «куда дальше» (п. 1). Не передан —
+   *  меню показывает связи справочно, без переходов. */
+  onNavigate?: (dashboardId: string, pageId: string | null, widgetId: string) => void }) {
   const [data, setData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [drill, setDrill] = useState<any | null>(null)
+  const [related, setRelated] = useState(false)
 
   useEffect(() => {
     // Батч-режим: данные приходят от родителя (1 запрос на всю страницу) — не фетчим сами.
@@ -159,6 +164,15 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
         {data && showDrill && data.type !== 'text' && data.type !== 'image' && (
           <button style={drillBtn} onClick={openDrill} title="Из чего собран показатель">🔍 подробнее</button>
         )}
+        {/* «Куда дальше» — ответ на вопрос, который идёт сразу за цифрой:
+            где ещё она есть, что лежит с ней рядом в форме, есть ли движение.
+            Пункты строит сервер по данным, руками ничего не настраивается. */}
+        {data && showDrill && data.type !== 'text' && data.type !== 'image' && (
+          <button style={drillBtn} onClick={() => setRelated(true)}
+            title="Куда посмотреть дальше: где ещё есть этот показатель, соседи по форме, динамика">
+            ↗ куда дальше
+          </button>
+        )}
         {data?.as_of && (data.period_locked || !sameDay(data.as_of, pageAsOf)) && (
           // У виджета с закреплённым периодом это СРЕЗ: он не обновится, когда
           // придёт следующая неделя. Не сказать об этом — значит выдать снимок
@@ -187,6 +201,10 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
         )}
       </div>
       {drill && <DrillModal drill={drill} onClose={() => setDrill(null)} />}
+      {related && (
+        <RelatedMenu widgetId={widgetId} onClose={() => setRelated(false)}
+          onOpenDrill={openDrill} onNavigate={onNavigate} />
+      )}
     </div>
   )
 }

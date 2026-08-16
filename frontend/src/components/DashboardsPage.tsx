@@ -100,6 +100,9 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   const [pFrom, setPFrom] = useState('')
   const [pTo, setPTo] = useState('')
   const [crossRow, setCrossRow] = useState<string | null>(null)
+  // Виджет, к которому только что перешли из меню «↗ куда дальше»: подсвечен
+  // пару секунд, чтобы человек увидел, куда его привели.
+  const [highlight, setHighlight] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
   // Батч-данные страницы: один запрос на все виджеты (перф, вместо N запросов).
   // Виджеты всегда в батч-режиме (ждут данные родителя, не фетчат сами); при СБОЕ
@@ -255,6 +258,40 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       if (d.pages.length) openPage(d.pages[0])
     } catch (e) { fail(e) }
   }
+  // Переход из меню «↗ куда дальше»: открыть дашборд и ту страницу, где лежит
+  // связанный виджет. Если это текущий дашборд, дёргать его заново не нужно —
+  // достаточно переключить страницу, иначе экран моргает и теряет фильтры.
+  async function navigateToWidget(dashboardId: string, pageId: string | null, widgetId: string) {
+    if (sel && sel.dashboard.id === dashboardId) {
+      const target = pageId && sel.pages.find((p) => p.id === pageId)
+      if (target && target.id !== page?.id) await openPage(target)
+      revealWidget(widgetId)
+      return
+    }
+    setError(null); setPage(null); setWidgets([]); setCrossRow(null)
+    try {
+      const d = await getDashboard(dashboardId)
+      setSel(d)
+      listPresets(dashboardId).then(setPresets).catch(() => setPresets([]))
+      const target = (pageId && d.pages.find((p) => p.id === pageId)) || d.pages[0]
+      if (target) await openPage(target)
+      revealWidget(widgetId)
+    } catch (e) { fail(e) }
+  }
+
+  /** Показать виджет, к которому перешли: прокрутить к нему и подсветить.
+   *  Без этого переход к соседу на ТОЙ ЖЕ странице выглядит как «нажал —
+   *  ничего не произошло»: страница уже открыта, меню просто закрылось. */
+  function revealWidget(widgetId: string) {
+    setHighlight(widgetId)
+    // Ждём перерисовку сетки: сразу после смены страницы элемента ещё нет.
+    setTimeout(() => {
+      document.querySelector(`[data-widget-id="${widgetId}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 120)
+    setTimeout(() => setHighlight((cur) => (cur === widgetId ? null : cur)), 2600)
+  }
+
   const reloadPresets = () => { if (sel) listPresets(sel.dashboard.id).then(setPresets).catch(() => {}) }
   function applyPreset(p: DashPreset) {
     setPFrom(p.filters.from || ''); setPTo(p.filters.to || ''); setCrossRow(p.filters.row || null)
@@ -870,8 +907,13 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                       «магических» 78px, и при любой правке шапки число KPI
                       снова начинало обрезаться. */}
                   {widgets.map((w) => (
-                    <div key={w.id} style={{ ...widgetCard, height: '100%', overflow: 'hidden',
+                    <div key={w.id} data-widget-id={w.id} style={{ ...widgetCard, height: '100%', overflow: 'hidden',
                       display: 'flex', flexDirection: 'column',
+                      // Подсветка цели перехода из меню «↗ куда дальше»: гаснет
+                      // сама через пару секунд, чтобы не остаться навсегда.
+                      ...(highlight === w.id
+                        ? { boxShadow: '0 0 0 3px var(--accent)', transition: 'box-shadow .2s' }
+                        : { transition: 'box-shadow .4s' }),
                       // Состояние показателя — лентой по ВСЕЙ карточке, вместе с
                       // именем: раньше красилось только тело под шапкой, и на
                       // странице из полутора десятков карточек «где плохо»
@@ -955,6 +997,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                             pageAsOf={asOf || undefined}
                             onPick={(name) => setCrossRow((cur) => cur === name ? null : name)}
                             batched={!batchFailed} injData={pageData[w.id]?.data} injError={pageData[w.id]?.error}
+                            onNavigate={navigateToWidget}
                             stripe={false} />
                         </div>
                       )}
