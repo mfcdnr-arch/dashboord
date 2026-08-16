@@ -13,7 +13,10 @@ from typing import Any, Dict, List, Optional
 AGG_FUNCS = {"SUM", "AVG", "COUNT", "MIN", "MAX"}
 WINDOW_FUNCS = {"RUNNING_TOTAL", "PERIOD_COMPARE", "SHARE_OF_TOTAL", "PLAN_FACT_DELTA", "PLAN_FACT_PCT", "PERCENT_OF"}
 DATA_REFS = {"field", "cell", "metric"}
-PERIOD_UNITS = {"day", "week", "month", "quarter", "year"}
+# 'first' — не сдвиг назад, а НАЧАЛО РЯДА: сравнение с первым периодом данных
+# («от начального значения», п. 13 списка заказчика). Остальные единицы двигают
+# точку отсчёта на шаг назад от последнего периода.
+PERIOD_UNITS = {"day", "week", "month", "quarter", "year", "first"}
 COMPARE_MODES = {"delta", "pct", "ratio"}
 
 

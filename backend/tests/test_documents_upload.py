@@ -21,11 +21,15 @@ from app import db
 from app.modules.documents import storage
 
 
-def _xlsx() -> bytes:
+def _xlsx(value: int = 1) -> bytes:
+    """Мини-форма. `value` меняет цифру — так недельные отчёты отличаются друг
+    от друга, как в жизни. Побайтово одинаковые файлы система теперь считает
+    дублями (п. 7), и тест, который шлёт один и тот же файл несколько раз,
+    проверял бы уже не то, ради чего написан."""
     from openpyxl import Workbook
     wb = Workbook()
     wb.active.append(["Услуга", "Факт"])
-    wb.active.append(["Тест", 1])
+    wb.active.append(["Тест", value])
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -99,9 +103,11 @@ def fake_remove(monkeypatch):
 
 
 async def _upload(client, admin_headers, folder, name="del.xlsx", period="2026-03-01"):
+    # Содержимое привязано к имени: два вызова подряд не должны выглядеть
+    # дублями (проверка п. 7), иначе тесты удаления упрутся в 409.
     r = await client.post(
         f"/folders/{folder}/documents", headers=admin_headers,
-        files={"file": (name, _xlsx(),
+        files={"file": (name, _xlsx(abs(hash(name + period)) % 100000),
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         data={"reporting_period_start": period})
     assert r.status_code == 201, r.text
@@ -238,11 +244,11 @@ async def test_documents_are_listed_by_reporting_date(client, admin_headers, fol
     хронологию. Загружаем намеренно не по порядку и ждём убывание дат.
     """
     upload_order = ["2026-04-15", "2026-08-05", "2026-06-10", "2026-07-22"]
-    for d in upload_order:
+    for n, d in enumerate(upload_order):
         r = await client.post(
             f"/folders/{folder}/documents",
             headers=admin_headers,
-            files={"file": (f"Показатели MAX {d}.xlsx", _xlsx(),
+            files={"file": (f"Показатели MAX {d}.xlsx", _xlsx(100 + n),
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
             data={"reporting_period_start": d},
         )
@@ -263,7 +269,7 @@ async def test_new_document_lands_in_its_place_by_date(client, admin_headers, fo
     async def upload(d: str):
         r = await client.post(
             f"/folders/{folder}/documents", headers=admin_headers,
-            files={"file": (f"Показатели MAX {d}.xlsx", _xlsx(),
+            files={"file": (f"Показатели MAX {d}.xlsx", _xlsx(int(d[5:7]) * 100 + int(d[8:10])),
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
             data={"reporting_period_start": d},
         )
@@ -276,3 +282,65 @@ async def test_new_document_lands_in_its_place_by_date(client, admin_headers, fo
     items = (await client.get(f"/folders/{folder}/documents", headers=admin_headers)).json()["items"]
     dates = [str(i["reporting_period_start"]) for i in items]
     assert dates == ["2026-08-05", "2026-06-10", "2026-05-20", "2026-04-01"], dates
+
+
+# --- Дубли файлов (п. 7 списка заказчика) ---------------------------------- #
+# Контрольная сумма считалась с самого начала, но никогда не проверялась: один и
+# тот же отчёт можно было залить дважды молча, а потом дважды выпустить из него
+# данные за один период. Проверка — предупреждение, а не запрет: решение за
+# человеком, но принятое осознанно.
+XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+async def test_identical_file_is_flagged_as_duplicate(client, admin_headers, folder, fake_storage):
+    content = _xlsx()
+    r = await client.post(
+        f"/folders/{folder}/documents", headers=admin_headers,
+        files={"file": ("nedelya.xlsx", content, XLSX_MEDIA)},
+        data={"reporting_period_start": "2026-03-01"})
+    assert r.status_code == 201, r.text
+
+    # Тот же файл, другое имя и другой отчётный период — всё равно дубль:
+    # сравнивается содержимое, а не подпись на нём.
+    r = await client.post(
+        f"/folders/{folder}/documents", headers=admin_headers,
+        files={"file": ("kopiya.xlsx", content, XLSX_MEDIA)},
+        data={"reporting_period_start": "2026-03-08"})
+    assert r.status_code == 409, r.text
+    detail = r.json()["detail"]
+    assert "уже загружен" in detail["message"]
+    assert detail["duplicate"]["filename"] == "nedelya.xlsx", "нужно назвать, ЧТО именно совпало"
+
+    # Второй файл не создан: отказ не должен оставлять следов.
+    async with db.acquire() as conn:
+        cnt = await conn.fetchval("select count(*) from documents where folder_id=$1::uuid", folder)
+    assert cnt == 1
+
+    # …но человек может настоять — тогда загрузка проходит.
+    r = await client.post(
+        f"/folders/{folder}/documents", headers=admin_headers,
+        files={"file": ("kopiya.xlsx", content, XLSX_MEDIA)},
+        data={"reporting_period_start": "2026-03-08", "force": "true"})
+    assert r.status_code == 201, r.text
+    async with db.acquire() as conn:
+        cnt = await conn.fetchval("select count(*) from documents where folder_id=$1::uuid", folder)
+    assert cnt == 2
+
+
+async def test_different_content_is_not_a_duplicate(client, admin_headers, folder, fake_storage):
+    """Отчёт следующей недели отличается цифрами — он обязан проходить молча."""
+    from openpyxl import Workbook
+
+    def sheet(value):
+        wb = Workbook()
+        wb.active.append(["Услуга", "Факт"])
+        wb.active.append(["Тест", value])
+        import io as _io
+        buf = _io.BytesIO(); wb.save(buf); return buf.getvalue()
+
+    for i, period in enumerate(("2026-04-01", "2026-04-08")):
+        r = await client.post(
+            f"/folders/{folder}/documents", headers=admin_headers,
+            files={"file": (f"w{i}.xlsx", sheet(100 + i), XLSX_MEDIA)},
+            data={"reporting_period_start": period})
+        assert r.status_code == 201, r.text

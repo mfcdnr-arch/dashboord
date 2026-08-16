@@ -37,6 +37,13 @@ export async function downloadFile(url: string, filename: string): Promise<void>
   URL.revokeObjectURL(href)
 }
 
+/** Отказ, который человек может обойти осознанно: найден дубль (файла,
+ *  дашборда). Отличается от обычной ошибки тем, что интерфейс переспрашивает
+ *  и повторяет запрос с признаком «всё равно», а не просто печатает красное. */
+export class DuplicateError extends Error {
+  constructor(message: string) { super(message); this.name = 'DuplicateError' }
+}
+
 export async function errText(res: Response): Promise<string> {
   try {
     const e = await res.json()
@@ -51,6 +58,12 @@ export async function errText(res: Response): Promise<string> {
         return [field, d.msg].filter(Boolean).join(': ')
       })
       return `Проверка не пройдена — ${parts.join('; ')}`
+    }
+    // Отказы, которые человек может обойти осознанно (найден дубль файла или
+    // дашборда), приходят объектом: сообщение + подробности находки. Без этой
+    // ветки они превращались бы в бесполезное «Ошибка (409)».
+    if (e.detail && typeof e.detail === 'object' && typeof e.detail.message === 'string') {
+      return e.detail.message
     }
     return `Ошибка (${res.status})`
   } catch {

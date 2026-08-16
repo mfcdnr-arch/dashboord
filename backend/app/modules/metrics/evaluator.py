@@ -179,7 +179,13 @@ def evaluate(ast: Dict[str, Any], resolver: Resolver) -> float:
         if len(series) < 2:
             raise FormulaError("PERIOD_COMPARE: нужно минимум 2 периода данных")
         cur_period, cur = series[-1]
-        prev = _nearest_value(series[:-1], _shift_back(cur_period, ast["unit"]))
+        if ast["unit"] == "first":
+            # Точка отсчёта — НАЧАЛО ряда, а не шаг назад: «на сколько выросли
+            # с начала наблюдений». Ближайшее значение искать не нужно и нельзя —
+            # первый период известен точно.
+            prev = series[0][1]
+        else:
+            prev = _nearest_value(series[:-1], _shift_back(cur_period, ast["unit"]))
         mode = ast.get("mode", "delta")
         if mode == "delta":
             return cur - prev

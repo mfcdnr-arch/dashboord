@@ -82,6 +82,31 @@ from ._widgetsources import (  # noqa: F401
 # --------------------------------------------------------------------------- #
 # Дашборды
 # --------------------------------------------------------------------------- #
+async def find_dashboard_by_name(conn, org_id, name: str) -> Optional[dict]:
+    """Дашборд с таким же названием уже есть? (без учёта регистра и пробелов)
+
+    Два «Внедрения сервиса МАХ» в списке — это не мелочь оформления: человек не
+    знает, какой из них открыть, а руководитель может смотреть на заброшенную
+    копию и считать её актуальной. Проверку делаем ПОДСКАЗКОЙ, а не запретом:
+    законный случай — копия «на 2027 год» с тем же именем в другой папке.
+    """
+    row = await conn.fetchrow(
+        "select d.id, d.name, d.publication_status, d.created_at, d.updated_at, "
+        "f.name as folder_name, o.name as object_name, u.full_name, u.login "
+        "from dashboards d left join folders f on f.id=d.folder_id "
+        "left join objects o on o.id=f.object_id left join users u on u.id=d.created_by "
+        "where d.organization_id=$1 and lower(btrim(d.name))=lower(btrim($2)) "
+        "and d.publication_status <> 'archived' order by d.created_at limit 1",
+        org_id, name)
+    if row is None:
+        return None
+    return {"dashboard_id": str(row["id"]), "name": row["name"],
+            "publication_status": row["publication_status"],
+            "folder_name": row["folder_name"], "object_name": row["object_name"],
+            "author": row["full_name"] or row["login"],
+            "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None}
+
+
 async def create_dashboard(conn, org_id, user_id, name: str, description: Optional[str],
                            folder_id: Optional[str]) -> dict:
     row = await conn.fetchrow(

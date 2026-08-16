@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import {
   createFolder, createObject, deleteDocument, deleteFolder, deleteObject, listDocuments, listFolders,
   listObjects, updateFolder, updateObject, uploadDocument,
+  DuplicateError,
   type Doc, type Folder, type Obj,
 } from '../api'
 import { folderLabel, folderTree } from '../lib/folderTree'
@@ -275,7 +276,23 @@ export default function ObjectsPage(
     setBusy(true)
     setError(null)
     try {
-      await uploadDocument(folder.id, file, date)
+      try {
+        await uploadDocument(folder.id, file, date)
+      } catch (e) {
+        // Сервер нашёл побайтово такой же файл. Это чаще всего ошибка (тот же
+        // отчёт заливают дважды, и из дубля выпускают вторые данные за период),
+        // но бывает и осознанным — решает человек, а не система.
+        if (!(e instanceof DuplicateError)) throw e
+        const again = await ask({
+          title: 'Похоже, этот файл уже загружали',
+          message: e.message,
+          confirmLabel: 'Всё равно загрузить',
+          busyLabel: 'Загрузка…',
+          tone: 'accent',
+        })
+        if (!again) return
+        await uploadDocument(folder.id, file, date, true)
+      }
       setFile(null)
       setDate('')
       await loadDocs(folder.id)

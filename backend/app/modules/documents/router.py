@@ -67,12 +67,39 @@ async def _folder_in_org(conn, folder_id: str, org_id) -> bool:
     )
 
 
+async def _find_duplicate(conn, org_id, checksum: str) -> Optional[dict]:
+    """Тот же файл (побайтово) уже загружен в организацию?
+
+    Контрольная сумма считалась с самого начала, но никогда не проверялась —
+    один и тот же отчёт можно было залить дважды молча, а затем дважды выпустить
+    из него данные. Ищем по ВСЕЙ организации, а не по текущей папке: файл,
+    положенный второй раз в соседнюю папку, — тот же дубль, просто найти его
+    потом ещё труднее.
+    """
+    row = await conn.fetchrow(
+        "select d.id, d.original_filename, d.reporting_period_start, d.created_at, "
+        "f.name as folder_name, o.name as object_name, "
+        "exists(select 1 from dataset_releases r where r.source_document_version_id=v.id) as released "
+        "from document_versions v join documents d on d.id=v.document_id "
+        "left join folders f on f.id=d.folder_id left join objects o on o.id=f.object_id "
+        "where d.organization_id=$1 and v.checksum=$2 order by d.created_at limit 1",
+        org_id, checksum)
+    if row is None:
+        return None
+    return {"document_id": str(row["id"]), "filename": row["original_filename"],
+            "folder_name": row["folder_name"], "object_name": row["object_name"],
+            "reporting_period_start": str(row["reporting_period_start"]),
+            "uploaded_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "released": row["released"]}
+
+
 @router.post("/folders/{folder_id}/documents", status_code=status.HTTP_201_CREATED)
 async def upload_document(
     folder_id: str,
     file: UploadFile = File(...),
     reporting_period_start: date = Form(...),
     reporting_period_end: Optional[date] = Form(None),
+    force: bool = Form(False),
     user: dict = Depends(manage),
 ):
     # Имя файла приходит от клиента: берём ТОЛЬКО базовое имя. Иначе браузер или
@@ -94,6 +121,23 @@ async def upload_document(
     async with db.get_pool().acquire() as conn:
         if not await _folder_in_org(conn, folder_id, user["organization_id"]):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Папка не найдена")
+        # Дубль — предупреждение, а не запрет: бывает, что тот же файл заводят
+        # повторно осознанно (например, в другой объект). Поэтому 409 с полным
+        # описанием находки, а решение принимает человек кнопкой «всё равно
+        # загрузить» (force). Молча пропускать нельзя: из дубля так же молча
+        # выпустят вторые данные за тот же период.
+        if not force:
+            dup = await _find_duplicate(conn, user["organization_id"], checksum)
+            if dup is not None:
+                where = " / ".join(x for x in (dup["object_name"], dup["folder_name"]) if x)
+                raise HTTPException(status.HTTP_409_CONFLICT, {
+                    "message": (f"Этот файл уже загружен: «{dup['filename']}»"
+                                + (f" (📁 {where})" if where else "")
+                                + f", отчётный период {dup['reporting_period_start']}"
+                                + (", данные из него уже выпущены" if dup["released"] else "")
+                                + ". Содержимое совпадает побайтово."),
+                    "duplicate": dup,
+                })
         # Одна транзакция на документ + версию + запись в хранилище: сбой записи
         # в MinIO не должен оставлять в БД «документ без версии» (такой документ
         # виден в списке, но его нельзя ни скачать, ни отправить на распознавание).

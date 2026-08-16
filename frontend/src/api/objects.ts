@@ -1,4 +1,4 @@
-import { authH, errText } from './http'
+import { authH, DuplicateError, errText } from './http'
 
 export interface Obj {
   id: string
@@ -136,12 +136,19 @@ export async function deleteDocument(folderId: string, documentId: string, withD
   if (!res.ok) throw new Error(await errText(res))
 }
 
-export async function uploadDocument(folderId: string, file: File, reportingDate: string): Promise<void> {
+// force=true — «всё равно загрузить»: сервер нашёл побайтово такой же файл и
+// отказал 409-м, чтобы из дубля не выпустили вторые данные за тот же период.
+export async function uploadDocument(folderId: string, file: File, reportingDate: string,
+                                     force = false): Promise<void> {
   const fd = new FormData()
   fd.append('file', file)
   fd.append('reporting_period_start', reportingDate)
+  if (force) fd.append('force', 'true')
   const res = await fetch(`/folders/${folderId}/documents`, { method: 'POST', headers: authH(), body: fd })
-  if (!res.ok) throw new Error(await errText(res))
+  if (!res.ok) {
+    const msg = await errText(res)
+    throw res.status === 409 ? new DuplicateError(msg) : new Error(msg)
+  }
 }
 
 

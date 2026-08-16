@@ -24,6 +24,8 @@ class DashboardIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: Optional[str] = None
     folder_id: Optional[str] = None
+    # Дашборд с таким же названием уже есть — создать ещё один осознанно.
+    force: bool = False
 
 
 class DatasetPick(BaseModel):
@@ -101,6 +103,20 @@ class FolderMoveIn(BaseModel):
 async def create_dashboard(body: DashboardIn, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:
         try:
+            # Одноимённый дашборд — повод переспросить, а не отказать: копия «на
+            # следующий год» с тем же названием законна. Но два одинаковых имени
+            # в списке означают, что руководитель однажды откроет заброшенное.
+            if not body.force:
+                dup = await service.find_dashboard_by_name(conn, user["organization_id"], body.name)
+                if dup is not None:
+                    where = " / ".join(x for x in (dup["object_name"], dup["folder_name"]) if x)
+                    raise HTTPException(status.HTTP_409_CONFLICT, {
+                        "message": (f"Дашборд «{dup['name']}» уже есть"
+                                    + (f" (📁 {where})" if where else "")
+                                    + f", автор {dup['author']}. Два одинаковых названия в списке "
+                                    "не различить — переименуйте новый или создайте копию осознанно."),
+                        "duplicate": dup,
+                    })
             return await service.create_dashboard(conn, user["organization_id"], user["id"],
                                                   body.name, body.description, body.folder_id)
         except DashboardError as e:

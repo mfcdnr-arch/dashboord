@@ -63,3 +63,37 @@ def test_unknown_template_is_rejected():
 def test_suggested_name_uses_column_labels():
     name = suggested_name("percent_of", {"part": "Доставлено", "base": "Отправлено"})
     assert "Доставлено" in name and "Отправлено" in name
+
+
+# --- «От начального значения» (п. 13 списка заказчика) ---------------------- #
+# Заказчик перечислял проценты, которые ему нужны; единственным недостающим
+# оказался рост ОТ ПЕРВОГО периода наблюдений. Отличие от «прироста к прошлому
+# периоду» — в точке отсчёта, и именно её проверяют эти тесты: перепутанная
+# база даёт правдоподобное число, которое невозможно опознать как неверное.
+def test_compare_with_first_period_uses_start_of_series():
+    from app.modules.metrics.evaluator import evaluate
+
+    series = [("2026-01-01", 100.0), ("2026-02-01", 120.0), ("2026-03-01", 140.0)]
+
+    class R:
+        def window_series(self, _key):
+            return series
+
+    pct = parse("PERIOD_COMPARE(SUM(field('ds','a')), 'first', mode='pct')")
+    assert evaluate(pct, R()) == pytest.approx(140.0), "140 к первому периоду 100 — это 140 %"
+
+    delta = parse("PERIOD_COMPARE(SUM(field('ds','a')), 'first')")
+    assert evaluate(delta, R()) == pytest.approx(40.0)
+
+    # Контроль: с шагом назад точка отсчёта другая (120), и число другое.
+    prev = parse("PERIOD_COMPARE(SUM(field('ds','a')), 'month', mode='pct')")
+    assert evaluate(prev, R()) == pytest.approx(116.666, rel=1e-3)
+
+
+def test_first_period_recipes_are_described_correctly():
+    """Автоописание не должно называть первый период «прошлым»."""
+    from app.modules.metrics.describe import describe_ast
+
+    text = describe_ast(parse("PERIOD_COMPARE(SUM(field('ds','a')), 'first', mode='pct')"))
+    assert "первым периодом" in text, text
+    assert "прошлым периодом" not in text

@@ -114,11 +114,15 @@ async def test_quality_check_endpoint_sees_copied_week(client, admin_headers, mo
     async def upload(content, period):
         monkeypatch.setattr(storage, "put_object", lambda n, d, c: f"documents/{n}")
         monkeypatch.setattr(storage, "get_object", lambda p: content)
+        # force=true: в этом сценарии тот же файл заливается за новую неделю
+        # НАМЕРЕННО — проверяется сверка строк с прошлым выпуском. Побайтовый
+        # дубль ловится раньше (п. 7) и требует подтверждения человека; две
+        # защиты дополняют друг друга, поэтому здесь подтверждение выдаём сразу.
         rr = await client.post(
             f"/folders/{fid}/documents", headers=admin_headers,
             files={"file": (f"q_{period}.xlsx", content,
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-            data={"reporting_period_start": period})
+            data={"reporting_period_start": period, "force": "true"})
         job_id = rr.json()["extraction_job_id"]
         await service.run_extraction(job_id)
         return (await client.get(f"/extraction-jobs/{job_id}", headers=admin_headers)).json()

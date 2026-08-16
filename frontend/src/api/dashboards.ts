@@ -1,4 +1,4 @@
-import { authH, errText, type Page } from './http'
+import { authH, DuplicateError, errText, type Page } from './http'
 
 // --- Дашборды / страницы / виджеты ---
 
@@ -60,12 +60,17 @@ export async function moveDashboardToFolder(id: string, folderId: string | null)
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
-export async function createDashboard(name: string, description?: string): Promise<Dashboard> {
+// force=true — «всё равно создать»: дашборд с таким названием уже есть, и
+// сервер отказал 409-м, чтобы в списке не появились два неразличимых.
+export async function createDashboard(name: string, description?: string, force = false): Promise<Dashboard> {
   const res = await fetch('/dashboards', {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
-    body: JSON.stringify({ name, description: description || null }),
+    body: JSON.stringify({ name, description: description || null, force }),
   })
-  if (!res.ok) throw new Error(await errText(res))
+  if (!res.ok) {
+    const msg = await errText(res)
+    throw res.status === 409 ? new DuplicateError(msg) : new Error(msg)
+  }
   return res.json()
 }
 /** Что взять из одного набора данных. Пусто = всё. */

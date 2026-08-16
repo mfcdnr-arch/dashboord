@@ -3,7 +3,8 @@ import GridLayout, { type Layout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import {
-  createDashboard, createPage, createPreset, createWidget, deleteDashboard, deletePage, deletePreset, deleteWidget, getDashboard,
+  createDashboard, createPage, createPreset, createWidget, deleteDashboard, deletePage, deletePreset, deleteWidget,
+  DuplicateError, getDashboard,
   exportPageXlsx, fitPageLayout, getDataSources, getDescriptionDraft, setFeatured, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listFolders, listObjects, listPageWidgets, listPresets,
   listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, updateDashboard, updatePage, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Folder, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
@@ -283,7 +284,27 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
 
   async function addDashboard(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError(null)
-    try { const d = await createDashboard(newDash.trim()); setNewDash(''); await refresh(); openDashboard(d.id) }
+    try {
+      let d
+      try {
+        d = await createDashboard(newDash.trim())
+      } catch (e) {
+        // Одноимённый дашборд уже есть. Не запрещаем (копия «на следующий год»
+        // законна), но переспрашиваем: два одинаковых названия в списке не
+        // различить, и однажды руководитель откроет заброшенное.
+        if (!(e instanceof DuplicateError)) throw e
+        const again = await ask({
+          title: 'Дашборд с таким названием уже есть',
+          message: e.message,
+          confirmLabel: 'Всё равно создать',
+          busyLabel: 'Создание…',
+          tone: 'accent',
+        })
+        if (!again) return
+        d = await createDashboard(newDash.trim(), undefined, true)
+      }
+      setNewDash(''); await refresh(); openDashboard(d.id)
+    }
     catch (e) { fail(e) } finally { setBusy(false) }
   }
   // «Собрать» открывает мастер, а не собирает сразу: раньше нажатие давало

@@ -19,11 +19,13 @@ from app.modules.documents import storage
 from app.modules.ingestion import queue
 
 
-def _xlsx() -> bytes:
+def _xlsx(n: int = 1) -> bytes:
+    """`n` меняет цифру: недельные формы отличаются, и загрузка не упирается в
+    проверку дублей (п. 7), которая ловит побайтово одинаковые файлы."""
     from openpyxl import Workbook
     wb = Workbook(); ws = wb.active
     ws.append(["Субъект", "Обращения"])
-    ws.append(["ДНР", 100])
+    ws.append(["ДНР", 100 * n])
     buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
 
 
@@ -78,8 +80,11 @@ async def test_auto_prepare_off_stops_recognition(client, admin_headers, folder,
     r = await client.patch(f"/objects/{oid}/folders/{fid}", headers=admin_headers,
                            json={"auto_prepare": True})
     assert r.status_code == 200
+    # Файл ДОЛЖЕН отличаться от предыдущего: побайтовую копию система теперь
+    # считает дублем (п. 7) и переспрашивает — здесь проверяется очередь
+    # распознавания, а не проверка дублей.
     r = await client.post(f"/folders/{fid}/documents", headers=admin_headers,
-                          files={"file": ("b.xlsx", _xlsx(), "application/vnd.ms-excel")},
+                          files={"file": ("b.xlsx", _xlsx(2), "application/vnd.ms-excel")},
                           data={"reporting_period_start": "2026-07-29"})
     assert r.json()["extraction_job_id"], r.json()
     assert len(offline_queue) == 1
