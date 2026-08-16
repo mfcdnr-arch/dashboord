@@ -6,6 +6,10 @@ import type { Dashboard, DashTemplate, Folder, Obj } from '../../api'
 import { folderLabel, folderTree } from '../../lib/folderTree'
 import { PubBadge, btn, btnAuto, input, muted, rowForm, rowItem, tab, tabActive } from './shared'
 
+/** С какого числа отчётов зрителю имеет смысл показывать фильтр по папкам:
+ *  при двух-трёх он лишний ряд управления над списком. */
+const FOLDER_FILTER_FROM = 8
+
 export function DashboardList({
   canManage, objects, templates,
   newDash, setNewDash, addDashboard, busy,
@@ -70,13 +74,24 @@ export function DashboardList({
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
           <input style={{ ...input, flex: 1, minWidth: 200 }} placeholder="🔍 Поиск дашборда по названию или странице…" value={query} onChange={(e) => setQuery(e.target.value)} />
           <button style={favOnly ? { ...tab, ...tabActive } : tab} onClick={() => setFavOnly((v) => !v)} title="Показать только избранные">★ Избранное</button>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>
-            изменён с <input type="date" style={{ ...input, width: 140 }} value={dashFrom} onChange={(e) => setDashFrom(e.target.value)} />
-            по <input type="date" style={{ ...input, width: 140 }} value={dashTo} onChange={(e) => setDashTo(e.target.value)} />
-          </label>
-          {(dashFrom || dashTo) && <button style={tab} onClick={() => { setDashFrom(''); setDashTo('') }} title="Сбросить фильтр по дате">✕ дата</button>}
+          {/* Диапазон дат правки — инструмент того, кто дашборды СОБИРАЕТ:
+              зритель ищет отчёт по названию, а не по тому, когда его правили.
+              Заказчик про экран зрителя сказал прямо: это админский список с
+              вырезанными кнопками. */}
+          {canManage && (
+            <>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>
+                изменён с <input type="date" style={{ ...input, width: 140 }} value={dashFrom} onChange={(e) => setDashFrom(e.target.value)} />
+                по <input type="date" style={{ ...input, width: 140 }} value={dashTo} onChange={(e) => setDashTo(e.target.value)} />
+              </label>
+              {(dashFrom || dashTo) && <button style={tab} onClick={() => { setDashFrom(''); setDashTo('') }} title="Сбросить фильтр по дате">✕ дата</button>}
+            </>
+          )}
         </div>
-        {objects.length > 0 && (
+        {/* Фильтр по папкам зрителю показываем, только когда отчётов
+            действительно много: при двух-трёх он лишний ряд управления над
+            списком, в котором и так всё видно. */}
+        {objects.length > 0 && (canManage || dashTotal > FOLDER_FILTER_FROM) && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>📁 Папка:</span>
             <select style={{ ...input, height: 32 }} value={filterObjId}
@@ -152,9 +167,26 @@ export function DashboardList({
                     </span>
                   )}
                 </span>
-                <span style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
-                  <span>страниц: {d.pages ?? 0}</span>
-                  <PubBadge status={d.publication_status} />
+                {/* minWidth: 0 обязателен: без него flex-элемент не может стать
+                    уже своего содержимого, и длинное описание вылезает за
+                    карточку (замерено — на 25px), где его срезает overflow. */}
+                <span style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, minWidth: 0,
+                  fontSize: 12, color: 'var(--text-muted)' }}>
+                  {/* Число страниц и статус публикации — про устройство, а не
+                      про содержание: зритель видит только опубликованное, и
+                      бейдж «опубликован» на каждой строке ничего ему не
+                      сообщает. Вместо них — описание, отвечающее «про что
+                      отчёт»; дата остаётся: она говорит о свежести. */}
+                  {canManage ? (
+                    <>
+                      <span>страниц: {d.pages ?? 0}</span>
+                      <PubBadge status={d.publication_status} />
+                    </>
+                  ) : d.description && (
+                    <span title={d.description} style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {d.description}
+                    </span>
+                  )}
                   {d.updated_at && <span>изменён {new Date(d.updated_at).toLocaleDateString('ru-RU')}</span>}
                 </span>
               </div>
