@@ -1,4 +1,20 @@
-import { authH, errText } from './http'
+import { authH, downloadFile, errText } from './http'
+
+/** Период отчёта (п. 4): один диапазон на все отчёты раздела и на выгрузку —
+ *  иначе файл разошёлся бы с тем, что человек видит на экране. */
+export interface ReportPeriod { from?: string; to?: string }
+export interface PeriodInfo {
+  from: string; to: string; days: number; label: string
+  /** Запрошенный период был шире предела и обрезан — экран обязан это сказать. */
+  clamped?: boolean
+}
+function pq(p: ReportPeriod = {}): string {
+  const q = new URLSearchParams()
+  if (p.from) q.set('from', p.from)
+  if (p.to) q.set('to', p.to)
+  const s = q.toString()
+  return s ? `?${s}` : ''
+}
 
 // --- Отчёты (волна B) ---
 export interface Gauge { percent: number; level: 'good' | 'warn' | 'danger'; used?: number; total?: number }
@@ -9,6 +25,7 @@ export interface SystemReport {
   services: { name: string; ok: boolean; latency_ms?: number }[]
 }
 export interface AttendanceReport {
+  period?: PeriodInfo
   totals: { logins: number; failed: number; active_users: number }
   per_day: { day: string; logins: number; failed: number }[]
   top_users: { login: string; logins: number }[]
@@ -18,19 +35,20 @@ export async function getSystemReport(): Promise<SystemReport> {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
-export async function getAttendanceReport(): Promise<AttendanceReport> {
-  const res = await fetch('/reports/attendance', { headers: authH() })
+export async function getAttendanceReport(p: ReportPeriod = {}): Promise<AttendanceReport> {
+  const res = await fetch(`/reports/attendance${pq(p)}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
 
 export interface PopularityReport {
   days: number
+  period?: PeriodInfo
   totals: { views: number; viewers: number }
   top_dashboards: { dashboard_id: string; name: string; views: number; viewers: number; last_view: string | null }[]
 }
-export async function getPopularityReport(): Promise<PopularityReport> {
-  const res = await fetch('/reports/popularity', { headers: authH() })
+export async function getPopularityReport(p: ReportPeriod = {}): Promise<PopularityReport> {
+  const res = await fetch(`/reports/popularity${pq(p)}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
@@ -40,21 +58,23 @@ export interface DashboardViewers {
   days: number
   viewers: { who: string; login: string; views: number; last_view: string | null }[]
 }
-export async function getDashboardViewers(dashboardId: string): Promise<DashboardViewers> {
-  const res = await fetch(`/reports/popularity/viewers?dashboard_id=${encodeURIComponent(dashboardId)}`, { headers: authH() })
+export async function getDashboardViewers(dashboardId: string, p: ReportPeriod = {}): Promise<DashboardViewers> {
+  const q = pq(p).replace('?', '&')
+  const res = await fetch(`/reports/popularity/viewers?dashboard_id=${encodeURIComponent(dashboardId)}${q}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
 
 export interface ModerationReport {
   days: number
+  period?: PeriodInfo
   pending: number
   totals: { approved: number; returned: number; cancelled: number; avg_hours: number | null; return_rate: number | null }
   top_reasons: { label: string; count: number }[]
   top_reviewers: { login: string; approved: number; returned: number }[]
 }
-export async function getModerationReport(): Promise<ModerationReport> {
-  const res = await fetch('/reports/moderation', { headers: authH() })
+export async function getModerationReport(p: ReportPeriod = {}): Promise<ModerationReport> {
+  const res = await fetch(`/reports/moderation${pq(p)}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
@@ -76,6 +96,36 @@ export async function getDataQualityReport(): Promise<DataQualityReport> {
 }
 export async function getBusinessReport(): Promise<BusinessReport> {
   const res = await fetch('/reports/business', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+
+// --- Выгрузка отчёта и очистка истории (п. 4 списка заказчика) ---
+export type ReportKind = 'attendance' | 'popularity' | 'moderation' | 'data-quality'
+
+export function exportReport(kind: ReportKind, fmt: 'csv' | 'xlsx', p: ReportPeriod = {}): Promise<void> {
+  return downloadFile(`/reports/${kind}/export.${fmt}${pq(p)}`, `report-${kind}.${fmt}`)
+}
+
+export interface HistoryStats {
+  older_than_days: number
+  kinds: { kind: string; label: string; total: number; removable: number }[]
+  /** Сколько значимых событий аудита НЕ будет удалено ни при каких настройках. */
+  protected_audit_events: number
+}
+export async function getHistoryStats(olderThanDays: number): Promise<HistoryStats> {
+  const res = await fetch(`/reports/history?older_than_days=${olderThanDays}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function purgeHistory(kinds: string[], olderThanDays: number): Promise<{
+  older_than_days: number; removed: Record<string, number>; total: number
+}> {
+  const res = await fetch('/reports/history/purge', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ kinds, older_than_days: olderThanDays }),
+  })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }

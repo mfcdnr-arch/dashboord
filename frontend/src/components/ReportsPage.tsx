@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
-  getArchiveRunStatus, getAttendanceReport, getBackupStatus, getBusinessReport, getDashboardViewers, getDataQualityReport, getHealHistory, getLogs, getModerationReport, getPopularityReport, getSystemReport, healSystem, runArchiveNow, runBackupNow,
-  type ArchiveRunStatus, type AttendanceReport, type BackupStatus, type BusinessReport, type DashboardViewers, type DataQualityReport, type Gauge, type HealHistoryEntry, type HealResult, type LogsResult, type ModerationReport, type PopularityReport, type SystemReport,
+  exportReport, getArchiveRunStatus, getAttendanceReport, getBackupStatus, getBusinessReport, getDashboardViewers, getDataQualityReport, getHealHistory, getHistoryStats, getLogs, getModerationReport, getPopularityReport, getSystemReport, healSystem, purgeHistory, runArchiveNow, runBackupNow,
+  type ArchiveRunStatus, type AttendanceReport, type BackupStatus, type BusinessReport, type DashboardViewers, type DataQualityReport, type Gauge, type HealHistoryEntry, type HealResult, type HistoryStats, type LogsResult, type ModerationReport, type PopularityReport, type ReportKind, type SystemReport,
 } from '../api'
+import { useConfirm } from './dashboards/ConfirmDialog'
 import EChart from './EChartLazy'
 import UserCard from './users/UserCard'
 import { fmtNumber as num } from '../lib/format'
@@ -52,8 +53,33 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
   const [archiveStat, setArchiveStat] = useState<ArchiveRunStatus | null>(null)
   const [archiveRunning, setArchiveRunning] = useState(false)
   const canAdmin = me.roles.includes('admin') || me.roles.includes('superadmin')
+  // Очистка журналов необратима, поэтому доступна только владельцу системы —
+  // как удаление дашбордов и показателей.
+  const isSuper = me.roles.includes('superadmin')
+  // Период — ОДИН на весь раздел: посещаемость, популярность и модерация
+  // отвечают на вопросы об одном и том же отрезке времени, а разные фильтры
+  // в трёх блоках заставляли бы сверять, за что какая цифра.
+  const [pFrom, setPFrom] = useState('')
+  const [pTo, setPTo] = useState('')
+  const period = { from: pFrom || undefined, to: pTo || undefined }
 
   const loadSys = () => getSystemReport().then(setSys).catch((e) => setError((e as Error).message))
+  /** Отчёты, зависящие от периода. Считаются одним набором дат — тем же, что
+   *  уедет в выгрузку. */
+  // Даты передаются АРГУМЕНТАМИ, а не читаются из состояния: кнопки быстрого
+  // выбора меняют состояние и тут же перезагружают отчёты, а внутри того же
+  // обработчика состояние ещё старое — отчёт молча оставался прежним.
+  function loadPeriodReports(from?: string, to?: string) {
+    const p = { from: (from ?? pFrom) || undefined, to: (to ?? pTo) || undefined }
+    getAttendanceReport(p).then(setAtt).catch((e) => setError((e as Error).message))
+    getPopularityReport(p).then(setPop).catch((e) => setError((e as Error).message))
+    getModerationReport(p).then(setMod).catch((e) => setError((e as Error).message))
+    setViewers(null)
+  }
+  async function doExport(kind: ReportKind, fmt: 'csv' | 'xlsx') {
+    setError(null)
+    try { await exportReport(kind, fmt, period) } catch (e) { setError((e as Error).message) }
+  }
   const loadHealHist = () => getHealHistory().then(setHealHist).catch((e) => setError((e as Error).message))
   async function doHeal() {
     setHealing(true); setError(null)
@@ -81,9 +107,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
     loadLogs()
     loadBackup()
     loadArchiveStat()
-    getAttendanceReport().then(setAtt).catch((e) => setError((e as Error).message))
-    getPopularityReport().then(setPop).catch((e) => setError((e as Error).message))
-    getModerationReport().then(setMod).catch((e) => setError((e as Error).message))
+    loadPeriodReports()
     getDataQualityReport().then(setDq).catch((e) => setError((e as Error).message))
     getBusinessReport().then(setBiz).catch((e) => setError((e as Error).message))
     const t = setInterval(loadSys, 15000) // авто-обновление мониторинга
@@ -261,8 +285,41 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
           «Пользователи», хотя по смыслу — отчёт. */}
       <UserActivitySection />
 
+      {/* Период и выгрузка — один набор дат на посещаемость, популярность и
+          модерацию. Раньше период был зашит (30 дней), и вопрос «что было в
+          июле» задать было нечем. */}
+      <Section title="Период отчётов" hint="применяется к посещаемости, популярности и модерации">
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={lbl}>с <input type="date" style={inp} value={pFrom} onChange={(e) => setPFrom(e.target.value)} /></label>
+          <label style={lbl}>по <input type="date" style={inp} value={pTo} onChange={(e) => setPTo(e.target.value)} /></label>
+          <button style={btn} onClick={() => loadPeriodReports()}>Показать</button>
+          {(pFrom || pTo) && (
+            <button style={btnGhost} onClick={() => { setPFrom(''); setPTo(''); loadPeriodReports('', '') }}>
+              ✕ сбросить
+            </button>
+          )}
+          <span style={{ ...muted, marginLeft: 'auto',
+            color: att?.period?.clamped ? 'var(--warn)' : undefined }}>
+            {att?.period
+              ? `Показано за ${att.period.label}${att.period.clamped ? ' — период ограничен двумя годами' : ''}`
+              : 'По умолчанию — последние 30 дней'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
+          <span style={muted}>Быстрый выбор:</span>
+          {[7, 30, 90, 365].map((d) => (
+            <button key={d} style={btnGhost} onClick={() => {
+              const from = iso(new Date(Date.now() - (d - 1) * 86400000))
+              const to = iso(new Date())
+              setPFrom(from); setPTo(to)
+              loadPeriodReports(from, to)
+            }}>{d === 365 ? 'год' : `${d} дн.`}</button>
+          ))}
+        </div>
+      </Section>
+
       {/* Посещаемость */}
-      <Section title="Посещаемость (за 30 дней)">
+      <Section title="Посещаемость" action={<ExportButtons onExport={(f) => doExport('attendance', f)} />}>
         {!att ? <span style={muted}>Загрузка…</span> : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
             <div>
@@ -271,7 +328,9 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
                 <Stat t="Активных" v={att.totals.active_users} />
                 <Stat t="Неудач" v={att.totals.failed} danger={att.totals.failed > 0} />
               </div>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Входы по дням (14 дней)</div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                Входы по дням{att.period ? ` · ${att.period.label}` : ''}
+              </div>
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 90, borderBottom: '1px solid var(--border)' }}>
                 {att.per_day.length === 0 && <span style={muted}>Нет данных.</span>}
                 {att.per_day.map((d) => (
@@ -297,7 +356,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
       </Section>
 
       {/* Популярность дашбордов */}
-      <Section title="Популярность дашбордов (за 30 дней)">
+      <Section title="Популярность дашбордов" action={<ExportButtons onExport={(f) => doExport('popularity', f)} />}>
         {!pop ? <span style={muted}>Загрузка…</span> : (
           <div>
             <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
@@ -367,7 +426,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
       </Section>
 
       {/* Модерация */}
-      <Section title="Модерация (за 30 дней)">
+      <Section title="Модерация" action={<ExportButtons onExport={(f) => doExport('moderation', f)} />}>
         {!mod ? <span style={muted}>Загрузка…</span> : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
             <div>
@@ -409,7 +468,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
       </Section>
 
       {/* Качество данных */}
-      <Section title="Качество данных">
+      <Section title="Качество данных" action={<ExportButtons onExport={(f) => doExport('data-quality', f)} />}>
         {!dq ? <span style={muted}>Загрузка…</span> : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
             <div>
@@ -478,6 +537,10 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
         )}
       </Section>
 
+      {/* Очистка истории — в конце раздела и только владельцу системы: она
+          необратима, и ей не место среди обычных отчётов. */}
+      {isSuper && <HistorySection />}
+
       <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>
         Журнал действий — в разделе «Аудит». Управление проверкой — в разделе «Модерация».
       </div>
@@ -506,21 +569,43 @@ function Stat({ t, v, danger }: { t: string; v: number; danger?: boolean }) {
     </div>
   )
 }
-function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function Section({ title, hint, action, children }: {
+  title: string; hint?: string; action?: React.ReactNode; children: React.ReactNode
+}) {
   return (
     <div style={{ marginBottom: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
         <h3 style={{ fontSize: 15, margin: 0 }}>{title}</h3>
         {hint && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{hint}</span>}
+        {action && <span style={{ marginLeft: 'auto' }}>{action}</span>}
       </div>
       {children}
     </div>
   )
 }
 
+/** Выгрузка отчёта в файл: экран отвечает «как дела сейчас», а наверх нужен
+ *  файл. Считается тем же кодом, что и экран, с тем же периодом. */
+function ExportButtons({ onExport }: { onExport: (fmt: 'csv' | 'xlsx') => void }) {
+  return (
+    <span style={{ display: 'inline-flex', gap: 6 }}>
+      <button style={btnGhost} onClick={() => onExport('xlsx')} title="Выгрузить в Excel за выбранный период">⤓ Excel</button>
+      <button style={btnGhost} onClick={() => onExport('csv')} title="Выгрузить в CSV за выбранный период">⤓ CSV</button>
+    </span>
+  )
+}
+
+/** Дата в формате поля <input type="date">. */
+function iso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 const btnGhost: React.CSSProperties = { height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-2)', fontSize: 13, cursor: 'pointer' }
+const btn: React.CSSProperties = { height: 32, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
+const inp: React.CSSProperties = { height: 30, padding: '0 8px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13 }
+const lbl: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text-muted)' }
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px' }
 
@@ -580,4 +665,108 @@ const selStyle: React.CSSProperties = {
 }
 const linkBtnStyle: React.CSSProperties = {
   border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, padding: 0,
+}
+
+
+// ── Очистка истории (п. 4 списка заказчика) ─────────────────────────────────
+// Журналы копятся вечно: на стенде уведомлений набиралось больше четырёх тысяч,
+// и такую ленту перестают читать вовсе.
+//
+// Ключевое здесь — ЧЕГО МЫ НЕ УДАЛЯЕМ. Значимые действия (создание, изменение,
+// удаление, публикация, выдача и отзыв доступа, выгрузки) не чистятся никогда
+// и ни для кого: аудит существует, чтобы отвечать «кто это сделал», и журнал,
+// из которого можно стереть неудобную строку, не отвечает на этот вопрос
+// вовсе. Об этом сказано прямо на экране, а не спрятано в коде.
+function HistorySection() {
+  const { ask, node: confirmNode } = useConfirm()
+  const [days, setDays] = useState(180)
+  const [stats, setStats] = useState<HistoryStats | null>(null)
+  const [picked, setPicked] = useState<Record<string, boolean>>({})
+  const [err, setErr] = useState<string | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const load = (d: number) => {
+    setErr(null)
+    getHistoryStats(d).then(setStats).catch((e) => setErr((e as Error).message))
+  }
+  useEffect(() => { load(days) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const chosen = Object.entries(picked).filter(([, v]) => v).map(([k]) => k)
+  const willRemove = (stats?.kinds || [])
+    .filter((k) => picked[k.kind]).reduce((n, k) => n + k.removable, 0)
+
+  async function run() {
+    if (!stats) return
+    const list = (stats.kinds || []).filter((k) => picked[k.kind])
+      .map((k) => `${k.label}: ${k.removable}`).join('\n')
+    if (!await ask({
+      title: 'Удалить историю?',
+      message: `Будет удалено безвозвратно:\n${list}\n\nЗаписи новее ${stats.older_than_days} дней не трогаем — по ним разбирают свежие случаи. `
+        + `Журнал действий (${stats.protected_audit_events}) не удаляется: он отвечает на вопрос «кто это сделал».`,
+      confirmLabel: 'Удалить',
+      busyLabel: 'Удаление…',
+    })) return
+    setBusy(true); setErr(null); setMsg(null)
+    try {
+      const r = await purgeHistory(chosen, stats.older_than_days)
+      setMsg(`Удалено записей: ${r.total}.`)
+      setPicked({})
+      load(days)
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+
+  return (
+    <Section title="Очистка истории" hint="только владелец системы; действие необратимо">
+      {confirmNode}
+      {err && <div style={errBox}>{err}</div>}
+      {msg && <div style={{ ...errBox, background: 'var(--success-bg)', color: 'var(--success)' }}>{msg}</div>}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+        <label style={lbl}>
+          удалять записи старше
+          <select style={inp} value={days} onChange={(e) => { const d = Number(e.target.value); setDays(d); load(d) }}>
+            <option value={30}>30 дней</option>
+            <option value={90}>90 дней</option>
+            <option value={180}>180 дней</option>
+            <option value={365}>года</option>
+            <option value={730}>двух лет</option>
+          </select>
+        </label>
+        <span style={muted}>Свежее этого срока не удаляется никогда.</span>
+      </div>
+      {!stats ? <span style={muted}>Загрузка…</span> : (
+        <>
+          <table style={{ borderCollapse: 'collapse', fontSize: 13, marginBottom: 10 }}>
+            <thead><tr><th style={th}></th><th style={th}>Вид записей</th><th style={th}>Всего</th><th style={th}>Можно удалить</th></tr></thead>
+            <tbody>
+              {stats.kinds.map((k) => (
+                <tr key={k.kind}>
+                  <td style={td}>
+                    <input type="checkbox" checked={!!picked[k.kind]} disabled={k.removable === 0}
+                      onChange={(e) => setPicked((c) => ({ ...c, [k.kind]: e.target.checked }))}
+                      title={k.removable === 0 ? 'Нечего удалять за этим порогом' : 'Отметить для удаления'} />
+                  </td>
+                  <td style={td}>{k.label}</td>
+                  <td style={td}>{k.total}</td>
+                  <td style={{ ...td, color: k.removable ? 'var(--text)' : 'var(--text-faint)' }}>{k.removable}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button style={{ ...btn, background: 'var(--danger)', opacity: chosen.length === 0 || busy ? 0.5 : 1 }}
+              disabled={chosen.length === 0 || busy} onClick={run}>
+              {busy ? 'Удаление…' : `Удалить (${willRemove})`}
+            </button>
+            <span style={muted}>
+              Журнал действий — создание, изменение, удаление, публикация, выдача доступа, выгрузки
+              ({stats.protected_audit_events} записей) — не удаляется никогда:
+              он отвечает на вопрос «кто это сделал». Объём первичных данных ограничивает
+              ретенция выпусков в «Настройках».
+            </span>
+          </div>
+        </>
+      )}
+    </Section>
+  )
 }

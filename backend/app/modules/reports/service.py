@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from datetime import date, timedelta
+from typing import Optional
 
 import psutil
 from fastapi.concurrency import run_in_threadpool
@@ -20,6 +22,46 @@ from ..documents import storage
 from ..metrics import resolver as mr
 from ..metrics.parser import FormulaError
 from ..system import settings_service as settings_svc
+
+# --------------------------------------------------------------------------- #
+# Период отчёта (п. 4 списка заказчика: фильтрация)
+# --------------------------------------------------------------------------- #
+# Раньше период был зашит в запросы (30 дней у посещаемости, 14 у графика по
+# дням). Для разбора инцидента этого мало: «кто заходил в тот вторник» и «что
+# было в июле» ответить нечем. Теперь везде один и тот же диапазон дат, и он же
+# уезжает в выгрузку — иначе файл не совпал бы с экраном.
+DEFAULT_PERIOD_DAYS = 30
+MAX_PERIOD_DAYS = 730          # два года: дальше журналы всё равно чистятся
+
+
+def period_bounds(from_date: Optional[str] = None, to_date: Optional[str] = None) -> dict:
+    """{start, end, days, label, clamped} — границы включительно, по датам.
+
+    Слишком широкий запрос обрезается до MAX_PERIOD_DAYS, но НЕ молча: признак
+    `clamped` уходит в ответ, и экран пишет, за что на самом деле показаны
+    цифры. Молча подменить запрошенный период — то же самое, что показать не те
+    данные: человек спросил про 2020 год, а увидел бы позапрошлый.
+    """
+    today = date.today()
+    end = _as_date(to_date) or today
+    start = _as_date(from_date) or (end - timedelta(days=DEFAULT_PERIOD_DAYS - 1))
+    if start > end:
+        start, end = end, start
+    clamped = False
+    if (end - start).days + 1 > MAX_PERIOD_DAYS:
+        start = end - timedelta(days=MAX_PERIOD_DAYS - 1)
+        clamped = True
+    return {"start": start, "end": end, "days": (end - start).days + 1, "clamped": clamped,
+            "label": f"{start.strftime('%d.%m.%Y')} — {end.strftime('%d.%m.%Y')}"}
+
+
+def _as_date(v: Optional[str]):
+    if not v:
+        return None
+    try:
+        return date.fromisoformat(v[:10])
+    except ValueError:
+        return None
 
 
 def _level(pct: float, warn: float, crit: float) -> str:
@@ -171,47 +213,61 @@ async def business(conn, org_id, user: dict) -> dict:
     return {"metrics": metrics, "alerts": alerts}
 
 
-async def attendance(conn, org_id) -> dict:
+async def attendance(conn, org_id, from_date=None, to_date=None) -> dict:
+    """Посещаемость за выбранный период (по умолчанию последние 30 дней).
+
+    График по дням строится по ТОМУ ЖЕ диапазону, что и итоги: раньше итоги
+    считались за 30 дней, а график за 14, и числа под графиком не сходились с
+    самим графиком.
+    """
+    p = period_bounds(from_date, to_date)
+    args = (org_id, p["start"], p["end"])
+    where = ("organization_id=$1 and created_at::date >= $2 and created_at::date <= $3")
     totals = await conn.fetchrow(
         "select count(*) filter (where success) as logins, "
         "count(*) filter (where not success) as failed, "
         "count(distinct user_id) filter (where success) as active_users "
-        "from login_events where organization_id=$1 and created_at >= now() - interval '30 days'", org_id)
+        f"from login_events where {where}", *args)
     per_day = await conn.fetch(
         "select date_trunc('day', created_at)::date as day, "
         "count(*) filter (where success) as logins, count(*) filter (where not success) as failed "
-        "from login_events where organization_id=$1 and created_at >= now() - interval '14 days' "
-        "group by 1 order by 1", org_id)
+        f"from login_events where {where} group by 1 order by 1", *args)
     top = await conn.fetch(
         "select u.login, count(*) as logins from login_events e join users u on u.id=e.user_id "
-        "where e.organization_id=$1 and e.success and e.created_at >= now() - interval '30 days' "
-        "group by u.login order by count(*) desc limit 5", org_id)
+        "where e.organization_id=$1 and e.success and e.created_at::date >= $2 and e.created_at::date <= $3 "
+        "group by u.login order by count(*) desc limit 5", *args)
     return {
+        "period": {"from": p["start"].isoformat(), "to": p["end"].isoformat(),
+                   "days": p["days"], "label": p["label"], "clamped": p["clamped"]},
         "totals": {"logins": totals["logins"], "failed": totals["failed"], "active_users": totals["active_users"]},
         "per_day": [{"day": r["day"].isoformat(), "logins": r["logins"], "failed": r["failed"]} for r in per_day],
         "top_users": [{"login": r["login"], "logins": r["logins"]} for r in top],
     }
 
 
-async def popularity(conn, org_id, days: int = 30) -> dict:
+async def popularity(conn, org_id, from_date=None, to_date=None) -> dict:
     """Популярность дашбордов по просмотрам (audit_log action=view) за период.
 
     Учитывает только существующие дашборды (join). Просмотры троттлятся на
     уровне логирования, поэтому счётчик ≈ число сессий просмотра.
     """
+    p = period_bounds(from_date, to_date)
+    args = (org_id, p["start"], p["end"])
     totals = await conn.fetchrow(
         "select count(*) as views, count(distinct actor_user_id) as viewers "
         "from audit_log where organization_id=$1 and action='view' "
-        "and created_at >= now() - ($2 || ' days')::interval", org_id, str(days))
+        "and created_at::date >= $2 and created_at::date <= $3", *args)
     top = await conn.fetch(
         "select d.id, d.name, count(*) as views, count(distinct a.actor_user_id) as viewers, "
         "max(a.created_at) as last_view "
         "from audit_log a join dashboards d on d.id=a.entity_id "
         "where a.organization_id=$1 and a.action='view' "
-        "and a.created_at >= now() - ($2 || ' days')::interval "
-        "group by d.id, d.name order by count(*) desc, max(a.created_at) desc limit 10", org_id, str(days))
+        "and a.created_at::date >= $2 and a.created_at::date <= $3 "
+        "group by d.id, d.name order by count(*) desc, max(a.created_at) desc limit 10", *args)
     return {
-        "days": days,
+        "period": {"from": p["start"].isoformat(), "to": p["end"].isoformat(),
+                   "days": p["days"], "label": p["label"], "clamped": p["clamped"]},
+        "days": p["days"],
         "totals": {"views": totals["views"], "viewers": totals["viewers"]},
         "top_dashboards": [{
             "dashboard_id": str(r["id"]), "name": r["name"], "views": r["views"], "viewers": r["viewers"],
@@ -220,8 +276,9 @@ async def popularity(conn, org_id, days: int = 30) -> dict:
     }
 
 
-async def dashboard_viewers(conn, org_id, dashboard_id: str, days: int = 30) -> dict:
+async def dashboard_viewers(conn, org_id, dashboard_id: str, from_date=None, to_date=None) -> dict:
     """Отчёт по конкретному дашборду: кто его смотрел (req #4/#5, фильтр по дашборду)."""
+    p = period_bounds(from_date, to_date)
     d = await conn.fetchrow(
         "select name from dashboards where id=$1::uuid and organization_id=$2", dashboard_id, org_id)
     rows = await conn.fetch(
@@ -229,12 +286,15 @@ async def dashboard_viewers(conn, org_id, dashboard_id: str, days: int = 30) -> 
         "max(a.created_at) as last_view "
         "from audit_log a join users u on u.id=a.actor_user_id "
         "where a.organization_id=$1 and a.action='view' and a.entity_id=$2::uuid "
-        "and a.created_at >= now() - make_interval(days => $3) "
-        "group by u.full_name, u.login order by count(*) desc", org_id, dashboard_id, days)
+        "and a.created_at::date >= $3 and a.created_at::date <= $4 "
+        "group by u.full_name, u.login order by count(*) desc",
+        org_id, dashboard_id, p["start"], p["end"])
     return {
         "dashboard_id": dashboard_id,
         "name": d["name"] if d else "(дашборд удалён)",
-        "days": days,
+        "period": {"from": p["start"].isoformat(), "to": p["end"].isoformat(),
+                   "days": p["days"], "label": p["label"], "clamped": p["clamped"]},
+        "days": p["days"],
         "viewers": [{
             "who": r["who"], "login": r["login"], "views": r["views"],
             "last_view": r["last_view"].isoformat() if r["last_view"] else None,
@@ -242,12 +302,13 @@ async def dashboard_viewers(conn, org_id, dashboard_id: str, days: int = 30) -> 
     }
 
 
-async def moderation_stats(conn, org_id, days: int = 30) -> dict:
+async def moderation_stats(conn, org_id, from_date=None, to_date=None) -> dict:
     """Отчёт по модерации: очередь сейчас + статистика заявок/решений за период.
 
     Заявки не имеют organization_id напрямую — берём через dashboard.
     Причина возврата хранится в publication_reviews.comment как «[CODE] …».
     """
+    p = period_bounds(from_date, to_date)
     pending = await conn.fetchval(
         "select count(*) from publication_requests pr join dashboards d on d.id=pr.dashboard_id "
         "where d.organization_id=$1 and pr.status='pending_moderation'", org_id)
@@ -259,7 +320,8 @@ async def moderation_stats(conn, org_id, days: int = 30) -> dict:
         "avg(extract(epoch from (pr.resolved_at - pr.requested_at))) "
         "  filter (where pr.resolved_at is not null) as avg_sec "
         "from publication_requests pr join dashboards d on d.id=pr.dashboard_id "
-        "where d.organization_id=$1 and pr.requested_at >= now() - make_interval(days => $2)", org_id, days)
+        "where d.organization_id=$1 and pr.requested_at::date >= $2 and pr.requested_at::date <= $3",
+        org_id, p["start"], p["end"])
     reasons = await conn.fetch(
         "select coalesce(rc.label_ru, m.code, '(без причины)') as label, count(*) as n "
         "from publication_reviews rv "
@@ -268,8 +330,9 @@ async def moderation_stats(conn, org_id, days: int = 30) -> dict:
         "cross join lateral (select substring(rv.comment from '^\\[([A-Z_]+)\\]') as code) m "
         "left join moderation_reason_code rc on rc.code = m.code "
         "where d.organization_id=$1 and rv.decision='rejected' "
-        "and rv.created_at >= now() - make_interval(days => $2) "
-        "group by coalesce(rc.label_ru, m.code, '(без причины)') order by count(*) desc limit 5", org_id, days)
+        "and rv.created_at::date >= $2 and rv.created_at::date <= $3 "
+        "group by coalesce(rc.label_ru, m.code, '(без причины)') order by count(*) desc limit 5",
+        org_id, p["start"], p["end"])
     reviewers = await conn.fetch(
         "select u.login, "
         "count(*) filter (where rv.decision='approved') as approved, "
@@ -278,15 +341,17 @@ async def moderation_stats(conn, org_id, days: int = 30) -> dict:
         "join publication_requests pr on pr.id=rv.publication_request_id "
         "join dashboards d on d.id=pr.dashboard_id "
         "join users u on u.id=rv.reviewer_id "
-        "where d.organization_id=$1 and rv.created_at >= now() - make_interval(days => $2) "
-        "group by u.login order by count(*) desc limit 5", org_id, days)
+        "where d.organization_id=$1 and rv.created_at::date >= $2 and rv.created_at::date <= $3 "
+        "group by u.login order by count(*) desc limit 5", org_id, p["start"], p["end"])
 
     approved = tot["approved"] or 0
     returned = tot["returned"] or 0
     resolved = approved + returned
     avg_sec = tot["avg_sec"]
     return {
-        "days": days,
+        "period": {"from": p["start"].isoformat(), "to": p["end"].isoformat(),
+                   "days": p["days"], "label": p["label"], "clamped": p["clamped"]},
+        "days": p["days"],
         "pending": pending,
         "totals": {
             "approved": approved,
@@ -298,3 +363,171 @@ async def moderation_stats(conn, org_id, days: int = 30) -> dict:
         "top_reasons": [{"label": r["label"], "count": r["n"]} for r in reasons],
         "top_reviewers": [{"login": r["login"], "approved": r["approved"], "returned": r["returned"]} for r in reviewers],
     }
+
+
+# --------------------------------------------------------------------------- #
+# Выгрузка отчётов (п. 4 списка заказчика)
+# --------------------------------------------------------------------------- #
+# Экран отвечает на вопрос «как дела сейчас», а в отчёт наверх нужен файл.
+# Считается ТЕМ ЖЕ кодом, что и экран (report → строки), поэтому выгрузка не
+# может разойтись с тем, что человек только что видел, — та же причина, по
+# которой предпросмотр разметки считается кодом выпуска.
+EXPORT_KINDS = ("attendance", "popularity", "moderation", "data-quality")
+
+
+async def export_report(conn, org_id, user: dict, kind: str,
+                        from_date=None, to_date=None) -> tuple:
+    """(заголовок листа, колонки, строки) для CSV/XLSX."""
+    if kind == "attendance":
+        rep = await attendance(conn, org_id, from_date, to_date)
+        rows = [[r["day"], r["logins"], r["failed"]] for r in rep["per_day"]]
+        rows.append(["Итого", rep["totals"]["logins"], rep["totals"]["failed"]])
+        return ("Посещаемость", ["Дата", "Входов", "Неудачных попыток"], rows)
+    if kind == "popularity":
+        rep = await popularity(conn, org_id, from_date, to_date)
+        rows = [[d["name"], d["views"], d["viewers"], _ru_dt(d["last_view"])]
+                for d in rep["top_dashboards"]]
+        return ("Популярность", ["Дашборд", "Просмотров", "Зрителей", "Последний просмотр"], rows)
+    if kind == "moderation":
+        rep = await moderation_stats(conn, org_id, from_date, to_date)
+        t = rep["totals"]
+        rows = [
+            ["Ждут проверки сейчас", rep["pending"]],
+            ["Одобрено", t["approved"]],
+            ["Возвращено", t["returned"]],
+            ["Отозвано", t["cancelled"]],
+            ["Средний срок проверки, ч", t["avg_hours"] if t["avg_hours"] is not None else "—"],
+            ["Доля возвратов, %", t["return_rate"] if t["return_rate"] is not None else "—"],
+        ]
+        rows += [[f"Причина возврата: {r['label']}", r["count"]] for r in rep["top_reasons"]]
+        rows += [[f"Модератор {r['login']}: одобрено/возвращено",
+                  f"{r['approved']}/{r['returned']}"] for r in rep["top_reviewers"]]
+        return ("Модерация", ["Показатель", "Значение"], rows)
+    if kind == "data-quality":
+        rep = await data_quality(conn, org_id)
+        rows = [[o["name"], o["datasets"], _ru_dt(o.get("last_period")),
+                 _ru_dt(o.get("last_update")), o.get("status")] for o in rep.get("objects", [])]
+        # Сломанные формулы в тот же файл: без них выгрузка сообщала бы, что
+        # «данные в норме», умалчивая о показателях, которые не считаются.
+        rows += [[f"⚠ Показатель «{m['name']}» не считается", "", "", "", m["error"]]
+                 for m in rep.get("metric_errors", [])]
+        return ("Качество данных",
+                ["Объект", "Наборов данных", "Последний отчётный период", "Последняя загрузка", "Состояние"], rows)
+    raise ValueError(f"Неизвестный отчёт: {kind}")
+
+
+def _ru_dt(iso) -> str:
+    """ISO-дата → ДД.ММ.ГГГГ (в файле у заказчика принят русский формат)."""
+    if not iso:
+        return "—"
+    day = str(iso)[:10]
+    parts = day.split("-")
+    return ".".join(reversed(parts)) if len(parts) == 3 else day
+
+
+# --------------------------------------------------------------------------- #
+# Очистка истории (п. 4; только суперадминистратор)
+# --------------------------------------------------------------------------- #
+# Журналы копятся вечно: на дев-стенде уведомлений набралось 4460, из них 4430
+# указывали в никуда. Такую ленту перестают читать, и в ней теряется важное.
+#
+# **Что чистится и что НЕ чистится — главное решение здесь.** Удаляем только
+# следы посещения: просмотры дашбордов, записи о входах, прочитанные
+# уведомления. ЗНАЧИМЫЕ действия (создание, изменение, удаление, публикация,
+# выдача и отзыв доступа, выгрузки) не удаляются никогда и ни для кого: аудит
+# существует, чтобы отвечать на вопрос «кто это сделал», и журнал, из которого
+# можно стереть неудобную строку, не отвечает на него вовсе. Для объёма
+# первичных данных есть отдельная ретенция выпусков.
+HISTORY_KINDS = {
+    "views": "Просмотры дашбордов",
+    "logins": "Записи о входах",
+    "notifications": "Прочитанные уведомления",
+}
+# Ниже этого порога чистить не даём: свежая история — это то, по чему разбирают
+# вчерашний инцидент.
+MIN_KEEP_DAYS = 30
+
+
+async def history_stats(conn, org_id, older_than_days: int = 180) -> dict:
+    keep = max(MIN_KEEP_DAYS, int(older_than_days or 0))
+    views_total, views_old = await _pair(
+        conn, "select count(*) from audit_log where organization_id=$1 and action='view'",
+        "select count(*) from audit_log where organization_id=$1 and action='view' "
+        "and created_at < now() - make_interval(days => $2)", org_id, keep)
+    # Записи о входах: считаем И «ничьи» — попытку входа под НЕСУЩЕСТВУЮЩИМ
+    # логином не к кому привязать (organization_id остаётся пустым), а именно
+    # они копятся при переборе логинов. Без этого условия такие строки не
+    # удалялись бы никогда: на стенде их осталось 26 из 201 при первой же
+    # проверке очистки.
+    logins_total, logins_old = await _pair(
+        conn, "select count(*) from login_events where organization_id=$1 or organization_id is null",
+        "select count(*) from login_events where (organization_id=$1 or organization_id is null) "
+        "and created_at < now() - make_interval(days => $2)", org_id, keep)
+    notif_total, notif_old = await _pair(
+        conn, "select count(*) from notification_events where organization_id=$1",
+        "select count(*) from notification_events e where e.organization_id=$1 "
+        "and e.created_at < now() - make_interval(days => $2) "
+        "and not exists (select 1 from notification_recipients r "
+        "                where r.notification_event_id=e.id and not r.is_read)", org_id, keep)
+    protected = await conn.fetchval(
+        "select count(*) from audit_log where organization_id=$1 and action <> 'view'", org_id)
+    return {
+        "older_than_days": keep,
+        "kinds": [
+            {"kind": "views", "label": HISTORY_KINDS["views"], "total": views_total, "removable": views_old},
+            {"kind": "logins", "label": HISTORY_KINDS["logins"], "total": logins_total, "removable": logins_old},
+            {"kind": "notifications", "label": HISTORY_KINDS["notifications"],
+             "total": notif_total, "removable": notif_old},
+        ],
+        # Показываем и то, что НЕ будет удалено: иначе «очистка истории»
+        # читается как «журнал можно обнулить», а это не так.
+        "protected_audit_events": protected,
+    }
+
+
+async def _pair(conn, sql_total, sql_old, org_id, keep) -> tuple:
+    return (await conn.fetchval(sql_total, org_id) or 0,
+            await conn.fetchval(sql_old, org_id, keep) or 0)
+
+
+async def purge_history(conn, org_id, actor_id, kinds: list, older_than_days: int = 180) -> dict:
+    """Удаляет выбранные виды истории старше порога. Возвращает, чего сколько."""
+    from ..audit import service as audit_svc
+
+    keep = max(MIN_KEEP_DAYS, int(older_than_days or 0))
+    unknown = [k for k in kinds if k not in HISTORY_KINDS]
+    if unknown:
+        raise ValueError(f"Неизвестный вид истории: {', '.join(unknown)}")
+    removed = {}
+    if "views" in kinds:
+        removed["views"] = await _delete_count(
+            conn, "delete from audit_log where organization_id=$1 and action='view' "
+            "and created_at < now() - make_interval(days => $2)", org_id, keep)
+    if "logins" in kinds:
+        removed["logins"] = await _delete_count(
+            conn, "delete from login_events where (organization_id=$1 or organization_id is null) "
+            "and created_at < now() - make_interval(days => $2)", org_id, keep)
+    if "notifications" in kinds:
+        # Непрочитанное не трогаем никогда: это единственное, на что человек
+        # ещё может отреагировать, каким бы старым оно ни было.
+        removed["notifications"] = await _delete_count(
+            conn, "delete from notification_events e where e.organization_id=$1 "
+            "and e.created_at < now() - make_interval(days => $2) "
+            "and not exists (select 1 from notification_recipients r "
+            "                where r.notification_event_id=e.id and not r.is_read)", org_id, keep)
+    # Сама очистка — значимое действие, и она попадает в тот самый журнал,
+    # который чистили: иначе следов не осталось бы вовсе.
+    # Сущность события — сама организация: у очистки журналов своего объекта
+    # нет, а колонка entity_id обязательна.
+    await audit_svc.write_event(
+        conn, org_id, actor_id, "delete", "history", str(org_id),
+        old_data={"kinds": kinds, "older_than_days": keep, "removed": removed})
+    return {"older_than_days": keep, "removed": removed, "total": sum(removed.values())}
+
+
+async def _delete_count(conn, sql, *args) -> int:
+    tag = await conn.execute(sql, *args)
+    try:
+        return int(str(tag).rsplit(" ", 1)[-1])
+    except ValueError:
+        return 0
