@@ -48,6 +48,16 @@ async def attendance_report(user: dict = Depends(admin),
         return await service.attendance(conn, user["organization_id"], from_date, to_date)
 
 
+@router.get("/attendance/day")
+async def attendance_day_report(date: str, user: dict = Depends(admin)):
+    """Разбор одного дня графика: кто заходил и сколько раз."""
+    async with db.get_pool().acquire() as conn:
+        try:
+            return await service.attendance_day(conn, user["organization_id"], date)
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+
+
 @router.get("/popularity")
 async def popularity_report(user: dict = Depends(admin),
                             from_date: Optional[str] = Query(None, alias="from"),

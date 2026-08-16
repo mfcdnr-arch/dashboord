@@ -129,3 +129,23 @@ export async function purgeHistory(kinds: string[], olderThanDays: number): Prom
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+/** Разбор одного дня графика посещаемости: кто заходил и сколько раз. */
+export interface AttendanceDay {
+  date: string
+  label: string
+  totals: { logins: number; failed: number; people: number }
+  users: {
+    user_id: string; login: string; who: string
+    logins: number; failed: number; first_at: string | null; last_at: string | null
+  }[]
+  /** Записи без ссылки на пользователя: логин, которого в системе нет, ЛИБО
+   *  сотрудник, чью учётку удалили (история входов её переживает). Различить
+   *  по данным нельзя, поэтому показываем успехи и неудачи раздельно. */
+  orphan_logins: { login: string; logins: number; failed: number; ips: number; last_at: string | null }[]
+}
+export async function getAttendanceDay(day: string): Promise<AttendanceDay> {
+  const res = await fetch(`/reports/attendance/day?date=${encodeURIComponent(day)}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

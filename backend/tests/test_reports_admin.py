@@ -124,3 +124,52 @@ async def test_purge_floor_protects_fresh_history(client, superadmin_headers, ol
     async with db.acquire() as conn:
         left = await conn.fetchval("select count(*) from login_events where user_agent='ztest-reports'")
     assert left == 1, "вчерашняя запись обязана уцелеть даже при пороге 0"
+
+
+# --- Разбор одного дня графика посещаемости ---------------------------------- #
+# График отвечал только «в этот день входов было много». Следующий вопрос —
+# «кто именно заходил», и раньше на него отвечал лишь журнал входов в другом
+# разделе, куда надо было идти и фильтровать руками.
+async def test_attendance_day_lists_people_and_sums_up(client, admin_headers, ids):
+    """Итог дня обязан сходиться с суммой строк — иначе таблица спорит с числом над ней."""
+    async with db.acquire() as conn:
+        await conn.execute("delete from login_events where user_agent='ztest-day'")
+        # два успешных входа сотрудника и одна неудачная попытка
+        for ok in (True, True, False):
+            await conn.execute(
+                "insert into login_events(organization_id, user_id, login, success, ip, user_agent, created_at) "
+                "values($1, $2, 'ztest_day_user', $3, '10.0.0.1', 'ztest-day', now() - interval '2 days')",
+                ids["org"], ids["admin"], ok)
+        # запись без учётной записи: логин удалённого сотрудника ЛИБО чужой логин
+        await conn.execute(
+            "insert into login_events(organization_id, user_id, login, success, ip, user_agent, created_at) "
+            "values($1, null, 'ztest_ghost', false, '10.0.0.9', 'ztest-day', now() - interval '2 days')",
+            ids["org"])
+    day = None
+    try:
+        rep = (await client.get("/reports/attendance?from=2025-01-01", headers=admin_headers)).json()
+        assert rep["per_day"], "в периоде должны быть дни с данными"
+        day = sorted(d["day"] for d in rep["per_day"])[-2] if len(rep["per_day"]) > 1 else rep["per_day"][0]["day"]
+
+        r = await client.get("/reports/attendance/day?date=" + day, headers=admin_headers)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        by_rows = sum(u["logins"] for u in d["users"]) + sum(o["logins"] for o in d["orphan_logins"])
+        assert by_rows == d["totals"]["logins"], "сумма строк обязана совпадать с итогом дня"
+        assert d["label"] == day.split("-")[2] + "." + day.split("-")[1] + "." + day.split("-")[0]
+
+        # Записи без пользователя показываются отдельно и НЕ выдаются за перебор:
+        # у них раздельно посчитаны успехи и неудачи.
+        ghost = [o for o in d["orphan_logins"] if o["login"] == "ztest_ghost"]
+        if ghost:
+            assert ghost[0]["failed"] >= 1
+            assert "logins" in ghost[0], "успехи и неудачи считаются раздельно"
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from login_events where user_agent='ztest-day'")
+
+
+async def test_attendance_day_rejects_bad_date(client, admin_headers):
+    r = await client.get("/reports/attendance/day?date=вчера", headers=admin_headers)
+    assert r.status_code == 400
+    assert "ГГГГ-ММ-ДД" in r.json()["detail"]

@@ -531,3 +531,66 @@ async def _delete_count(conn, sql, *args) -> int:
         return int(str(tag).rsplit(" ", 1)[-1])
     except ValueError:
         return 0
+
+
+async def attendance_day(conn, org_id, day: str) -> dict:
+    """Кто заходил в конкретный день: разбор одного столбика графика.
+
+    График отвечал «в среду входов было много», а следующий вопрос —
+    «кто именно заходил и сколько раз». Раньше на него отвечал только журнал
+    входов в «Пользователях», куда надо было идти отдельно и фильтровать руками.
+
+    **Записи без ссылки на пользователя показываем отдельно и НЕ выдаём за
+    перебор логинов.** Такая запись означает одно из двух: вход под логином,
+    которого в системе нет (тогда неудачный — и это признак подбора), либо
+    вход сотрудника, чью учётку потом удалили: история входов переживает
+    удаление (`login_events.user_id` обнуляется, логин остаётся). Различить их
+    по данным нельзя, поэтому и подписываем обе строки честно — по числу
+    успешных и неудачных попыток, а не догадкой о намерении.
+    """
+    d = _as_date(day)
+    if d is None:
+        raise ValueError("Дата должна быть в формате ГГГГ-ММ-ДД")
+    where = ("(e.organization_id=$1 or e.organization_id is null) and e.created_at::date=$2")
+    users = await conn.fetch(
+        "select e.user_id, e.login, coalesce(u.full_name, e.login) as who, "
+        "count(*) filter (where e.success) as logins, "
+        "count(*) filter (where not e.success) as failed, "
+        "min(e.created_at) as first_at, max(e.created_at) as last_at "
+        f"from login_events e left join users u on u.id=e.user_id where {where} "
+        "and e.user_id is not null "
+        "group by e.user_id, e.login, coalesce(u.full_name, e.login) "
+        "order by count(*) filter (where e.success) desc, count(*) desc", org_id, d)
+    orphan = await conn.fetch(
+        "select e.login, "
+        "count(*) filter (where e.success) as logins, "
+        "count(*) filter (where not e.success) as failed, "
+        "count(distinct e.ip) as ips, max(e.created_at) as last_at "
+        f"from login_events e where {where} and e.user_id is null "
+        "group by e.login order by count(*) desc limit 20", org_id, d)
+    # Итоги считаем по ВСЕМ записям дня, а не по одной группе: сумма строк
+    # таблицы обязана сходиться с числом над ней.
+    tot = await conn.fetchrow(
+        "select count(*) filter (where e.success) as logins, "
+        "count(*) filter (where not e.success) as failed "
+        f"from login_events e where {where}", org_id, d)
+    return {
+        "date": d.isoformat(),
+        "label": d.strftime("%d.%m.%Y"),
+        "totals": {
+            "logins": tot["logins"] or 0,
+            "failed": tot["failed"] or 0,
+            "people": len(users),
+        },
+        "users": [{
+            "user_id": str(r["user_id"]),
+            "login": r["login"], "who": r["who"],
+            "logins": r["logins"], "failed": r["failed"],
+            "first_at": r["first_at"].isoformat() if r["first_at"] else None,
+            "last_at": r["last_at"].isoformat() if r["last_at"] else None,
+        } for r in users],
+        "orphan_logins": [{
+            "login": r["login"] or "(пусто)", "logins": r["logins"], "failed": r["failed"],
+            "ips": r["ips"], "last_at": r["last_at"].isoformat() if r["last_at"] else None,
+        } for r in orphan],
+    }

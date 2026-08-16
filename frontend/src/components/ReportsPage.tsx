@@ -6,6 +6,7 @@ import {
 import { useConfirm } from './dashboards/ConfirmDialog'
 import EChart from './EChartLazy'
 import UserCard from './users/UserCard'
+import AttendanceChart from './reports/AttendanceChart'
 import { fmtNumber as num } from '../lib/format'
 import { getLoginEvents, type LoginEventsReport } from '../api'
 
@@ -117,7 +118,6 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
 
   if (!canAdmin) return <div style={{ color: 'var(--danger)' }}>Раздел «Отчёты» доступен только администратору.</div>
 
-  const maxDay = Math.max(1, ...(att?.per_day.map((d) => d.logins + d.failed) || [1]))
 
   return (
     <div>
@@ -328,18 +328,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
                 <Stat t="Активных" v={att.totals.active_users} />
                 <Stat t="Неудач" v={att.totals.failed} danger={att.totals.failed > 0} />
               </div>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
-                Входы по дням{att.period ? ` · ${att.period.label}` : ''}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 90, borderBottom: '1px solid var(--border)' }}>
-                {att.per_day.length === 0 && <span style={muted}>Нет данных.</span>}
-                {att.per_day.map((d) => (
-                  <div key={d.day} title={`${d.day}: входов ${d.logins}, неудач ${d.failed}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 2 }}>
-                    {d.failed > 0 && <div style={{ width: '70%', height: `${(d.failed / maxDay) * 70}px`, background: '#e6a5a5', borderRadius: '2px 2px 0 0' }} />}
-                    <div style={{ width: '70%', height: `${(d.logins / maxDay) * 70}px`, background: 'var(--accent)', borderRadius: '2px 2px 0 0' }} />
-                  </div>
-                ))}
-              </div>
+              <AttendanceChart days={att.per_day} periodLabel={att.period?.label} />
             </div>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Активнее всех</div>
