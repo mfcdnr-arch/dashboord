@@ -15,6 +15,8 @@ export interface Dashboard {
   pages?: number
   comments_count?: number
   is_favorite?: boolean
+  /** Входит в подборку «Руководителю» (состав подборки, не доступ к дашборду). */
+  featured?: boolean
   folder_id?: string | null
   folder_name?: string | null
   object_name?: string | null
@@ -339,6 +341,42 @@ export async function getPageData(pageId: string, from?: string, to?: string, ro
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+/** Дашборд в подборке «Руководителю». Доступ определяют обычные гранты —
+ *  здесь только состав подборки и то, что нужно, чтобы её прочитать. */
+export type FeaturedDashboard = {
+  id: string
+  name: string
+  description: string | null
+  publication_status: string
+  updated_at: string
+  folder_name: string | null
+  object_name: string | null
+  pages: number
+}
+
+export async function listFeatured(): Promise<{ items: FeaturedDashboard[] }> {
+  const res = await fetch('/dashboards/featured', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function setFeatured(id: string, featured: boolean): Promise<{ featured: boolean }> {
+  const res = await fetch(`/dashboards/${id}/featured`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ featured }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+/** Черновик описания, собранный системой по составу дашборда. В БД не пишется:
+ *  сохраняет человек, посмотрев глазами. */
+export async function getDescriptionDraft(id: string): Promise<{ draft: string; current: string | null }> {
+  const res = await fetch(`/dashboards/${id}/description-draft`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 /** Подогнать размеры виджетов страницы под их тип. Состав не меняется —
  *  двигаются только размер и место (лечит старые дашборды с карточками 3×3). */
 export async function fitPageLayout(pageId: string): Promise<{ widgets: number; changed: number }> {

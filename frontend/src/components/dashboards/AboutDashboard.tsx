@@ -11,14 +11,17 @@ import type { Dashboard, DashPage, Widget } from '../../api'
  * не исправить, а описание задать негде.
  */
 export function EditDashboardDialog(
-  { initial, onClose, onSave }: {
+  { initial, onClose, onSave, loadDraft }: {
     initial: { name: string; description: string }
     onClose: () => void
     onSave: (v: { name: string; description: string }) => void
+    /** Черновик описания, собранный системой по составу дашборда. */
+    loadDraft?: () => Promise<string>
   },
 ) {
   const [name, setName] = useState(initial.name)
   const [description, setDescription] = useState(initial.description)
+  const [drafting, setDrafting] = useState(false)
   return createPortal((
     <div style={overlay} onClick={onClose}>
       <div style={{ ...dialog, width: 520 }} onClick={(e) => e.stopPropagation()}>
@@ -30,6 +33,18 @@ export function EditDashboardDialog(
           <input style={{ ...input, width: '100%' }} value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <label style={{ ...lbl, marginTop: 10 }}>Описание — что показывает дашборд и кому предназначен
+          {/* Описание видит руководитель в разделе «Руководителю» вместо
+              голого имени отчёта. Заполнять его руками никто не станет,
+              поэтому черновик собирает система — по составу самого дашборда. */}
+          {loadDraft && (
+            <button type="button" style={{ ...btnGhost, height: 26, fontSize: 12, marginLeft: 8 }}
+              disabled={drafting}
+              title="Собрать описание по составу дашборда: объект, показатели, периоды"
+              onClick={async () => {
+                setDrafting(true)
+                try { setDescription(await loadDraft()) } finally { setDrafting(false) }
+              }}>{drafting ? 'Составляю…' : '✨ Составить'}</button>
+          )}
           <textarea
             style={{ ...input, width: '100%', height: 90, padding: 10, resize: 'vertical' }}
             placeholder="Например: ход внедрения сервиса записи в МФЦ, для еженедельного доклада руководству"

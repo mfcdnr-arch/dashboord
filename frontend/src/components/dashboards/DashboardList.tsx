@@ -15,7 +15,7 @@ export function DashboardList({
   dashFrom, setDashFrom, dashTo, setDashTo,
   filterObjId, setFilterObjId, filterFolders, folderFilter, setFolderFilter,
   selectedIds, setSelectedIds, onBulkMove, toggleSelect,
-  dashboards, dashTotal, openDashboard, toggleFav, loadMoreDash,
+  dashboards, dashTotal, openDashboard, toggleFav, loadMoreDash, onToggleFeatured,
 }: {
   canManage: boolean; objects: Obj[]; templates: DashTemplate[]
   newDash: string; setNewDash: (v: string) => void; addDashboard: (e: FormEvent) => void; busy: boolean
@@ -31,6 +31,8 @@ export function DashboardList({
   onBulkMove: () => void; toggleSelect: (e: React.MouseEvent, id: string) => void
   dashboards: Dashboard[]; dashTotal: number; openDashboard: (id: string) => void
   toggleFav: (e: React.MouseEvent, d: Dashboard) => void; loadMoreDash: () => void
+  /** Отметить дашборд для подборки «Руководителю» (состав, не доступ). */
+  onToggleFeatured: (e: React.MouseEvent, d: Dashboard) => void
 }) {
   return (
     <div>
@@ -130,6 +132,18 @@ export function DashboardList({
                     style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: d.is_favorite ? '#e0a800' : 'var(--border-strong)', padding: 0, lineHeight: 1 }}>
                     {d.is_favorite ? '★' : '☆'}
                   </button>
+                  {canManage && (
+                    // Отметка «в подборку руководителю». Отдельной системы прав
+                    // за ней нет: кто увидит дашборд, решают те же гранты, что и
+                    // в общем списке, — флаг отвечает только за состав подборки.
+                    <button onClick={(e) => onToggleFeatured(e, d)}
+                      title={d.featured
+                        ? 'Убрать из подборки «Руководителю»'
+                        : 'Добавить в подборку «Руководителю» (доступ выдаётся отдельно)'}
+                      style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14, padding: 0, lineHeight: 1, color: d.featured ? 'var(--accent)' : 'var(--border-strong)' }}>
+                      {d.featured ? '👔' : '👤'}
+                    </button>
+                  )}
                   {d.name}
                   {!!d.comments_count && <span title={`Комментариев: ${d.comments_count}`} style={{ fontSize: 12, color: 'var(--accent)' }}>💬{d.comments_count}</span>}
                   {d.folder_name && (

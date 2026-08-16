@@ -26,6 +26,7 @@ from ._alerts import (  # noqa: F401
 )
 from ._base import ANNOTATION_TYPES, WIDGET_TYPES, DashboardError  # noqa: F401
 from ._comments import add_comment, delete_comment, list_comments  # noqa: F401
+from ._describe import describe_dashboard  # noqa: F401
 from ._rls import (  # noqa: F401
     PRIVILEGED_ROLES,
     _can_view,
@@ -131,6 +132,7 @@ async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
         "d.folder_id, fo.name as folder_name, ob.name as object_name, "
         "(select count(*) from dashboard_pages p where p.dashboard_id=d.id) as pages, "
         "(select count(*) from dashboard_comments c where c.dashboard_id=d.id) as comments_count, "
+        "d.featured, "
         "(f.dashboard_id is not null) as is_favorite "
         f"from dashboards d {fav_join} dashboard_favorites f on f.dashboard_id=d.id and f.user_id=$3 "
         "left join folders fo on fo.id=d.folder_id left join objects ob on ob.id=fo.object_id "
@@ -139,6 +141,46 @@ async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
         *params, limit, offset,
     )
     return {"total": total, "limit": limit, "offset": offset, "items": [dict(r) for r in rows]}
+
+
+async def list_featured(conn, org_id, user: dict) -> dict:
+    """Подборка «Руководителю»: отмеченные дашборды, которые видит этот человек.
+
+    Отдельной системы прав здесь НЕТ и не будет: кто что видит, решают те же
+    гранты, что и в общем списке (`visible_dashboard_ids`). Флаг `featured`
+    отвечает только на вопрос «показывать ли дашборд в подборке» — иначе рядом
+    с грантами появился бы второй источник правды о доступе.
+
+    Опубликованные первыми: руководителю нельзя подсунуть черновик, который
+    ещё правят, — но и прятать его от автора незачем, поэтому черновик виден
+    тому, кто и так имеет к нему доступ, с явной пометкой статуса.
+    """
+    visible = await visible_dashboard_ids(conn, org_id, user)
+    if not visible:
+        return {"items": []}
+    rows = await conn.fetch(
+        "select d.id, d.name, d.description, d.publication_status, d.updated_at, "
+        "  fo.name as folder_name, ob.name as object_name, d.featured_order, "
+        "  (select count(*) from dashboard_pages p where p.dashboard_id=d.id) as pages "
+        "from dashboards d "
+        "left join folders fo on fo.id=d.folder_id left join objects ob on ob.id=fo.object_id "
+        "where d.organization_id=$1 and d.id = any($2::uuid[]) and d.featured "
+        "  and d.publication_status <> 'archived' "
+        "order by d.featured_order, d.name", org_id, list(visible))
+    return {"items": [dict(r) for r in rows]}
+
+
+async def set_featured(conn, org_id, dashboard_id: str, featured: bool,
+                       order: Optional[int] = None) -> dict:
+    """Включить/выключить дашборд в подборке «Руководителю»."""
+    exists = await conn.fetchval(
+        "select 1 from dashboards where id=$1::uuid and organization_id=$2", dashboard_id, org_id)
+    if not exists:
+        raise DashboardError("Дашборд не найден")
+    await conn.execute(
+        "update dashboards set featured=$2, featured_order=coalesce($3, featured_order), "
+        "updated_at=now() where id=$1::uuid", dashboard_id, featured, order)
+    return {"featured": featured}
 
 
 async def set_folder(conn, org_id, dashboard_id: str, folder_id: Optional[str]) -> dict:

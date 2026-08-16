@@ -135,6 +135,41 @@ async def auto_build(body: AutoIn, user: dict = Depends(manage)):
             raise _bad(e)
 
 
+class FeaturedIn(BaseModel):
+    featured: bool
+    order: Optional[int] = None
+
+
+# ВАЖНО: статический путь объявлен ДО параметризованного `/dashboards/{id}` —
+# Starlette матчит по порядку регистрации, иначе «featured» уедет в id.
+@router.get("/dashboards/featured")
+async def featured_dashboards(user: dict = Depends(get_current_user)):
+    """Подборка «Руководителю»: что отмечено админом и доступно этому человеку."""
+    async with db.acquire(user["id"]) as conn:
+        return await service.list_featured(conn, user["organization_id"], user)
+
+
+@router.post("/dashboards/{dashboard_id}/featured")
+async def set_featured(dashboard_id: str, body: FeaturedIn, user: dict = Depends(manage)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.set_featured(conn, user["organization_id"], dashboard_id,
+                                              body.featured, body.order)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.get("/dashboards/{dashboard_id}/description-draft")
+async def description_draft(dashboard_id: str, user: dict = Depends(manage)):
+    """Черновик описания, собранный по составу дашборда.
+
+    В БД молча не пишется: описание — обещание читателю, и сохранить его
+    должен человек, посмотрев глазами.
+    """
+    async with db.acquire(user["id"]) as conn:
+        return await service.describe_dashboard(conn, user["organization_id"], dashboard_id)
+
+
 @router.get("/dashboards")
 async def list_dashboards(user: dict = Depends(get_current_user), q: Optional[str] = None,
                           fav: bool = False, limit: int = Query(50, ge=1, le=200),

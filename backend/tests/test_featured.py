@@ -1,0 +1,133 @@
+"""Подборка «Руководителю» и автоописание дашборда (волна 1, шаг 1).
+
+Общий список дашбордов устроен для того, кто их СОБИРАЕТ: поиск, фильтр по
+папке, диапазон дат, статус публикации. Руководителю нужно другое — понять,
+какой отчёт про что, и открыть его; для этого нужны описание и короткая
+подборка.
+
+Ключевое архитектурное решение, которое проверяют эти тесты: **второй системы
+прав нет**. Флаг `featured` отвечает только за состав подборки, а КТО что
+видит, решают те же гранты, что и в общем списке. Иначе рядом с грантами
+появился бы второй источник правды о доступе — и рано или поздно они
+разошлись бы, показав руководителю чужой отчёт.
+"""
+import pytest
+
+pytestmark = pytest.mark.asyncio(loop_scope="session")
+
+from app import db
+
+
+async def test_featured_respects_grants_not_its_own_rules(client, admin_headers, viewer):
+    """Отметка в подборку НЕ выдаёт доступ: без гранта зритель ничего не видит."""
+    r = await client.post("/dashboards", headers=admin_headers, json={"name": "ztest_feat_dash"})
+    did = r.json()["id"]
+    try:
+        await client.post(f"/dashboards/{did}/featured", headers=admin_headers, json={"featured": True})
+        await client.post(f"/dashboards/{did}/publish", headers=admin_headers, json={})
+
+        seen = (await client.get("/dashboards/featured", headers=viewer["headers"])).json()["items"]
+        assert not any(i["id"] == did for i in seen), \
+            "подборка не должна открывать доступ — это делают только гранты"
+
+        await client.post(f"/dashboards/{did}/grants", headers=admin_headers,
+                          json={"grantee_type": "user", "user_id": viewer["id"]})
+        seen = (await client.get("/dashboards/featured", headers=viewer["headers"])).json()["items"]
+        assert any(i["id"] == did for i in seen), "с грантом отчёт появляется в подборке"
+
+        # И наоборот: снятая отметка убирает отчёт из подборки, доступ при этом
+        # остаётся — человек по-прежнему открывает его из общего списка.
+        await client.post(f"/dashboards/{did}/featured", headers=admin_headers, json={"featured": False})
+        seen = (await client.get("/dashboards/featured", headers=viewer["headers"])).json()["items"]
+        assert not any(i["id"] == did for i in seen)
+        full = (await client.get("/dashboards?limit=200", headers=viewer["headers"])).json()["items"]
+        assert any(i["id"] == did for i in full), "доступ снимается грантом, а не отметкой"
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from access_grants where dashboard_id=$1::uuid", did)
+            await conn.execute("delete from securable_objects where object_id=$1::uuid", did)
+            await conn.execute("delete from dashboards where id=$1::uuid", did)
+
+
+async def test_featured_flag_visible_in_list(client, admin_headers):
+    """Админ должен видеть в общем списке, что уже входит в подборку."""
+    r = await client.post("/dashboards", headers=admin_headers, json={"name": "ztest_feat_flag"})
+    did = r.json()["id"]
+    try:
+        await client.post(f"/dashboards/{did}/featured", headers=admin_headers, json={"featured": True})
+        items = (await client.get("/dashboards?limit=200", headers=admin_headers)).json()["items"]
+        row = next(i for i in items if i["id"] == did)
+        assert row["featured"] is True
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from securable_objects where object_id=$1::uuid", did)
+            await conn.execute("delete from dashboards where id=$1::uuid", did)
+
+
+async def test_featured_is_staff_only(client, viewer, admin_headers):
+    """Состав подборки задаёт управляющий, а не любой, кто её видит."""
+    r = await client.post("/dashboards", headers=admin_headers, json={"name": "ztest_feat_acl"})
+    did = r.json()["id"]
+    try:
+        assert (await client.post(f"/dashboards/{did}/featured", headers=viewer["headers"],
+                                  json={"featured": True})).status_code == 403
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from securable_objects where object_id=$1::uuid", did)
+            await conn.execute("delete from dashboards where id=$1::uuid", did)
+
+
+async def test_description_draft_describes_the_real_content(client, admin_headers, seed_dataset):
+    """Черновик описания собирается по СОСТАВУ дашборда, а не из шаблона."""
+    r = await client.post("/dashboards", headers=admin_headers, json={"name": "ztest_descr"})
+    did = r.json()["id"]
+    pid = (await client.post(f"/dashboards/{did}/pages", headers=admin_headers,
+                             json={"name": "Обзор"})).json()["id"]
+    try:
+        for name, field in (("Всего заявлений", "plan"), ("Исполнено", "fact")):
+            await client.post(f"/dashboard-pages/{pid}/widgets", headers=admin_headers, json={
+                "name": name, "widget_type": "kpi",
+                "config": {"dataset_code": seed_dataset["code"], "value_field": field}})
+
+        d = (await client.get(f"/dashboards/{did}/description-draft", headers=admin_headers)).json()
+        assert "Всего заявлений" in d["draft"] and "Исполнено" in d["draft"]
+        assert "карточки показателей (2)" in d["draft"]
+        # У фикстуры два отчётных периода — про обновление сказать обязаны:
+        # руководитель должен знать, живые перед ним цифры или снимок.
+        assert "2 периода" in d["draft"] and "обновляются сами" in d["draft"]
+        assert d["current"] is None, "в БД черновик молча не пишется"
+        assert d["facts"]["widgets"] == 2 and d["facts"]["datasets"] == [seed_dataset["code"]]
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from widgets where dashboard_id=$1::uuid", did)
+            await conn.execute("delete from dashboard_pages where dashboard_id=$1::uuid", did)
+            await conn.execute("delete from securable_objects where object_id=$1::uuid", did)
+            await conn.execute("delete from dashboards where id=$1::uuid", did)
+
+
+async def test_description_draft_does_not_repeat_one_metric_in_three_slices(client, admin_headers, seed_dataset):
+    """Один показатель в трёх разрезах — это ОДИН показатель.
+
+    Имена госформ различаются только хвостом («· Факт · нарастающим итогом»,
+    «· за отчётную неделю»), и без дедупликации описание превращалось в
+    «Количество обращений, Количество обращений, Количество обращений».
+    """
+    r = await client.post("/dashboards", headers=admin_headers, json={"name": "ztest_descr_dup"})
+    did = r.json()["id"]
+    pid = (await client.post(f"/dashboards/{did}/pages", headers=admin_headers,
+                             json={"name": "Обзор"})).json()["id"]
+    try:
+        for slice_name in ("нарастающим итогом", "текущий месяц", "за отчётную неделю"):
+            await client.post(f"/dashboard-pages/{pid}/widgets", headers=admin_headers, json={
+                "name": f"Количество обращений · Факт · {slice_name}", "widget_type": "kpi",
+                "config": {"dataset_code": seed_dataset["code"], "value_field": "plan"}})
+
+        draft = (await client.get(f"/dashboards/{did}/description-draft",
+                                  headers=admin_headers)).json()["draft"]
+        assert draft.count("Количество обращений") == 1, draft
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from widgets where dashboard_id=$1::uuid", did)
+            await conn.execute("delete from dashboard_pages where dashboard_id=$1::uuid", did)
+            await conn.execute("delete from securable_objects where object_id=$1::uuid", did)
+            await conn.execute("delete from dashboards where id=$1::uuid", did)

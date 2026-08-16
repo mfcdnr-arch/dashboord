@@ -23,6 +23,8 @@ import SetupWizard from './components/SetupWizard'
 import ArchivePage from './components/ArchivePage'
 import { archiveMe } from './api/archive'
 import { listShowcases } from './api/showcases'
+import { listFeatured } from './api'
+import LeadershipPage from './components/LeadershipPage'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -88,6 +90,9 @@ const NAV = [
   { key: 'home', label: 'Главная', ready: true, staffOnly: true },
   { key: 'objects', label: 'Объекты', ready: true, staffOnly: true },
   { key: 'metrics', label: 'Метрики', ready: true, staffOnly: true },
+  // Раздел показываем, только когда в подборке действительно что-то есть для
+  // этого человека: пустой пункт меню читается как «сюда забыли положить».
+  { key: 'leadership', label: 'Руководителю', ready: true, featuredGate: true },
   { key: 'dashboards', label: 'Дашборды', ready: true },
   { key: 'showcases', label: 'Витрины', ready: true, showcaseGate: true },
   { key: 'archive', label: 'Архив', ready: true, archiveGate: true },
@@ -160,6 +165,13 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     if (canManage) return
     listShowcases().then((r) => setShowcasesOk(r.length > 0)).catch(() => setShowcasesOk(false))
   }, [canManage])
+  // «Руководителю»: у управляющего пункт есть всегда (ему туда класть), у
+  // остальных — когда в подборке есть хоть что-то, доступное лично им.
+  const [featuredOk, setFeaturedOk] = useState(false)
+  useEffect(() => {
+    if (canManage) return
+    listFeatured().then((r) => setFeaturedOk(r.items.length > 0)).catch(() => setFeaturedOk(false))
+  }, [canManage])
   // Значок «сколько обращений ждут ответа» у пункта «Обращения» (только staff).
   // Best-effort, не real-time (полноценный push через WebSocket/SSE был бы
   // избыточен для масштаба МФЦ) — но обновляется часто и по актуальным поводам:
@@ -179,7 +191,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const nav = NAV.filter((n) => (!n.adminOnly || isAdmin) && (!n.modOnly || canModerate)
     && (!(n as { staffOnly?: boolean }).staffOnly || canManage)
     && (!(n as { archiveGate?: boolean }).archiveGate || archiveOk)
-    && (!(n as { showcaseGate?: boolean }).showcaseGate || canManage || showcasesOk))
+    && (!(n as { showcaseGate?: boolean }).showcaseGate || canManage || showcasesOk)
+    && (!(n as { featuredGate?: boolean }).featuredGate || canManage || featuredOk))
 
   return (
     <div style={{ fontFamily: 'var(--font-body)', minHeight: '100vh' }}>
@@ -255,6 +268,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <ObjectsPage canManage={canManage} isSuperadmin={isSuperadmin} initialObjectId={openObject} />
           ) : section === 'metrics' ? (
             <MetricsPage canManage={canManage} isSuperadmin={isSuperadmin} />
+          ) : section === 'leadership' ? (
+            <LeadershipPage canManage={canManage}
+              onOpen={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'dashboards' ? (
             <DashboardsPage canManage={canManage} isAdmin={isAdmin} isSuperadmin={isSuperadmin} initialDashboardId={openDash} />
           ) : section === 'showcases' ? (

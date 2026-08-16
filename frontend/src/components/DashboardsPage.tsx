@@ -4,7 +4,7 @@ import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import {
   createDashboard, createPage, createPreset, createWidget, deleteDashboard, deletePage, deletePreset, deleteWidget, getDashboard,
-  exportPageXlsx, fitPageLayout, getDataSources, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listFolders, listObjects, listPageWidgets, listPresets,
+  exportPageXlsx, fitPageLayout, getDataSources, getDescriptionDraft, setFeatured, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listFolders, listObjects, listPageWidgets, listPresets,
   listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, updateDashboard, updatePage, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Folder, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
 } from '../api'
@@ -162,6 +162,12 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   async function toggleFav(e: React.MouseEvent, d: Dashboard) {
     e.stopPropagation()
     try { await setDashboardFavorite(d.id, !d.is_favorite); refresh() } catch (e) { fail(e) }
+  }
+  /** Отметка «в подборку Руководителю»: состав подборки, а не доступ к дашборду
+   *  (доступ по-прежнему выдаётся грантами — второй системы прав не заводим). */
+  async function toggleFeatured(e: React.MouseEvent, d: Dashboard) {
+    e.stopPropagation()
+    try { await setFeatured(d.id, !d.featured); refresh() } catch (e) { fail(e) }
   }
   async function doMoveFolder(folderId: string | null) {
     if (!folderTarget) return
@@ -592,6 +598,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
             const t = templates.find((x) => x.id === tpl)
             if (t) setCloneTpl({ id: t.id, name: t.name })
           }}
+          onToggleFeatured={toggleFeatured}
           query={query} setQuery={setQuery} favOnly={favOnly} setFavOnly={setFavOnly}
           dashFrom={dashFrom} setDashFrom={setDashFrom} dashTo={dashTo} setDashTo={setDashTo}
           filterObjId={filterObjId} setFilterObjId={setFilterObjId} filterFolders={filterFolders}
@@ -971,7 +978,11 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
           initial={templateName} onClose={() => setTemplateName(null)} onSave={saveTemplate} />
       )}
       {editDash && sel && (
-        <EditDashboardDialog initial={editDash} onClose={() => setEditDash(null)} onSave={saveDashboardEdit} />
+        <EditDashboardDialog initial={editDash} onClose={() => setEditDash(null)} onSave={saveDashboardEdit}
+          // Черновик описания система собирает по составу дашборда, но НЕ
+          // сохраняет молча: описание — обещание читателю, отвечает за него
+          // человек. Кнопка просто подставляет текст в поле.
+          loadDraft={() => getDescriptionDraft(sel.dashboard.id).then((r) => r.draft)} />
       )}
       {aboutOpen && sel && (
         <AboutDashboard dashboard={sel.dashboard} pages={sel.pages} widgets={widgets}
