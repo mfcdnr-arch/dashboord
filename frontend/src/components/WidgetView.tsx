@@ -122,7 +122,11 @@ function chartOption(data: any): EChartsOption {
   }
 }
 
-export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string }) {
+export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf, stripe = true }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string;
+  /** Рисовать ли цветную ленту состояния вокруг тела. На дашборде её рисует
+   *  САМА карточка (по всей высоте, включая имя) — там лента здесь была бы
+   *  второй полосой внутри первой. */
+  stripe?: boolean }) {
   const [data, setData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [drill, setDrill] = useState<any | null>(null)
@@ -142,7 +146,7 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
 
   const alert = data?.alert
   return (
-    <div style={alert ? { borderLeft: `4px solid ${alert.color}`, background: alert.bg, borderRadius: 6, padding: '6px 8px', margin: '-2px 0' } : undefined}>
+    <div style={alert && stripe ? { borderLeft: `4px solid ${alert.color}`, background: alert.bg, borderRadius: 6, padding: '6px 8px', margin: '-2px 0' } : undefined}>
       {error && <div style={errBox}>{error}</div>}
       {!data && !error && <div style={{ color: '#9aa4b2', fontSize: 13 }}>Загрузка…</div>}
       {alert && (
@@ -757,6 +761,84 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
           </tr></tfoot>
         </table>
         </div>
+      </div>
+    )
+  }
+
+  if (data.type === 'funnel') {
+    // Воронка своими полосами, а не графиком ECharts: главное здесь — не форма
+    // трапеции, а ПОДПИСЬ между этапами («дошли 92,3 %»). У воронки ECharts
+    // такой подписи нет, пришлось бы рисовать её вторым слоем поверх канваса.
+    const stages: any[] = data.stages || []
+    const max = Math.max(1, ...stages.map((s) => s.value || 0))
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {stages.map((s, i) => {
+          const width = Math.max(6, ((s.value || 0) / max) * 100)
+          const drop = s.pct_of_prev != null && s.pct_of_prev < 100
+          return (
+            <div key={s.field || i}>
+              {/* Переход с предыдущего этапа: где именно теряются — ради этого
+                  воронку и смотрят, поэтому потеря названа числом и людьми. */}
+              {i > 0 && s.pct_of_prev != null && (
+                <div style={{ fontSize: 11, color: drop ? 'var(--warn)' : 'var(--success)', margin: '1px 0 1px 2px' }}
+                  title={s.lost != null ? `Потеря на этом шаге: ${fmt(s.lost)}` : undefined}>
+                  ↓ дошли {fmt(s.pct_of_prev)} %{s.lost ? ` · минус ${fmt(s.lost)}` : ''}
+                </div>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-2)', overflow: 'hidden',
+                                textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.name}>{s.name}</div>
+                  <div style={{ height: 16, background: 'var(--border-faint)', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ width: `${width}%`, height: '100%', background: C.palette[i % C.palette.length],
+                                  borderRadius: 4, transition: 'width .4s ease' }} />
+                  </div>
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, minWidth: 64, textAlign: 'right' }}>{fmt(s.value)}</div>
+              </div>
+            </div>
+          )
+        })}
+        {/* Сквозная конверсия: сколько дошло от первого этапа до последнего. */}
+        {stages.length > 2 && stages[stages.length - 1].pct_of_first != null && (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+            От первого этапа до последнего дошли <b>{fmt(stages[stages.length - 1].pct_of_first)} %</b>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (data.type === 'status_grid') {
+    // «Светофор»: плитка на строку формы. Читается как список «у кого плохо»,
+    // а не как таблица, которую надо просматривать числом за числом.
+    const cells: any[] = data.cells || []
+    if (!cells.length) return <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Нет строк для показа</div>
+    return (
+      <div style={{ display: 'grid', gap: 6, gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))' }}>
+        {cells.map((c, i) => (
+          <div key={c.label || i}
+            title={c.plan != null ? `План: ${fmt(c.plan)} · факт: ${fmt(c.value)}` : String(c.label)}
+            style={{
+              border: `1px solid ${c.color || 'var(--border)'}`,
+              // Заливку даём только сработавшему порогу: если раскрасить всё,
+              // цвет перестанет означать «сюда посмотри».
+              background: c.color ? `${c.color}14` : 'var(--surface-2)',
+              borderRadius: 8, padding: '6px 8px',
+            }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden',
+                          textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.label}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: c.color || 'var(--text)' }}>
+              {data.compared_to_plan && c.pct != null ? `${fmt(c.pct)} %` : fmt(c.value)}
+            </div>
+            {data.compared_to_plan && c.pct != null && (
+              <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
+                {fmt(c.value)} из {fmt(c.plan)}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     )
   }

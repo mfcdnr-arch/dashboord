@@ -289,7 +289,9 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
   const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall'].includes(type)
   const usesValueField = ['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall'].includes(type) || (['kpi', 'gauge'].includes(type) && source === 'dataset')
-  const usesMulti = type === 'compare' || type === 'heatmap' || type === 'pivot'
+  // Воронка тоже набирается из нескольких полей, но порядок галочек для неё
+  // ЗНАЧИМ: это последовательность этапов, а не просто набор столбцов.
+  const usesMulti = type === 'compare' || type === 'heatmap' || type === 'pivot' || type === 'funnel'
   const toggleField = (c: string) => setMultiFields((s) => s.includes(c) ? s.filter((x) => x !== c) : [...s, c])
 
   // Шкала спидометра (gauge): максимум; пусто — авто.
@@ -333,6 +335,11 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         : null
     }
     if (type === 'compare') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields, viz, ...(scale ? { scale } : {}) } : null
+    // Воронка: минимум два этапа, иначе показывать нечего — «сколько дошло»
+    // существует только при переходе с шага на шаг.
+    if (type === 'funnel') return (dataset && multiFields.length >= 2) ? { dataset_code: dataset, value_fields: multiFields } : null
+    if (type === 'status_grid') return (dataset && valueField)
+      ? { dataset_code: dataset, value_field: valueField, ...(planField ? { plan_field: planField } : {}) } : null
     if (type === 'heatmap' || type === 'pivot') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields } : null
     if (type === 'dynamics') return (dataset && valueField) ? {
       dataset_code: dataset, value_field: valueField,
@@ -557,7 +564,8 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       )}
       {usesMulti && (
         <>
-          <F t={type === 'heatmap' ? 'Поля (столбцы карты)' : 'Поля (несколько)'}>
+          <F t={type === 'heatmap' ? 'Поля (столбцы карты)'
+            : type === 'funnel' ? 'Этапы воронки — в порядке следования' : 'Поля (несколько)'}>
             {/* Высота была жёстко задана в 34px: полтора десятка длинных имён
                 показателей госформы туда не помещались и наезжали на соседние
                 поля формы. Теперь список занимает столько, сколько нужно, но не
@@ -593,6 +601,16 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
             </>
           )}
         </>
+      )}
+      {/* У светофора план необязателен: без него плитки красятся по порогам
+          самого значения, с ним — по проценту выполнения. */}
+      {type === 'status_grid' && (
+        <F t="Поле плана (необязательно) — тогда цвет по % выполнения">
+          <select style={sel} value={planField} onChange={(e) => setPlanField(e.target.value)}>
+            <option value="">без плана</option>
+            {numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
+          </select>
+        </F>
       )}
       {type === 'plan_fact' && source === 'dataset' && (
         <>

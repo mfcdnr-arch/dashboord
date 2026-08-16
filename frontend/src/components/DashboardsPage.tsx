@@ -851,6 +851,14 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                   {widgets.map((w) => (
                     <div key={w.id} style={{ ...widgetCard, height: '100%', overflow: 'hidden',
                       display: 'flex', flexDirection: 'column',
+                      // Состояние показателя — лентой по ВСЕЙ карточке, вместе с
+                      // именем: раньше красилось только тело под шапкой, и на
+                      // странице из полутора десятков карточек «где плохо»
+                      // приходилось искать глазами по цифрам.
+                      ...(pageData[w.id]?.data?.alert
+                        ? { borderLeft: `4px solid ${pageData[w.id]!.data!.alert.color}`,
+                            background: pageData[w.id]!.data!.alert.bg }
+                        : {}),
                       outline: editMode ? '1px dashed var(--text-faint)' : 'none' }}>
                       {/* Шапка в два ряда: сверху ИМЯ (оно главное — виджет без
                           названия ничего не сообщает), снизу значок типа и
@@ -925,7 +933,8 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                           <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} row={crossRow || undefined}
                             pageAsOf={asOf || undefined}
                             onPick={(name) => setCrossRow((cur) => cur === name ? null : name)}
-                            batched={!batchFailed} injData={pageData[w.id]?.data} injError={pageData[w.id]?.error} />
+                            batched={!batchFailed} injData={pageData[w.id]?.data} injError={pageData[w.id]?.error}
+                            stripe={false} />
                         </div>
                       )}
                     </div>

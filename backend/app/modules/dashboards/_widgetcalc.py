@@ -223,6 +223,56 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         return {"type": "waterfall", "title": name, "categories": cats, "values": vals,
                 "total_label": cfg.get("total_label") or "Итого"}
 
+    if t == "funnel":
+        # Воронка: этапы процесса по ПОЛЯМ формы (обращения → отправлено →
+        # доставлено → записались). Четыре карточки показывают четыре числа,
+        # но не отвечают на главный вопрос — ГДЕ теряются люди; воронка
+        # отвечает: у каждого этапа подписано, какая доля дошла с предыдущего.
+        fields = cfg.get("value_fields") or []
+        if not cfg.get("dataset_code") or len(fields) < 2:
+            raise DashboardError("Воронка: укажите dataset_code и минимум два этапа (value_fields)")
+        stages = []
+        for f in fields:
+            value, _how, _rows = await _column_value(conn, org_id, cfg, f, row, allowed, period)
+            title = await _field_title(conn, org_id, cfg["dataset_code"], f, period)
+            stages.append({"field": f, "name": title or f, "value": value})
+        first = stages[0]["value"] or 0
+        for i, st in enumerate(stages):
+            prev = stages[i - 1]["value"] if i else None
+            # Доля от предыдущего этапа — это и есть «сколько дошло»; доля от
+            # первого показывает сквозные потери всей цепочки.
+            st["pct_of_prev"] = (st["value"] / prev * 100.0) if i and prev else None
+            st["pct_of_first"] = (st["value"] / first * 100.0) if first else None
+            st["lost"] = (prev - st["value"]) if i and prev is not None else None
+        return {"type": "funnel", "title": name, "stages": stages, "unit": cfg.get("unit")}
+
+    if t == "status_grid":
+        # «Светофор» по строкам: плитка на каждую строку формы (район, субъект,
+        # отделение) с цветом по порогам. Таблица на два десятка строк требует
+        # читать числа подряд; плитки отвечают на вопрос «у кого плохо» сразу.
+        field = cfg.get("value_field")
+        if not cfg.get("dataset_code") or not field:
+            raise DashboardError("Светофор: укажите dataset_code и показатель")
+        series = await _dataset_series(conn, org_id, cfg["dataset_code"], field, row, allowed, period)
+        plan_by_row: Dict[str, float] = {}
+        if cfg.get("plan_field"):
+            plan_by_row = {s["category"]: s["value"] for s in await _dataset_series(
+                conn, org_id, cfg["dataset_code"], cfg["plan_field"], row, allowed, period)}
+        tiles: List[dict] = []
+        for s in series:
+            plan = plan_by_row.get(s["category"])
+            pct = (s["value"] / plan * 100.0) if plan else None
+            # Цвет берут ТЕ ЖЕ пороги, что и остальные виджеты: своя шкала
+            # цветов рядом с общей означала бы, что красный на соседних
+            # виджетах значит разное.
+            measure = pct if pct is not None else s["value"]
+            alert = evaluate_alert("kpi", cfg, {"value": measure})
+            tiles.append({"label": s["category"], "value": s["value"], "plan": plan,
+                          "pct": pct, "level": (alert or {}).get("level"),
+                          "color": (alert or {}).get("color")})
+        return {"type": "status_grid", "title": name, "cells": tiles,
+                "unit": cfg.get("unit"), "compared_to_plan": bool(plan_by_row)}
+
     if t == "objects_compare":
         # Сравнение подразделений: показатель (поле) агрегируется по ОБЪЕКТАМ
         # (каждый объект = подразделение/филиал), берётся последний выпуск на объект.
