@@ -339,6 +339,14 @@ export async function getPageData(pageId: string, from?: string, to?: string, ro
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+/** Подогнать размеры виджетов страницы под их тип. Состав не меняется —
+ *  двигаются только размер и место (лечит старые дашборды с карточками 3×3). */
+export async function fitPageLayout(pageId: string): Promise<{ widgets: number; changed: number }> {
+  const res = await fetch(`/dashboard-pages/${pageId}/fit-layout`, { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 export async function createWidget(pageId: string, body: {
   name: string; widget_type: string; config: Record<string, unknown>
   position_x?: number; position_y?: number; width?: number; height?: number

@@ -8,7 +8,7 @@ _widgetcalc (расчёт по типу) и _widgetdata (оркестрация/
 from __future__ import annotations
 
 import json
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from ..metrics import resolver as mr
 from ..metrics.parser import FormulaError, parse
@@ -100,6 +100,18 @@ async def _dataset_series(conn, org_id, dataset_code: str, value_field: str, row
         f"and ($3::text is null or row_label=$3){acl} order by row_index", *params,
     )
     return [{"category": r["row_label"], "value": float(r["value_number"])} for r in rows]
+
+
+async def _field_title(conn, org_id, dataset_code: str, field_code: str, period=None) -> Optional[str]:
+    """Человеческое имя столбца («… · Доля, %»): по нему видно, можно ли его
+    складывать. Код поля для этого не годится — он транслит и обрезан."""
+    rel = await mr._active_release(conn, org_id, dataset_code, period)
+    if rel is None:
+        return None
+    return await conn.fetchval(
+        "select cf.name from canonical_fields cf "
+        "where cf.code=$2 and cf.object_id=(select object_id from dataset_releases where id=$1)",
+        rel, field_code)
 
 
 async def _dataset_multi_series(conn, org_id, dataset_code: str, value_fields: List[str], row=None,

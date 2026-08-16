@@ -41,6 +41,7 @@ from ._suggest import (  # noqa: F401
     auto_build,
     auto_build_plan,
     dashboard_metric_codes,
+    fit_layout,
     place_metric_widget,
     suggest_widgets,
 )
@@ -493,6 +494,39 @@ async def update_widget(conn, org_id, widget_id: str, patch: dict) -> dict:
     )
     await cache.delete_prefix(f"wd:{widget_id}:")  # инвалидируем кэш данных виджета
     return {"id": str(row["id"])}
+
+
+async def fit_page_layout(conn, org_id, page_id: str) -> dict:
+    """Подогнать размеры виджетов страницы под их тип.
+
+    Дашборды, собранные до перехода авто-сборки на крупные карточки, держат
+    виджеты 3×3: имя показателя обрезается до «Колич обращ за…», а число не
+    помещается вместе с шапкой. Растягивать полтора десятка карточек мышью по
+    одной — занятие на полчаса, поэтому та же раскладка, что у авто-сборки,
+    применяется одной кнопкой. Состав страницы НЕ меняется: ни один виджет не
+    добавляется и не удаляется — двигаются только размер и место.
+    """
+    p = await _page_org(conn, org_id, page_id)
+    if p is None:
+        raise DashboardError("Страница не найдена")
+    await _assert_editable(conn, p["dashboard_id"])
+    rows = await conn.fetch(
+        "select id, widget_type, position_x, position_y, width, height from widgets "
+        "where page_id=$1::uuid order by position_y, position_x", page_id)
+    if not rows:
+        raise DashboardError("На странице нет виджетов")
+    changed = 0
+    for spec in fit_layout([dict(r) for r in rows]):
+        was = next(r for r in rows if str(r["id"]) == spec["id"])
+        if (was["position_x"], was["position_y"], was["width"], was["height"]) == (
+                spec["position_x"], spec["position_y"], spec["width"], spec["height"]):
+            continue
+        await conn.execute(
+            "update widgets set position_x=$2, position_y=$3, width=$4, height=$5, updated_at=now() "
+            "where id=$1::uuid",
+            spec["id"], spec["position_x"], spec["position_y"], spec["width"], spec["height"])
+        changed += 1
+    return {"widgets": len(rows), "changed": changed}
 
 
 async def delete_widget(conn, org_id, widget_id: str) -> None:

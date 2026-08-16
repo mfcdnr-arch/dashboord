@@ -9,6 +9,7 @@ import math
 import statistics
 from typing import Dict, List, Optional
 
+from ._aggregate import aggregate_series
 from ._alerts import evaluate_alert
 from ._base import DashboardError
 from ._rowrls import allowed_rows_for_dataset
@@ -18,9 +19,23 @@ from ._widgetsources import (
     _dataset_period_series,
     _dataset_series,
     _dataset_table,
+    _field_title,
     _formula_value,
     _metric_value,
 )
+
+
+async def _column_value(conn, org_id, cfg: dict, field: str, row, allowed, period):
+    """Одно число по столбцу датасета: сумма количеств, среднее у долей.
+
+    Возвращает (значение, способ, число строк): способ и число строк нужны
+    карточке, чтобы подписать «среднее по N строкам», — среднее по долям это
+    приближение, и выдавать его за точный итог нельзя.
+    """
+    series = await _dataset_series(conn, org_id, cfg["dataset_code"], field, row, allowed, period)
+    title = await _field_title(conn, org_id, cfg["dataset_code"], field, period)
+    value, how = aggregate_series((s["value"] for s in series), title, cfg.get("unit"))
+    return value, how, len(series)
 
 
 def _apply_target(res: dict, cfg: dict, value) -> None:
@@ -350,12 +365,23 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
             value, unit = await _formula_value(conn, org_id, cfg["formula"]), cfg.get("unit")
         elif cfg.get("metric_code"):
             value, unit = await _metric_value(conn, org_id, cfg["metric_code"])
+        how, rows_used = "sum", 0
+        if cfg.get("formula"):
+            value, unit = await _formula_value(conn, org_id, cfg["formula"]), cfg.get("unit")
+        elif cfg.get("metric_code"):
+            value, unit = await _metric_value(conn, org_id, cfg["metric_code"])
         elif cfg.get("dataset_code") and cfg.get("value_field"):
-            series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed, period)
-            value, unit = sum(s["value"] for s in series), cfg.get("unit")
+            value, how, rows_used = await _column_value(
+                conn, org_id, cfg, cfg["value_field"], row, allowed, period)
+            unit = cfg.get("unit")
         else:
             raise DashboardError("KPI: укажите формулу, metric_code или dataset_code+value_field")
         res = {"type": "kpi", "value": value, "unit": unit, "title": name}
+        # Способ сворачивания строк подписывается в карточке, но только когда
+        # он неочевиден: среднее по нескольким строкам — приближение, и выдать
+        # его за точный итог значило бы соврать. Сумма подписи не требует.
+        if how == "avg" and rows_used > 1:
+            res["aggregate"], res["rows_used"] = how, rows_used
         # Два необязательных украшения, которые превращают голое число в
         # показатель: прирост к прошлому отчёту и мини-график по периодам.
         # Оба ВЫКЛЮЧЕНЫ по умолчанию — это лишние запросы, а на странице
@@ -378,13 +404,15 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
 
     if t == "gauge":
         # Спидометр: значение как у KPI + шкала (max). Идеален для «% выполнения».
+        how, rows_used = "sum", 0
         if cfg.get("formula"):
             value, unit = await _formula_value(conn, org_id, cfg["formula"]), cfg.get("unit")
         elif cfg.get("metric_code"):
             value, unit = await _metric_value(conn, org_id, cfg["metric_code"])
         elif cfg.get("dataset_code") and cfg.get("value_field"):
-            series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed, period)
-            value, unit = sum(s["value"] for s in series), cfg.get("unit")
+            value, how, rows_used = await _column_value(
+                conn, org_id, cfg, cfg["value_field"], row, allowed, period)
+            unit = cfg.get("unit")
         else:
             raise DashboardError("Gauge: укажите формулу, metric_code или dataset_code+value_field")
         gmax = cfg.get("gauge_max")
@@ -397,6 +425,8 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
             else:
                 gmax = round((value or 0) * 1.25) or 100
         res = {"type": "gauge", "value": value, "unit": unit, "max": gmax, "title": name}
+        if how == "avg" and rows_used > 1:
+            res["aggregate"], res["rows_used"] = how, rows_used
         _apply_target(res, cfg, value)
         res["alert"] = evaluate_alert("kpi", cfg, res)  # те же пороги, что и KPI
         return res
@@ -406,10 +436,10 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
             plan, unit = await _metric_value(conn, org_id, cfg["plan_metric"])
             fact, _ = await _metric_value(conn, org_id, cfg["fact_metric"])
         elif cfg.get("dataset_code") and cfg.get("plan_field") and cfg.get("fact_field"):
-            plan = sum(s["value"] for s in await _dataset_series(
-                conn, org_id, cfg["dataset_code"], cfg["plan_field"], row, allowed, period))
-            fact = sum(s["value"] for s in await _dataset_series(
-                conn, org_id, cfg["dataset_code"], cfg["fact_field"], row, allowed, period))
+            # Тем же правилом, что и карточка: план и факт в процентах по
+            # нескольким строкам складывать нельзя.
+            plan, _, _ = await _column_value(conn, org_id, cfg, cfg["plan_field"], row, allowed, period)
+            fact, _, _ = await _column_value(conn, org_id, cfg, cfg["fact_field"], row, allowed, period)
             unit = cfg.get("unit")
         else:
             raise DashboardError("План-факт: укажите plan_metric+fact_metric или dataset_code+plan_field+fact_field")

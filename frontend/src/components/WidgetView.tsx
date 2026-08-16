@@ -18,6 +18,15 @@ function fmtAsOf(iso: string): string {
   return isNaN(d.getTime()) ? iso : d.toLocaleDateString('ru-RU')
 }
 
+// Один ли это отчётный день. Сравниваем по КАЛЕНДАРНОЙ дате, а не по строке:
+// свежесть страницы и as_of виджета приходят из разных запросов и могут
+// отличаться временем внутри суток.
+function sameDay(a?: string, b?: string): boolean {
+  if (!a || !b) return false
+  const x = new Date(a), y = new Date(b)
+  return !isNaN(x.getTime()) && !isNaN(y.getTime()) && x.toDateString() === y.toDateString()
+}
+
 // Высота графика под РЕАЛЬНО доступное место в карточке.
 // Раньше высота была константой: как только под графиком добавилась вторая строка
 // итогов, содержимое перестало помещаться (276px против 192px), карточка включила
@@ -113,7 +122,7 @@ function chartOption(data: any): EChartsOption {
   }
 }
 
-export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string }) {
+export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string }) {
   const [data, setData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [drill, setDrill] = useState<any | null>(null)
@@ -146,10 +155,16 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
         {data && showDrill && data.type !== 'text' && data.type !== 'image' && (
           <button style={drillBtn} onClick={openDrill} title="Из чего собран показатель">🔍 подробнее</button>
         )}
-        {data?.as_of && (
+        {data?.as_of && (data.period_locked || !sameDay(data.as_of, pageAsOf)) && (
           // У виджета с закреплённым периодом это СРЕЗ: он не обновится, когда
           // придёт следующая неделя. Не сказать об этом — значит выдать снимок
           // за актуальные данные.
+          //
+          // А вот когда дата виджета совпадает с общей датой страницы (она
+          // написана строкой над сеткой), повторять её в КАЖДОЙ карточке незачем:
+          // это дубль, который на карточке в три ряда съедал место у самого
+          // числа и включал прокрутку. Отличается — показываем: значит виджет
+          // смотрит на другие данные, и это важно.
           <span
             style={{ fontSize: 11, color: data.period_locked ? 'var(--warn)' : 'var(--text-faint)' }}
             title={data.period_locked
@@ -209,6 +224,25 @@ function TargetLine({ data }: { data: any }) {
     <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
       {data.target_label || 'Цель'}: <b style={{ color: 'var(--text-2)' }}>{fmt(data.target)}</b>
       {pct != null && <span style={{ marginLeft: 6, color: reached ? 'var(--success)' : 'var(--warn)', fontWeight: 600 }}>· {fmt(pct)}%{reached ? ' ✓' : ''}</span>}
+    </div>
+  )
+}
+
+/**
+ * Как получено число, когда это неочевидно.
+ *
+ * Доли и проценты по нескольким строкам нельзя складывать, поэтому карточка
+ * показывает среднее — но среднее по строкам это приближение (правильная доля
+ * считается из числителя и знаменателя, а их у столбца-процента уже нет).
+ * Промолчать значило бы выдать приближение за точный итог. Для суммы подписи
+ * нет: сложение количеств никого не удивляет, а лишняя строка съедает высоту.
+ */
+function AggregateNote({ data }: { data: any }) {
+  if (data.aggregate !== 'avg') return null
+  return (
+    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}
+      title="Проценты и доли по строкам не складываются — показано среднее. Точное значение по одной строке смотрите фильтром «Строка» или в таблице">
+      среднее по {data.rows_used} строкам
     </div>
   )
 }
@@ -314,6 +348,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
         {Array.isArray(data.spark) && data.spark.length > 1 && (
           <Sparkline values={data.spark as number[]} color={data.alert?.color || 'var(--accent)'} />
         )}
+        <AggregateNote data={data} />
         <TargetLine data={data} />
       </div>
     )
@@ -368,6 +403,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
               шкала 0…{fmt(max)}{data.unit ? ` ${data.unit}` : ''}
             </div>
           )}
+          <AggregateNote data={data} />
           <TargetLine data={data} />
         </div>
       </div>

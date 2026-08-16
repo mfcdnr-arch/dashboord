@@ -11,6 +11,7 @@ from typing import List, Optional
 
 from ..metrics import resolver as mr
 from ..metrics.data_suggestions import _is_main_slice, _split_name, _subject_key
+from ._aggregate import is_share
 from ._alerts import _cfg
 from ._base import DashboardError
 
@@ -53,6 +54,45 @@ def metric_widget_spec(unit, *, plan_execution: bool) -> tuple:
     if plan_execution:
         cfg["alerts"] = [dict(r) for r in PLAN_PCT_ALERTS]
     return ("gauge" if _is_percent(unit) else "kpi"), cfg
+
+
+# Размер виджета по типу — тот же, что выбирает авто-сборка. Собран в одном
+# месте, чтобы «подгонка размеров» существующего дашборда и сборка нового не
+# разошлись: иначе пересобранная страница выглядела бы иначе, чем подогнанная.
+# Числа не из головы, а из замеров: на трёх колонках имя госформы обрезается до
+# «Колич обращ за…», а карточка в три ряда не вмещает число вместе с шапкой.
+WIDGET_SIZE = {
+    "kpi": (4, 5),
+    "gauge": (4, 7),
+    "plan_fact": (6, 6),
+    "dynamics": (4, 6),
+    "bar": (12, 6), "line": (12, 6), "pie": (6, 6), "waterfall": (6, 6),
+    "compare": (12, 8), "cross_dataset_compare": (12, 8), "yoy": (12, 6),
+    "heatmap": (6, 7), "pivot": (12, 6), "table": (12, 6),
+    "text": (12, 2), "image": (6, 5),
+}
+
+
+def fit_layout(widgets: list) -> list:
+    """Пересчёт раскладки страницы: каждому виджету — размер по его типу,
+    порядок сохраняется, ряд заполняется слева направо.
+
+    Нужна старым дашбордам: собранные до перехода авто-сборки на крупные
+    карточки, они держат виджеты 3×3, где имя показателя обрезается, а число
+    не помещается вовсе. Растягивать полтора десятка карточек мышью по одной —
+    занятие на полчаса.
+    """
+    out: list = []
+    x = y = row_h = 0
+    for w in widgets:
+        width, height = WIDGET_SIZE.get(w["widget_type"], (4, 5))
+        if x + width > 12:            # в ряду не осталось места — новая строка
+            x, y, row_h = 0, y + row_h, 0
+        out.append({"id": str(w["id"]), "position_x": x, "position_y": y,
+                    "width": width, "height": height})
+        x += width
+        row_h = max(row_h, height)
+    return out
 
 
 def _grid_rows(items: list, start_y: int, per_row: int, width: int, height: int):
@@ -323,6 +363,20 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
                 ov_y += ((len(pairs) + 1) // 2) * pf_h
 
         cards = [f for f in shown if view_of(f) in ("kpi", "both")] if "kpi" in blocks else []
+        # Процентная ГРАФА формы («Доля отказов, %») — тоже спидометр, как и
+        # расчётный процент: доля читается на шкале, а не голым числом. Раньше
+        # этого не делали, потому что карточка складывала проценты по строкам
+        # и шкала показала бы бессмыслицу; теперь такие столбцы усредняются
+        # (`_aggregate`), и шкале есть что показывать.
+        gauges = [f for f in cards if is_share(f["name"])]
+        cards = [f for f in cards if f not in gauges]
+        for i, f in enumerate(gauges):
+            specs.append({"page": PAGE_OVERVIEW, "name": f["name"], "widget_type": "gauge",
+                          "config": {"dataset_code": code, "value_field": f["code"], "unit": "%"},
+                          "position_x": (i % 3) * 4, "position_y": ov_y + (i // 3) * 7,
+                          "width": 4, "height": 7})
+        if gauges:
+            ov_y += _rows_height(len(gauges), 3, 7)
         # По ТРИ в ряд, а не по четыре: имена госформ длинные («Количество
         # отправленных уведомлений … · Факт · нарастающим итогом»), и на
         # четверти ширины от них оставалось «Количестı отправ…» — карточка

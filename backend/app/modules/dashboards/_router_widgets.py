@@ -62,6 +62,17 @@ async def export_page_xlsx(page_id: str, user: dict = Depends(get_current_user))
     )
 
 
+@router.post("/dashboard-pages/{page_id}/fit-layout")
+async def fit_layout(page_id: str, user: dict = Depends(manage)):
+    """Подогнать размеры виджетов страницы под их тип (состав не меняется)."""
+    async with db.acquire(user["id"]) as conn:
+        try:
+            async with conn.transaction():
+                return await service.fit_page_layout(conn, user["organization_id"], page_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.get("/dashboard-pages/{page_id}/widgets")
 async def list_widgets(page_id: str, user: dict = Depends(get_current_user)):
     async with db.acquire(user["id"]) as conn:

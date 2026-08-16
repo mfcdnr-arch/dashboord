@@ -4,7 +4,7 @@ import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import {
   createDashboard, createPage, createPreset, createWidget, deleteDashboard, deletePage, deletePreset, deleteWidget, getDashboard,
-  exportPageXlsx, getDataSources, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listFolders, listObjects, listPageWidgets, listPresets,
+  exportPageXlsx, fitPageLayout, getDataSources, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listFolders, listObjects, listPageWidgets, listPresets,
   listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, updateDashboard, updatePage, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Folder, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
 } from '../api'
@@ -309,6 +309,21 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
     })) return
     try { await deletePage(p.id); const d = await getDashboard(sel.dashboard.id); setSel(d); setPage(null); setWidgets([]) }
     catch (e) { fail(e) }
+  }
+  /** Подогнать размеры виджетов страницы под их тип (старые дашборды 3×3). */
+  async function fitLayout() {
+    if (!page || !await ask({
+      title: 'Подогнать размеры виджетов?',
+      message: 'Каждый виджет получит размер по своему типу, и они лягут по сетке заново: '
+        + 'карточки крупнее (имя показателя перестанет обрезаться), графики и таблицы — во всю ширину. '
+        + 'Состав страницы не изменится, ни один виджет не пропадёт. Расстановку потом можно поправить мышью.',
+      confirmLabel: 'Подогнать', busyLabel: 'Подгоняем…', tone: 'accent',
+    })) return
+    setBusy(true); setError(null)
+    try {
+      await fitPageLayout(page.id)
+      await reloadPage(); setReloadKey((k) => k + 1)
+    } catch (e) { fail(e) } finally { setBusy(false) }
   }
   async function addWidget(body: { name: string; widget_type: string; config: Record<string, unknown>; width?: number; height?: number }) {
     if (!page) return
@@ -733,6 +748,15 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                     {editMode ? '✓ Готово' : '✎ Двигать и менять размер'}
                   </button>
                 )}
+                {/* Дашборды, собранные до перехода авто-сборки на крупные
+                    карточки, держат виджеты 3×3: имя обрезается до
+                    «Колич обращ за…», число не помещается. Растягивать их
+                    мышью по одному — полчаса работы. */}
+                {canManage && editMode && (
+                  <button style={{ ...tab, height: 30 }} disabled={busy}
+                    title="Поставить каждому виджету размер по его типу и разложить по сетке. Состав страницы не изменится"
+                    onClick={fitLayout}>↕ Подогнать размеры</button>
+                )}
                 {canManage && <button style={linkDanger} onClick={() => delPage(page)}>удалить страницу</button>}
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
                   <span>Период:</span>
@@ -823,7 +847,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                           пропадало. У СВЁРНУТОГО виджета высота всего 40px —
                           там оставляем только ▸ и имя, иначе не поместится
                           даже кнопка разворачивания. */}
-                      <div className={editMode ? 'wdrag' : ''} style={{ marginBottom: 8, flexShrink: 0, cursor: editMode ? 'move' : 'default' }}>
+                      <div className={editMode ? 'wdrag' : ''} style={{ marginBottom: 4, flexShrink: 0, cursor: editMode ? 'move' : 'default' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
                           <button className="wnodrag" style={{ ...editBtn, cursor: 'pointer', flexShrink: 0 }} onClick={() => toggleCollapse(w.id)}
                             title={collapsed.has(w.id) ? 'Развернуть виджет' : 'Свернуть виджет'}>{collapsed.has(w.id) ? '▸' : '▾'}</button>
@@ -837,13 +861,27 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                               У развёрнутого виджета обрезаем стилем: три строки на
                               карточке шириной в треть ряда вмещают осмысленный
                               кусок имени, а полное имя — в подсказке. */}
+                          {/* Имя занимает ВСЮ ширину строки: на карточке в треть
+                              ряда каждый соседний элемент отъедает у него столько,
+                              что остаётся «Колич обр…» — проверено, значок ⓘ рядом
+                              с именем именно к этому и приводил. Значок живёт
+                              отдельной строкой ниже. */}
                           <div style={{
                             fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden',
                             ...(collapsed.has(w.id)
                               ? { textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-                              : { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', lineHeight: 1.25 }),
+                              : { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', lineHeight: 1.2 }),
                           }}
                             title={w.name}>{collapsed.has(w.id) ? elideMiddle(w.name, 70) : w.name}</div>
+                          {/* ⓘ — в строке с именем, а не отдельным рядом: свой ряд
+                              стоил 21px, и на карточке в три ряда (144px) их не
+                              хватало под само число. По ширине значок отнимает у
+                              имени ~20px из 200 — три строки остаются читаемыми
+                              (проверено: до двух строк ужимать нельзя, тогда от
+                              имени остаётся «Колич обр…»). */}
+                          {!collapsed.has(w.id) && !editMode && (
+                            <span style={{ flexShrink: 0, alignSelf: 'flex-start' }}><InfoTip text={widgetTip(w)} /></span>
+                          )}
                         </div>
                         {/* Служебный ряд (тип виджета, правка, пороги, удаление)
                             показываем ТОЛЬКО в режиме правки. В обычном просмотре
@@ -868,17 +906,11 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                             </span>
                           </div>
                         )}
-                        {/* Вне режима правки оставляем только пояснение — одной
-                            строкой рядом с именем, чтобы не занимать высоту.
-                            Одинаково для всех ролей: зрителю пояснение «что за
-                            цифра» нужно даже больше, чем тому, кто её настроил. */}
-                        {!collapsed.has(w.id) && !editMode && (
-                          <div style={{ marginTop: 2 }}><InfoTip text={widgetTip(w)} /></div>
-                        )}
                       </div>
                       {!collapsed.has(w.id) && (
                         <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>
                           <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} row={crossRow || undefined}
+                            pageAsOf={asOf || undefined}
                             onPick={(name) => setCrossRow((cur) => cur === name ? null : name)}
                             batched={!batchFailed} injData={pageData[w.id]?.data} injError={pageData[w.id]?.error} />
                         </div>
