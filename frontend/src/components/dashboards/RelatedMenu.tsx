@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { getWidgetRelated, type RelatedWidgetRef, type WidgetRelated } from '../../api'
+import { plural } from '../../lib/text'
 
 const TYPE_RU: Record<string, string> = {
   kpi: 'карточка', gauge: 'спидометр', bar: 'столбцы', line: 'линия', pie: 'круговая',
@@ -110,7 +111,7 @@ export default function RelatedMenu(
             <Group title="В динамике">
               {data.dynamics.available ? (
                 <div style={muted}>
-                  По этой форме есть {data.dynamics.periods} отчётных периодов
+                  По этой форме есть {data.dynamics.periods} {plural(data.dynamics.periods, 'отчётный период', 'отчётных периода', 'отчётных периодов')}
                   {data.dynamics.first && data.dynamics.last
                     && ` (с ${ru(data.dynamics.first)} по ${ru(data.dynamics.last)})`} — движение построить можно.
                   {data.elsewhere.some((r) => r.widget_type === 'dynamics')

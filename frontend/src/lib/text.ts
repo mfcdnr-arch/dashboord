@@ -48,3 +48,19 @@ export function distinctLabels(names: string[]): string[] {
   if (uniqCut !== uniqNames || uniqNames < 2) return names
   return cut
 }
+
+/** Русское склонение по числу: plural(2, 'период', 'периода', 'периодов').
+ *
+ * Правило единственное на весь фронт: «есть 2 отчётных периодов» — мелочь,
+ * которая читается как небрежность и подрывает доверие к самим цифрам рядом.
+ * На бэкенде такой помощник уже живёт (`_describe._plural`) — здесь его
+ * зеркало для текстов, которые собираются в интерфейсе.
+ */
+export function plural(n: number, one: string, few: string, many: string): string {
+  const tail = Math.abs(n) % 100
+  if (tail >= 11 && tail <= 14) return many
+  const last = tail % 10
+  if (last === 1) return one
+  if (last >= 2 && last <= 4) return few
+  return many
+}
