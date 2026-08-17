@@ -19,6 +19,25 @@ const STATUS_LABEL: Record<string, { t: string; bg: string; c: string }> = {
   closed: { t: 'закрыто', bg: 'var(--surface-3)', c: 'var(--text-faint)' },
 }
 
+// Ожидание печатаем в тех единицах, в которых о нём думают: минуты в первый час,
+// часы в первые сутки, дальше дни. «53,7 ч» требует считать в уме.
+function fmtWait(hours: number): string {
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} мин`
+  if (hours < 24) return `${Math.round(hours)} ч`
+  const d = Math.floor(hours / 24)
+  return `${d} дн`
+}
+
+function waitStyle(hours: number, limit: number): React.CSSProperties {
+  const over = hours > limit
+  return {
+    fontSize: 11, padding: '2px 8px', borderRadius: 10, whiteSpace: 'nowrap',
+    background: over ? 'var(--danger-bg)' : 'var(--surface-3)',
+    color: over ? 'var(--danger)' : 'var(--text-2)',
+    fontWeight: over ? 600 : 400,
+  }
+}
+
 function StatusBadge({ status }: { status: string }) {
   const s = STATUS_LABEL[status] || STATUS_LABEL.open
   return <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: s.bg, color: s.c, whiteSpace: 'nowrap' }}>{s.t}</span>
@@ -43,10 +62,18 @@ export default function AppealsPanel(
   const [reply, setReply] = useState('')
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Срок ответа, заявленный организацией («Настройки»). Приходит со списком,
+  // чтобы правило было одно и не расходилось с сервером.
+  const [respHours, setRespHours] = useState(24)
 
   const load = () => {
-    const p = isStaff ? listAppeals(statusFilter || undefined) : listMyAppeals()
-    p.then((r) => setItems(r.items)).catch((e) => setErr((e as Error).message))
+    if (isStaff) {
+      listAppeals(statusFilter || undefined)
+        .then((r) => { setItems(r.items); if (r.response_hours) setRespHours(r.response_hours) })
+        .catch((e) => setErr((e as Error).message))
+    } else {
+      listMyAppeals().then((r) => setItems(r.items)).catch((e) => setErr((e as Error).message))
+    }
   }
   useEffect(() => { load() }, [statusFilter]) // eslint-disable-line react-hooks/exhaustive-deps
   // Переход из уведомления: открываем сразу нужную переписку, а не список.
@@ -99,6 +126,21 @@ export default function AppealsPanel(
             <button style={{ ...btnGhost, marginLeft: 'auto' }} disabled={busy} onClick={doClose}>Закрыть обращение</button>
           )}
         </div>
+        {/* Автору: заметили ли жалобу. Администратору: сколько она ждёт.
+            Вопросы разные, поэтому и строки разные. */}
+        {!isStaff && (
+          <div style={{ fontSize: 12, color: detail.first_seen_at ? 'var(--success)' : 'var(--text-muted)', marginBottom: 10 }}>
+            {detail.first_seen_at
+              ? `👁 Просмотрено ${fmtDt(detail.first_seen_at)}${detail.first_seen_by ? ` · ${detail.first_seen_by}` : ''}`
+              : '⏳ Обращение отправлено, администратор его ещё не открывал. Ответ придёт уведомлением.'}
+          </div>
+        )}
+        {isStaff && detail.status === 'open' && (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+            ⏱ Ждёт ответа с {fmtDt(detail.created_at)}
+            {detail.first_seen_at ? ` · впервые открыто ${fmtDt(detail.first_seen_at)}${detail.first_seen_by ? ` (${detail.first_seen_by})` : ''}` : ''}
+          </div>
+        )}
         {/* Жалоба пришла с конкретного виджета: здесь и написано, откуда, и
             отсюда же можно туда перейти. Иначе разбор начинается с поиска
             отчёта по названию среди десятков. */}
@@ -180,6 +222,23 @@ export default function AppealsPanel(
                 <span style={{ fontSize: 14, fontWeight: 600 }}>{a.subject || 'Без темы'}</span>
                 <StatusBadge status={a.status} />
                 {isStaff && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{a.author}</span>}
+                {/* Сколько ждёт ответа. Красным — когда срок, заявленный
+                    организацией, уже вышел: очередь без этого выглядит одинаково
+                    и на первом часу, и на третьи сутки. */}
+                {isStaff && a.waiting_hours != null && (
+                  <span style={waitStyle(a.waiting_hours, respHours)}
+                    title={`Ждёт ответа с ${fmtDt(a.created_at)}. Заявленный срок — ${respHours} ч (меняется в «Настройках»)`}>
+                    ⏱ {fmtWait(a.waiting_hours)}{a.waiting_hours > respHours ? ' · срок вышел' : ''}
+                  </span>
+                )}
+                {/* Автору важнее другое: заметили ли жалобу вообще. До первого
+                    ответа обращение выглядит так же, как в момент отправки. */}
+                {!isStaff && a.status === 'open' && (
+                  <span style={{ fontSize: 11, color: a.first_seen_at ? 'var(--success)' : 'var(--text-faint)' }}
+                    title={a.first_seen_at ? `Администратор открыл обращение ${fmtDt(a.first_seen_at)}` : 'Администратор ещё не открывал обращение'}>
+                    {a.first_seen_at ? '👁 просмотрено' : '⏳ ждёт просмотра'}
+                  </span>
+                )}
                 <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>{fmtDt(a.updated_at)}</span>
               </div>
               {a.last_message && (

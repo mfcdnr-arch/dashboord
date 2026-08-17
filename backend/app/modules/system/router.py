@@ -85,6 +85,7 @@ class SystemSettingsIn(BaseModel):
 class OrgSettingsIn(BaseModel):
     stale_days: Optional[int] = Field(None, ge=1, le=3650)
     retention_months: Optional[int] = Field(None, ge=0, le=120)
+    appeal_response_hours: Optional[int] = Field(None, ge=1, le=720)
 
 
 @router.get("/settings")

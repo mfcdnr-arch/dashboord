@@ -16,13 +16,18 @@ from pydantic import BaseModel, Field
 from ... import db
 from ..auth.deps import get_current_user, require_roles
 from . import service
-from .service import AppealsError
+from .service import AppealsError, AppealsRateLimited
 
 router = APIRouter(tags=["appeals"])
 staff = require_roles("admin", "moderator", "senior_moderator", "superadmin")
 
 
 def _bad(e: AppealsError) -> HTTPException:
+    if isinstance(e, AppealsRateLimited):
+        # Не ошибка ввода, а просьба подождать: 429 отличает «вы написали
+        # лишнего» от «форма заполнена неверно», и интерфейс говорит об этом
+        # человеческим текстом, а не подсвечивает поле.
+        return HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(e))
     code = status.HTTP_404_NOT_FOUND if "не найдено" in str(e) else status.HTTP_400_BAD_REQUEST
     return HTTPException(code, str(e))
 

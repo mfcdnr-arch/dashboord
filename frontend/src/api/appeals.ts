@@ -10,6 +10,12 @@ export interface AppealSummary {
   last_message: string | null
   last_is_staff: boolean | null
   author: string | null
+  /** Когда обращение впервые открыл кто-то из администрации (волна п.15):
+   *  до первого ответа это единственный признак, что жалобу заметили. */
+  first_seen_at: string | null
+  /** Сколько часов ждёт ОТВЕТА (только у открытых; у отвеченных и закрытых
+   *  ожидание кончилось, и растущая цифра означала бы несуществующую проблему). */
+  waiting_hours: number | null
 }
 
 export interface AppealMessage {
@@ -41,6 +47,8 @@ export interface AppealDetail {
   updated_at: string
   author: string
   context: AppealContext | null
+  first_seen_at: string | null
+  first_seen_by: string | null
   messages: AppealMessage[]
 }
 
@@ -59,7 +67,9 @@ export async function listMyAppeals(limit = 50, offset = 0): Promise<Page<Appeal
   return res.json()
 }
 
-export async function listAppeals(status?: string, limit = 50, offset = 0): Promise<Page<AppealSummary>> {
+/** Список для staff: вместе со сроком ответа, заявленным организацией
+ *  («Настройки»), — по нему в списке видно, что залежалось. */
+export async function listAppeals(status?: string, limit = 50, offset = 0): Promise<Page<AppealSummary> & { response_hours: number }> {
   const q = new URLSearchParams({ limit: String(limit), offset: String(offset) })
   if (status) q.set('status', status)
   const res = await fetch(`/appeals?${q}`, { headers: authH() })

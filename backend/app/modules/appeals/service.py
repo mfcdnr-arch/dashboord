@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 from ..audit import service as audit_svc
@@ -19,9 +20,24 @@ MAX_BODY = 4000
 MAX_SUBJECT = 200
 STAFF_ROLES = {"admin", "moderator", "senior_moderator", "superadmin"}
 
+# Сколько НОВЫХ обращений один человек может завести за час. Ограничение
+# появилось вместе с кнопкой «сообщить о проблеме» на виджете: раньше обращение
+# заводили руками из «Кабинета» и десяток подряд был маловероятен, а теперь
+# достаточно обойти страницу с двумя десятками виджетов.
+#
+# Ограничиваются только НОВЫЕ обращения. Ответ в уже открытом треде не считается
+# — очередь администратора от него не растёт, а замолчать человека посреди
+# разговора значит сломать сам разговор.
+MAX_NEW_APPEALS_PER_HOUR = 10
+
 
 class AppealsError(Exception):
     """Доменная ошибка модуля обращений."""
+
+
+class AppealsRateLimited(AppealsError):
+    """Слишком много новых обращений за час — отдаётся как 429, а не 400:
+    это не ошибка ввода, а просьба подождать, и клиент должен их различать."""
 
 
 async def _is_staff(conn, user_id) -> bool:
@@ -35,12 +51,30 @@ def _clip(text: Optional[str], limit: int) -> Optional[str]:
     return text[:limit] if text else None
 
 
+async def _assert_rate_ok(conn, user_id) -> None:
+    """Потолок на новые обращения. Отказ называет, когда можно продолжить:
+    «слишком часто» без срока читается как «сломалось» и заставляет жать ещё."""
+    recent = await conn.fetch(
+        "select created_at from appeals where user_id=$1 and created_at > now() - interval '1 hour' "
+        "order by created_at", user_id)
+    if len(recent) < MAX_NEW_APPEALS_PER_HOUR:
+        return
+    from datetime import timedelta, timezone
+    free_at = recent[0]["created_at"] + timedelta(hours=1)
+    mins = max(1, int((free_at - datetime.now(timezone.utc)).total_seconds() // 60) + 1)
+    raise AppealsRateLimited(
+        f"За последний час вы уже отправили {len(recent)} обращений. "
+        f"Следующее можно будет отправить через {mins} мин. "
+        f"Если это об одном и том же — допишите в уже открытое обращение, там переписка не ограничена.")
+
+
 async def create_appeal(conn, org_id, user: dict, subject: Optional[str], body: str) -> dict:
     body = (body or "").strip()
     if not body:
         raise AppealsError("Пустое сообщение")
     if len(body) > MAX_BODY:
         raise AppealsError(f"Слишком длинное сообщение (максимум {MAX_BODY} символов)")
+    await _assert_rate_ok(conn, user["id"])
     subject = _clip(subject, MAX_SUBJECT)
     row = await conn.fetchrow(
         "insert into appeals(organization_id, user_id, subject) values($1,$2,$3) returning id, created_at",
@@ -91,6 +125,17 @@ async def create_appeal_by_login(conn, login: str, body: str) -> None:
         new_data={"subject": "Аккаунт заблокирован", "snippet": body[:200], "via": "blocked_login"})
 
 
+def _waiting_hours(r) -> Optional[float]:
+    """Сколько обращение ждёт ОТВЕТА. Считается только для открытых: у
+    отвеченного и закрытого ожидание уже кончилось, и растущая цифра рядом с
+    ними означала бы несуществующую проблему."""
+    if r["status"] != "open":
+        return None
+    from datetime import timezone
+    start = r["created_at"]
+    return round((datetime.now(timezone.utc) - start).total_seconds() / 3600.0, 1)
+
+
 def _row_to_summary(r) -> dict:
     return {
         "id": str(r["id"]),
@@ -101,6 +146,8 @@ def _row_to_summary(r) -> dict:
         "last_message": r["last_body"],
         "last_is_staff": r["last_is_staff"],
         "author": r["author"] if "author" in r.keys() else None,
+        "first_seen_at": r["first_seen_at"] if "first_seen_at" in r.keys() else None,
+        "waiting_hours": _waiting_hours(r),
     }
 
 
@@ -109,7 +156,7 @@ async def list_mine(conn, user_id, limit: int = 50, offset: int = 0) -> dict:
     offset = max(0, offset)
     total = await conn.fetchval("select count(*) from appeals where user_id=$1", user_id)
     rows = await conn.fetch(
-        "select a.id, a.subject, a.status, a.created_at, a.updated_at, "
+        "select a.id, a.subject, a.status, a.created_at, a.updated_at, a.first_seen_at, "
         "(select body from appeal_messages m where m.appeal_id=a.id order by m.created_at desc limit 1) as last_body, "
         "(select is_staff from appeal_messages m where m.appeal_id=a.id order by m.created_at desc limit 1) as last_is_staff "
         "from appeals a where a.user_id=$1 order by a.updated_at desc limit $2 offset $3",
@@ -128,14 +175,24 @@ async def list_org(conn, org_id, status_filter: Optional[str], limit: int = 50, 
     total = await conn.fetchval(f"select count(*) from appeals a where {where}", *args)
     args_paged = args + [limit, offset]
     rows = await conn.fetch(
-        f"select a.id, a.subject, a.status, a.created_at, a.updated_at, "
+        f"select a.id, a.subject, a.status, a.created_at, a.updated_at, a.first_seen_at, "
         "coalesce(u.full_name, u.login) as author, "
         "(select body from appeal_messages m where m.appeal_id=a.id order by m.created_at desc limit 1) as last_body, "
         "(select is_staff from appeal_messages m where m.appeal_id=a.id order by m.created_at desc limit 1) as last_is_staff "
         f"from appeals a join users u on u.id=a.user_id where {where} "
         f"order by a.updated_at desc limit ${len(args) + 1} offset ${len(args) + 2}",
         *args_paged)
-    return {"total": total, "limit": limit, "offset": offset, "items": [_row_to_summary(r) for r in rows]}
+    return {"total": total, "limit": limit, "offset": offset,
+            "response_hours": await response_hours(conn, org_id),
+            "items": [_row_to_summary(r) for r in rows]}
+
+
+async def response_hours(conn, org_id) -> int:
+    """Срок ответа, заявленный организацией («Настройки»). Сам по себе он ничего
+    не запрещает — он делает ожидание видимым: без него обращение просто лежит
+    в очереди, и понять, что оно залежалось, можно только сверив даты вручную."""
+    from ..system import settings_service
+    return int((await settings_service.get_org_settings(conn, org_id))["appeal_response_hours"])
 
 
 async def open_count(conn, org_id) -> dict:
@@ -146,13 +203,31 @@ async def open_count(conn, org_id) -> dict:
 async def get_appeal(conn, org_id, user: dict, appeal_id: str) -> dict:
     ap = await conn.fetchrow(
         "select a.id, a.subject, a.status, a.created_at, a.updated_at, a.user_id, a.context, "
+        "a.first_seen_at, coalesce(s.full_name, s.login) as first_seen_by_name, "
         "coalesce(u.full_name, u.login) as author "
         "from appeals a join users u on u.id=a.user_id "
+        "left join users s on s.id=a.first_seen_by "
         "where a.id=$1::uuid and a.organization_id=$2", appeal_id, org_id)
     if ap is None:
         raise AppealsError("Обращение не найдено")
-    if str(ap["user_id"]) != str(user["id"]) and not await _is_staff(conn, user["id"]):
+    is_author = str(ap["user_id"]) == str(user["id"])
+    is_staff = await _is_staff(conn, user["id"])
+    if not is_author and not is_staff:
         raise AppealsError("Обращение не найдено")
+    seen_at = ap["first_seen_at"]
+    seen_by = ap["first_seen_by_name"]
+    if is_staff and not is_author and seen_at is None:
+        # Первый просмотр со стороны администрации. Автору это важнее, чем
+        # кажется: до первого ответа обращение выглядит так же, как в момент
+        # отправки, то есть как будто ушло в пустоту.
+        await conn.execute(
+            "update appeals set first_seen_at=now(), first_seen_by=$2 where id=$1::uuid and first_seen_at is null",
+            appeal_id, user["id"])
+        row = await conn.fetchrow("select first_seen_at from appeals where id=$1::uuid", appeal_id)
+        seen_at, seen_by = row["first_seen_at"], user.get("full_name") or user.get("login")
+        await notif_svc.notify(
+            conn, org_id, "appeal.seen", "appeal", appeal_id,
+            {"author": seen_by, "subject": ap["subject"]}, [ap["user_id"]])
     msgs = await conn.fetch(
         "select m.id, m.is_staff, m.body, m.created_at, coalesce(u.full_name, u.login, '— (удалён)') as author "
         "from appeal_messages m left join users u on u.id=m.sender_user_id "
@@ -167,6 +242,7 @@ async def get_appeal(conn, org_id, user: dict, appeal_id: str) -> dict:
         "id": str(ap["id"]), "subject": ap["subject"], "status": ap["status"],
         "created_at": ap["created_at"], "updated_at": ap["updated_at"], "author": ap["author"],
         "context": ctx,
+        "first_seen_at": seen_at, "first_seen_by": seen_by if seen_at else None,
         "messages": [{"id": str(m["id"]), "is_staff": m["is_staff"], "body": m["body"],
                      "created_at": m["created_at"], "author": m["author"]} for m in msgs],
     }

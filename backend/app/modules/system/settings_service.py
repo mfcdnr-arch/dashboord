@@ -27,10 +27,15 @@ SYSTEM_DEFAULTS = {
     "ram_warn": 80.0, "ram_crit": 92.0,
     "disk_warn": 80.0, "disk_crit": 92.0,
 }
-ORG_KEYS = ("stale_days", "retention_months")
+ORG_KEYS = ("stale_days", "retention_months", "appeal_response_hours")
 ORG_DEFAULTS = {
     "stale_days": env_settings.stale_days,
     "retention_months": env_settings.retention_months,
+    # За сколько часов организация обязуется ответить на обращение. Сам по себе
+    # срок ничего не запрещает — он делает ожидание ВИДИМЫМ: без него обращение
+    # просто лежит в очереди, и понять, что оно там залежалось, можно только
+    # вручную сверив даты. Сутки — рабочее умолчание, меняется в «Настройках».
+    "appeal_response_hours": 24,
 }
 
 _PAIRS = (("cpu_warn", "cpu_crit"), ("ram_warn", "ram_crit"), ("disk_warn", "disk_crit"))

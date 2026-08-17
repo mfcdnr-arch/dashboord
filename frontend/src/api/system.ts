@@ -38,6 +38,9 @@ export interface SystemThresholds {
 }
 export interface OrgThresholds {
   stale_days: number
+  /** Заявленный срок ответа на обращение, часов: делает ожидание видимым
+   *  в очереди администратора (сам по себе ничего не запрещает). */
+  appeal_response_hours: number
   retention_months: number
 }
 export interface AllSettings {

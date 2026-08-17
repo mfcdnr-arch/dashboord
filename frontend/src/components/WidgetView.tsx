@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { EChartsOption } from 'echarts'
 import { getWidgetData, getWidgetDrill } from '../api'
 import { chartColors, useThemeVersion } from '../theme'
+import { useContainerWidth } from '../lib/useWidth'
 import EChart from './EChartLazy'
 import FitText from './dashboards/FitText'
 import RelatedMenu from './dashboards/RelatedMenu'
@@ -142,6 +143,8 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
   const [drill, setDrill] = useState<any | null>(null)
   const [related, setRelated] = useState(false)
   const [problem, setProblem] = useState(false)
+  const [menu, setMenu] = useState(false)
+  const [footRef, footWidth] = useContainerWidth<HTMLDivElement>()
 
   useEffect(() => {
     // Батч-режим: данные приходят от родителя (1 запрос на всю страницу) — не фетчим сами.
@@ -157,6 +160,14 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
   const openDrill = () => getWidgetDrill(widgetId).then(setDrill).catch((e) => setError((e as Error).message))
 
   const alert = data?.alert
+  const isAnnotation = data?.type === 'text' || data?.type === 'image'
+  const canDrill = !!data && showDrill && !isAnnotation
+  // Жаловаться можно и на сломанный виджет: именно тогда это и нужно.
+  const canReport = (!!data || !!error) && showDrill && !isAnnotation
+  // Три подписи + отступы занимают ~300px. До первого замера footWidth не
+  // определена — показываем полный набор: свернуть потом дешевле, чем моргнуть
+  // «⋯» на широкой карточке.
+  const actionsFit = footWidth === undefined || footWidth >= 300
   return (
     <div style={alert && stripe ? { borderLeft: `4px solid ${alert.color}`, background: alert.bg, borderRadius: 6, padding: '6px 8px', margin: '-2px 0' } : undefined}>
       {error && <div style={errBox}>{error}</div>}
@@ -167,28 +178,39 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
           title="Сработал порог KPI-алерта">⚠ {alert.label}</div>
       )}
       {data && <Body data={data} onPick={onPick} />}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        {data && showDrill && data.type !== 'text' && data.type !== 'image' && (
-          <button style={drillBtn} onClick={openDrill} title="Из чего собран показатель">🔍 подробнее</button>
-        )}
-        {/* «Куда дальше» — ответ на вопрос, который идёт сразу за цифрой:
-            где ещё она есть, что лежит с ней рядом в форме, есть ли движение.
-            Пункты строит сервер по данным, руками ничего не настраивается. */}
-        {data && showDrill && data.type !== 'text' && data.type !== 'image' && (
-          <button style={drillBtn} onClick={() => setRelated(true)}
-            title="Куда посмотреть дальше: где ещё есть этот показатель, соседи по форме, динамика">
-            ↗ куда дальше
-          </button>
-        )}
-        {/* «Сообщить о проблеме» (п. 15). Показывается и при ОШИБКЕ расчёта —
-            именно тогда человеку и нужно пожаловаться, а data в этот момент
-            нет. Контекст (отчёт, страница, показатель, значение) приложит
-            сервер: объяснять словами, где это, не нужно. */}
-        {(data || error) && showDrill && data?.type !== 'text' && data?.type !== 'image' && (
-          <button style={{ ...drillBtn, color: 'var(--text-faint)' }} onClick={() => setProblem(true)}
-            title="Сообщить администратору о проблеме с этой цифрой — где вы её увидели, система приложит сама">
-            ⚑ проблема
-          </button>
+      <div ref={footRef} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {/* Три подписи в подвале не помещаются на узкой карточке (12 колонок
+            сетки — это ~120px) и уезжают на вторую строку, отнимая высоту у
+            самого числа. Поэтому на узких карточках они сворачиваются в «⋯»:
+            действия остаются доступны, но не спорят с содержимым за место. */}
+        {actionsFit ? (
+          <>
+            {canDrill && (
+              <button style={drillBtn} onClick={openDrill} title="Из чего собран показатель">🔍 подробнее</button>
+            )}
+            {/* «Куда дальше» — ответ на вопрос, который идёт сразу за цифрой:
+                где ещё она есть, что лежит с ней рядом в форме, есть ли движение.
+                Пункты строит сервер по данным, руками ничего не настраивается. */}
+            {canDrill && (
+              <button style={drillBtn} onClick={() => setRelated(true)}
+                title="Куда посмотреть дальше: где ещё есть этот показатель, соседи по форме, динамика">
+                ↗ куда дальше
+              </button>
+            )}
+            {/* «Сообщить о проблеме» (п. 15). Показывается и при ОШИБКЕ расчёта —
+                именно тогда человеку и нужно пожаловаться, а data в этот момент
+                нет. Контекст (отчёт, страница, показатель, значение) приложит
+                сервер: объяснять словами, где это, не нужно. */}
+            {canReport && (
+              <button style={{ ...drillBtn, color: 'var(--text-faint)' }} onClick={() => setProblem(true)}
+                title="Сообщить администратору о проблеме с этой цифрой — где вы её увидели, система приложит сама">
+                ⚑ проблема
+              </button>
+            )}
+          </>
+        ) : (canDrill || canReport) && (
+          <button style={drillBtn} onClick={() => setMenu(true)}
+            title="Действия: из чего собран показатель, куда посмотреть дальше, сообщить о проблеме">⋯ действия</button>
         )}
         {data?.as_of && (data.period_locked || !sameDay(data.as_of, pageAsOf)) && (
           // У виджета с закреплённым периодом это СРЕЗ: он не обновится, когда
@@ -226,11 +248,59 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
         <ReportProblemDialog widgetId={widgetId} widgetName={widgetName}
           onClose={() => setProblem(false)} onOpenAppeals={onOpenAppeals} />
       )}
+      {menu && (
+        <ActionsMenu
+          onClose={() => setMenu(false)}
+          items={[
+            ...(canDrill ? [
+              { label: '🔍 Из чего собран показатель', run: openDrill },
+              { label: '↗ Куда посмотреть дальше', run: () => setRelated(true) },
+            ] : []),
+            ...(canReport ? [{ label: '⚑ Сообщить о проблеме', run: () => setProblem(true) }] : []),
+          ]}
+        />
+      )}
     </div>
   )
 }
 
 // Рендер тела виджета по готовым данным — используется в конструкторе для предпросмотра.
+/** Действия виджета, свёрнутые в «⋯» на узкой карточке.
+ *
+ * Выводится порталом в body: карточка виджета обрезает содержимое
+ * (overflow: hidden), и меню внутри неё было бы срезано — тот же дефект, что
+ * уже ловили у подсказки ⓘ, окна «подробнее» и меню «куда дальше».
+ *
+ * Открывается по центру экрана, а не «прилипает» к кнопке: карточка, из
+ * которой его зовут, узкая и может стоять у самого края страницы — меню от
+ * кнопки пришлось бы поджимать и переворачивать, а список из трёх пунктов от
+ * этого читается не лучше. */
+function ActionsMenu({ items, onClose }: { items: { label: string; run: () => void }[]; onClose: () => void }) {
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [onClose])
+  return createPortal(
+    <div style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'rgba(0,0,0,0.28)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()}
+        style={{ background: 'var(--surface)', borderRadius: 12, padding: 8, minWidth: 240, maxWidth: '92vw',
+          boxShadow: '0 10px 40px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {items.map((it) => (
+          <button key={it.label} onClick={() => { onClose(); it.run() }}
+            style={{ textAlign: 'left', padding: '9px 12px', borderRadius: 8, border: 'none',
+              background: 'none', color: 'var(--text)', fontSize: 13, cursor: 'pointer' }}>
+            {it.label}
+          </button>
+        ))}
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
 export function WidgetPreviewBody({ data }: { data: any }) {
   return <Body data={data} />
 }

@@ -19,7 +19,8 @@ function sysToForm(v: SystemThresholds): SysForm {
   }
 }
 function orgToForm(v: OrgThresholds): OrgForm {
-  return { stale_days: String(v.stale_days), retention_months: String(v.retention_months) }
+  return { stale_days: String(v.stale_days), retention_months: String(v.retention_months),
+    appeal_response_hours: String(v.appeal_response_hours) }
 }
 
 export default function SettingsPage({ me }: { me: { roles: string[] } }) {
@@ -86,6 +87,11 @@ export default function SettingsPage({ me }: { me: { roles: string[] } }) {
           <Field label="Ретенция, месяцев" hint="0 — хранить без ограничения; окно скользящего удаления старых данных">
             <input style={inp} type="number" min={0} value={orgForm.retention_months}
               onChange={(e) => setOrgForm({ ...orgForm, retention_months: e.target.value })} />
+          </Field>
+          <Field label="Срок ответа на обращение, часов"
+            hint="ничего не запрещает: делает ожидание видимым — в списке обращений просроченные помечаются красным">
+            <input style={inp} type="number" min={1} max={720} value={orgForm.appeal_response_hours}
+              onChange={(e) => setOrgForm({ ...orgForm, appeal_response_hours: e.target.value })} />
           </Field>
         </div>
         <button style={btn} disabled={savingOrg} onClick={saveOrg}>{savingOrg ? 'Сохранение…' : 'Сохранить'}</button>

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from ... import db
@@ -188,11 +188,16 @@ async def report_problem(widget_id: str, body: ProblemIn, user: dict = Depends(g
     """Жалоба на конкретную цифру (п. 15). Контекст — дашборд, страница,
     показатель и текущее значение — собирает сервер: человек не должен
     объяснять словами, где именно он это увидел."""
+    from ..appeals.service import AppealsRateLimited
     async with db.acquire(user["id"]) as conn:
         try:
             async with conn.transaction():
                 return await service.report_widget_problem(
                     conn, user["organization_id"], user, widget_id, body.kind, body.comment)
+        except AppealsRateLimited as e:
+            # Потолок на новые обращения общий с «Кабинетом»: одна кнопка не
+            # должна обходить ограничение другой.
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(e))
         except DashboardError as e:
             raise _bad(e)
 

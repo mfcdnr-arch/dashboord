@@ -43,6 +43,7 @@ from ._suggest import (  # noqa: F401
     _dataset_numeric_fields,
     _existing_widget_signatures,
     _spec_signature,
+    apply_default_alerts,
     auto_build,
     auto_build_plan,
     dashboard_metric_codes,
@@ -834,6 +835,7 @@ async def create_widget(conn, org_id, user_id, page_id: str, name: str, widget_t
     if p is None:
         raise DashboardError("Страница не найдена")
     await _assert_editable(conn, p["dashboard_id"])
+    config = apply_default_alerts(widget_type, config or {})
     row = await conn.fetchrow(
         "insert into widgets(organization_id, dashboard_id, page_id, name, widget_type, "
         "position_x, position_y, width, height, config, created_by) "
@@ -855,7 +857,8 @@ async def update_widget(conn, org_id, widget_id: str, patch: dict) -> dict:
     wtype = patch.get("widget_type")
     if wtype is not None and wtype not in WIDGET_TYPES:
         raise DashboardError(f"Неизвестный тип виджета: {wtype}")
-    cfg = json.dumps(patch["config"], ensure_ascii=False) if "config" in patch else None
+    new_cfg = apply_default_alerts(wtype or w["widget_type"], patch["config"]) if "config" in patch else None
+    cfg = json.dumps(new_cfg, ensure_ascii=False) if new_cfg is not None else None
     row = await conn.fetchrow(
         "update widgets set name=coalesce($2,name), widget_type=coalesce($8,widget_type), "
         "position_x=coalesce($3,position_x), position_y=coalesce($4,position_y), "

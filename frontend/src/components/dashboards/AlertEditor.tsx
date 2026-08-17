@@ -40,7 +40,10 @@ export function AlertEditor({ widget, onClose, onSaved }: { widget: Widget; onCl
   // Готовую норму предлагаем только там, где сравнивается процент: у полосы
   // «план-факт» это выполнение, у карточки и спидометра — само значение, и
   // «90 / 100» имеет смысл, лишь когда оно в процентах.
+  // У светофора с полем плана цвет тоже считается по проценту выполнения,
+  // поэтому готовая норма подходит и ему.
   const planPresetFits = widget.widget_type === 'plan_fact'
+    || (widget.widget_type === 'status_grid' && !!cfg.plan_field)
     || String((cfg.unit as string) || '').includes('%')
 
   const set = (i: number, patch: Partial<AlertRule>) => setRules((rs) => rs.map((r, k) => k === i ? { ...r, ...patch } : r))

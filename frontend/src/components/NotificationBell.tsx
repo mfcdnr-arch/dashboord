@@ -33,6 +33,7 @@ function message(n: NotificationItem): string {
   if (n.event_type === 'system.degraded') return `Автопочинка не устранила все проблемы (статус: ${p.status_after ?? 'degraded'}). Посмотрите раздел «Отчёты» → «Здоровье системы».`
   if (n.event_type === 'appeal.created' || n.event_type === 'appeal.message') return `${p.author ?? ''}: ${p.snippet ?? ''}`
   if (n.event_type === 'appeal.replied') return `${p.author ?? 'Администратор'} ответил на ваше обращение: ${p.snippet ?? ''}`
+  if (n.event_type === 'appeal.seen') return `${p.author ?? 'Администратор'} открыл ваше обращение${p.subject ? ` «${p.subject}»` : ''} — ответ придёт следующим уведомлением.`
   return n.label
 }
 
