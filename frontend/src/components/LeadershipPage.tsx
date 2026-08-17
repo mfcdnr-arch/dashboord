@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { listFeatured, type FeaturedDashboard } from '../api'
+import { fmtNumber } from '../lib/format'
 
 /**
  * Раздел «Руководителю» — подборка дашбордов с описаниями.
@@ -45,7 +46,7 @@ export default function LeadershipPage(
         </div>
       )}
 
-      <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
+      <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))' }}>
         {(items || []).map((d) => (
           <button key={d.id} style={card} onClick={() => onOpen(d.id)}
             title="Открыть отчёт">
@@ -65,7 +66,43 @@ export default function LeadershipPage(
                           marginTop: 6, lineHeight: 1.45 }}>
               {d.description || 'Описание не задано — попросите администратора добавить, что показывает этот отчёт.'}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+            {/* Главные цифры прямо на плитке. Без них руководителю приходится
+                открывать каждый отчёт, чтобы понять, куда смотреть, — а раздел
+                задуман как ответ «как дела» с одного взгляда. Прирост показан
+                рядом со значением: голое число не говорит, хорошо это или
+                плохо. */}
+            {d.highlights && d.highlights.length > 0 && (
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+                {d.highlights.map((h, i) => (
+                  <div key={i} style={{
+                    flex: '1 1 140px', minWidth: 0, padding: '8px 10px', borderRadius: 10,
+                    background: h.alert === 'danger' ? 'var(--danger-bg)'
+                      : h.alert === 'warn' ? 'var(--warn-bg)' : 'var(--surface-2)',
+                  }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, whiteSpace: 'nowrap',
+                      color: h.alert === 'danger' ? 'var(--danger)'
+                        : h.alert === 'warn' ? 'var(--warn)' : 'var(--accent)' }}>
+                      {h.value == null ? '—' : fmtNumber(h.value)}
+                      {h.unit ? <span style={{ fontSize: 13 }}> {h.unit}</span> : null}
+                    </div>
+                    {(h.delta_pct != null || h.plan_pct != null) && (
+                      <div style={{ fontSize: 12, marginTop: 1,
+                        color: (h.delta_pct ?? 0) > 0 ? 'var(--success)'
+                          : (h.delta_pct ?? 0) < 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
+                        {h.delta_pct != null
+                          ? `${h.delta_pct > 0 ? '▲ +' : h.delta_pct < 0 ? '▼ ' : ''}${fmtNumber(h.delta_pct)}% к прошлому`
+                          : `план выполнен на ${fmtNumber(h.plan_pct as number)}%`}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.name}>
+                      {h.name}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10 }}>
               {[d.object_name, d.folder_name].filter(Boolean).join(' · ') || 'без папки'}
               {' · '}{d.pages} {pagePlural(d.pages)}
             </div>

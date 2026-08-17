@@ -131,3 +131,41 @@ async def test_description_draft_does_not_repeat_one_metric_in_three_slices(clie
             await conn.execute("delete from dashboard_pages where dashboard_id=$1::uuid", did)
             await conn.execute("delete from securable_objects where object_id=$1::uuid", did)
             await conn.execute("delete from dashboards where id=$1::uuid", did)
+
+
+async def test_featured_tiles_show_numbers_and_growth(client, admin_headers, seed_dataset, viewer):
+    """На плитке подборки видны главные цифры и прирост — без открывания отчёта.
+
+    Прирост считается, даже если у самой карточки он выключен: на дашбордах,
+    собранных до появления этой настройки, руководитель иначе видел бы голое
+    число, которое не отвечает на его единственный вопрос — «хорошо или плохо».
+    """
+    r = await client.post("/dashboards", headers=admin_headers,
+                          json={"name": "ztest_feat_tiles", "force": True})
+    did = r.json()["id"]
+    try:
+        page = await client.post(f"/dashboards/{did}/pages", headers=admin_headers, json={"name": "Обзор"})
+        pid = page.json()["id"]
+        # compare_prev НЕ включаем — именно этот случай и проверяем.
+        await client.post(f"/dashboard-pages/{pid}/widgets", headers=admin_headers,
+                          json={"name": "ztest Сумма плана", "widget_type": "kpi",
+                                "config": {"dataset_code": seed_dataset["code"], "value_field": "plan"}})
+        await client.post(f"/dashboards/{did}/featured", headers=admin_headers, json={"featured": True})
+
+        items = (await client.get("/dashboards/featured", headers=admin_headers)).json()["items"]
+        tile = next(i for i in items if i["id"] == did)
+        assert tile["highlights"], "плитка обязана показывать цифры"
+        h = tile["highlights"][0]
+        assert h["value"] == seed_dataset["plan_sum"], "значение считается тем же кодом, что и виджет"
+        assert h["delta_pct"] is not None, "прирост считается, даже когда у карточки он выключен"
+
+        # Видимость: без гранта зритель не получает ни отчёта, ни его цифр.
+        seen = (await client.get("/dashboards/featured", headers=viewer["headers"])).json()["items"]
+        assert all(i["id"] != did for i in seen)
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from widgets where dashboard_id=$1::uuid", did)
+            await conn.execute("delete from dashboard_pages where dashboard_id=$1::uuid", did)
+            await conn.execute("delete from access_grants where dashboard_id=$1::uuid", did)
+            await conn.execute("delete from securable_objects where object_id=$1::uuid", did)
+            await conn.execute("delete from dashboards where id=$1::uuid", did)

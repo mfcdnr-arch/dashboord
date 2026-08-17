@@ -195,7 +195,83 @@ async def list_featured(conn, org_id, user: dict) -> dict:
         "where d.organization_id=$1 and d.id = any($2::uuid[]) and d.featured "
         "  and d.publication_status <> 'archived' "
         "order by d.featured_order, d.name", org_id, list(visible))
-    return {"items": [dict(r) for r in rows]}
+    items = [dict(r) for r in rows]
+    for it in items:
+        it["highlights"] = await _featured_highlights(conn, org_id, user, str(it["id"]))
+    return {"items": items}
+
+
+# Сколько цифр показываем на плитке подборки. Руководителю нужен ответ «как
+# дела», а не весь дашборд: три числа читаются с одного взгляда, десять
+# превращают подборку во второй дашборд, ради которого её и не делали.
+MAX_HIGHLIGHTS = 3
+
+
+async def _featured_highlights(conn, org_id, user: dict, dashboard_id: str) -> list:
+    """Главные цифры дашборда — прямо на плитке подборки.
+
+    Без них руководителю приходится открывать каждый отчёт, чтобы понять, куда
+    смотреть. Берём одиночные показатели (карточка, спидометр, план-факт) с
+    ПЕРВОЙ страницы — она и задумана как «Обзор», — и считаем их тем же кодом,
+    что рисует сами виджеты: разойтись с дашбордом плитка не может.
+
+    Сбой расчёта одного показателя не должен ронять всю подборку: на плитке
+    просто станет меньше цифр, а сам отчёт по-прежнему открывается.
+    """
+    rows = await conn.fetch(
+        "select w.id, w.name, w.widget_type, w.config from widgets w "
+        "join dashboard_pages p on p.id=w.page_id "
+        "where w.dashboard_id=$1::uuid and w.widget_type = any($2::text[]) "
+        "order by p.position, w.position_y, w.position_x limit $3",
+        dashboard_id, ["kpi", "gauge", "plan_fact"], MAX_HIGHLIGHTS)
+    out = []
+    for w in rows:
+        try:
+            # user — ИМЕНОВАННЫМ: позиционно он попадал в from_date, и расчёт
+            # молча падал на проверке доступа (плитка выходила без цифр).
+            data = await compute_widget_data(conn, org_id, str(w["id"]), user=user)
+        except Exception:  # noqa: BLE001 — плитка важнее одной цифры на ней
+            continue
+        value = data.get("value")
+        if value is None and data.get("fact") is not None:
+            value = data.get("fact")
+        if value is None:
+            continue
+        out.append({
+            "name": w["name"], "value": value, "unit": data.get("unit"),
+            # Прирост к прошлому отчёту и сработавший порог — это и есть ответ
+            # «хорошо или плохо», ради которого руководитель сюда пришёл.
+            # У полосы «план и факт» роль такого ответа играет процент
+            # выполнения: само по себе «7 078» не говорит, много это или мало.
+            "delta_pct": data.get("delta_pct") if data.get("delta_pct") is not None
+                         else await _highlight_delta(conn, org_id, w["config"], value),
+            "plan_pct": data.get("pct") if data.get("type") == "plan_fact" else None,
+            "alert": (data.get("alert") or {}).get("level"),
+        })
+    return out
+
+
+async def _highlight_delta(conn, org_id, cfg, value) -> Optional[float]:
+    """Прирост к прошлому отчёту, даже если у виджета он не включён.
+
+    Показ прироста — настройка КАРТОЧКИ, и у дашбордов, собранных до её
+    появления, он выключен. Но на плитке руководителя голое число не отвечает
+    на его единственный вопрос — «хорошо или плохо», — поэтому здесь прирост
+    считаем сами по тому же ряду периодов, что рисует «Динамика».
+    """
+    if isinstance(cfg, str):
+        cfg = json.loads(cfg)
+    code, field = (cfg or {}).get("dataset_code"), (cfg or {}).get("value_field")
+    if not code or not field or value is None:
+        return None
+    try:
+        series = await _dataset_period_series(conn, org_id, code, field)
+    except Exception:  # noqa: BLE001 — прирост необязателен, число уже есть
+        return None
+    values = [v for _p, v in (series or []) if v is not None]
+    if len(values) < 2 or not values[-2]:
+        return None
+    return round((values[-1] - values[-2]) / values[-2] * 100, 2)
 
 
 async def set_featured(conn, org_id, dashboard_id: str, featured: bool,

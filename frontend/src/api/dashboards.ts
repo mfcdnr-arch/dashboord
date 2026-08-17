@@ -360,6 +360,13 @@ export type FeaturedDashboard = {
   folder_name: string | null
   object_name: string | null
   pages: number
+  /** Главные цифры отчёта — прямо на плитке подборки, чтобы «как дела» было
+   *  видно без открывания каждого дашборда. Считаются тем же кодом, что рисует
+   *  сами виджеты. */
+  highlights?: {
+    name: string; value: number | null; unit: string | null
+    delta_pct: number | null; plan_pct: number | null; alert: string | null
+  }[]
 }
 
 export async function listFeatured(): Promise<{ items: FeaturedDashboard[] }> {
