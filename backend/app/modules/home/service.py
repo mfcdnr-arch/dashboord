@@ -101,6 +101,23 @@ async def get_home(conn, org_id, user: dict) -> dict:
     recent.sort(key=lambda x: x["at"], reverse=True)
     recent = recent[:8]
 
+    # Что именно поступило: не «выпуск данных такой-то», а отчёт за такую-то
+    # дату из такого-то файла и сколько в нём показателей. Общая лента «что
+    # нового» отвечает «когда», а этот блок — «что пришло и полное ли оно».
+    recent_data = [dict(r) for r in await conn.fetch(
+        "select r.id, r.name, r.code, r.reporting_period_start as period, r.created_at, "
+        "  ob.name as object_name, fo.name as folder_name, d.original_filename, "
+        "  (select count(*) from dataset_values v where v.dataset_release_id=r.id) as values_count, "
+        "  (select count(distinct v.canonical_field_code) from dataset_values v "
+        "     where v.dataset_release_id=r.id) as fields_count "
+        "from dataset_releases r "
+        "left join objects ob on ob.id=r.object_id "
+        "left join document_versions dv on dv.id=r.source_document_version_id "
+        "left join documents d on d.id=dv.document_id "
+        "left join folders fo on fo.id=d.folder_id "
+        "where r.organization_id=$1 and r.status<>'superseded' "
+        "order by r.created_at desc limit 5", org_id)]
+
     freshness = await conn.fetch(
         "select o.name, max(r.created_at) as last_update, max(r.reporting_period_start) as last_period "
         "from objects o left join dataset_releases r on r.object_id=o.id and r.status<>'superseded' "
@@ -123,6 +140,14 @@ async def get_home(conn, org_id, user: dict) -> dict:
             "last_period": span["last_period"] if span else None,
             "last_upload": span["last_upload"] if span else None,
         },
+        "recent_data": [{
+            "id": str(r["id"]), "name": r["name"], "code": r["code"],
+            "period": r["period"].isoformat() if r["period"] else None,
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "object_name": r["object_name"], "folder_name": r["folder_name"],
+            "filename": r["original_filename"],
+            "values_count": r["values_count"], "fields_count": r["fields_count"],
+        } for r in recent_data],
         "setup": setup,
         "pending_review": pending_review,
         "pages": [dict(p) for p in pages],

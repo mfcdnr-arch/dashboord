@@ -71,7 +71,7 @@ function ago(iso: string | null): string {
 export default function HomePage({ me, canManage, onOpenDashboard }: {
   me: { full_name: string | null; login: string }
   canManage: boolean
-  onOpenDashboard: (dashboardId: string) => void
+  onOpenDashboard: (dashboardId: string, pageId?: string) => void
 }) {
   const [data, setData] = useState<HomeData | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -125,13 +125,72 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
 
   return (
     <div>
-      {/* Приветствие + дата/время */}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+      {/* Приветствие + дата/время. Часы отдельной плашкой справа: серой
+          строкой рядом с приветствием их не замечали. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
         <h2 style={{ fontSize: 20, margin: 0 }}>Здравствуйте, {me.full_name || me.login}!</h2>
-        <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>
-          {now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {now.toLocaleTimeString('ru-RU')}
+        <div style={clockBox}>
+          <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>
+            {now.toLocaleTimeString('ru-RU')}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            {now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          </div>
         </div>
       </div>
+
+      {/* Что уже есть в данных. Идёт ПЕРЕД описанием системы: человек
+          открывает главную, чтобы узнать, что нового, а не читать о платформе.
+          До появления первого дашборда это к тому же единственное, что
+          показывает — система живёт, отчёты загружаются. */}
+      {(c.releases ?? 0) > 0 && span && (
+        <Section title="Данные в системе">
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 13, marginBottom: 10 }}>
+            <span>Загружено документов: <b>{c.documents ?? 0}</b></span>
+            <span>Выпусков данных: <b>{c.releases ?? 0}</b></span>
+            {span.first_period && span.last_period && (
+              <span>Период отчётов: <b>{fmtDate(span.first_period)} — {fmtDate(span.last_period)}</b></span>
+            )}
+            {span.last_upload && <span>Последняя загрузка: <b>{ago(span.last_upload)}</b></span>}
+          </div>
+          {/* Что именно поступило: отчёт за какую дату, из какого файла и
+              сколько в нём показателей. Общая лента «что нового» отвечает
+              «когда», а это — «что пришло и полное ли оно». */}
+          {(data.recent_data || []).length > 0 && (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%', tableLayout: 'fixed' }}>
+                <thead>
+                  <tr>
+                    <th style={th}>Отчёт за</th>
+                    <th style={th}>Файл</th>
+                    <th style={th}>Объект / папка</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Показателей</th>
+                    <th style={th}>Загружен</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.recent_data || []).map((r) => (
+                    <tr key={r.id}>
+                      <td style={td}><b>{fmtDate(r.period)}</b></td>
+                      {/* Имена госформ длинные; обрезаем по ширине колонки, а
+                          полное — в подсказке: иначе таблица уезжает за край. */}
+                      <td style={{ ...td, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                        title={r.filename || r.name}>
+                        {r.filename || r.name}
+                      </td>
+                      <td style={td}>
+                        {[r.object_name, r.folder_name].filter(Boolean).join(' / ') || '—'}
+                      </td>
+                      <td style={{ ...td, textAlign: 'right' }}>{r.fields_count}</td>
+                      <td style={td}>{ago(r.created_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Section>
+      )}
 
       {/* О системе */}
       <Section title="О системе">
@@ -163,20 +222,6 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
         ))}
       </div>
 
-      {/* Что уже есть в данных: до появления первого дашборда это единственное,
-          что показывает — система живёт, отчёты загружаются. */}
-      {(c.releases ?? 0) > 0 && span && (
-        <Section title="Данные в системе">
-          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 13 }}>
-            <span>Загружено документов: <b>{c.documents ?? 0}</b></span>
-            <span>Выпусков данных: <b>{c.releases ?? 0}</b></span>
-            {span.first_period && span.last_period && (
-              <span>Период отчётов: <b>{fmtDate(span.first_period)} — {fmtDate(span.last_period)}</b></span>
-            )}
-            {span.last_upload && <span>Последняя загрузка: <b>{ago(span.last_upload)}</b></span>}
-          </div>
-        </Section>
-      )}
 
       {/* Путь настройки — пока не пройден полностью */}
       {nextStep && canManage && (
@@ -282,7 +327,8 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{g.name}</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {g.pages.map((p) => (
-                    <button key={p.page_id} style={pageChip} onClick={() => onOpenDashboard(did)} title={p.description || ''}>
+                    <button key={p.page_id} style={pageChip} onClick={() => onOpenDashboard(did, p.page_id)}
+                      title={p.description || `Открыть страницу «${p.page_name}»`}>
                       {p.page_name} <span style={{ color: 'var(--text-faint)' }}>· {p.widgets} вид.</span>
                     </button>
                   ))}
@@ -333,6 +379,16 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     </div>
   )
 }
+
+const clockBox: React.CSSProperties = {
+  border: '1px solid var(--border)', borderRadius: 10, padding: '6px 14px', background: 'var(--surface)',
+}
+const th: React.CSSProperties = {
+  border: '1px solid var(--border-faint)', padding: '5px 9px', background: 'var(--surface-2)',
+  textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap',
+}
+const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '5px 9px' }
+
 
 const counter: React.CSSProperties = { minWidth: 96, border: '1px solid var(--border)', borderRadius: 12, padding: '12px 16px', textAlign: 'center' }
 const featureCard: React.CSSProperties = { display: 'flex', gap: 10, alignItems: 'flex-start', border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'var(--surface)' }

@@ -13,6 +13,13 @@ export interface HomeData {
   pending_review?: number
   pages: { dashboard_id: string; dashboard_name: string; page_id: string; page_name: string; description: string | null; widgets: number }[]
   recent: { kind: string; title: string; at: string }[]
+  /** Что именно поступило: отчёт за какую дату, из какого файла, сколько в нём
+   *  показателей. Лента `recent` отвечает «когда», это — «что пришло». */
+  recent_data?: {
+    id: string; name: string; code: string; period: string | null; created_at: string | null
+    object_name: string | null; folder_name: string | null; filename: string | null
+    values_count: number; fields_count: number
+  }[]
   freshness: { name: string; last_update: string | null; last_period: string | null }[]
   key_kpis: { code: string; name: string; value: number | null; unit: string | null; error: string | null }[]
   alerts: {

@@ -126,6 +126,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const staff = me.roles.some((r) => ['admin', 'moderator', 'superadmin'].includes(r))
   const [section, setSection] = useState(staff ? 'home' : 'dashboards')
   const [openDash, setOpenDash] = useState<string | null>(null)
+  // Страница, на которую нужно попасть при открытии дашборда (из каталога
+  // «Главной»): без неё клик по «Динамике» приводил на «Обзор».
+  const [openPage, setOpenPage] = useState<string | null>(null)
   // Куда ведёт клик по уведомлению: раздел + сущность внутри него. Без этого
   // уведомление было тупиком — человек читал «не работает выгрузка» и должен
   // был сам вспомнить, где искать это обращение.
@@ -263,7 +266,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         <main style={{ flex: 1, padding: narrow ? 12 : 24, maxWidth: (narrow || WIDE_SECTIONS.has(section)) ? '100%' : 900, minWidth: 0 }}>
           <OnboardingHint section={section} roles={me.roles} userKey={me.login} />
           {section === 'home' ? (
-            <HomePage me={me} canManage={canManage} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
+            <HomePage me={me} canManage={canManage}
+              onOpenDashboard={(id, pageId) => { setOpenDash(id); setOpenPage(pageId || null); setSection('dashboards') }} />
           ) : section === 'objects' ? (
             <ObjectsPage canManage={canManage} isSuperadmin={isSuperadmin} initialObjectId={openObject} />
           ) : section === 'metrics' ? (
@@ -272,7 +276,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <LeadershipPage canManage={canManage}
               onOpen={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'dashboards' ? (
-            <DashboardsPage canManage={canManage} isAdmin={isAdmin} isSuperadmin={isSuperadmin} initialDashboardId={openDash} />
+            <DashboardsPage canManage={canManage} isAdmin={isAdmin} isSuperadmin={isSuperadmin} initialDashboardId={openDash} initialPageId={openPage} />
           ) : section === 'showcases' ? (
             <ShowcasesPage canManage={canManage} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'users' ? (

@@ -58,7 +58,7 @@ function surfaceColor(): string {
   return getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#ffffff'
 }
 
-export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initialDashboardId }: { canManage: boolean; isAdmin?: boolean; isSuperadmin?: boolean; initialDashboardId?: string | null }) {
+export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initialDashboardId, initialPageId }: { canManage: boolean; isAdmin?: boolean; isSuperadmin?: boolean; initialDashboardId?: string | null; initialPageId?: string | null }) {
   // Подтверждения — своим окном: системное браузер вправе подавить, и кнопка
   // необратимого действия выглядит нерабочей (см. ConfirmDialog).
   const { ask, node: confirmNode } = useConfirm()
@@ -216,7 +216,10 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] }))
       listTemplates().then(setTemplates).catch(() => {})
     }
-    if (initialDashboardId) openDashboard(initialDashboardId)
+    // Страница передаётся вместе с дашбордом: из каталога «Главной» человек
+    // нажимает на КОНКРЕТНУЮ страницу («Динамика»), и открывать вместо неё
+    // первую — значит не выполнить то, что он попросил.
+    if (initialDashboardId) openDashboard(initialDashboardId, initialPageId || undefined)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Тихая проверка свежести раз в минуту. Данные не перезагружаем — только
@@ -249,13 +252,16 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       .catch(() => setMissingFields(null))
   }, [sel?.dashboard.id, sel?.dashboard.suggest_new_fields, canManage]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function openDashboard(id: string) {
+  async function openDashboard(id: string, pageId?: string) {
     setError(null); setPage(null); setWidgets([]); setPFrom(''); setPTo(''); setCrossRow(null)
     try {
       const d = await getDashboard(id)
       setSel(d)
       listPresets(id).then(setPresets).catch(() => setPresets([]))
-      if (d.pages.length) openPage(d.pages[0])
+      // Просили конкретную страницу — открываем её; если её уже нет (удалили),
+      // не молчим об этом падением, а показываем первую.
+      const target = (pageId && d.pages.find((p) => p.id === pageId)) || d.pages[0]
+      if (target) openPage(target)
     } catch (e) { fail(e) }
   }
   // Переход из меню «↗ куда дальше»: открыть дашборд и ту страницу, где лежит

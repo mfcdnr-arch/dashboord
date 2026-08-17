@@ -100,12 +100,13 @@ async def test_auto_build_makes_kpi_for_every_numeric_field(client, admin_header
 
 
 async def test_view_is_chosen_by_role_of_the_indicator(client, admin_headers, seed_dataset, ids):
-    """Вид виджета подбирается по РОЛИ показателя, а не одинаково для всех.
+    """Состав виджетов подбирается по смыслу показателей, а не одинаково.
 
-    Недельное значение само по себе мало что говорит — его смотрят в движении,
-    поэтому «за отчётную неделю» получает и карточку, и тренд. Накопительный
-    итог смотрят числом. Пара «План + Факт» одного показателя даёт полосу
-    выполнения вместо двух карточек, из которых процент считают в уме.
+    Тренд получает КАЖДЫЙ показатель, по которому он возможен (есть несколько
+    отчётных периодов): «сколько сейчас» и «куда идёт» — разные вопросы, и
+    второй задают не только по недельному срезу. Пара «План + Факт» одного
+    показателя даёт полосу выполнения вместо двух карточек, из которых процент
+    считают в уме.
     """
     rel = await _seed_fields(ids["org"])
     did = None
@@ -126,8 +127,8 @@ async def test_view_is_chosen_by_role_of_the_indicator(client, admin_headers, se
                 out.append(cfg.get("value_field"))
             return sorted(f for f in out if f)
 
-        assert fields_of("dynamics") == sorted(WEEKLY), \
-            f"тренд — только у недельных показателей, получили {fields_of('dynamics')}"
+        assert fields_of("dynamics") == sorted(c for c, _ in FIELDS), \
+            f"тренд нужен каждому показателю, по которому он возможен: {fields_of('dynamics')}"
         assert fields_of("kpi") == sorted(c for c, _ in FIELDS), "карточка нужна каждому"
         assert any(w["widget_type"] == "plan_fact" for w in rows), \
             "у «Доставленные» есть и План, и Факт — должна быть полоса выполнения"
