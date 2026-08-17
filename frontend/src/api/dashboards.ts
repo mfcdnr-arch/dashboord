@@ -562,3 +562,27 @@ export async function setFeaturedBulk(featured: string[], unfeatured: string[]):
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// Доступ к подборке «Руководителю» пакетом. Состав подборки и доступ остаются
+// разными вещами (иначе отметка молча открывала бы отчёт всем), но выдать
+// доступ на всю подборку — одно действие, а не поход по каждому дашборду.
+export interface FeaturedAccess {
+  dashboards: { id: string; name: string; publication_status: string }[]
+  users: { id: string; login: string; full_name: string | null; has: number; privileged: boolean }[]
+  roles: { id: string; code: string; name: string; members: number; has: number }[]
+}
+export async function getFeaturedAccess(): Promise<FeaturedAccess> {
+  const res = await fetch('/dashboards/featured/access', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function grantFeaturedAccess(
+  userIds: string[], roleIds: string[], dashboardIds?: string[],
+): Promise<{ granted: number; dashboards: number }> {
+  const res = await fetch('/dashboards/featured/access', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ user_ids: userIds, role_ids: roleIds, dashboard_ids: dashboardIds ?? null }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

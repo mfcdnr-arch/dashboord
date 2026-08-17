@@ -191,6 +191,36 @@ async def set_featured_bulk(body: FeaturedBulkIn, user: dict = Depends(manage)):
             raise _bad(e)
 
 
+class FeaturedAccessIn(BaseModel):
+    user_ids: List[str] = []
+    role_ids: List[str] = []
+    # Не задано — выдаём доступ ко всем отчётам подборки.
+    dashboard_ids: Optional[List[str]] = None
+
+
+@router.get("/dashboards/featured/access")
+async def featured_access(user: dict = Depends(manage)):
+    """Кому открыта подборка: у кого сколько отчётов из неё уже доступно."""
+    async with db.acquire(user["id"]) as conn:
+        return await service.featured_access(conn, user["organization_id"], user)
+
+
+@router.post("/dashboards/featured/access")
+async def grant_featured_access(body: FeaturedAccessIn, user: dict = Depends(manage)):
+    """Выдать доступ к отчётам подборки пакетом (запрос заказчика: «выбрали для
+    руководителя — значит открываем ему эти отчёты»)."""
+    if not body.user_ids and not body.role_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Выберите, кому выдать доступ")
+    async with db.acquire(user["id"]) as conn:
+        try:
+            async with conn.transaction():
+                return await service.grant_featured_access(
+                    conn, user["organization_id"], user["id"], user,
+                    body.user_ids, body.role_ids, body.dashboard_ids)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.post("/dashboards/{dashboard_id}/featured")
 async def set_featured(dashboard_id: str, body: FeaturedIn, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:

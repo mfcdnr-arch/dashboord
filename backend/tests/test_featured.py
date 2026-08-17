@@ -225,3 +225,66 @@ async def test_featured_candidates_advise_but_do_not_decide(client, admin_header
             await conn.execute("delete from publication_requests where dashboard_id=$1::uuid", did)
             await conn.execute("delete from securable_objects where object_id=$1::uuid", did)
             await conn.execute("delete from dashboards where id=$1::uuid", did)
+
+
+async def test_featured_access_is_granted_in_one_action(client, admin_headers, viewer, ids, seed_dataset):
+    """Доступ ко всей подборке выдаётся пакетом — и это по-прежнему ГРАНТЫ.
+
+    Состав подборки и доступ остаются разными вещами: отметка отчёта его не
+    открывает. Но когда подборка собрана, ходить по каждому дашборду — работа
+    впустую, поэтому здесь доступ выдаётся сразу ко всем её отчётам теми же
+    грантами и с той же записью в аудите, что и окно на самом дашборде.
+    """
+    ids_created = []
+    for n in ("ztest_acc_a", "ztest_acc_b"):
+        r = await client.post("/dashboards", headers=admin_headers, json={"name": n, "force": True})
+        did = r.json()["id"]
+        ids_created.append(did)
+        await client.post(f"/dashboards/{did}/publish", headers=admin_headers, json={})
+        await client.post(f"/dashboards/{did}/featured", headers=admin_headers, json={"featured": True})
+    try:
+        before = (await client.get("/dashboards/featured/access", headers=admin_headers)).json()
+        me = next(u for u in before["users"] if u["id"] == viewer["id"])
+        assert me["has"] == 0 and me["privileged"] is False
+
+        r = await client.post("/dashboards/featured/access", headers=admin_headers,
+                              json={"user_ids": [viewer["id"]], "role_ids": []})
+        assert r.status_code == 200, r.text
+        assert r.json()["granted"] >= 2, "доступ выдан ко всем отчётам подборки разом"
+
+        # Проверяем не «галочку», а то, что зритель действительно их видит.
+        seen = {i["id"] for i in (await client.get("/dashboards/featured",
+                                                   headers=viewer["headers"])).json()["items"]}
+        assert set(ids_created) <= seen
+
+        # Повтор не плодит гранты: операция пакетная и идемпотентная.
+        again = await client.post("/dashboards/featured/access", headers=admin_headers,
+                                  json={"user_ids": [viewer["id"]], "role_ids": []})
+        assert again.json()["granted"] == 0
+
+        after = (await client.get("/dashboards/featured/access", headers=admin_headers)).json()
+        me = next(u for u in after["users"] if u["id"] == viewer["id"])
+        assert me["has"] == len(after["dashboards"]), "экран обязан показывать, что доступ уже открыт"
+
+        # Выдача — действие, за которое кто-то отвечает: она в журнале.
+        async with db.acquire() as conn:
+            logged = await conn.fetchval(
+                "select count(*) from audit_log where action='grant_access' "
+                "and entity_id = any($1::uuid[])", ids_created)
+        assert logged >= 2
+
+        # Пустой выбор — отказ, а не молчаливое «ничего не сделано».
+        assert (await client.post("/dashboards/featured/access", headers=admin_headers,
+                                  json={"user_ids": [], "role_ids": []})).status_code == 400
+        # Зрителю выдача доступов закрыта.
+        assert (await client.post("/dashboards/featured/access", headers=viewer["headers"],
+                                  json={"user_ids": [viewer["id"]]})).status_code == 403
+    finally:
+        async with db.acquire() as conn:
+            for did in ids_created:
+                await conn.execute("delete from access_grants where dashboard_id=$1::uuid", did)
+                await conn.execute("delete from dashboard_versions where dashboard_id=$1::uuid", did)
+                await conn.execute("delete from publication_requests where dashboard_id=$1::uuid", did)
+                await conn.execute("delete from audit_log where entity_id=$1::uuid", did)
+                await conn.execute("delete from securable_objects where object_id=$1::uuid", did)
+                await conn.execute("delete from dashboards where id=$1::uuid", did)

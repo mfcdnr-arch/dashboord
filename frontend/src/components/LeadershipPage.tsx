@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { listFeatured, type FeaturedDashboard } from '../api'
 import { fmtNumber } from '../lib/format'
 import FeaturedPicker from './leadership/FeaturedPicker'
+import GrantAccessDialog from './leadership/GrantAccessDialog'
 
 /**
  * Раздел «Руководителю» — подборка дашбордов с описаниями.
@@ -21,6 +22,7 @@ export default function LeadershipPage(
   const [items, setItems] = useState<FeaturedDashboard[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [picker, setPicker] = useState(false)
+  const [grantOpen, setGrantOpen] = useState(false)
 
   const load = () => listFeatured().then((r) => setItems(r.items))
     .catch((e) => setError((e as Error).message))
@@ -41,6 +43,7 @@ export default function LeadershipPage(
         Отчёты, отобранные для руководства. Показаны только те, к которым у вас есть доступ.
       </div>
       {picker && <FeaturedPicker onClose={() => setPicker(false)} onSaved={load} />}
+      {grantOpen && <GrantAccessDialog onClose={() => setGrantOpen(false)} onDone={load} />}
 
       {error && <div style={errBox}>{error}</div>}
       {!items && !error && <div style={{ color: 'var(--text-muted)' }}>Загрузка…</div>}
@@ -120,6 +123,19 @@ export default function LeadershipPage(
           </button>
         ))}
       </div>
+
+      {/* Кнопка идёт ПОСЛЕ подборки, а не в шапке: сначала человек видит, из
+          чего она состоит, и только потом решает, кому это открыть. Состав и
+          доступ остаются разными вещами — отметка отчёта его не открывает, —
+          но выдать доступ на всю подборку должно быть одним действием. */}
+      {canManage && (items || []).length > 0 && (
+        <div style={{ marginTop: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button style={grantBtn} onClick={() => setGrantOpen(true)}>🔒 Предоставить доступ</button>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            Откроет выбранным сотрудникам и ролям все отчёты подборки ({(items || []).length}).
+          </span>
+        </div>
+      )}
     </div>
   )
 }
@@ -134,6 +150,10 @@ function pagePlural(n: number): string {
   }
 }
 
+const grantBtn: React.CSSProperties = {
+  height: 34, padding: '0 16px', border: 'none', borderRadius: 8,
+  background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer',
+}
 const setupBtn: React.CSSProperties = {
   height: 30, padding: '0 12px', borderRadius: 8, fontSize: 13, cursor: 'pointer',
   border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text-2)',

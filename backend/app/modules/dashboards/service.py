@@ -380,6 +380,97 @@ async def set_featured_bulk(conn, org_id, user: dict, featured: list, unfeatured
     return changed
 
 
+async def featured_access(conn, org_id, user: dict) -> dict:
+    """Кому открыта подборка «Руководителю» целиком, а кому — частично.
+
+    Состав подборки и доступ к отчётам — РАЗНЫЕ вещи, и такими остаются: иначе
+    достаточно было бы отметить отчёт, чтобы его увидели все, а решение «кому
+    показывать» перестало бы быть решением. Но выдавать доступ по одному
+    дашборду, когда подборка собрана целиком, — работа впустую, поэтому здесь
+    видно, у кого сколько из подборки открыто, и доступ выдаётся пакетом.
+    """
+    visible = await visible_dashboard_ids(conn, org_id, user)
+    dashboards = await conn.fetch(
+        "select d.id, d.name, d.publication_status from dashboards d "
+        "where d.organization_id=$1 and d.featured and d.publication_status <> 'archived' "
+        + ("and d.id = any($2::uuid[]) " if visible else "and false ")
+        + "order by d.featured_order, d.name",
+        *( [org_id, list(visible)] if visible else [org_id] ))
+    ids = [str(d["id"]) for d in dashboards]
+    users = await conn.fetch(
+        "select u.id, u.login, u.full_name, "
+        # Сколько дашбордов подборки человеку уже доступно — по личным грантам
+        # и по грантам на его роли: иначе администратор выдавал бы то, что уже
+        # выдано, и не понимал бы, почему ничего не изменилось.
+        "  (select count(distinct g.dashboard_id) from access_grants g "
+        "   where g.scope='dashboard' and g.dashboard_id = any($2::uuid[]) and ("
+        "     (g.grantee_type='user' and g.user_id=u.id) "
+        "     or (g.grantee_type='role' and exists(select 1 from user_roles ur "
+        "         where ur.user_id=u.id and ur.role_id=g.role_id)))) as has, "
+        "  exists(select 1 from user_roles ur join roles r on r.id=ur.role_id "
+        "         where ur.user_id=u.id and r.code = any($3::text[])) as privileged "
+        "from users u where u.organization_id=$1 and u.is_active order by u.login",
+        org_id, ids, sorted(PRIVILEGED_ROLES))
+    roles = await conn.fetch(
+        "select r.id, r.code, r.name, "
+        "  (select count(*) from user_roles ur where ur.role_id=r.id) as members, "
+        "  (select count(distinct g.dashboard_id) from access_grants g "
+        "   where g.scope='dashboard' and g.dashboard_id = any($2::uuid[]) "
+        "     and g.grantee_type='role' and g.role_id=r.id) as has "
+        "from roles r where r.organization_id=$1 order by r.name", org_id, ids)
+    return {
+        "dashboards": [{"id": str(d["id"]), "name": d["name"],
+                        "publication_status": d["publication_status"]} for d in dashboards],
+        "users": [{"id": str(u["id"]), "login": u["login"], "full_name": u["full_name"],
+                   "has": u["has"], "privileged": u["privileged"]} for u in users],
+        "roles": [{"id": str(r["id"]), "code": r["code"], "name": r["name"],
+                   "members": r["members"], "has": r["has"]} for r in roles],
+    }
+
+
+async def grant_featured_access(conn, org_id, actor_id, user: dict,
+                                user_ids: list, role_ids: list,
+                                dashboard_ids: Optional[list] = None) -> dict:
+    """Выдать доступ к отчётам подборки выбранным сотрудникам и ролям.
+
+    Пишем теми же `add_grant`, что и окно «🔒 Доступ» на дашборде: журнал
+    аудита не должен зависеть от того, каким экраном воспользовались. Уже
+    выданное пропускаем молча — операция пакетная, и падать на одной паре из
+    двадцати значило бы выдать доступ наполовину.
+    """
+    visible = await visible_dashboard_ids(conn, org_id, user)
+    rows = await conn.fetch(
+        "select id from dashboards where organization_id=$1 and featured "
+        "and publication_status <> 'archived'", org_id)
+    targets = [str(r["id"]) for r in rows if str(r["id"]) in visible]
+    if dashboard_ids:
+        chosen = {str(x) for x in dashboard_ids}
+        unknown = chosen - set(targets)
+        if unknown:
+            raise DashboardError("Дашборд не найден")
+        targets = [d for d in targets if d in chosen]
+    if not targets:
+        raise DashboardError("В подборке нет отчётов, к которым можно выдать доступ")
+
+    granted = 0
+    for did in targets:
+        for uid in (user_ids or []):
+            if await conn.fetchval(
+                    "select 1 from access_grants where dashboard_id=$1::uuid and scope='dashboard' "
+                    "and grantee_type='user' and user_id=$2::uuid", did, uid):
+                continue
+            await add_grant(conn, org_id, actor_id, did, "user", None, uid)
+            granted += 1
+        for rid in (role_ids or []):
+            if await conn.fetchval(
+                    "select 1 from access_grants where dashboard_id=$1::uuid and scope='dashboard' "
+                    "and grantee_type='role' and role_id=$2::uuid", did, rid):
+                continue
+            await add_grant(conn, org_id, actor_id, did, "role", rid, None)
+            granted += 1
+    return {"granted": granted, "dashboards": len(targets)}
+
+
 async def set_featured(conn, org_id, dashboard_id: str, featured: bool,
                        order: Optional[int] = None) -> dict:
     """Включить/выключить дашборд в подборке «Руководителю»."""
