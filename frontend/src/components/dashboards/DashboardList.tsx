@@ -2,9 +2,13 @@
 // поиск + фильтры (избранное/дата/папка), массовое перемещение в папку,
 // сама таблица строк + «показать ещё». Вынесено из DashboardsPage.tsx.
 import type { FormEvent } from 'react'
-import type { Dashboard, DashTemplate, Folder, Obj } from '../../api'
+import type { Dashboard, DashTemplate, Doc, Folder, Obj } from '../../api'
 import { folderLabel, folderTree } from '../../lib/folderTree'
 import { PubBadge, btn, btnAuto, input, muted, rowForm, rowItem, tab, tabActive } from './shared'
+
+/** Отчётные даты — по-русски, как везде в системе. */
+const ruDate = (iso?: string | null): string =>
+  (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').reverse().join('.') : iso || 'без даты')
 
 /** С какого числа отчётов зрителю имеет смысл показывать фильтр по папкам:
  *  при двух-трёх он лишний ряд управления над списком. */
@@ -18,6 +22,7 @@ export function DashboardList({
   query, setQuery, favOnly, setFavOnly,
   dashFrom, setDashFrom, dashTo, setDashTo,
   filterObjId, setFilterObjId, filterFolders, folderFilter, setFolderFilter,
+  filterDocs, docFilter, setDocFilter,
   selectedIds, setSelectedIds, onBulkMove, toggleSelect,
   dashboards, dashTotal, openDashboard, toggleFav, loadMoreDash, onToggleFeatured,
 }: {
@@ -31,6 +36,9 @@ export function DashboardList({
   dashFrom: string; setDashFrom: (v: string) => void; dashTo: string; setDashTo: (v: string) => void
   filterObjId: string; setFilterObjId: (v: string) => void; filterFolders: Folder[]
   folderFilter: string; setFolderFilter: (v: string | ((v: string) => string)) => void
+  /** Третий уровень фильтра: отчёт из папки — «какие дашборды построены на
+   *  данных этого файла». */
+  filterDocs: Doc[]; docFilter: string; setDocFilter: (v: string) => void
   selectedIds: Set<string>; setSelectedIds: (s: Set<string>) => void
   onBulkMove: () => void; toggleSelect: (e: React.MouseEvent, id: string) => void
   dashboards: Dashboard[]; dashTotal: number; openDashboard: (id: string) => void
@@ -105,13 +113,38 @@ export function DashboardList({
                 {folderTree(filterFolders).map((f) => <option key={f.id} value={f.id}>{folderLabel(f)}</option>)}
               </select>
             )}
+            {/* Файл — третий уровень: «какие дашборды построены на данных
+                этого отчёта». Появляется, когда выбрана папка: без неё список
+                файлов был бы свалкой из всех папок объекта. */}
+            {folderFilter && folderFilter !== 'none' && filterDocs.length > 0 && (
+              <select style={{ ...input, height: 32 }} value={docFilter}
+                onChange={(e) => setDocFilter(e.target.value)}>
+                <option value="">все отчёты папки</option>
+                {filterDocs.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    📄 {ruDate(d.reporting_period_start)} · {d.original_filename}
+                  </option>
+                ))}
+              </select>
+            )}
             <button style={folderFilter === 'none' ? { ...tab, ...tabActive } : tab}
               onClick={() => { setFilterObjId(''); setFolderFilter((v) => (v === 'none' ? '' : 'none')) }}>
               без папки
             </button>
             {(filterObjId || folderFilter) && (
-              <button style={tab} onClick={() => { setFilterObjId(''); setFolderFilter('') }} title="Сбросить фильтр по папке">✕ папка</button>
+              <button style={tab} onClick={() => { setFilterObjId(''); setFolderFilter(''); setDocFilter('') }}
+                title="Сбросить фильтр по папке и отчёту">✕ папка</button>
             )}
+          </div>
+        )}
+        {/* Под одним кодом лежит весь ряд недельных отчётов, поэтому «построен
+            на данных файла» бывает двух видов. Молчать об этом нельзя: список
+            выглядел бы одинаково для любого файла папки. */}
+        {docFilter && (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+            Показаны дашборды, использующие данные этой формы. Значок 📌 — собран именно
+            по этому отчёту (виджеты закреплены за его датой), без значка — читает форму
+            целиком и покажет последний отчёт.
           </div>
         )}
         {canManage && objects.length > 0 && selectedIds.size > 0 && (
@@ -158,6 +191,9 @@ export function DashboardList({
                       style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14, padding: 0, lineHeight: 1, color: d.featured ? 'var(--accent)' : 'var(--border-strong)' }}>
                       {d.featured ? '👔' : '👤'}
                     </button>
+                  )}
+                  {d.pinned_to_document && (
+                    <span title="Дашборд собран по этому отчёту: его виджеты закреплены за отчётной датой">📌</span>
                   )}
                   {d.name}
                   {!!d.comments_count && <span title={`Комментариев: ${d.comments_count}`} style={{ fontSize: 12, color: 'var(--accent)' }}>💬{d.comments_count}</span>}

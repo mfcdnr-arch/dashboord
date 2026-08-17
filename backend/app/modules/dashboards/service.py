@@ -121,7 +121,8 @@ async def create_dashboard(conn, org_id, user_id, name: str, description: Option
 async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
                           fav_only: bool = False, limit: int = 50, offset: int = 0,
                           from_date: Optional[str] = None, to_date: Optional[str] = None,
-                          folder_id: Optional[str] = None) -> dict:
+                          folder_id: Optional[str] = None,
+                          document_id: Optional[str] = None) -> dict:
     """Постранично: {total, limit, offset, items}. Видимость через RLS
     (visible_dashboard_ids). q — поиск по названию дашборда ИЛИ названию его
     страницы (ilike); from_date/to_date — по дате последнего изменения
@@ -150,6 +151,20 @@ async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
         where += " and d.folder_id is null"
     elif folder_id:
         params.append(folder_id); where += f" and d.folder_id=${len(params)}::uuid"
+    if document_id:
+        # «Какие дашборды построены на данных этого отчёта». Под одним кодом
+        # лежит ВЕСЬ ряд недельных файлов, поэтому совпадений два вида, и
+        # оба настоящие: виджет закреплён именно за этой отчётной датой
+        # (дашборд-срез) либо просто читает эту форму. Отбираем оба, а какой
+        # именно — говорит признак `pinned_to_document` ниже: иначе список
+        # выглядел бы одинаково для любого файла папки и вводил бы в
+        # заблуждение.
+        params.append(document_id)
+        where += (f" and exists (select 1 from widgets w "
+                  f" join dataset_releases r on r.code = w.config->>'dataset_code' "
+                  f" join document_versions dv on dv.id = r.source_document_version_id "
+                  f" where w.dashboard_id=d.id and r.organization_id=d.organization_id "
+                  f"   and dv.document_id=${len(params)}::uuid)")
     fav_join = "join" if fav_only else "left join"
     total = await conn.fetchval(
         f"select count(*) from dashboards d "
@@ -161,7 +176,15 @@ async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
         "(select count(*) from dashboard_pages p where p.dashboard_id=d.id) as pages, "
         "(select count(*) from dashboard_comments c where c.dashboard_id=d.id) as comments_count, "
         "d.featured, "
-        "(f.dashboard_id is not null) as is_favorite "
+        "(f.dashboard_id is not null) as is_favorite"
+        + (
+            # Закреплён ли дашборд за отчётной датой ЭТОГО файла: так
+            # различаются «собран по этому отчёту» и «читает эту форму».
+            ", exists(select 1 from widgets w2 join documents doc2 on doc2.id=$%d::uuid "
+            " where w2.dashboard_id=d.id "
+            "   and w2.config->>'period' = doc2.reporting_period_start::text) as pinned_to_document "
+            % len(params) if document_id else " "
+        ) + 
         f"from dashboards d {fav_join} dashboard_favorites f on f.dashboard_id=d.id and f.user_id=$3 "
         "left join folders fo on fo.id=d.folder_id left join objects ob on ob.id=fo.object_id "
         f"where {where} order by is_favorite desc, d.name "

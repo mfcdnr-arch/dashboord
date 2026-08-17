@@ -6,8 +6,8 @@ import {
   createDashboard, createPage, createPreset, createWidget, deleteDashboard, deletePage, deletePreset, deleteWidget,
   DuplicateError, getDashboard,
   exportPageXlsx, fitPageLayout, getDataSources, getDescriptionDraft, setFeatured, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listFolders, listObjects, listPageWidgets, listPresets,
-  listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, updateDashboard, updatePage, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
-  type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Folder, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
+  listDocuments, listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, updateDashboard, updatePage, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
+  type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Doc, type Folder, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
 } from '../api'
 import { useContainerWidth } from '../lib/useWidth'
 import { elideMiddle } from '../lib/text'
@@ -73,6 +73,10 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   const [filterObjId, setFilterObjId] = useState('')
   const [filterFolders, setFilterFolders] = useState<Folder[]>([])
   const [folderFilter, setFolderFilter] = useState('')
+  // Третий уровень фильтра: конкретный отчёт из папки. Отвечает на вопрос
+  // «какие дашборды построены на данных этого файла».
+  const [filterDocs, setFilterDocs] = useState<Doc[]>([])
+  const [docFilter, setDocFilter] = useState('')
   // Диалог «в какую папку»: обслуживает и одиночное перемещение (из открытого
   // дашборда), и массовое (из списка, по чекбоксам) — ids содержит 1 или N.
   const [folderTarget, setFolderTarget] = useState<{ ids: string[]; label: string; currentPath?: string | null } | null>(null)
@@ -159,15 +163,15 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   const fail = (e: unknown) => setError((e as Error).message)
   // Защита от гонки ответов: применяем только результат последнего запроса.
   const dashSeq = useRef(0)
-  const loadDashboards = (q: string, fav: boolean, fromD = dashFrom, toD = dashTo, folderF = folderFilter) => {
+  const loadDashboards = (q: string, fav: boolean, fromD = dashFrom, toD = dashTo, folderF = folderFilter, docF = docFilter) => {
     const seq = ++dashSeq.current
-    return listDashboards(q, fav, DASH_PAGE, 0, fromD, toD, folderF)
+    return listDashboards(q, fav, DASH_PAGE, 0, fromD, toD, folderF, docF)
       .then((p) => { if (seq === dashSeq.current) { setDashboards(p.items); setDashTotal(p.total) } }).catch(fail)
   }
   const refresh = () => loadDashboards(query, favOnly)
   async function loadMoreDash() {
     const seq = ++dashSeq.current
-    try { const p = await listDashboards(query, favOnly, DASH_PAGE, dashboards.length, dashFrom, dashTo, folderFilter); if (seq === dashSeq.current) { setDashboards((prev) => [...prev, ...p.items]); setDashTotal(p.total) } } catch (e) { fail(e) }
+    try { const p = await listDashboards(query, favOnly, DASH_PAGE, dashboards.length, dashFrom, dashTo, folderFilter, docFilter); if (seq === dashSeq.current) { setDashboards((prev) => [...prev, ...p.items]); setDashTotal(p.total) } } catch (e) { fail(e) }
   }
   async function toggleFav(e: React.MouseEvent, d: Dashboard) {
     e.stopPropagation()
@@ -200,12 +204,19 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   }
 
   // Список — по поиску/фильтру избранного с дебаунсом (он же начальная загрузка).
-  useEffect(() => { const t = setTimeout(() => loadDashboards(query, favOnly), 250); return () => clearTimeout(t) }, [query, favOnly, dashFrom, dashTo, folderFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const t = setTimeout(() => loadDashboards(query, favOnly), 250); return () => clearTimeout(t) }, [query, favOnly, dashFrom, dashTo, folderFilter, docFilter]) // eslint-disable-line react-hooks/exhaustive-deps
   // Папки фильтра зависят от выбранного объекта.
   useEffect(() => {
     if (!filterObjId) { setFilterFolders([]); return }
     listFolders(filterObjId).then(setFilterFolders).catch(() => setFilterFolders([]))
   }, [filterObjId])
+  // Файлы выбранной папки — третий уровень фильтра. Сбрасываем выбранный
+  // отчёт при смене папки: иначе список фильтровался бы по файлу из другой.
+  useEffect(() => {
+    setDocFilter('')
+    if (!folderFilter || folderFilter === 'none') { setFilterDocs([]); return }
+    listDocuments(folderFilter, 100, 0).then((r) => setFilterDocs(r.items)).catch(() => setFilterDocs([]))
+  }, [folderFilter])
   useEffect(() => {
     // Источники и шаблоны нужны только конструктору: на /metrics/data-sources
     // обычный пользователь получает 403, и запрос уходил впустую при каждом
@@ -673,6 +684,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
           dashFrom={dashFrom} setDashFrom={setDashFrom} dashTo={dashTo} setDashTo={setDashTo}
           filterObjId={filterObjId} setFilterObjId={setFilterObjId} filterFolders={filterFolders}
           folderFilter={folderFilter} setFolderFilter={setFolderFilter}
+          filterDocs={filterDocs} docFilter={docFilter} setDocFilter={setDocFilter}
           selectedIds={selectedIds} setSelectedIds={setSelectedIds} toggleSelect={toggleSelect}
           onBulkMove={() => setFolderTarget({ ids: [...selectedIds], label: `дашбордов: ${selectedIds.size}` })}
           dashboards={dashboards} dashTotal={dashTotal} openDashboard={openDashboard}

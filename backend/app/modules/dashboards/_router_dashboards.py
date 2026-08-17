@@ -255,11 +255,13 @@ async def list_dashboards(user: dict = Depends(get_current_user), q: Optional[st
                           fav: bool = False, limit: int = Query(50, ge=1, le=200),
                           offset: int = Query(0, ge=0),
                           from_date: Optional[str] = None, to_date: Optional[str] = None,
-                          folder_id: Optional[str] = None):
+                          folder_id: Optional[str] = None, document_id: Optional[str] = None):
+    """document_id — «какие дашборды построены на данных этого отчёта»."""
     async with db.acquire(user["id"]) as conn:
         return await service.list_dashboards(conn, user["organization_id"], user,
                                              q=q, fav_only=fav, limit=limit, offset=offset,
-                                             from_date=from_date, to_date=to_date, folder_id=folder_id)
+                                             from_date=from_date, to_date=to_date, folder_id=folder_id,
+                                             document_id=document_id)
 
 
 @router.post("/dashboards/{dashboard_id}/folder")

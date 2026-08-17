@@ -20,6 +20,9 @@ export interface Dashboard {
   folder_id?: string | null
   folder_name?: string | null
   object_name?: string | null
+  /** При фильтре по файлу: собран ИМЕННО по этому отчёту (виджеты закреплены
+   *  за его датой), а не просто читает эту форму. */
+  pinned_to_document?: boolean
 }
 export async function setDashboardFavorite(id: string, on: boolean): Promise<void> {
   const res = await fetch(`/dashboards/${id}/favorite`, { method: on ? 'POST' : 'DELETE', headers: authH() })
@@ -40,13 +43,18 @@ export interface Widget {
   explain?: string | null
 }
 
-export async function listDashboards(q = '', fav = false, limit = 50, offset = 0, fromDate = '', toDate = '', folderId = ''): Promise<Page<Dashboard>> {
+export async function listDashboards(
+  q = '', fav = false, limit = 50, offset = 0, fromDate = '', toDate = '', folderId = '',
+  documentId = '',
+): Promise<Page<Dashboard>> {
   const p = new URLSearchParams({ limit: String(limit), offset: String(offset) })
   if (q.trim()) p.set('q', q.trim())
   if (fav) p.set('fav', 'true')
   if (fromDate) p.set('from_date', fromDate)
   if (toDate) p.set('to_date', toDate)
   if (folderId) p.set('folder_id', folderId)
+  // «Какие дашборды построены на данных этого отчёта».
+  if (documentId) p.set('document_id', documentId)
   const res = await fetch(`/dashboards?${p}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
