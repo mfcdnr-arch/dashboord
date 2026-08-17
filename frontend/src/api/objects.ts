@@ -171,3 +171,39 @@ export async function getBuildSuggestion(objectId: string): Promise<BuildSuggest
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// Аналитика по папке (п. 8): свод показателей, состояние данных, что
+// построено и что нет, сравнение объектов. Всё считается на сервере тем же
+// путём, что и данные виджетов, — экран не может разойтись с дашбордом.
+export interface FolderAnalytics {
+  folder: { id: string; name: string; object_id: string | null; object_name: string | null }
+  documents: {
+    total: number; released: number; not_released: number; failed: number
+    waiting: { id: string; filename: string; period: string | null; status: string | null }[]
+  }
+  data: {
+    codes: string[]; releases: number; periods: number
+    first_period: string | null; last_period: string | null
+    cadence_days: number | null; overdue_days: number | null
+    missing_periods: string[]
+    issues: { kind: string; message: string }[]
+  }
+  indicators: {
+    dataset_code: string; field: string; name: string; unit: string | null
+    value: number | null; prev_value: number | null; delta: number | null; delta_pct: number | null
+  }[]
+  coverage: {
+    dashboards: { id: string; name: string; publication_status: string; widgets: number }[]
+    total_fields: number; shown_fields: number
+    missing_fields: { field: string; name: string }[]
+  }
+  objects_compare: {
+    fields: string[]
+    objects: { object_id: string; name: string; is_current: boolean; values: Record<string, number | null> }[]
+  }
+}
+export async function getFolderAnalytics(objectId: string, folderId: string): Promise<FolderAnalytics> {
+  const res = await fetch(`/objects/${objectId}/folders/${folderId}/analytics`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from ... import db
 from ..audit.service import write_event
 from ..auth.deps import get_current_user, require_roles
+from . import analytics
 
 router = APIRouter(prefix="/objects", tags=["objects"])
 
@@ -234,6 +235,21 @@ async def list_folders(object_id: str, user: dict = Depends(get_current_user)):
             object_id,
         )
     return [dict(r) for r in rows]
+
+
+@router.get("/{object_id}/folders/{folder_id}/analytics")
+async def folder_analytics(object_id: str, folder_id: str, user: dict = Depends(manage)):
+    """Аналитика по папке (п. 8): свод показателей, состояние данных, что
+    построено и что нет, сравнение объектов. Значения считаются тем же путём,
+    что и у виджетов, — экран не может разойтись с дашбордом."""
+    async with db.get_pool().acquire() as conn:
+        try:
+            data = await analytics.folder_analytics(conn, user["organization_id"], folder_id)
+        except analytics.AnalyticsError as e:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+    if data["folder"]["object_id"] != object_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Папка не найдена в этом объекте")
+    return data
 
 
 @router.post("/{object_id}/folders", status_code=status.HTTP_201_CREATED)

@@ -8,6 +8,7 @@ import {
 import { folderLabel, folderTree } from '../lib/folderTree'
 import ExtractionPage from './ExtractionPage'
 import RowAclEditor from './RowAclEditor'
+import FolderAnalytics from './objects/FolderAnalytics'
 import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
 import AutoBuildWizard from './dashboards/AutoBuildWizard'
 import { getBuildSuggestion, type BuildSuggestion } from '../api/objects'
@@ -45,6 +46,8 @@ export default function ObjectsPage(
   const [date, setDate] = useState('')
   const [busy, setBusy] = useState(false)
   const [askDelDoc, setAskDelDoc] = useState<Doc | null>(null)
+  // Что показываем в открытой папке: файлы или аналитику по ней.
+  const [folderTab, setFolderTab] = useState<'docs' | 'analytics'>('docs')
   // Предложение собрать дашборд: данные копятся сами, а дашборда может не быть
   // месяцами — человек не всегда знает, что система уже готова его собрать.
   const [suggestion, setSuggestion] = useState<BuildSuggestion | null>(null)
@@ -484,7 +487,25 @@ export default function ObjectsPage(
         <ExtractionPage doc={openDoc} canManage={canManage} isSuperadmin={isSuperadmin} onBack={() => { setOpenDoc(null); refreshDocs() }} />
       )}
 
+      {/* Аналитика по папке (п. 8): вкладка рядом с файлами. Отдельным
+          разделом делать не стали — вопрос «что в этой папке» задают, уже
+          стоя в ней, и уводить человека из контекста незачем. */}
       {folder && !openDoc && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+          <button style={folderTab === 'docs' ? tabOn : tabOff} onClick={() => setFolderTab('docs')}>
+            Файлы ({docsTotal})
+          </button>
+          <button style={folderTab === 'analytics' ? tabOn : tabOff} onClick={() => setFolderTab('analytics')}>
+            📊 Аналитика папки
+          </button>
+        </div>
+      )}
+
+      {folder && !openDoc && folderTab === 'analytics' && obj && (
+        <FolderAnalytics objectId={obj.id} folderId={folder.id} />
+      )}
+
+      {folder && !openDoc && folderTab === 'docs' && (
         <Section title={`Документы папки «${folder.name}»`}>
           {canManage && (
             <form onSubmit={upload} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
@@ -662,6 +683,13 @@ function fmtSize(n: number | null): string {
 }
 
 const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 14, padding: 0 }
+const tabOff: React.CSSProperties = {
+  height: 32, padding: '0 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer',
+  border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text-2)',
+}
+const tabOn: React.CSSProperties = {
+  ...tabOff, border: '1px solid var(--accent)', background: 'var(--accent)', color: 'var(--on-accent)',
+}
 const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 14 }
 const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }
 // Кнопки в строке формы не сжимаем: при узкой колонке текст переносился внутрь
