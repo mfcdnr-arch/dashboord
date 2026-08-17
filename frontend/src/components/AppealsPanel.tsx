@@ -25,7 +25,13 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function AppealsPanel(
-  { scope, initialAppealId }: { scope: 'mine' | 'all'; initialAppealId?: string | null },
+  { scope, initialAppealId, onOpenDashboard }: {
+    scope: 'mine' | 'all'
+    initialAppealId?: string | null
+    /** Открыть отчёт, на который пожаловались кнопкой с виджета (п. 15).
+     *  Без него разбор жалобы начинается с поиска дашборда по названию. */
+    onOpenDashboard?: (dashboardId: string, pageId?: string | null) => void
+  },
 ) {
   const isStaff = scope === 'all'
   const [items, setItems] = useState<AppealSummary[]>([])
@@ -93,6 +99,26 @@ export default function AppealsPanel(
             <button style={{ ...btnGhost, marginLeft: 'auto' }} disabled={busy} onClick={doClose}>Закрыть обращение</button>
           )}
         </div>
+        {/* Жалоба пришла с конкретного виджета: здесь и написано, откуда, и
+            отсюда же можно туда перейти. Иначе разбор начинается с поиска
+            отчёта по названию среди десятков. */}
+        {detail.context?.dashboard_id && (
+          <div style={ctxBox}>
+            <span style={{ fontSize: 13 }}>
+              📊 «{detail.context.dashboard_name}»
+              {detail.context.page_title ? ` · страница «${detail.context.page_title}»` : ''}
+              {detail.context.widget_name ? ` · виджет «${detail.context.widget_name}»` : ''}
+            </span>
+            {onOpenDashboard && (
+              <button
+                style={{ ...btnGhost, marginLeft: 'auto' }}
+                onClick={() => onOpenDashboard(detail.context!.dashboard_id, detail.context!.page_id)}
+              >
+                Открыть отчёт →
+              </button>
+            )}
+          </div>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
           {detail.messages.map((m) => (
             <div key={m.id} style={{
@@ -173,6 +199,11 @@ const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 
 const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 14 }
 const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }
 const btnGhost: React.CSSProperties = { height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-2)', fontSize: 13, cursor: 'pointer' }
+const ctxBox: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12,
+  padding: '8px 12px', borderRadius: 10, background: 'var(--surface-2)',
+  border: '1px solid var(--border-faint)',
+}
 const tab: React.CSSProperties = { height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', cursor: 'pointer', fontSize: 13 }
 const tabActive: React.CSSProperties = { ...tab, background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent)' }
 const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 14, padding: '8px 0' }

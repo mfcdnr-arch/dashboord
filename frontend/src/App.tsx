@@ -276,7 +276,11 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <LeadershipPage canManage={canManage}
               onOpen={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'dashboards' ? (
-            <DashboardsPage canManage={canManage} isAdmin={isAdmin} isSuperadmin={isSuperadmin} initialDashboardId={openDash} initialPageId={openPage} />
+            <DashboardsPage canManage={canManage} isAdmin={isAdmin} isSuperadmin={isSuperadmin} initialDashboardId={openDash} initialPageId={openPage}
+              // Отправив жалобу с виджета, человек хочет прочитать ответ. Своя
+              // переписка у обычного пользователя живёт в «Кабинете» (раздела
+              // «Обращения» у него нет) — то же правило, что у уведомлений.
+              onOpenAppeals={() => setSection(staff ? 'appeals' : 'profile')} />
           ) : section === 'showcases' ? (
             <ShowcasesPage canManage={canManage} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'users' ? (
@@ -290,13 +294,15 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ) : section === 'moderation' ? (
             <ModerationPage me={me} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'appeals' ? (
-            <AppealsPage initialAppealId={openAppeal} />
+            <AppealsPage initialAppealId={openAppeal}
+              onOpenDashboard={(id: string, pageId?: string | null) => { setOpenDash(id); setOpenPage(pageId || null); setSection('dashboards') }} />
           ) : section === 'catalog' ? (
             <CatalogPage me={me} />
           ) : section === 'settings' ? (
             <SettingsPage me={me} />
           ) : section === 'profile' ? (
-            <ProfilePage me={me} initialAppealId={openAppeal} />
+            <ProfilePage me={me} initialAppealId={openAppeal}
+              onOpenDashboard={(id: string, pageId?: string | null) => { setOpenDash(id); setOpenPage(pageId || null); setSection('dashboards') }} />
           ) : (
             <div style={{ color: 'var(--text-faint)' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>
           )}

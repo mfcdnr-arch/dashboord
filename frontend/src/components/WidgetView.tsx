@@ -6,6 +6,7 @@ import { chartColors, useThemeVersion } from '../theme'
 import EChart from './EChartLazy'
 import FitText from './dashboards/FitText'
 import RelatedMenu from './dashboards/RelatedMenu'
+import ReportProblemDialog from './dashboards/ReportProblemDialog'
 import { fmtNumber as fmt, logScaleAdvice } from '../lib/format'
 import { distinctLabels, elideMiddle } from '../lib/text'
 
@@ -123,18 +124,24 @@ function chartOption(data: any): EChartsOption {
   }
 }
 
-export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf, stripe = true, onNavigate }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string;
+export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf, stripe = true, onNavigate, widgetName, onOpenAppeals }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string;
   /** Рисовать ли цветную ленту состояния вокруг тела. На дашборде её рисует
    *  САМА карточка (по всей высоте, включая имя) — там лента здесь была бы
    *  второй полосой внутри первой. */
   stripe?: boolean
   /** Переход к другому виджету из меню «куда дальше» (п. 1). Не передан —
    *  меню показывает связи справочно, без переходов. */
-  onNavigate?: (dashboardId: string, pageId: string | null, widgetId: string) => void }) {
+  onNavigate?: (dashboardId: string, pageId: string | null, widgetId: string) => void
+  /** Имя виджета — показывается в окне жалобы, чтобы человек видел, на что
+   *  жалуется (в самом обращении контекст всё равно проставит сервер). */
+  widgetName?: string
+  /** Перейти в свои обращения после отправки жалобы (п. 15). */
+  onOpenAppeals?: () => void }) {
   const [data, setData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [drill, setDrill] = useState<any | null>(null)
   const [related, setRelated] = useState(false)
+  const [problem, setProblem] = useState(false)
 
   useEffect(() => {
     // Батч-режим: данные приходят от родителя (1 запрос на всю страницу) — не фетчим сами.
@@ -173,6 +180,16 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
             ↗ куда дальше
           </button>
         )}
+        {/* «Сообщить о проблеме» (п. 15). Показывается и при ОШИБКЕ расчёта —
+            именно тогда человеку и нужно пожаловаться, а data в этот момент
+            нет. Контекст (отчёт, страница, показатель, значение) приложит
+            сервер: объяснять словами, где это, не нужно. */}
+        {(data || error) && showDrill && data?.type !== 'text' && data?.type !== 'image' && (
+          <button style={{ ...drillBtn, color: 'var(--text-faint)' }} onClick={() => setProblem(true)}
+            title="Сообщить администратору о проблеме с этой цифрой — где вы её увидели, система приложит сама">
+            ⚑ проблема
+          </button>
+        )}
         {data?.as_of && (data.period_locked || !sameDay(data.as_of, pageAsOf)) && (
           // У виджета с закреплённым периодом это СРЕЗ: он не обновится, когда
           // придёт следующая неделя. Не сказать об этом — значит выдать снимок
@@ -204,6 +221,10 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
       {related && (
         <RelatedMenu widgetId={widgetId} onClose={() => setRelated(false)}
           onOpenDrill={openDrill} onNavigate={onNavigate} />
+      )}
+      {problem && (
+        <ReportProblemDialog widgetId={widgetId} widgetName={widgetName}
+          onClose={() => setProblem(false)} onOpenAppeals={onOpenAppeals} />
       )}
     </div>
   )

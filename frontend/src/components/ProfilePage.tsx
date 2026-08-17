@@ -22,7 +22,12 @@ const ACTION_RU: Record<string, string> = {
 }
 
 export default function ProfilePage(
-  { me, initialAppealId }: { me: Me; initialAppealId?: string | null },
+  { me, initialAppealId, onOpenDashboard }: {
+    me: Me
+    initialAppealId?: string | null
+    /** Открыть отчёт, на который пожаловались кнопкой с виджета (п. 15). */
+    onOpenDashboard?: (dashboardId: string, pageId?: string | null) => void
+  },
 ) {
   // Переход из уведомления: сразу вкладка «Обращения», иначе человек попадал бы
   // в профиль и искал переписку сам.
@@ -34,7 +39,7 @@ export default function ProfilePage(
         <button onClick={() => setTab('profile')} style={tab === 'profile' ? tabActive : tabBtn}>Профиль и активность</button>
         <button onClick={() => setTab('appeals')} style={tab === 'appeals' ? tabActive : tabBtn}>💬 Мои обращения</button>
       </div>
-      {tab === 'profile' ? <ProfileTab me={me} /> : <AppealsPanel scope="mine" initialAppealId={initialAppealId} />}
+      {tab === 'profile' ? <ProfileTab me={me} /> : <AppealsPanel scope="mine" initialAppealId={initialAppealId} onOpenDashboard={onOpenDashboard} />}
     </div>
   )
 }

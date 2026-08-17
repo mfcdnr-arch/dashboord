@@ -550,6 +550,26 @@ export async function getWidgetRelated(widgetId: string): Promise<WidgetRelated>
   return res.json()
 }
 
+// «Сообщить о проблеме» прямо с виджета (п. 15 — обратная связь). Контекст
+// (дашборд, страница, показатель, значение на экране) собирает СЕРВЕР: человек
+// не должен объяснять словами, где именно он это увидел.
+export interface ProblemKind { code: string; label: string }
+export async function widgetProblemKinds(): Promise<{ kinds: ProblemKind[] }> {
+  const res = await fetch('/widgets/problem-kinds', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function reportWidgetProblem(
+  widgetId: string, kind: string, comment: string,
+): Promise<{ appeal_id: string; appended: boolean; subject: string | null; widget_name: string }> {
+  const res = await fetch(`/widgets/${widgetId}/report-problem`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ kind, comment: comment || null }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 // Кандидаты в подборку «Руководителю» (пп. 2–3 запроса заказчика): список всех
 // доступных дашбордов с галочками, советом системы и объяснением «почему».
 export type FeaturedCandidate = {

@@ -20,6 +20,19 @@ export interface AppealMessage {
   author: string
 }
 
+/** Откуда пришла жалоба, если её отправили кнопкой с виджета: даёт в карточке
+ *  обращения переход к самому отчёту, а не только рассказ о нём. У обычных
+ *  обращений (из кабинета, от заблокированной учётки) контекста нет. */
+export interface AppealContext {
+  kind: string
+  widget_id: string
+  widget_name: string
+  dashboard_id: string
+  dashboard_name: string
+  page_id: string | null
+  page_title: string | null
+}
+
 export interface AppealDetail {
   id: string
   subject: string | null
@@ -27,6 +40,7 @@ export interface AppealDetail {
   created_at: string
   updated_at: string
   author: string
+  context: AppealContext | null
   messages: AppealMessage[]
 }
 

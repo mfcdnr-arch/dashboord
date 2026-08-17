@@ -145,7 +145,7 @@ async def open_count(conn, org_id) -> dict:
 
 async def get_appeal(conn, org_id, user: dict, appeal_id: str) -> dict:
     ap = await conn.fetchrow(
-        "select a.id, a.subject, a.status, a.created_at, a.updated_at, a.user_id, "
+        "select a.id, a.subject, a.status, a.created_at, a.updated_at, a.user_id, a.context, "
         "coalesce(u.full_name, u.login) as author "
         "from appeals a join users u on u.id=a.user_id "
         "where a.id=$1::uuid and a.organization_id=$2", appeal_id, org_id)
@@ -157,9 +157,16 @@ async def get_appeal(conn, org_id, user: dict, appeal_id: str) -> dict:
         "select m.id, m.is_staff, m.body, m.created_at, coalesce(u.full_name, u.login, '— (удалён)') as author "
         "from appeal_messages m left join users u on u.id=m.sender_user_id "
         "where m.appeal_id=$1::uuid order by m.created_at", appeal_id)
+    # context заполнен только у жалоб, отправленных кнопкой с виджета: он даёт
+    # в карточке переход к самому отчёту, а не только рассказ о нём.
+    ctx = ap["context"]
+    if isinstance(ctx, str):
+        import json
+        ctx = json.loads(ctx)
     return {
         "id": str(ap["id"]), "subject": ap["subject"], "status": ap["status"],
         "created_at": ap["created_at"], "updated_at": ap["updated_at"], "author": ap["author"],
+        "context": ctx,
         "messages": [{"id": str(m["id"]), "is_staff": m["is_staff"], "body": m["body"],
                      "created_at": m["created_at"], "author": m["author"]} for m in msgs],
     }
@@ -171,8 +178,14 @@ async def add_message(conn, org_id, user: dict, appeal_id: str, body: str) -> di
     if ap is None:
         raise AppealsError("Обращение не найдено")
     is_staff = await _is_staff(conn, user["id"])
-    if str(ap["user_id"]) != str(user["id"]) and not is_staff:
+    is_author = str(ap["user_id"]) == str(user["id"])
+    if not is_author and not is_staff:
         raise AppealsError("Обращение не найдено")
+    # Сотрудник, пишущий в СВОЁМ обращении, выступает заявителем, а не
+    # администрацией: его сообщение — не ответ. Иначе жалоба, отправленная
+    # администратором (а кнопка «сообщить о проблеме» на виджете доступна и
+    # ему), сама себя переводила бы в «есть ответ» и уходила из очереди.
+    as_staff = is_staff and not is_author
     body = (body or "").strip()
     if not body:
         raise AppealsError("Пустое сообщение")
@@ -180,14 +193,13 @@ async def add_message(conn, org_id, user: dict, appeal_id: str, body: str) -> di
         raise AppealsError(f"Слишком длинное сообщение (максимум {MAX_BODY} символов)")
     row = await conn.fetchrow(
         "insert into appeal_messages(appeal_id, sender_user_id, is_staff, body) values($1::uuid,$2,$3,$4) "
-        "returning id, created_at", appeal_id, user["id"], is_staff, body)
-    new_status = "answered" if is_staff else "open"
+        "returning id, created_at", appeal_id, user["id"], as_staff, body)
+    new_status = "answered" if as_staff else "open"
     await conn.execute("update appeals set status=$2, updated_at=now() where id=$1::uuid", appeal_id, new_status)
-    if is_staff:
-        if str(ap["user_id"]) != str(user["id"]):
-            await notif_svc.notify(
-                conn, org_id, "appeal.replied", "appeal", appeal_id,
-                {"author": user.get("full_name") or user.get("login"), "snippet": body[:140]}, [ap["user_id"]])
+    if as_staff:
+        await notif_svc.notify(
+            conn, org_id, "appeal.replied", "appeal", appeal_id,
+            {"author": user.get("full_name") or user.get("login"), "snippet": body[:140]}, [ap["user_id"]])
     else:
         mgmt = [u for u in await notif_svc.management_user_ids(conn, org_id) if str(u) != str(user["id"])]
         if mgmt:
@@ -196,7 +208,7 @@ async def add_message(conn, org_id, user: dict, appeal_id: str, body: str) -> di
                 {"author": user.get("full_name") or user.get("login"), "snippet": body[:140]}, mgmt)
     await audit_svc.write_event(
         conn, org_id, user["id"], "update", "appeal", appeal_id,
-        old_data={"status": ap["status"]}, new_data={"status": new_status, "is_staff": is_staff, "snippet": body[:200]})
+        old_data={"status": ap["status"]}, new_data={"status": new_status, "is_staff": as_staff, "snippet": body[:200]})
     return {"id": str(row["id"]), "created_at": row["created_at"], "status": new_status}
 
 

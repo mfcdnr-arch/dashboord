@@ -58,7 +58,9 @@ function surfaceColor(): string {
   return getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#ffffff'
 }
 
-export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initialDashboardId, initialPageId }: { canManage: boolean; isAdmin?: boolean; isSuperadmin?: boolean; initialDashboardId?: string | null; initialPageId?: string | null }) {
+export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initialDashboardId, initialPageId, onOpenAppeals }: { canManage: boolean; isAdmin?: boolean; isSuperadmin?: boolean; initialDashboardId?: string | null; initialPageId?: string | null;
+  /** Перейти в свои обращения после жалобы с виджета (п. 15). */
+  onOpenAppeals?: () => void }) {
   // Подтверждения — своим окном: системное браузер вправе подавить, и кнопка
   // необратимого действия выглядит нерабочей (см. ConfirmDialog).
   const { ask, node: confirmNode } = useConfirm()
@@ -1016,6 +1018,8 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                             onPick={(name) => setCrossRow((cur) => cur === name ? null : name)}
                             batched={!batchFailed} injData={pageData[w.id]?.data} injError={pageData[w.id]?.error}
                             onNavigate={navigateToWidget}
+                            widgetName={w.name}
+                            onOpenAppeals={onOpenAppeals}
                             stripe={false} />
                         </div>
                       )}

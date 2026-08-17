@@ -126,6 +126,15 @@ async def widget_suggestions(dataset_code: str, user: dict = Depends(manage)):
             raise _bad(e)
 
 
+# Регистрируется ДО параметризованных /widgets/{...}: конкретный путь, попавший
+# после шаблона, перехватывается им (уже наступали на это с /audit/access).
+@router.get("/widgets/problem-kinds")
+async def problem_kinds(user: dict = Depends(get_current_user)):
+    """Виды проблем для кнопки «сообщить о проблеме» — список задаёт сервер,
+    чтобы подписи в интерфейсе и в тексте обращения не разошлись."""
+    return {"kinds": [{"code": k, "label": v} for k, v in service.PROBLEM_KINDS.items()]}
+
+
 @router.patch("/widgets/{widget_id}")
 async def update_widget(widget_id: str, body: WidgetPatch, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:
@@ -165,6 +174,25 @@ async def widget_related(widget_id: str, user: dict = Depends(get_current_user))
     async with db.acquire(user["id"]) as conn:
         try:
             return await service.widget_related(conn, user["organization_id"], user, widget_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+class ProblemIn(BaseModel):
+    kind: str = "other"
+    comment: Optional[str] = Field(None, max_length=2000)
+
+
+@router.post("/widgets/{widget_id}/report-problem", status_code=status.HTTP_201_CREATED)
+async def report_problem(widget_id: str, body: ProblemIn, user: dict = Depends(get_current_user)):
+    """Жалоба на конкретную цифру (п. 15). Контекст — дашборд, страница,
+    показатель и текущее значение — собирает сервер: человек не должен
+    объяснять словами, где именно он это увидел."""
+    async with db.acquire(user["id"]) as conn:
+        try:
+            async with conn.transaction():
+                return await service.report_widget_problem(
+                    conn, user["organization_id"], user, widget_id, body.kind, body.comment)
         except DashboardError as e:
             raise _bad(e)
 

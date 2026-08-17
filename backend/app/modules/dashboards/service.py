@@ -29,6 +29,8 @@ from ._comments import add_comment, delete_comment, list_comments  # noqa: F401
 from ._describe import describe_dashboard  # noqa: F401
 from ._explain import explain_widgets, widget_configs  # noqa: F401
 from ._related import widget_related  # noqa: F401
+from ._report import KINDS as PROBLEM_KINDS  # noqa: F401
+from ._report import report_widget_problem  # noqa: F401
 from ._rls import (  # noqa: F401
     PRIVILEGED_ROLES,
     _can_view,

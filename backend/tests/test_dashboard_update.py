@@ -9,6 +9,8 @@ import pytest
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
+from conftest import purge_dashboard
+
 
 async def _mk(client, headers, name):
     return (await client.post("/dashboards", headers=headers, json={"name": name})).json()["id"]
@@ -39,7 +41,9 @@ async def test_rename_and_describe(client, admin_headers):
     got = (await client.get(f"/dashboards/{did}", headers=admin_headers)).json()
     assert got["dashboard"]["name"] == "ztest_upd_new"
 
-    await client.delete(f"/dashboards/{did}", headers=admin_headers)
+    # Уборка напрямую: с 11.08 DELETE /dashboards разрешён только
+    # суперадминистратору, и вызов от admin молча оставлял бы мусор на стенде.
+    await purge_dashboard(did)
 
 
 async def test_empty_name_and_empty_patch_rejected(client, admin_headers):
@@ -55,7 +59,9 @@ async def test_empty_name_and_empty_patch_rejected(client, admin_headers):
     got = (await client.get(f"/dashboards/{did}", headers=admin_headers)).json()
     assert got["dashboard"]["name"] == "ztest_upd_guard"
 
-    await client.delete(f"/dashboards/{did}", headers=admin_headers)
+    # Уборка напрямую: с 11.08 DELETE /dashboards разрешён только
+    # суперадминистратору, и вызов от admin молча оставлял бы мусор на стенде.
+    await purge_dashboard(did)
 
 
 async def test_unknown_dashboard_is_404(client, admin_headers):
