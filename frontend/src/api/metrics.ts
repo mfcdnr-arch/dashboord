@@ -110,7 +110,16 @@ export async function versionValue(versionId: string): Promise<{ value: number; 
 
 // Справочник для визуального конструктора формул
 export interface DsField { code: string; name: string; data_type: string; is_row_label: boolean }
-export interface DataSet { code: string; name: string; object: string | null; folder: string | null; document: string | null; dates: string[]; fields: DsField[]; rows: string[] }
+export interface DataSet {
+  code: string; name: string; object: string | null; folder: string | null
+  /** Файл ПОСЛЕДНЕГО отчёта: по нему считаются карточки и таблицы. */
+  document: string | null
+  /** Все файлы этого набора данных: за кодом стоит ряд отчётов одной формы,
+   *  а не один файл — иначе непонятно, откуда на графике несколько точек. */
+  documents?: string[]
+  releases?: number
+  dates: string[]; fields: DsField[]; rows: string[]
+}
 export interface MetricSource { code: string; name: string; unit?: string | null; formula?: string | null }
 export interface DataSources { datasets: DataSet[]; metrics: MetricSource[] }
 

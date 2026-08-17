@@ -9,6 +9,24 @@ import { dataUriBytes, fileToEmbeddableDataUri } from '../../lib/image'
 import { DEFAULT_SIZE, F, WT, btn, btnAuto, btnGhost, sel, tab, tabActive, wtBadge } from './shared'
 import { WidgetPicker, WIDGET_META } from './WidgetPicker'
 
+/** Датасет — это НЕ один файл, а ряд отчётов одной формы: пятнадцать недель
+ *  лежат под одним кодом. Подпись должна говорить об этом прямо, иначе человек
+ *  выбирает «файл» и не понимает, откуда на графике несколько точек. */
+function dsFiles(d: { documents?: string[] | null; document?: string | null; releases?: number }): string {
+  const n = d.releases ?? (d.documents || []).length
+  if (n > 1) return `отчётов: ${n}`
+  return d.document || (d.documents || [])[0] || '—'
+}
+
+/** Подпись в выпадашке: имя, код и сколько отчётов за ним стоит. */
+function dsOption(d: { name: string; code: string; releases?: number; dates?: string[] }): string {
+  const n = d.releases ?? (d.dates || []).length
+  return n > 1 ? `${d.name} (${d.code}) · отчётов: ${n}` : `${d.name} (${d.code})`
+}
+
+const ruDate = (iso: string): string =>
+  (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').reverse().join('.') : iso)
+
 export function SourceCatalog({ sources }: { sources: DataSources }) {
   const [open, setOpen] = useState(false)
   const [exp, setExp] = useState<string | null>(null)
@@ -38,7 +56,13 @@ export function SourceCatalog({ sources }: { sources: DataSources }) {
               <span style={{ color: 'var(--accent)' }}>{exp === d.code ? '▾' : '▸'}</span>
               <span style={{ fontSize: 13, fontWeight: 600 }}>{d.name}</span>
               <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>({d.code})</span>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>📄 {[d.document, d.folder, d.object].filter(Boolean).join(' · ') || '—'}</span>
+              {/* Раньше здесь стояло имя ОДНОГО файла — самого свежего выпуска,
+                  и датасет читался как «этот файл». На деле за кодом стоит весь
+                  ряд отчётов одной формы, поэтому показываем, сколько их. */}
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                📄 {dsFiles(d)}{[d.folder, d.object].filter(Boolean).length
+                  ? ' · ' + [d.folder, d.object].filter(Boolean).join(' · ') : ''}
+              </span>
             </div>
             {exp === d.code && (
               <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-2)' }}>
@@ -46,7 +70,22 @@ export function SourceCatalog({ sources }: { sources: DataSources }) {
                   <span key={f.code} style={chip('var(--accent-weak-bg)', 'var(--accent)')}>{f.name} <span style={{ color: 'var(--text-faint)' }}>· {f.data_type === 'number' ? 'число' : f.data_type === 'date' ? 'дата' : 'текст'}{f.is_row_label ? ' · строка' : ''}</span></span>
                 ))}</div>
                 <div style={{ marginBottom: 4 }}><b>Строки:</b> {d.rows.length === 0 ? '—' : d.rows.map((r, i) => <span key={i} style={chip('var(--surface-3)', 'var(--text-2)')}>{r}</span>)}</div>
-                <div><b>Периоды:</b> {d.dates.length === 0 ? '—' : d.dates.join(', ')}</div>
+                <div style={{ marginBottom: 4 }}><b>Периоды:</b> {d.dates.length === 0 ? '—' : d.dates.map(ruDate).join(', ')}</div>
+                {(d.documents || []).length > 0 && (
+                  <div style={{ marginBottom: 4 }}>
+                    <b>Файлы ({d.documents!.length}):</b>{' '}
+                    {d.documents!.map((f, i) => <span key={i} style={chip('var(--surface-3)', 'var(--text-2)')}>{f}</span>)}
+                  </div>
+                )}
+                {/* Главное, что человек должен понять до выбора: карточка
+                    покажет ПОСЛЕДНИЙ отчёт, а динамика — все сразу. Иначе
+                    непонятно, откуда на графике берутся точки. */}
+                {(d.dates || []).length > 1 && (
+                  <div style={{ color: 'var(--text-faint)' }}>
+                    Карточки и таблицы считают по последнему отчёту ({ruDate(d.dates[0])}),
+                    «Динамика» — по всем {d.dates.length}.
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -99,7 +138,7 @@ export function SuggestPanel({ datasets, onAdd }: { datasets: DataSources['datas
     <div style={{ border: '1px solid var(--border-strong)', borderRadius: 10, padding: 12, marginBottom: 12, background: 'var(--surface-2)' }}>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
         <F t="Датасет"><select style={sel} value={dc} onChange={(e) => { setDc(e.target.value); load(e.target.value) }}>
-          {datasets.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}
+          {datasets.map((d) => <option key={d.code} value={d.code}>{dsOption(d)}</option>)}
         </select></F>
         <button style={{ ...btn, height: 34 }} disabled={busy || chosen.size === 0} onClick={add}>{busy ? 'Добавление…' : `＋ Добавить выбранные (${chosen.size})`}</button>
         <button style={{ ...btnGhost, height: 34 }} onClick={() => setOpen(false)}>Скрыть</button>
@@ -490,7 +529,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         return (m || fm) ? <div style={{ flexBasis: '100%', margin: '-2px 0 2px' }}>{line(type === 'plan_fact' ? 'План: ' : '', m)}{line('Факт: ', fm)}</div> : null
       })()}
       {usesDataset && (
-        <F t="Датасет"><select style={sel} value={dataset} onChange={(e) => { setDataset(e.target.value); const nf = numFields(e.target.value); setValueField(nf[0]?.code || ''); setPlanField(nf[0]?.code || ''); setFactField(nf[0]?.code || ''); setMultiFields([]) }}>{sources.datasets.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}</select></F>
+        <F t="Датасет"><select style={sel} value={dataset} onChange={(e) => { setDataset(e.target.value); const nf = numFields(e.target.value); setValueField(nf[0]?.code || ''); setPlanField(nf[0]?.code || ''); setFactField(nf[0]?.code || ''); setMultiFields([]) }}>{sources.datasets.map((d) => <option key={d.code} value={d.code}>{dsOption(d)}</option>)}</select></F>
       )}
       {usesValueField && (
         <F t="Поле (значение)"><select style={sel} value={valueField} onChange={(e) => setValueField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></F>
@@ -512,7 +551,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           {crossSeries.map((it, i) => (
             <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 6, flexWrap: 'wrap' }}>
               <F t="Датасет"><select style={sel} value={it.dataset_code} onChange={(e) => { const nf = numFields(e.target.value); updateCross(i, { dataset_code: e.target.value, value_field: nf[0]?.code || '' }) }}>
-                {sources.datasets.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}
+                {sources.datasets.map((d) => <option key={d.code} value={d.code}>{dsOption(d)}</option>)}
               </select></F>
               <F t="Поле"><select style={sel} value={it.value_field} onChange={(e) => updateCross(i, { value_field: e.target.value })}>
                 {numFields(it.dataset_code).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}

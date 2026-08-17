@@ -284,10 +284,19 @@ async def list_data_sources(conn, org_id) -> dict:
     by_code: dict = {}
     for r in releases:
         code = r["code"]
-        # первая строка по коду — самый свежий выпуск (порядок desc): берём его источник
+        # Первая строка по коду — самый свежий выпуск (порядок desc): из него
+        # берём состав полей и строк. НО подписывать датасет одним файлом
+        # нельзя: за кодом стоит ВЕСЬ ряд отчётов одной формы — пятнадцать
+        # недель, а не «Приложение от 05.08». Человек, видя одно имя файла,
+        # решает, что виджет посчитает по нему одному, и не понимает, откуда
+        # берётся динамика. Поэтому собираем список всех файлов кода.
         grp = by_code.setdefault(code, {"code": code, "name": r["name"], "object": r["object_name"],
                                         "object_id": r["object_id"], "latest_id": r["id"], "dates": [],
-                                        "folder": r["folder"], "document": r["document"]})
+                                        "folder": r["folder"], "document": r["document"],
+                                        "documents": [], "releases": 0})
+        grp["releases"] += 1
+        if r["document"] and r["document"] not in grp["documents"]:
+            grp["documents"].append(r["document"])
         if r["reporting_period_start"] is not None:
             d = r["reporting_period_start"].isoformat()
             if d not in grp["dates"]:
@@ -311,7 +320,11 @@ async def list_data_sources(conn, org_id) -> dict:
         )
         datasets.append({
             "code": grp["code"], "name": grp["name"], "object": grp["object"],
-            "folder": grp["folder"], "document": grp["document"], "dates": grp["dates"],
+            "folder": grp["folder"],
+            # `document` — файл ПОСЛЕДНЕГО отчёта (по нему считаются карточки);
+            # `documents`/`releases` показывают, что за кодом стоит целый ряд.
+            "document": grp["document"], "documents": grp["documents"],
+            "releases": grp["releases"], "dates": grp["dates"],
             "fields": [dict(f) for f in fields],
             "rows": [r["row_label"] for r in rows],
         })
