@@ -508,8 +508,14 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         # Оба ВЫКЛЮЧЕНЫ по умолчанию — это лишние запросы, а на странице
         # карточек бывает полтора десятка.
         if cfg.get("dataset_code") and cfg.get("value_field") and (cfg.get("compare_prev") or cfg.get("spark")):
+            # 🔴 Ряд обрезаем ПО ЭФФЕКТИВНОМУ ПЕРИОДУ виджета, а не берём весь.
+            # Иначе карточка, закреплённая за отчётом (страница-срез) или
+            # суженная фильтром периода, рисовала бы линию по точкам, пришедшим
+            # ПОЗЖЕ её собственной даты, — снимок показывал бы будущее, а
+            # «прирост к прошлому» считался бы от последней пары ряда, а не от
+            # пары, соседней с этим отчётом.
             trend = await _dataset_period_series(
-                conn, org_id, cfg["dataset_code"], cfg["value_field"], None, None, row, allowed)
+                conn, org_id, cfg["dataset_code"], cfg["value_field"], None, period, row, allowed)
             if cfg.get("spark") and len(trend) > 1:
                 res["spark"] = [v for _p, v in trend]
                 res["spark_periods"] = [p for p, _v in trend]

@@ -171,13 +171,20 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
   return (
     <div style={alert && stripe ? { borderLeft: `4px solid ${alert.color}`, background: alert.bg, borderRadius: 6, padding: '6px 8px', margin: '-2px 0' } : undefined}>
       {error && <div style={errBox}>{error}</div>}
-      {!data && !error && <div style={{ color: '#9aa4b2', fontSize: 13 }}>Загрузка…</div>}
+      {/* Пока данных нет — бледный контур на месте будущего числа, а не слово
+          «Загрузка…». На странице в два десятка карточек текст, сменяющийся
+          цифрой, читается как рывок: глаз цепляется за каждое слово и теряет
+          место. Контур занимает то же место, что и содержимое, поэтому смена
+          выглядит проявлением, а не подстановкой. */}
+      {!data && !error && <WidgetSkeleton />}
       {alert && (
         <div style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, color: alert.color,
           background: '#fff', border: `1px solid ${alert.color}`, borderRadius: 10, padding: '1px 8px', marginBottom: 6 }}
           title="Сработал порог KPI-алерта">⚠ {alert.label}</div>
       )}
-      {data && <Body data={data} onPick={onPick} />}
+      {data && <div className="w-appear">
+        <Body data={data} onPick={onPick} />
+      </div>}
       <div ref={footRef} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         {/* Три подписи в подвале не помещаются на узкой карточке (12 колонок
             сетки — это ~120px) и уезжают на вторую строку, отнимая высоту у
@@ -265,6 +272,18 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
 }
 
 // Рендер тела виджета по готовым данным — используется в конструкторе для предпросмотра.
+/** Место будущего содержимого, пока идёт расчёт. Не «крутилка»: она сообщает
+ *  «система занята», а вопрос у смотрящего другой — «где моя цифра». Контур
+ *  занимает ту же площадь, поэтому карточка не прыгает, когда данные приходят. */
+function WidgetSkeleton() {
+  return (
+    <div className="w-skel" aria-label="Данные загружаются" style={{ padding: '4px 0' }}>
+      <div className="w-skel-bar" style={{ width: '62%', height: 26, borderRadius: 6 }} />
+      <div className="w-skel-bar" style={{ width: '38%', height: 12, borderRadius: 6, marginTop: 8 }} />
+    </div>
+  )
+}
+
 /** Действия виджета, свёрнутые в «⋯» на узкой карточке.
  *
  * Выводится порталом в body: карточка виджета обрезает содержимое
