@@ -519,6 +519,22 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   /** Добавить выбранные показатели карточками на текущую страницу.
    *  Карточка — самый безопасный вид по умолчанию: она не зависит от числа
    *  периодов и читается на любой ширине. Вид и размер меняются потом. */
+  /** Завести карточку соседней графы формы прямо из меню «куда дальше».
+   *
+   *  Карточка — тот же безопасный вид по умолчанию, что и у «недостающих
+   *  показателей»: не зависит от числа периодов и читается на любой ширине.
+   *  Размер берём не с потолка: те же 4×5, что ставит авто-сборка, — иначе
+   *  добавленная вручную карточка выглядела бы чужой среди собранных. */
+  async function addSiblingField(field: string, name: string, datasetCode: string) {
+    if (!page) throw new Error('Страница не открыта')
+    if (!datasetCode) throw new Error('Не удалось определить набор данных показателя')
+    await addWidgetsBatch([{
+      name, widget_type: 'kpi',
+      config: { dataset_code: datasetCode, value_field: field },
+      width: 4, height: 5,
+    }])
+  }
+
   async function addMissingFields(picked: { code: string; name: string; dataset_code: string }[]) {
     if (!sel || !page || !picked.length) return
     setAddingFields(true)
@@ -526,7 +542,10 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       await addWidgetsBatch(picked.map((f) => ({
         name: f.name, widget_type: 'kpi',
         config: { dataset_code: f.dataset_code, value_field: f.code },
-        width: 3, height: 3,
+        // 4×5 — тот же размер, что ставит авто-сборка. Было 3×3: на такой
+        // карточке имя госформы обрезается до «Колич обращ за…», а число не
+        // помещается вовсе (это чинили 16.08 кнопкой «↕ Подогнать размеры»).
+        width: 4, height: 5,
       })))
       setMissingOpen(false)
       const left = await dashboardMissingFields(sel.dashboard.id)
@@ -1061,6 +1080,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                             batched={!batchFailed} injData={pageData[w.id]?.data} injError={pageData[w.id]?.error}
                             onNavigate={navigateToWidget}
                             widgetName={w.name}
+                            onAddField={canManage ? addSiblingField : undefined}
                             onOpenAppeals={onOpenAppeals}
                             stripe={false} />
                         </div>

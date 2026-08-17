@@ -23,7 +23,7 @@ const TYPE_RU: Record<string, string> = {
 // (overflow: hidden), и меню внутри неё было бы срезано — ровно тот дефект,
 // который уже ловили у подсказки ⓘ и у окна «подробнее».
 export default function RelatedMenu(
-  { widgetId, onClose, onOpenDrill, onNavigate }:
+  { widgetId, onClose, onOpenDrill, onNavigate, onAddField }:
   {
     widgetId: string
     onClose: () => void
@@ -32,10 +32,15 @@ export default function RelatedMenu(
      *  сам виджет. Без widgetId переход к соседу на ТОЙ ЖЕ странице выглядел
      *  бы как «нажал — ничего не произошло». */
     onNavigate?: (dashboardId: string, pageId: string | null, widgetId: string) => void
+    /** Завести карточку соседней графы на текущей странице. Не передан —
+     *  у смотрящего нет права менять дашборд, и кнопки не будет: кнопка,
+     *  которая всегда отвечает отказом, выглядит поломкой. */
+    onAddField?: (field: string, name: string, datasetCode: string) => Promise<void>
   },
 ) {
   const [data, setData] = useState<WidgetRelated | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
 
   useEffect(() => {
     getWidgetRelated(widgetId).then(setData).catch((e) => setErr((e as Error).message))
@@ -98,13 +103,42 @@ export default function RelatedMenu(
 
             <Group title="Соседи по форме"
               empty={data.siblings.length === 0 ? 'Других заполненных граф в этой форме нет.' : undefined}>
-              {/* Соседей показываем перечнем, без перехода: они лежат в той же
-                  форме, но собственного виджета у каждого может и не быть.
-                  Обещать переход, которого нет, хуже, чем просто назвать их. */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {data.siblings.map((s) => (
-                  <span key={s.field} style={chip} title={s.field}>{s.name}</span>
-                ))}
+              {/* У соседа два разных состояния, и путать их нельзя: если
+                  карточка на дашборде уже есть — к ней переходят, если нет —
+                  заводят. Одна кнопка на оба случая плодила бы вторую карточку
+                  того же показателя рядом с первой. */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {data.siblings.map((s) => {
+                  const shown = !!s.shown_widget_id
+                  return (
+                    <div key={s.field} style={sibRow} title={s.field}>
+                      <span style={{ fontSize: 13, flex: 1, minWidth: 0 }}>{s.name}</span>
+                      {shown ? (
+                        <button style={sibBtn} onClick={() => {
+                          onClose()
+                          onNavigate?.(data.dashboard_id, s.shown_page_id ?? null, s.shown_widget_id!)
+                        }} disabled={!onNavigate}
+                          title={onNavigate ? `Показан виджетом «${s.shown_widget_name}»` : 'Переход отсюда недоступен'}>
+                          показан →
+                        </button>
+                      ) : onAddField && data.page_id ? (
+                        <button style={{ ...sibBtn, color: 'var(--accent)' }}
+                          disabled={busy === s.field}
+                          onClick={async () => {
+                            setBusy(s.field); setErr(null)
+                            try { await onAddField(s.field, s.name, data.subject.dataset_code || ''); onClose() }
+                            catch (e) { setErr((e as Error).message) }
+                            finally { setBusy(null) }
+                          }}
+                          title="Завести карточку этого показателя на текущей странице">
+                          {busy === s.field ? 'добавляю…' : '＋ карточка'}
+                        </button>
+                      ) : (
+                        <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>нет на дашборде</span>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </Group>
 
@@ -162,9 +196,13 @@ const badge: React.CSSProperties = {
   fontSize: 11, padding: '1px 8px', borderRadius: 8, background: 'var(--surface-3)',
   color: 'var(--text-2)', flexShrink: 0,
 }
-const chip: React.CSSProperties = {
-  fontSize: 12, padding: '3px 10px', borderRadius: 12,
-  background: 'var(--surface-3)', color: 'var(--text-2)',
+const sibRow: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', borderRadius: 8,
+  background: 'var(--surface-2)', border: '1px solid var(--border-faint)',
+}
+const sibBtn: React.CSSProperties = {
+  border: 'none', background: 'none', cursor: 'pointer', fontSize: 12,
+  color: 'var(--text-2)', padding: 0, flexShrink: 0, whiteSpace: 'nowrap',
 }
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13, lineHeight: 1.5 }
 const xBtn: React.CSSProperties = { border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--text-muted)' }

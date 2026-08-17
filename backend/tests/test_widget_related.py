@@ -129,3 +129,48 @@ async def test_related_for_metric_widget_names_the_metric(client, admin_headers,
         async with db.acquire() as conn:
             await conn.execute("delete from metric_versions where metric_id=$1::uuid", mid)
             await conn.execute("delete from metrics where id=$1::uuid", mid)
+
+
+async def test_siblings_say_whether_they_are_already_shown(client, admin_headers, seed_dataset):
+    """У соседа два разных состояния, и путать их нельзя.
+
+    Если карточка соседней графы на дашборде уже есть — к ней переходят;
+    если нет — заводят. Одинаковая кнопка на оба случая плодила бы вторую
+    карточку того же показателя рядом с первой.
+    """
+    did, pid = await _dash(client, admin_headers, "ztest_sib_state")
+    # Фикстура заводит значения в обход конвейера распознавания и НЕ создаёт
+    # справочник полей объекта, а «соседи» строятся именно по нему.
+    async with db.acquire() as conn:
+        obj = await conn.fetchval(
+            "select object_id from dataset_releases where code=$1 limit 1", seed_dataset["code"])
+        for code, name in (("plan", "План"), ("fact", "Факт")):
+            await conn.execute(
+                "insert into canonical_fields(object_id, code, name) values($1,$2,$3) "
+                "on conflict do nothing", obj, code, name)
+    try:
+        cfg = {"dataset_code": seed_dataset["code"], "value_field": "plan"}
+        main = await _mk_widget(client, admin_headers, did, pid, "ztest План", cfg)
+
+        # Пока «fact» ничем не показан — сосед предлагается к заведению.
+        r = (await client.get(f"/widgets/{main}/related", headers=admin_headers)).json()
+        fact = next(s for s in r["siblings"] if s["field"] == "fact")
+        assert "shown_widget_id" not in fact
+        # Куда класть новую карточку — та же страница, с которой смотрят.
+        assert r["page_id"] == pid and r["dashboard_id"] == did
+
+        # Завели карточку факта — сосед должен перестать предлагаться и стать
+        # ссылкой на существующий виджет.
+        shown = await _mk_widget(client, admin_headers, did, pid, "ztest Факт", 
+                                 {"dataset_code": seed_dataset["code"], "value_field": "fact"})
+        r = (await client.get(f"/widgets/{main}/related", headers=admin_headers)).json()
+        fact = next(s for s in r["siblings"] if s["field"] == "fact")
+        assert fact.get("shown_widget_id") == shown
+        assert fact.get("shown_widget_name") == "ztest Факт"
+        assert fact.get("shown_page_id") == pid
+    finally:
+        await _drop([did])
+        async with db.acquire() as conn:
+            await conn.execute(
+                "delete from canonical_fields where object_id=(select object_id from dataset_releases "
+                "where code=$1 limit 1) and code = any($2::text[])", seed_dataset["code"], ["plan", "fact"])

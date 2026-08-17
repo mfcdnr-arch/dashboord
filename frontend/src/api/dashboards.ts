@@ -541,8 +541,16 @@ export interface WidgetRelated {
   widget_name: string
   subject: { kind: string; code: string | null; name: string | null; dataset_code?: string }
   elsewhere: RelatedWidgetRef[]
-  siblings: { field: string; name: string }[]
+  /** Соседние графы формы. `shown_widget_id` заполнен, если такая карточка на
+   *  этом дашборде уже есть: тогда к ней переходят, а не заводят вторую. */
+  siblings: {
+    field: string; name: string
+    shown_widget_id?: string; shown_widget_name?: string; shown_page_id?: string | null
+  }[]
   dynamics: { available: boolean; periods: number; first?: string | null; last?: string | null }
+  /** Страница, с которой смотрят: сюда кладётся карточка нового соседа. */
+  page_id: string | null
+  dashboard_id: string
 }
 export async function getWidgetRelated(widgetId: string): Promise<WidgetRelated> {
   const res = await fetch(`/widgets/${widgetId}/related`, { headers: authH() })

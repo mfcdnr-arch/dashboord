@@ -125,7 +125,7 @@ function chartOption(data: any): EChartsOption {
   }
 }
 
-export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf, stripe = true, onNavigate, widgetName, onOpenAppeals }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string;
+export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf, stripe = true, onNavigate, widgetName, onOpenAppeals, onAddField }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string;
   /** Рисовать ли цветную ленту состояния вокруг тела. На дашборде её рисует
    *  САМА карточка (по всей высоте, включая имя) — там лента здесь была бы
    *  второй полосой внутри первой. */
@@ -137,7 +137,10 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
    *  жалуется (в самом обращении контекст всё равно проставит сервер). */
   widgetName?: string
   /** Перейти в свои обращения после отправки жалобы (п. 15). */
-  onOpenAppeals?: () => void }) {
+  onOpenAppeals?: () => void
+  /** Завести карточку соседней графы формы прямо из меню «куда дальше».
+   *  Не передан — у смотрящего нет права менять дашборд. */
+  onAddField?: (field: string, name: string, datasetCode: string) => Promise<void> }) {
   const [data, setData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [drill, setDrill] = useState<any | null>(null)
@@ -192,15 +195,13 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
             действия остаются доступны, но не спорят с содержимым за место. */}
         {actionsFit ? (
           <>
-            {canDrill && (
-              <button style={drillBtn} onClick={openDrill} title="Из чего собран показатель">🔍 подробнее</button>
-            )}
-            {/* «Куда дальше» — ответ на вопрос, который идёт сразу за цифрой:
-                где ещё она есть, что лежит с ней рядом в форме, есть ли движение.
-                Пункты строит сервер по данным, руками ничего не настраивается. */}
+            {/* Отдельной кнопки «🔍 подробнее» больше нет: разбор показателя
+                стал ПЕРВЫМ пунктом этого же меню. Две кнопки рядом отвечали на
+                соседние вопросы («из чего это» и «куда дальше»), и подвал
+                узкой карточки они делили с третьей — «проблема». */}
             {canDrill && (
               <button style={drillBtn} onClick={() => setRelated(true)}
-                title="Куда посмотреть дальше: где ещё есть этот показатель, соседи по форме, динамика">
+                title="Из чего собран показатель, где он ещё есть, что рядом в форме, есть ли динамика">
                 ↗ куда дальше
               </button>
             )}
@@ -249,7 +250,7 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
       {drill && <DrillModal drill={drill} onClose={() => setDrill(null)} />}
       {related && (
         <RelatedMenu widgetId={widgetId} onClose={() => setRelated(false)}
-          onOpenDrill={openDrill} onNavigate={onNavigate} />
+          onOpenDrill={openDrill} onNavigate={onNavigate} onAddField={onAddField} />
       )}
       {problem && (
         <ReportProblemDialog widgetId={widgetId} widgetName={widgetName}
@@ -259,10 +260,7 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
         <ActionsMenu
           onClose={() => setMenu(false)}
           items={[
-            ...(canDrill ? [
-              { label: '🔍 Из чего собран показатель', run: openDrill },
-              { label: '↗ Куда посмотреть дальше', run: () => setRelated(true) },
-            ] : []),
+            ...(canDrill ? [{ label: '↗ Куда посмотреть дальше', run: () => setRelated(true) }] : []),
             ...(canReport ? [{ label: '⚑ Сообщить о проблеме', run: () => setProblem(true) }] : []),
           ]}
         />

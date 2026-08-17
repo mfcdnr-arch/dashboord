@@ -63,8 +63,12 @@ async def widget_related(conn, org_id, user: dict, widget_id: str) -> dict:
         "subject": subject,
         "elsewhere": await _elsewhere(conn, org_id, visible, widget_id, metric_code,
                                       dataset_code, value_field),
-        "siblings": await _siblings(conn, org_id, dataset_code, value_field),
+        "siblings": await _siblings(conn, org_id, dataset_code, value_field, w["dashboard_id"]),
         "dynamics": await _dynamics(conn, org_id, dataset_code),
+        # Куда класть новую карточку, если человек решит завести соседа:
+        # на ТУ ЖЕ страницу, с которой он смотрит.
+        "page_id": str(w["page_id"]) if w["page_id"] else None,
+        "dashboard_id": str(w["dashboard_id"]),
     }
 
 
@@ -110,8 +114,14 @@ async def _elsewhere(conn, org_id, visible: set, widget_id, metric_code,
              "page_name": r["page_name"]} for r in rows]
 
 
-async def _siblings(conn, org_id, dataset_code, value_field) -> list:
-    """Другие графы той же формы: их смотрят вместе, а не порознь."""
+async def _siblings(conn, org_id, dataset_code, value_field, dashboard_id) -> list:
+    """Другие графы той же формы: их смотрят вместе, а не порознь.
+
+    У каждой сказано, ПОКАЗАНА ли она уже на этом дашборде. Разница
+    существенная: если виджет есть — надо к нему перейти, если нет — завести.
+    Одинаковая кнопка в обоих случаях плодила бы вторую карточку того же
+    показателя рядом с первой.
+    """
     if not dataset_code:
         return []
     rows = await conn.fetch(
@@ -122,7 +132,24 @@ async def _siblings(conn, org_id, dataset_code, value_field) -> list:
         "              where r2.code=r.code and v.canonical_field_code=cf.code and v.value_number is not null) "
         "order by cf.name limit $4",
         org_id, dataset_code, value_field, MAX_ITEMS)
-    return [{"field": r["code"], "name": r["name"]} for r in rows]
+    if not rows:
+        return []
+    shown = await conn.fetch(
+        "select w.id, w.name, w.page_id, w.config->>'value_field' as field "
+        "from widgets w where w.dashboard_id=$1 and w.organization_id=$2 "
+        "  and w.config->>'dataset_code' = $3 and w.config->>'value_field' = any($4::text[])",
+        dashboard_id, org_id, dataset_code, [r["code"] for r in rows])
+    by_field = {x["field"]: x for x in shown}
+    out = []
+    for r in rows:
+        item = {"field": r["code"], "name": r["name"]}
+        hit = by_field.get(r["code"])
+        if hit is not None:
+            item["shown_widget_id"] = str(hit["id"])
+            item["shown_widget_name"] = hit["name"]
+            item["shown_page_id"] = str(hit["page_id"]) if hit["page_id"] else None
+        out.append(item)
+    return out
 
 
 async def _dynamics(conn, org_id, dataset_code) -> dict:
