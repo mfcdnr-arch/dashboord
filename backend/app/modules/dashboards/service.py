@@ -274,6 +274,112 @@ async def _highlight_delta(conn, org_id, cfg, value) -> Optional[float]:
     return round((values[-1] - values[-2]) / values[-2] * 100, 2)
 
 
+async def featured_candidates(conn, org_id, user: dict) -> dict:
+    """Что можно вынести в подборку «Руководителю» — и что система советует.
+
+    Состав подборки набирался галочкой в общем списке дашбордов, то есть
+    администратор должен был сам помнить, какие отчёты вообще есть и какие из
+    них годятся руководителю. Здесь тот же выбор сделан списком с подсказкой.
+
+    **Совет — это не решение.** Система смотрит только на проверяемые признаки:
+    опубликован ли отчёт, есть ли в нём числовые показатели (иначе плитка
+    подборки будет пустой), задано ли описание и смотрят ли его вообще.
+    Отмечает галочки человек: «полезно руководителю» — суждение, а не факт.
+
+    **Доступ отметкой НЕ выдаётся** (это правило подборки с самого начала),
+    поэтому рядом показано, скольким людям отчёт реально виден: иначе можно
+    вынести в подборку дашборд, которого руководитель всё равно не увидит.
+    """
+    visible = await visible_dashboard_ids(conn, org_id, user)
+    if not visible:
+        return {"items": []}
+    rows = await conn.fetch(
+        "select d.id, d.name, d.description, d.publication_status, d.featured, d.featured_order, "
+        "  fo.name as folder_name, ob.name as object_name, "
+        "  (select count(*) from widgets w where w.dashboard_id=d.id) as widgets, "
+        "  (select count(*) from widgets w where w.dashboard_id=d.id "
+        "     and w.widget_type = any($3::text[])) as number_widgets, "
+        "  (select count(*) from audit_log a where a.entity_id=d.id and a.action='view' "
+        "     and a.created_at >= now() - interval '30 days') as views_30d, "
+        # Кому отчёт реально виден: привилегированные роли видят всё, автор —
+        # своё, остальные — по гранту и только опубликованное (те же правила,
+        # что и в visible_dashboard_ids).
+        "  (select count(distinct u.id) from users u where u.organization_id=$1 and u.is_active and ("
+        "     exists(select 1 from user_roles ur join roles r on r.id=ur.role_id "
+        "            where ur.user_id=u.id and r.code = any($4::text[])) "
+        "     or u.id = d.created_by "
+        "     or (d.publication_status='published' and exists("
+        "         select 1 from access_grants g where g.dashboard_id=d.id and g.scope='dashboard' and ("
+        "            (g.grantee_type='user' and g.user_id=u.id) "
+        "            or (g.grantee_type='role' and exists(select 1 from user_roles ur2 "
+        "                where ur2.user_id=u.id and ur2.role_id=g.role_id)))))"
+        "  )) as visible_to "
+        "from dashboards d "
+        "left join folders fo on fo.id=d.folder_id left join objects ob on ob.id=fo.object_id "
+        "where d.organization_id=$1 and d.id = any($2::uuid[]) and d.publication_status <> 'archived' "
+        "order by d.featured desc, d.featured_order, d.name",
+        org_id, list(visible), ["kpi", "gauge", "plan_fact"], sorted(PRIVILEGED_ROLES))
+    items = []
+    for r in rows:
+        why, blockers = [], []
+        published = r["publication_status"] == "published"
+        if published:
+            why.append("опубликован")
+        else:
+            blockers.append("не опубликован — руководителю попадёт неутверждённое")
+        if r["number_widgets"]:
+            why.append(f"показателей с цифрами: {r['number_widgets']}")
+        else:
+            blockers.append("нет числовых показателей — плитка будет без цифр")
+        if r["description"]:
+            why.append("есть описание")
+        else:
+            blockers.append("нет описания — по названию не понять, что внутри")
+        if r["views_30d"]:
+            why.append(f"смотрели {r['views_30d']} раз за месяц")
+        if not r["visible_to"]:
+            blockers.append("никому не выдан доступ — в подборке его никто не увидит")
+        items.append({
+            "id": str(r["id"]), "name": r["name"], "description": r["description"],
+            "publication_status": r["publication_status"], "featured": r["featured"],
+            "folder_name": r["folder_name"], "object_name": r["object_name"],
+            "widgets": r["widgets"], "number_widgets": r["number_widgets"],
+            "views_30d": r["views_30d"], "visible_to": r["visible_to"],
+            # Советуем только то, что заведомо не подведёт: опубликовано, есть
+            # что показать и есть кому смотреть.
+            "recommended": bool(published and r["number_widgets"] and r["visible_to"]
+                                and not r["featured"]),
+            "why": why, "blockers": blockers,
+        })
+    return {"items": items}
+
+
+async def set_featured_bulk(conn, org_id, user: dict, featured: list, unfeatured: list) -> dict:
+    """Пакетное изменение состава подборки: применяем разницу, а не весь список.
+
+    Идемпотентно — повторная отметка уже отмеченного не ошибка: панель шлёт
+    разницу целиком, и падать на одной строке из десяти значило бы оставить
+    подборку наполовину настроенной.
+    """
+    visible = await visible_dashboard_ids(conn, org_id, user)
+    changed = {"featured": 0, "unfeatured": 0}
+    for did in (featured or []):
+        if str(did) not in visible:
+            raise DashboardError("Дашборд не найден")
+        res = await conn.execute(
+            "update dashboards set featured=true where id=$1::uuid and organization_id=$2 and not featured",
+            did, org_id)
+        changed["featured"] += 1 if str(res).endswith("1") else 0
+    for did in (unfeatured or []):
+        if str(did) not in visible:
+            raise DashboardError("Дашборд не найден")
+        res = await conn.execute(
+            "update dashboards set featured=false where id=$1::uuid and organization_id=$2 and featured",
+            did, org_id)
+        changed["unfeatured"] += 1 if str(res).endswith("1") else 0
+    return changed
+
+
 async def set_featured(conn, org_id, dashboard_id: str, featured: bool,
                        order: Optional[int] = None) -> dict:
     """Включить/выключить дашборд в подборке «Руководителю»."""

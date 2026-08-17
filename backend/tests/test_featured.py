@@ -169,3 +169,59 @@ async def test_featured_tiles_show_numbers_and_growth(client, admin_headers, see
             await conn.execute("delete from access_grants where dashboard_id=$1::uuid", did)
             await conn.execute("delete from securable_objects where object_id=$1::uuid", did)
             await conn.execute("delete from dashboards where id=$1::uuid", did)
+
+
+async def test_featured_candidates_advise_but_do_not_decide(client, admin_headers, seed_dataset, viewer):
+    """Система советует по проверяемым признакам, решение остаётся за человеком.
+
+    Совет строится только на том, что можно проверить: опубликован ли отчёт,
+    есть ли в нём цифры и есть ли кому его смотреть. «Полезно руководителю» —
+    суждение, поэтому галочки ставит администратор, а не система.
+    """
+    r = await client.post("/dashboards", headers=admin_headers,
+                          json={"name": "ztest_feat_cand", "force": True,
+                                "description": "Отчёт для проверки советов"})
+    did = r.json()["id"]
+    try:
+        page = await client.post(f"/dashboards/{did}/pages", headers=admin_headers, json={"name": "Обзор"})
+        await client.post(f"/dashboard-pages/{page.json()['id']}/widgets", headers=admin_headers,
+                          json={"name": "ztest Показатель", "widget_type": "kpi",
+                                "config": {"dataset_code": seed_dataset["code"], "value_field": "plan"}})
+
+        items = (await client.get("/dashboards/featured/candidates", headers=admin_headers)).json()["items"]
+        row = next(i for i in items if i["id"] == did)
+        assert row["featured"] is False
+        assert row["recommended"] is False, "черновик советовать нельзя — руководителю попадёт неутверждённое"
+        assert any("не опубликован" in b for b in row["blockers"])
+
+        await client.post(f"/dashboards/{did}/publish", headers=admin_headers, json={})
+        row = next(i for i in (await client.get("/dashboards/featured/candidates",
+                                                headers=admin_headers)).json()["items"] if i["id"] == did)
+        assert row["recommended"] is True, "опубликован, есть цифры и есть кому смотреть"
+        assert row["number_widgets"] == 1
+        assert row["visible_to"] >= 1, "нужно показывать, скольким людям отчёт виден"
+
+        # Пакетное применение: отметили — попал в подборку.
+        await client.post("/dashboards/featured/bulk", headers=admin_headers,
+                          json={"featured": [did], "unfeatured": []})
+        seen = (await client.get("/dashboards/featured", headers=admin_headers)).json()["items"]
+        assert any(i["id"] == did for i in seen)
+
+        # Повтор не ошибка и не дубль: панель шлёт разницу целиком.
+        again = await client.post("/dashboards/featured/bulk", headers=admin_headers,
+                                  json={"featured": [did], "unfeatured": []})
+        assert again.status_code == 200 and again.json()["featured"] == 0
+
+        # Настройка состава — не для зрителя.
+        assert (await client.get("/dashboards/featured/candidates",
+                                 headers=viewer["headers"])).status_code == 403
+        assert (await client.post("/dashboards/featured/bulk", headers=viewer["headers"],
+                                  json={"featured": [did]})).status_code == 403
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from widgets where dashboard_id=$1::uuid", did)
+            await conn.execute("delete from dashboard_pages where dashboard_id=$1::uuid", did)
+            await conn.execute("delete from dashboard_versions where dashboard_id=$1::uuid", did)
+            await conn.execute("delete from publication_requests where dashboard_id=$1::uuid", did)
+            await conn.execute("delete from securable_objects where object_id=$1::uuid", did)
+            await conn.execute("delete from dashboards where id=$1::uuid", did)

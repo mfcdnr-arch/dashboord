@@ -165,6 +165,32 @@ async def featured_dashboards(user: dict = Depends(get_current_user)):
         return await service.list_featured(conn, user["organization_id"], user)
 
 
+class FeaturedBulkIn(BaseModel):
+    featured: List[str] = []
+    unfeatured: List[str] = []
+
+
+# Статические пути — ДО параметризованного `/dashboards/{id}`: Starlette
+# матчит по порядку регистрации.
+@router.get("/dashboards/featured/candidates")
+async def featured_candidates(user: dict = Depends(manage)):
+    """Что можно вынести в подборку и что система советует (пп. 2–3 запроса
+    заказчика): список всех доступных дашбордов с галочками и объяснением."""
+    async with db.acquire(user["id"]) as conn:
+        return await service.featured_candidates(conn, user["organization_id"], user)
+
+
+@router.post("/dashboards/featured/bulk")
+async def set_featured_bulk(body: FeaturedBulkIn, user: dict = Depends(manage)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            async with conn.transaction():
+                return await service.set_featured_bulk(
+                    conn, user["organization_id"], user, body.featured, body.unfeatured)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.post("/dashboards/{dashboard_id}/featured")
 async def set_featured(dashboard_id: str, body: FeaturedIn, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:

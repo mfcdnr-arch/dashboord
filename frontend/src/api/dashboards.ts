@@ -527,3 +527,38 @@ export async function getWidgetRelated(widgetId: string): Promise<WidgetRelated>
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// Кандидаты в подборку «Руководителю» (пп. 2–3 запроса заказчика): список всех
+// доступных дашбордов с галочками, советом системы и объяснением «почему».
+export type FeaturedCandidate = {
+  id: string
+  name: string
+  description: string | null
+  publication_status: string
+  featured: boolean
+  folder_name: string | null
+  object_name: string | null
+  widgets: number
+  number_widgets: number
+  views_30d: number
+  /** Скольким сотрудникам отчёт реально виден: отметка в подборку доступа НЕ даёт. */
+  visible_to: number
+  recommended: boolean
+  why: string[]
+  blockers: string[]
+}
+export async function listFeaturedCandidates(): Promise<{ items: FeaturedCandidate[] }> {
+  const res = await fetch('/dashboards/featured/candidates', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function setFeaturedBulk(featured: string[], unfeatured: string[]): Promise<{
+  featured: number; unfeatured: number
+}> {
+  const res = await fetch('/dashboards/featured/bulk', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ featured, unfeatured }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

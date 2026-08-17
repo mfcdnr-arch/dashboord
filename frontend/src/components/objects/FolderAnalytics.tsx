@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
-import { getFolderAnalytics, type FolderAnalytics as Data } from '../../api'
+import {
+  createWidget, getDashboard, getFolderAnalytics,
+  type DashPage, type FolderAnalytics as Data,
+} from '../../api'
 import { fmtNumber } from '../../lib/format'
 
 const ru = (iso?: string | null) => (iso ? iso.split('-').reverse().join('.') : '—')
@@ -12,16 +15,18 @@ const ru = (iso?: string | null) => (iso ? iso.split('-').reverse().join('.') : 
 // берутся тем же путём, что у виджетов, ритм — той же функцией, что шлёт
 // уведомления о пропущенном отчёте.
 export default function FolderAnalytics(
-  { objectId, folderId, onOpenDashboard }:
-  { objectId: string; folderId: string; onOpenDashboard?: (id: string) => void },
+  { objectId, folderId, canManage, onOpenDashboard }:
+  { objectId: string; folderId: string; canManage?: boolean; onOpenDashboard?: (id: string) => void },
 ) {
   const [d, setD] = useState<Data | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
 
-  useEffect(() => {
-    setD(null); setErr(null)
+  const load = () => {
+    setErr(null)
     getFolderAnalytics(objectId, folderId).then(setD).catch((e) => setErr((e as Error).message))
-  }, [objectId, folderId])
+  }
+  useEffect(() => { setD(null); load() }, [objectId, folderId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (err) return <div style={errBox}>{err}</div>
   if (!d) return <div style={muted}>Загрузка…</div>
@@ -130,8 +135,17 @@ export default function FolderAnalytics(
         </div>
         {cov.missing_fields.length > 0 && (
           <div style={{ marginTop: 6 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--warn)', marginBottom: 4 }}>
-              Не показаны нигде
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 4, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--warn)' }}>Не показаны нигде</div>
+              {/* Список забытых показателей сам по себе — тупик: он сообщает о
+                  недостаче, а завести карточки предлагает вручную. Кнопка
+                  делает то, ради чего человек сюда и смотрит. */}
+              {canManage && cov.dashboards.length > 0 && (
+                <button style={addBtn} onClick={() => setAddOpen(true)}>＋ Добавить на дашборд</button>
+              )}
+              {canManage && cov.dashboards.length === 0 && (
+                <span style={muted}>дашборда по этой папке нет — соберите мастером в карточке объекта</span>
+              )}
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {cov.missing_fields.map((m) => (
@@ -141,6 +155,16 @@ export default function FolderAnalytics(
           </div>
         )}
       </Block>
+
+      {addOpen && (
+        <AddMissingDialog
+          dashboards={cov.dashboards}
+          fields={cov.missing_fields}
+          datasetCode={d.data.codes[0] || ''}
+          onClose={() => setAddOpen(false)}
+          onDone={() => { setAddOpen(false); load() }}
+        />
+      )}
 
       {/* ④ Сравнение объектов. Показываем только когда есть с кем сравнивать —
           «сравнение» из одной строки вводит в заблуждение. */}
@@ -220,4 +244,124 @@ const noteBox: React.CSSProperties = {
 }
 const errBox: React.CSSProperties = {
   background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8,
+}
+
+
+// Добавление забытых показателей на дашборд этой папки.
+//
+// Выбор дашборда и страницы обязателен: карточку надо куда-то положить, а
+// «положим на первый попавшийся» однажды удивит человека, у которого их
+// несколько. По умолчанию не отмечено ничего — показателей бывает десяток, и
+// десяток карточек разом превращает страницу в стену чисел.
+function AddMissingDialog(
+  { dashboards, fields, datasetCode, onClose, onDone }: {
+    dashboards: { id: string; name: string }[]
+    fields: { field: string; name: string }[]
+    datasetCode: string
+    onClose: () => void
+    onDone: () => void
+  },
+) {
+  const [dashId, setDashId] = useState(dashboards[0]?.id || '')
+  const [pages, setPages] = useState<DashPage[] | null>(null)
+  const [pageId, setPageId] = useState('')
+  const [picked, setPicked] = useState<Record<string, boolean>>({})
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!dashId) return
+    setPages(null); setPageId('')
+    getDashboard(dashId).then((r) => {
+      setPages(r.pages)
+      setPageId(r.pages[0]?.id || '')
+    }).catch((e) => setErr((e as Error).message))
+  }, [dashId])
+
+  const chosen = fields.filter((f) => picked[f.field])
+
+  async function add() {
+    if (!pageId || chosen.length === 0) return
+    setBusy(true); setErr(null)
+    try {
+      for (const f of chosen) {
+        await createWidget(pageId, {
+          name: f.name, widget_type: 'kpi',
+          config: { dataset_code: datasetCode, value_field: f.field },
+          // В конец страницы: место подберёт сетка, а поверх чужих виджетов
+          // карточка не ляжет.
+          position_x: 0, position_y: 999, width: 4, height: 5,
+        })
+      }
+      onDone()
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={dlgOverlay} onClick={onClose}>
+      <div style={dlg} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: 10 }}>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>Добавить показатели на дашборд</div>
+          <button style={{ ...closeBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
+        </div>
+        {err && <div style={errBox}>{err}</div>}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+          <label style={{ ...muted, display: 'flex', gap: 6, alignItems: 'center' }}>
+            дашборд
+            <select style={sel} value={dashId} onChange={(e) => setDashId(e.target.value)}>
+              {dashboards.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+            </select>
+          </label>
+          <label style={{ ...muted, display: 'flex', gap: 6, alignItems: 'center' }}>
+            страница
+            <select style={sel} value={pageId} onChange={(e) => setPageId(e.target.value)}
+              disabled={!pages || pages.length === 0}>
+              {(pages || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+        </div>
+        {pages && pages.length === 0 && (
+          <div style={{ ...muted, color: 'var(--warn)' }}>
+            У дашборда нет ни одной страницы — сначала создайте её в разделе «Дашборды».
+          </div>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 260, overflowY: 'auto' }}>
+          {fields.map((f) => (
+            <label key={f.field} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+              <input type="checkbox" checked={!!picked[f.field]}
+                onChange={(e) => setPicked((c) => ({ ...c, [f.field]: e.target.checked }))} />
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                title={f.field}>{f.name}</span>
+            </label>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
+          <button style={{ ...addBtn, height: 34, opacity: chosen.length === 0 || !pageId || busy ? 0.5 : 1 }}
+            disabled={chosen.length === 0 || !pageId || busy} onClick={add}>
+            {busy ? 'Добавление…' : `Добавить (${chosen.length})`}
+          </button>
+          <span style={muted}>Карточками в конец выбранной страницы.</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const addBtn: React.CSSProperties = {
+  height: 26, padding: '0 12px', border: 'none', borderRadius: 8,
+  background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 12, cursor: 'pointer',
+}
+const dlgOverlay: React.CSSProperties = {
+  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex',
+  alignItems: 'center', justifyContent: 'center', zIndex: 70, padding: 20,
+}
+const dlg: React.CSSProperties = {
+  background: 'var(--surface)', borderRadius: 14, padding: 20, width: 560, maxWidth: '94vw',
+  maxHeight: '86vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+}
+const sel: React.CSSProperties = {
+  height: 30, padding: '0 8px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13,
+}
+const closeBtn: React.CSSProperties = {
+  border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--text-muted)',
 }

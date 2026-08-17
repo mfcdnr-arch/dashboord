@@ -502,7 +502,7 @@ export default function ObjectsPage(
       )}
 
       {folder && !openDoc && folderTab === 'analytics' && obj && (
-        <FolderAnalytics objectId={obj.id} folderId={folder.id} />
+        <FolderAnalytics objectId={obj.id} folderId={folder.id} canManage={canManage} />
       )}
 
       {folder && !openDoc && folderTab === 'docs' && (

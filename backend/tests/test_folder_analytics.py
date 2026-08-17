@@ -205,3 +205,38 @@ async def test_folder_of_another_object_is_404(client, admin_headers, folder_wit
     finally:
         async with db.acquire() as conn:
             await conn.execute("delete from objects where id=$1", other)
+
+
+async def test_missing_field_can_be_added_to_dashboard(client, admin_headers, folder_with_data):
+    """Забытый показатель добавляется карточкой, и покрытие сразу это видит.
+
+    Список забытых показателей сам по себе — тупик: он сообщает о недостаче,
+    а завести карточки предлагает вручную. Кнопка в аналитике делает то, ради
+    чего человек в этот список и смотрит; здесь проверяется, что после
+    добавления показатель перестаёт числиться забытым.
+    """
+    f = folder_with_data
+    dash = await client.post("/dashboards", headers=admin_headers,
+                             json={"name": "ztest_an_add", "force": True})
+    did = dash.json()["id"]
+    await client.post(f"/dashboards/{did}/folder", headers=admin_headers, json={"folder_id": f["folder_id"]})
+    page = await client.post(f"/dashboards/{did}/pages", headers=admin_headers, json={"name": "Обзор"})
+    pid = page.json()["id"]
+
+    before = (await client.get(f"/objects/{f['object_id']}/folders/{f['folder_id']}/analytics",
+                               headers=admin_headers)).json()
+    missing = before["coverage"]["missing_fields"]
+    assert len(missing) == 2, "оба показателя пока нигде не показаны"
+
+    # Ровно то, что делает кнопка: карточка на выбранную страницу.
+    r = await client.post(f"/dashboard-pages/{pid}/widgets", headers=admin_headers,
+                          json={"name": missing[0]["name"], "widget_type": "kpi",
+                                "config": {"dataset_code": "ztest_an_ds", "value_field": missing[0]["field"]},
+                                "position_x": 0, "position_y": 999, "width": 4, "height": 5})
+    assert r.status_code in (200, 201), r.text
+
+    after = (await client.get(f"/objects/{f['object_id']}/folders/{f['folder_id']}/analytics",
+                              headers=admin_headers)).json()
+    assert after["coverage"]["shown_fields"] == 1
+    assert [m["field"] for m in after["coverage"]["missing_fields"]] == [missing[1]["field"]], \
+        "добавленный показатель обязан исчезнуть из забытых"

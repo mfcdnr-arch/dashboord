@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { listFeatured, type FeaturedDashboard } from '../api'
 import { fmtNumber } from '../lib/format'
+import FeaturedPicker from './leadership/FeaturedPicker'
 
 /**
  * Раздел «Руководителю» — подборка дашбордов с описаниями.
@@ -19,17 +20,27 @@ export default function LeadershipPage(
 ) {
   const [items, setItems] = useState<FeaturedDashboard[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [picker, setPicker] = useState(false)
 
-  useEffect(() => {
-    listFeatured().then((r) => setItems(r.items)).catch((e) => setError((e as Error).message))
-  }, [])
+  const load = () => listFeatured().then((r) => setItems(r.items))
+    .catch((e) => setError((e as Error).message))
+  useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div>
-      <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Руководителю</h2>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+        <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Руководителю</h2>
+        {/* Состав подборки настраивается здесь же: собирать её, вспоминая
+            нужные отчёты в общем списке дашбордов, неудобно — там свои
+            фильтры и свои задачи. */}
+        {canManage && (
+          <button style={setupBtn} onClick={() => setPicker(true)}>⚙ Настроить подборку</button>
+        )}
+      </div>
       <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>
         Отчёты, отобранные для руководства. Показаны только те, к которым у вас есть доступ.
       </div>
+      {picker && <FeaturedPicker onClose={() => setPicker(false)} onSaved={load} />}
 
       {error && <div style={errBox}>{error}</div>}
       {!items && !error && <div style={{ color: 'var(--text-muted)' }}>Загрузка…</div>}
@@ -123,6 +134,10 @@ function pagePlural(n: number): string {
   }
 }
 
+const setupBtn: React.CSSProperties = {
+  height: 30, padding: '0 12px', borderRadius: 8, fontSize: 13, cursor: 'pointer',
+  border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text-2)',
+}
 const card: React.CSSProperties = {
   textAlign: 'left', background: 'var(--surface)', border: '1px solid var(--border)',
   borderRadius: 12, padding: '14px 16px', cursor: 'pointer', font: 'inherit', color: 'inherit',
