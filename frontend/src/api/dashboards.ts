@@ -126,10 +126,18 @@ export type AutoPlan = {
 
 /** Предпросмотр мастера: что будет создано при таком выборе. Считается тем же
  *  планировщиком, что и сама сборка, — цифра не может разойтись с результатом. */
-export async function autoBuildPlan(objectId: string, selection?: Record<string, DatasetPick>): Promise<AutoPlan> {
+export async function autoBuildPlan(
+  objectId: string, selection?: Record<string, DatasetPick>,
+  documentId?: string, lockPeriod = true,
+): Promise<AutoPlan> {
   const res = await fetch('/dashboards/auto/plan', {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
-    body: JSON.stringify({ object_id: objectId, selection: selection || null }),
+    body: JSON.stringify({
+      object_id: objectId, selection: selection || null,
+      // Сборка по конкретному отчёту: показатели берутся из его выпуска, а
+      // виджеты закрепляются за его отчётной датой (если не снять галочку).
+      document_id: documentId || null, lock_period: lockPeriod,
+    }),
   })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
@@ -143,6 +151,10 @@ export async function autoBuildDashboard(
     metrics?: string[]
     /** Пороги невыполнения плана: полоса и спидометр краснеют ниже нормы. */
     alerts?: boolean
+    /** Собрать по КОНКРЕТНОМУ файлу (объект → папка → файл). */
+    documentId?: string
+    /** Закрепить виджеты за отчётной датой файла (по умолчанию да). */
+    lockPeriod?: boolean
   } = {},
 ): Promise<{ dashboard_id: string; page_id: string; widgets: number; metrics?: number }> {
   const res = await fetch('/dashboards/auto', {
@@ -152,6 +164,8 @@ export async function autoBuildDashboard(
       selection: opts.selection || null, dashboard_id: opts.dashboardId || null,
       metrics: opts.metrics && opts.metrics.length ? opts.metrics : null,
       alerts: opts.alerts !== false,
+      document_id: opts.documentId || null,
+      lock_period: opts.lockPeriod !== false,
     }),
   })
   if (!res.ok) throw new Error(await errText(res))

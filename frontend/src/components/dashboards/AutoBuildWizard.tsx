@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  autoBuildDashboard, autoBuildPlan,
-  type AutoPlan, type DatasetPick, type Dashboard,
+  autoBuildDashboard, autoBuildPlan, listDocuments, listFolders,
+  type AutoPlan, type DatasetPick, type Dashboard, type Doc, type Folder,
 } from '../../api'
 // Тот же формат числа, что на дашборде и в предложениях метрик: два знака
 // после запятой. Свой toLocaleString печатал «656,868 %» там, где везде «656,87 %».
@@ -64,13 +64,31 @@ export default function AutoBuildWizard(
   const [alerts, setAlerts] = useState(true)
   const [restored, setRestored] = useState(false)
   const [target, setTarget] = useState('')          // '' — новый дашборд
+  // Сборка по КОНКРЕТНОМУ отчёту: объект → папка → файл. Пусто — весь объект,
+  // как раньше. Выбранный файл закрепляет дашборд за своей отчётной датой:
+  // человек указал отчёт за 22.07, значит и через неделю там должно быть 22.07.
+  const [folders, setFolders] = useState<Folder[]>([])
+  const [folderId, setFolderId] = useState('')
+  const [docs, setDocs] = useState<Doc[]>([])
+  const [docId, setDocId] = useState('')
+  const [lockPeriod, setLockPeriod] = useState(true)
   const [busy, setBusy] = useState(false)
   const [loadErr, setLoadErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    listFolders(objectId).then(setFolders).catch(() => setFolders([]))
+  }, [objectId, docId, lockPeriod])
+
+  useEffect(() => {
+    setDocId('')
+    if (!folderId) { setDocs([]); return }
+    listDocuments(folderId, 100, 0).then((r) => setDocs(r.items)).catch(() => setDocs([]))
+  }, [folderId])
 
   // Первый запрос — без выбора: сервер отдаёт всё, что нашёл, и это же
   // становится начальным состоянием галочек (по умолчанию отмечено всё).
   useEffect(() => {
-    autoBuildPlan(objectId)
+    autoBuildPlan(objectId, undefined, docId || undefined, lockPeriod)
       .then((p) => {
         setPlan(p)
         const init: Record<string, DatasetPick> = {}
@@ -108,12 +126,12 @@ export default function AutoBuildWizard(
         setSel(init)
       })
       .catch((e) => setLoadErr((e as Error).message))
-  }, [objectId])
+  }, [objectId, docId, lockPeriod])
 
   // Пересчёт итога при смене галочек. Дебаунс — чтобы клик по «снять все»
   // не порождал запрос на каждую галочку.
   const recount = useCallback((s: Record<string, DatasetPick>) => {
-    autoBuildPlan(objectId, s)
+    autoBuildPlan(objectId, s, docId || undefined, lockPeriod)
       .then((p) => setPlan((cur) => (cur ? { ...cur, widgets: p.widgets, pages: p.pages, by_type: p.by_type } : p)))
       .catch(() => {})
   }, [objectId])
@@ -161,6 +179,8 @@ export default function AutoBuildWizard(
     setBusy(true)
     try {
       const r = await autoBuildDashboard(objectId, {
+        documentId: docId || undefined,
+        lockPeriod,
         name: `Дашборд «${objectName}»`, selection: sel, dashboardId: target || undefined,
         metrics: [...metricPicks], alerts,
       })
@@ -318,6 +338,48 @@ export default function AutoBuildWizard(
                 (например, доля доставленных) порогов не будет. Пороги любого виджета
                 потом правятся кнопкой ⚠ в режиме «Двигать и менять размер».
               </div>
+            </div>
+
+            {/* Что берём: весь объект или ОДИН отчёт. Выбор файла отвечает на
+                запрос «объект → папка → файл»: дашборд собирается по данным
+                конкретного отчёта, а не по всему, что накопилось в объекте. */}
+            <div style={block}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Что берём</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <select style={input} value={folderId} onChange={(e) => setFolderId(e.target.value)}>
+                  <option value="">весь объект «{objectName}»</option>
+                  {folders.map((f) => <option key={f.id} value={f.id}>📁 {f.name}</option>)}
+                </select>
+                {folderId && (
+                  <select style={input} value={docId} onChange={(e) => setDocId(e.target.value)}>
+                    <option value="">все отчёты папки</option>
+                    {docs.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {ruDate(d.reporting_period_start)} · {d.original_filename}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              {docId && (
+                <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 8, fontSize: 12.5 }}>
+                  <input type="checkbox" checked={lockPeriod} style={{ marginTop: 3 }}
+                    onChange={(e) => setLockPeriod(e.target.checked)} />
+                  <span>
+                    Закрепить дашборд за этим отчётом
+                    <span style={{ ...muted, display: 'block' }}>
+                      Виджеты будут показывать данные выбранного отчёта и не изменятся, когда придёт
+                      следующий: вы указали конкретный файл. Снимите галочку, если нужен состав этого
+                      отчёта, но с обновляемыми данными.
+                    </span>
+                  </span>
+                </label>
+              )}
+              {folderId && !docId && (
+                <div style={{ ...muted, fontSize: 12.5, marginTop: 6 }}>
+                  Выберите отчёт, чтобы собрать дашборд по нему одному, или оставьте «все отчёты папки».
+                </div>
+              )}
             </div>
 
             <div style={block}>

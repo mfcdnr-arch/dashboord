@@ -218,13 +218,42 @@ async def suggest_widgets(conn, org_id, dataset_code: str) -> dict:
 BLOCKS = ["plan_fact", "kpi", "compare", "dynamics", "bar", "table"]
 
 
-async def collect_object_datasets(conn, org_id, object_id: str) -> list:
-    """Наборы данных объекта с их показателями — основа и плана, и мастера."""
+async def document_release_info(conn, org_id, document_id: str) -> dict:
+    """Что выпущено из конкретного файла: код набора и отчётная дата.
+
+    Нужно для сборки «по этому отчёту»: человек выбирает объект → папку →
+    файл, и дашборд должен показывать именно его цифры, а не всё, что есть в
+    объекте.
+    """
+    row = await conn.fetchrow(
+        "select r.code, r.reporting_period_start as period, d.original_filename, d.folder_id "
+        "from dataset_releases r "
+        "join document_versions v on v.id=r.source_document_version_id "
+        "join documents d on d.id=v.document_id "
+        "where d.id=$1::uuid and r.organization_id=$2 and r.status<>'superseded' "
+        "order by r.created_at desc limit 1", document_id, org_id)
+    if row is None:
+        raise DashboardError(
+            "Из этого файла ещё не выпускали данные — сначала разметьте его и выпустите датасет")
+    return {"code": row["code"],
+            "period": row["period"].isoformat() if row["period"] else None,
+            "filename": row["original_filename"]}
+
+
+async def collect_object_datasets(conn, org_id, object_id: str,
+                                  only_code: Optional[str] = None) -> list:
+    """Наборы данных объекта с их показателями — основа и плана, и мастера.
+
+    `only_code` сужает выбор до одного набора: так собирается дашборд по
+    конкретному файлу (у файла всегда один код — это его форма).
+    """
     rows = await conn.fetch(
         "select code, max(name) as name, count(distinct reporting_period_start) as periods, "
         "  count(*) as releases "
         "from dataset_releases where organization_id=$1 and object_id=$2::uuid and status<>'superseded' "
-        "group by code order by max(created_at) desc", org_id, object_id)
+        + ("and code=$3 " if only_code else "")
+        + "group by code order by max(created_at) desc",
+        *([org_id, object_id, only_code] if only_code else [org_id, object_id]))
     out = []
     for d in rows:
         fields = await _dataset_numeric_fields(conn, org_id, d["code"])
@@ -305,12 +334,17 @@ def _plan_fact_pairs(fields: list) -> list:
 
 
 def plan_auto_build(datasets: list, selection: Optional[dict] = None,
-                    alerts: bool = True) -> list:
+                    alerts: bool = True, pin_period: Optional[str] = None) -> list:
     """Что именно будет создано — список виджетов с местом на сетке и страницей.
 
     `selection` = {code: {"fields": [коды], "blocks": [виды], "views": {код: вид}}}.
     Не передан — берём всё с автоматически подобранными видами.
     `alerts` — проставлять ли пороги невыполнения плана (галочка в мастере).
+    `pin_period` — отчётная дата, к которой ЗАКРЕПЛЯЮТСЯ виджеты: так собирается
+    дашборд по конкретному файлу. Человек выбрал отчёт за 22.07 — значит и
+    через неделю дашборд обязан показывать 22.07, иначе это будет уже другой
+    отчёт под тем же названием. Виджет с закреплённой датой честно подписан
+    «📌 срез · не обновляется» (см. `period_locked`).
 
     Страницы разделены по смыслу: «Обзор» отвечает на «как сейчас», «Динамика» —
     на «как менялось», «Первичные данные» — «откуда цифры». Одна длинная страница
@@ -452,6 +486,13 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
                           "widget_type": "table",
                           "config": {"dataset_code": code, "period": period},
                           "position_x": 0, "position_y": py, "width": 12, "height": 6})
+    if pin_period:
+        # Закрепляем дату ОДНИМ местом в конце, а не в десятке мест, где
+        # формируется config: иначе новый вид виджета однажды забудут закрепить,
+        # и на «срезе за 22.07» появится карточка со свежими данными.
+        # Имя виджета уже могло получить дату (страницы-срезы) — не дублируем.
+        for sp in specs:
+            sp["config"].setdefault("period", pin_period)
     return specs
 
 
@@ -476,13 +517,16 @@ def _selected_periods(sel: Optional[dict], dataset: dict) -> list:
 
 
 async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict] = None,
-                          alerts: bool = True) -> dict:
+                          alerts: bool = True, document_id: Optional[str] = None,
+                          lock_period: bool = True) -> dict:
     """Предпросмотр мастера: что нашли в объекте и что будет создано."""
     obj = await conn.fetchrow(
         "select id, name from objects where id=$1::uuid and organization_id=$2", object_id, org_id)
     if obj is None:
         raise DashboardError("Объект не найден")
-    datasets = await collect_object_datasets(conn, org_id, object_id)
+    doc = await document_release_info(conn, org_id, document_id) if document_id else None
+    datasets = await collect_object_datasets(conn, org_id, object_id,
+                                             only_code=doc["code"] if doc else None)
     if not datasets:
         raise DashboardError("У объекта нет выпущенных датасетов — сначала распознайте документ")
 
@@ -499,7 +543,8 @@ async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict
             f"Показателей больше {MAX_AUTO_KPI} — на дашборд попадут первые {MAX_AUTO_KPI}, "
             "остальные видны в таблице.")
 
-    specs = plan_auto_build(datasets, selection, alerts)
+    specs = plan_auto_build(datasets, selection, alerts,
+                            pin_period=(doc or {}).get("period") if lock_period else None)
 
     # Расчётные показатели («% выполнения плана», «доля доставленных»…): их
     # находит разбор имён столбцов — тот же, что в разделе «Метрики». Здесь они
@@ -628,7 +673,8 @@ async def _create_metric_widgets(conn, org_id, user_id, object_id: str, codes: l
 
 async def auto_build(conn, org_id, user_id, object_id: str, name=None,
                      selection: Optional[dict] = None, dashboard_id: Optional[str] = None,
-                     metrics: Optional[list] = None, alerts: bool = True) -> dict:
+                     metrics: Optional[list] = None, alerts: bool = True,
+                     document_id: Optional[str] = None, lock_period: bool = True) -> dict:
     """Создаёт (или пересобирает) дашборд по объекту.
 
     `dashboard_id` — пересобрать существующий: страницы и виджеты заменяются,
@@ -639,10 +685,13 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
         "select id, name from objects where id=$1::uuid and organization_id=$2", object_id, org_id)
     if obj is None:
         raise DashboardError("Объект не найден")
-    datasets = await collect_object_datasets(conn, org_id, object_id)
+    doc = await document_release_info(conn, org_id, document_id) if document_id else None
+    datasets = await collect_object_datasets(conn, org_id, object_id,
+                                             only_code=doc["code"] if doc else None)
     if not datasets:
         raise DashboardError("У объекта нет выпущенных датасетов — сначала распознайте документ")
-    specs = plan_auto_build(datasets, selection, alerts)
+    specs = plan_auto_build(datasets, selection, alerts,
+                            pin_period=(doc or {}).get("period") if lock_period else None)
     if not specs and not metrics:
         raise DashboardError("Нечего собирать — не выбрано ни одного показателя")
 

@@ -57,6 +57,12 @@ class AutoIn(BaseModel):
     # спидометр «выполнение плана» краснеют ниже нормы). Пороги потом
     # правятся кнопкой ⚠ у самого виджета.
     alerts: bool = True
+    # Сборка по КОНКРЕТНОМУ файлу: объект → папка → файл. Показатели берутся
+    # из его выпуска, а виджеты закрепляются за его отчётной датой.
+    document_id: Optional[str] = None
+    # Снять закрепление: дашборд по составу этого файла, но с обновляемыми
+    # данными. Осознанный выбор человека, а не молчаливое поведение.
+    lock_period: bool = True
 
     def as_selection(self) -> Optional[dict]:
         if self.selection is None:
@@ -133,7 +139,8 @@ async def auto_build_plan(body: AutoIn, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:
         try:
             return await service.auto_build_plan(
-                conn, user["organization_id"], body.object_id, body.as_selection(), body.alerts)
+                conn, user["organization_id"], body.object_id, body.as_selection(), body.alerts,
+                document_id=body.document_id, lock_period=body.lock_period)
         except DashboardError as e:
             raise _bad(e)
 
@@ -146,7 +153,8 @@ async def auto_build(body: AutoIn, user: dict = Depends(manage)):
                 return await service.auto_build(
                     conn, user["organization_id"], user["id"], body.object_id, body.name,
                     selection=body.as_selection(), dashboard_id=body.dashboard_id,
-                    metrics=body.metrics, alerts=body.alerts)
+                    metrics=body.metrics, alerts=body.alerts,
+                    document_id=body.document_id, lock_period=body.lock_period)
         except DashboardError as e:
             raise _bad(e)
 

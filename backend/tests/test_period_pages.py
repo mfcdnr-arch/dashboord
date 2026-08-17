@@ -6,12 +6,84 @@
 за закреплённую дату, и приход новой недели её не меняет. Здесь проверяется
 именно это, а не только наличие страниц.
 """
+import json
+
 import pytest
+import pytest_asyncio
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 from app import db
 from app.modules.dashboards import _suggest
+from tests.conftest import purge_dashboard
+
+
+@pytest_asyncio.fixture
+async def seed_two_periods(ids):
+    """Объект с папкой и ДВУМЯ отчётами одной формы + файл без выпуска.
+
+    Нужен для сборки «по конкретному файлу»: чтобы проверить закрепление, мало
+    иметь данные — нужны два разных отчёта, иначе «показал свой» и «показал
+    последний» неотличимы.
+    """
+    async with db.acquire() as conn:
+        await _drop_doc_fixture(conn)
+        oid = await conn.fetchval(
+            "insert into objects(organization_id,name) values($1,'ztest_doc_obj') returning id", ids["org"])
+        fid = await conn.fetchval(
+            "insert into folders(organization_id,object_id,name) values($1,$2,'ztest_doc_folder') returning id",
+            ids["org"], oid)
+        await conn.execute(
+            "insert into canonical_fields(object_id, code, name, data_type) "
+            "values($1,'plan','План','number') on conflict do nothing", oid)
+        docs = {}
+        for i, (day, val) in enumerate((("2026-03-02", 700), ("2026-03-09", 900))):
+            doc = await conn.fetchval(
+                "insert into documents(organization_id, folder_id, original_filename, source_type, "
+                "reporting_period_start, uploaded_by) values($1,$2,$3,'xlsx',$4::text::date,$5) returning id",
+                ids["org"], fid, f"ztest_doc_{day}.xlsx", day, ids["admin"])
+            ver = await conn.fetchval(
+                "insert into document_versions(document_id, version_no, storage_path, checksum, "
+                "file_size_bytes, uploaded_by) values($1,1,$2,$3,10,$4) returning id",
+                doc, f"documents/ztest_doc_{i}", f"ztest_doc_sum_{i}", ids["admin"])
+            rel = await conn.fetchval(
+                "insert into dataset_releases(organization_id, code, name, status, reporting_period_start, "
+                "created_by, object_id, source_document_version_id) "
+                "values($1,'ztest_doc_ds','Форма','released',$2::text::date,$3,$4,$5) returning id",
+                ids["org"], day, ids["admin"], oid, ver)
+            await conn.execute(
+                "insert into dataset_release_fields(dataset_release_id, canonical_field_code) "
+                "values($1,'plan')", rel)
+            await conn.execute(
+                "insert into dataset_values(dataset_release_id,row_index,row_label,canonical_field_code,value_number) "
+                "values($1,0,'Итого','plan',$2)", rel, val)
+            docs[day] = str(doc)
+        # Файл, из которого данные ещё не выпускали: сборка по нему должна
+        # объяснить причину, а не отдать пустой дашборд.
+        empty = await conn.fetchval(
+            "insert into documents(organization_id, folder_id, original_filename, source_type, "
+            "reporting_period_start, uploaded_by) values($1,$2,'ztest_doc_empty.xlsx','xlsx','2026-03-16',$3) "
+            "returning id", ids["org"], fid, ids["admin"])
+    yield {"object_id": str(oid), "folder_id": str(fid),
+           "doc_id": docs["2026-03-02"], "old_period": "2026-03-02",
+           "old_value": 700, "new_value": 900, "empty_doc_id": str(empty)}
+    async with db.acquire() as conn:
+        await _drop_doc_fixture(conn)
+
+
+async def _drop_doc_fixture(conn):
+    await conn.execute("delete from dataset_values where dataset_release_id in "
+                       "(select id from dataset_releases where code='ztest_doc_ds')")
+    await conn.execute("delete from dataset_release_fields where dataset_release_id in "
+                       "(select id from dataset_releases where code='ztest_doc_ds')")
+    await conn.execute("delete from dataset_releases where code='ztest_doc_ds'")
+    await conn.execute("delete from document_versions where document_id in "
+                       "(select id from documents where original_filename like 'ztest_doc_%')")
+    await conn.execute("delete from documents where original_filename like 'ztest_doc_%'")
+    await conn.execute("delete from folders where name='ztest_doc_folder'")
+    await conn.execute("delete from canonical_fields where object_id in "
+                       "(select id from objects where name='ztest_doc_obj')")
+    await conn.execute("delete from objects where name='ztest_doc_obj'")
 
 
 def _dataset(periods):
@@ -100,3 +172,65 @@ async def test_pinned_widget_reads_its_own_period(client, admin_headers, seed_da
             await conn.execute("delete from dashboard_pages where dashboard_id=$1::uuid", did)
             await conn.execute("delete from securable_objects where object_id=$1::uuid", did)
             await conn.execute("delete from dashboards where id=$1::uuid", did)
+
+
+# --- Сборка по КОНКРЕТНОМУ файлу (объект → папка → файл) --------------------- #
+# Запрос заказчика: выбрать в мастере объект, папку и файл и собрать дашборд по
+# этому отчёту. Ключевое решение: выбранный файл ЗАКРЕПЛЯЕТ дашборд за своей
+# отчётной датой. Человек указал отчёт за конкретную неделю — значит и через
+# неделю там должна быть она, иначе это уже другой отчёт под тем же названием.
+async def test_build_by_document_pins_its_report(client, admin_headers, ids, seed_two_periods):
+    """Дашборд по файлу показывает его цифры и не уезжает на свежие данные."""
+    doc_id, old_period, old_value, new_value = (
+        seed_two_periods["doc_id"], seed_two_periods["old_period"],
+        seed_two_periods["old_value"], seed_two_periods["new_value"])
+
+    plan = await client.post("/dashboards/auto/plan", headers=admin_headers,
+                             json={"object_id": seed_two_periods["object_id"], "document_id": doc_id})
+    assert plan.status_code == 200, plan.text
+    assert plan.json()["widgets"] > 0
+
+    r = await client.post("/dashboards/auto", headers=admin_headers,
+                          json={"object_id": seed_two_periods["object_id"], "document_id": doc_id,
+                                "name": "ztest_by_doc"})
+    assert r.status_code in (200, 201), r.text
+    did = r.json()["dashboard_id"]
+    try:
+        async with db.acquire() as conn:
+            pinned, free = await conn.fetchrow(
+                "select count(*) filter (where config->>'period'=$2) , "
+                "count(*) filter (where config->>'period' is null) "
+                "from widgets where dashboard_id=$1::uuid", did, old_period)
+        assert free == 0, "все виджеты обязаны быть закреплены за выбранным отчётом"
+        assert pinned > 0
+
+        pages = (await client.get(f"/dashboards/{did}", headers=admin_headers)).json()["pages"]
+        data = (await client.get(f"/dashboard-pages/{pages[0]['id']}/data",
+                                 headers=admin_headers)).json()
+        blob = json.dumps(data, ensure_ascii=False)
+        assert str(int(old_value)) in blob, "показаны цифры ВЫБРАННОГО отчёта"
+        assert str(int(new_value)) not in blob, "свежий отчёт сюда попадать не должен"
+
+        # Снятая галочка «закрепить» — осознанный выбор: состав тот же, данные
+        # обновляемые.
+        r2 = await client.post("/dashboards/auto", headers=admin_headers,
+                               json={"object_id": seed_two_periods["object_id"], "document_id": doc_id,
+                                     "lock_period": False, "name": "ztest_by_doc_free"})
+        did2 = r2.json()["dashboard_id"]
+        async with db.acquire() as conn:
+            free2 = await conn.fetchval(
+                "select count(*) from widgets where dashboard_id=$1::uuid "
+                "and config->>'period' is null", did2)
+        assert free2 > 0, "без закрепления виджеты читают последний выпуск"
+        await purge_dashboard(did2)
+    finally:
+        await purge_dashboard(did)
+
+
+async def test_build_by_document_without_release_is_explained(client, admin_headers, seed_two_periods):
+    """Файл без выпущенных данных — понятный отказ, а не пустой дашборд."""
+    r = await client.post("/dashboards/auto/plan", headers=admin_headers,
+                          json={"object_id": seed_two_periods["object_id"],
+                                "document_id": seed_two_periods["empty_doc_id"]})
+    assert r.status_code == 400
+    assert "не выпускали данные" in r.json()["detail"]
