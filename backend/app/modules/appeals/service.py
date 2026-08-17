@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Optional
 
@@ -92,6 +93,35 @@ async def create_appeal(conn, org_id, user: dict, subject: Optional[str], body: 
         conn, org_id, user["id"], "create", "appeal", str(row["id"]),
         new_data={"subject": subject, "snippet": body[:200]})
     return {"id": str(row["id"]), "created_at": row["created_at"]}
+
+
+async def create_access_request(conn, org_id, user: dict, wanted: str) -> dict:
+    """«Мне нужен отчёт, которого я не вижу» (п. 15, последняя из трёх идей).
+
+    **Списка недоступных отчётов человеку НЕ показываем — и не покажем.**
+    Зритель видит только то, что ему открыто (`visible_dashboard_ids`), и это
+    не техническое ограничение, а суть: даже одни названия говорят, какие
+    показатели за кем закреплены. Кнопка «запросить доступ» рядом с серым
+    недоступным отчётом раскрывала бы ровно то, что скрывает RLS.
+
+    Поэтому запрос идёт ОТ ЧЕЛОВЕКА: он называет отчёт так, как ему его
+    назвали (в письме, на совещании, от коллеги). Ценность не в списке, а в
+    том, что запрос доходит одним нажатием и приходит с именем автора —
+    администратору остаётся открыть его карточку доступа и отметить галочку.
+    """
+    wanted = (wanted or "").strip()
+    if not wanted:
+        raise AppealsError("Опишите, какой отчёт вам нужен")
+    body = (
+        f"{wanted}\n\n—— что нужно ——\n"
+        f"Запрос доступа к отчёту. Сотрудник не видит его в своём списке.\n"
+        f"Выдать доступ можно кнопкой ниже — откроется карточка доступа этого сотрудника."
+    )
+    created = await create_appeal(conn, org_id, user, "Запрос доступа к отчёту", body)
+    await conn.execute(
+        "update appeals set context=$2::jsonb where id=$1::uuid",
+        created["id"], json.dumps({"kind": "access_request"}, ensure_ascii=False))
+    return created
 
 
 async def create_appeal_by_login(conn, login: str, body: str) -> None:
@@ -204,6 +234,7 @@ async def get_appeal(conn, org_id, user: dict, appeal_id: str) -> dict:
     ap = await conn.fetchrow(
         "select a.id, a.subject, a.status, a.created_at, a.updated_at, a.user_id, a.context, "
         "a.first_seen_at, coalesce(s.full_name, s.login) as first_seen_by_name, "
+        "a.user_id as author_id, "
         "coalesce(u.full_name, u.login) as author "
         "from appeals a join users u on u.id=a.user_id "
         "left join users s on s.id=a.first_seen_by "
@@ -241,6 +272,9 @@ async def get_appeal(conn, org_id, user: dict, appeal_id: str) -> dict:
     return {
         "id": str(ap["id"]), "subject": ap["subject"], "status": ap["status"],
         "created_at": ap["created_at"], "updated_at": ap["updated_at"], "author": ap["author"],
+        # id автора нужен администратору, чтобы из запроса доступа сразу
+        # открыть карточку доступа именно этого сотрудника.
+        "author_id": str(ap["user_id"]),
         "context": ctx,
         "first_seen_at": seen_at, "first_seen_by": seen_by if seen_at else None,
         "messages": [{"id": str(m["id"]), "is_staff": m["is_staff"], "body": m["body"],

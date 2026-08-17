@@ -51,6 +51,23 @@ async def create_appeal(body: AppealIn, user: dict = Depends(get_current_user)):
             raise _bad(e)
 
 
+class AccessRequestIn(BaseModel):
+    wanted: str = Field(min_length=1, max_length=2000)
+
+
+@router.post("/appeals/access-request", status_code=status.HTTP_201_CREATED)
+async def access_request(body: AccessRequestIn, user: dict = Depends(get_current_user)):
+    """«Мне нужен отчёт, которого я не вижу» (п. 15). Списка недоступных отчётов
+    человеку не показываем — даже названия говорят, какие показатели за кем
+    закреплены; он называет отчёт сам, а запрос приходит с его именем."""
+    async with db.acquire(user["id"]) as conn:
+        try:
+            async with conn.transaction():
+                return await service.create_access_request(conn, user["organization_id"], user, body.wanted)
+        except AppealsError as e:
+            raise _bad(e)
+
+
 @router.get("/appeals/mine")
 async def list_mine(user: dict = Depends(get_current_user),
                     limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):

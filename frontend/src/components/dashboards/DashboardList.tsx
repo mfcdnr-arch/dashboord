@@ -1,10 +1,12 @@
 // Список дашбордов: формы создания (вручную/авто из объекта/из шаблона),
 // поиск + фильтры (избранное/дата/папка), массовое перемещение в папку,
 // сама таблица строк + «показать ещё». Вынесено из DashboardsPage.tsx.
+import { useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Dashboard, DashTemplate, Doc, Folder, Obj } from '../../api'
 import { folderLabel, folderTree } from '../../lib/folderTree'
 import { PubBadge, btn, btnAuto, input, muted, rowForm, rowItem, tab, tabActive } from './shared'
+import RequestAccessDialog from './RequestAccessDialog'
 
 /** Отчётные даты — по-русски, как везде в системе. */
 const ruDate = (iso?: string | null): string =>
@@ -25,6 +27,7 @@ export function DashboardList({
   filterDocs, docFilter, setDocFilter,
   selectedIds, setSelectedIds, onBulkMove, toggleSelect,
   dashboards, dashTotal, openDashboard, toggleFav, loadMoreDash, onToggleFeatured,
+  onOpenAppeals,
 }: {
   canManage: boolean; objects: Obj[]; templates: DashTemplate[]
   newDash: string; setNewDash: (v: string) => void; addDashboard: (e: FormEvent) => void; busy: boolean
@@ -45,7 +48,12 @@ export function DashboardList({
   toggleFav: (e: React.MouseEvent, d: Dashboard) => void; loadMoreDash: () => void
   /** Отметить дашборд для подборки «Руководителю» (состав, не доступ). */
   onToggleFeatured: (e: React.MouseEvent, d: Dashboard) => void
+  /** Перейти в свои обращения после запроса доступа (п. 15). */
+  onOpenAppeals?: () => void
 }) {
+  // Запрос доступа к отчёту, которого зритель не видит. Состояние локальное:
+  // окно нужно только этому списку и никому больше.
+  const [requestOpen, setRequestOpen] = useState(false)
   return (
     <div>
       {canManage && (
@@ -82,6 +90,17 @@ export function DashboardList({
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
           <input style={{ ...input, flex: 1, minWidth: 200 }} placeholder="🔍 Поиск дашборда по названию или странице…" value={query} onChange={(e) => setQuery(e.target.value)} />
           <button style={favOnly ? { ...tab, ...tabActive } : tab} onClick={() => setFavOnly((v) => !v)} title="Показать только избранные">★ Избранное</button>
+          {/* Зрителю: «нужного отчёта здесь нет». Списка недоступных отчётов не
+              показываем — даже названия говорят, какие показатели за кем
+              закреплены; человек называет отчёт сам, а запрос уходит одним
+              нажатием оттуда, где он его хватился. Управляющим кнопка не нужна:
+              они видят всё и выдают доступ сами. */}
+          {!canManage && (
+            <button style={tab} onClick={() => setRequestOpen(true)}
+              title="Отправить администратору запрос на доступ к отчёту, которого нет в списке">
+              🔑 Нужен другой отчёт
+            </button>
+          )}
           {/* Диапазон дат правки — инструмент того, кто дашборды СОБИРАЕТ:
               зритель ищет отчёт по названию, а не по тому, когда его правили.
               Заказчик про экран зрителя сказал прямо: это админский список с
@@ -235,6 +254,9 @@ export function DashboardList({
           </div>
         )}
       </div>
+      {requestOpen && (
+        <RequestAccessDialog onClose={() => setRequestOpen(false)} onOpenAppeals={onOpenAppeals} />
+      )}
     </div>
   )
 }

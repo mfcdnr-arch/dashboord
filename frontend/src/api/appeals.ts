@@ -30,13 +30,14 @@ export interface AppealMessage {
  *  обращения переход к самому отчёту, а не только рассказ о нём. У обычных
  *  обращений (из кабинета, от заблокированной учётки) контекста нет. */
 export interface AppealContext {
+  /** wrong_value|no_data|… — жалоба с виджета; access_request — запрос доступа. */
   kind: string
-  widget_id: string
-  widget_name: string
-  dashboard_id: string
-  dashboard_name: string
-  page_id: string | null
-  page_title: string | null
+  widget_id?: string
+  widget_name?: string
+  dashboard_id?: string
+  dashboard_name?: string
+  page_id?: string | null
+  page_title?: string | null
 }
 
 export interface AppealDetail {
@@ -46,6 +47,9 @@ export interface AppealDetail {
   created_at: string
   updated_at: string
   author: string
+  /** id автора — администратору, чтобы из запроса доступа открыть карточку
+   *  доступа именно этого сотрудника. */
+  author_id: string
   context: AppealContext | null
   first_seen_at: string | null
   first_seen_by: string | null
@@ -56,6 +60,18 @@ export async function createAppeal(subject: string, body: string): Promise<{ id:
   const res = await fetch('/appeals', {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
     body: JSON.stringify({ subject: subject || null, body }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+/** «Мне нужен отчёт, которого я не вижу» (п. 15). Список недоступных отчётов
+ *  человеку НЕ показывается — даже названия говорят, какие показатели за кем
+ *  закреплены; он называет нужный отчёт сам. */
+export async function requestDashboardAccess(wanted: string): Promise<{ id: string }> {
+  const res = await fetch('/appeals/access-request', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ wanted }),
   })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()

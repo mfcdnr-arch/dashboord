@@ -3,6 +3,7 @@ import {
   addAppealMessage, closeAppeal, createAppeal, getAppeal, listAppeals, listMyAppeals,
   type AppealDetail, type AppealSummary,
 } from '../api'
+import UserAccessPanel from './users/UserAccessPanel'
 
 // Переиспользуемая панель обращений: 'mine' — личный кабинет (создание + свои
 // заявки), 'all' — раздел «Обращения» для staff (фильтр по статусу + ответ +
@@ -65,6 +66,8 @@ export default function AppealsPanel(
   // Срок ответа, заявленный организацией («Настройки»). Приходит со списком,
   // чтобы правило было одно и не расходилось с сервером.
   const [respHours, setRespHours] = useState(24)
+  // Чья карточка доступа открыта поверх переписки (запрос доступа, п. 15).
+  const [accessFor, setAccessFor] = useState<string | null>(null)
 
   const load = () => {
     if (isStaff) {
@@ -154,11 +157,22 @@ export default function AppealsPanel(
             {onOpenDashboard && (
               <button
                 style={{ ...btnGhost, marginLeft: 'auto' }}
-                onClick={() => onOpenDashboard(detail.context!.dashboard_id, detail.context!.page_id)}
+                onClick={() => onOpenDashboard(detail.context!.dashboard_id!, detail.context!.page_id)}
               >
                 Открыть отчёт →
               </button>
             )}
+          </div>
+        )}
+        {/* Запрос доступа (п. 15): администратору некуда «переходить» — отчёт
+            человек назвал словами. Зато отсюда открывается его карточка
+            доступа, и выдача сводится к одной галочке вместо обхода дашбордов. */}
+        {isStaff && detail.context?.kind === 'access_request' && (
+          <div style={ctxBox}>
+            <span style={{ fontSize: 13 }}>🔑 Запрос доступа к отчёту от «{detail.author}»</span>
+            <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={() => setAccessFor(detail.author_id)}>
+              Выдать доступ →
+            </button>
           </div>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
@@ -187,6 +201,19 @@ export default function AppealsPanel(
           <div style={muted}>Обращение закрыто. Новое сообщение откроет его снова.</div>
         )}
         {err && <div style={errBox}>{err}</div>}
+        {/* Карточка доступа сотрудника поверх переписки: та же панель, что в
+            разделе «Пользователи», — второго экрана выдачи прав не заводим. */}
+        {accessFor && (
+          <div style={accessOverlay} onClick={() => setAccessFor(null)}>
+            <div style={accessDialog} onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>Доступ к отчётам · {detail.author}</div>
+                <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={() => setAccessFor(null)}>Закрыть</button>
+              </div>
+              <UserAccessPanel userId={accessFor} />
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -258,6 +285,14 @@ const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 
 const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 14 }
 const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }
 const btnGhost: React.CSSProperties = { height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-2)', fontSize: 13, cursor: 'pointer' }
+const accessOverlay: React.CSSProperties = {
+  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex',
+  alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16,
+}
+const accessDialog: React.CSSProperties = {
+  background: 'var(--surface)', borderRadius: 14, padding: 18, width: 860, maxWidth: '95vw',
+  maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+}
 const ctxBox: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12,
   padding: '8px 12px', borderRadius: 10, background: 'var(--surface-2)',

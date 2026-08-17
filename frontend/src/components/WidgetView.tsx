@@ -411,6 +411,20 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
   // виджета, а порядок хуков между рендерами меняться не должен.
   const fit = useFitHeight(196)
   const gaugeFit = useFitHeight(190)
+  // За выбранный период отчётов нет. Говорим об этом прямо: раньше фильтр
+  // молча показывал последний отчёт, и цифру не за тот период принимали за
+  // нужную — пустое место честнее.
+  if (data.no_data_in_period) {
+    const ru = (d?: string) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d.split('-').reverse().join('.') : d)
+    const range = [ru(data.from_date), ru(data.to_date)].filter(Boolean).join(' — ')
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%',
+        color: 'var(--text-faint)', fontSize: 13, lineHeight: 1.5, gap: 4 }}>
+        <div>За выбранный период отчётов нет{range ? ` (${range})` : ''}.</div>
+        <div style={{ fontSize: 12 }}>Снимите фильтр периода или выберите другой диапазон.</div>
+      </div>
+    )
+  }
   if (data.type === 'text') {
     const align = data.align === 'center' ? 'center' : 'left'
     if (!data.heading && !data.body) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Пустая аннотация</div>

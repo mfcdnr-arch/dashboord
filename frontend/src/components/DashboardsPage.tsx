@@ -58,6 +58,30 @@ function surfaceColor(): string {
   return getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#ffffff'
 }
 
+// Быстрый выбор периода для фильтра страницы. Единицы те же, что в разделе
+// «Отчёты» (7/30/90/год), плюс «прошлый месяц» — самый частый вопрос
+// руководителя. Границы считаются от сегодняшнего дня, кроме прошлого месяца:
+// у него границы календарные, иначе «прошлый месяц» означал бы «30 дней назад».
+const iso = (d: Date): string => d.toISOString().slice(0, 10)
+const daysBack = (n: number): [string, string] => {
+  const to = new Date()
+  const from = new Date()
+  from.setDate(from.getDate() - n)
+  return [iso(from), iso(to)]
+}
+const QUICK_PERIODS: { label: string; hint: string; range: () => [string, string] }[] = [
+  { label: '7 дн.', hint: 'Последние 7 дней', range: () => daysBack(7) },
+  { label: '30 дн.', hint: 'Последние 30 дней', range: () => daysBack(30) },
+  { label: 'прошлый месяц', hint: 'Календарный прошлый месяц целиком', range: () => {
+    const now = new Date()
+    const first = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const last = new Date(now.getFullYear(), now.getMonth(), 0)
+    return [iso(first), iso(last)]
+  } },
+  { label: '90 дн.', hint: 'Последние 90 дней', range: () => daysBack(90) },
+  { label: 'год', hint: 'Последние 365 дней', range: () => daysBack(365) },
+]
+
 export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initialDashboardId, initialPageId, onOpenAppeals }: { canManage: boolean; isAdmin?: boolean; isSuperadmin?: boolean; initialDashboardId?: string | null; initialPageId?: string | null;
   /** Перейти в свои обращения после жалобы с виджета (п. 15). */
   onOpenAppeals?: () => void }) {
@@ -682,6 +706,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
             if (t) setCloneTpl({ id: t.id, name: t.name })
           }}
           onToggleFeatured={toggleFeatured}
+          onOpenAppeals={onOpenAppeals}
           query={query} setQuery={setQuery} favOnly={favOnly} setFavOnly={setFavOnly}
           dashFrom={dashFrom} setDashFrom={setDashFrom} dashTo={dashTo} setDashTo={setDashTo}
           filterObjId={filterObjId} setFilterObjId={setFilterObjId} filterFolders={filterFolders}
@@ -872,6 +897,23 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                   )}
                   {(pFrom || pTo || crossRow) && <button style={linkDanger} onClick={() => { setPFrom(''); setPTo(''); setCrossRow(null) }}>сброс</button>}
                 </div>
+              </div>
+              {/* Быстрый выбор периода: две даты руками — это шесть полей ввода
+                  ради вопроса «а что было в прошлом месяце». Такие же кнопки уже
+                  стоят в разделе «Отчёты», единицы те же. */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Быстро:</span>
+                {QUICK_PERIODS.map((q) => (
+                  <button key={q.label} style={{ ...tab, height: 26, fontSize: 12 }}
+                    title={q.hint}
+                    onClick={() => { const [f, t] = q.range(); setPFrom(f); setPTo(t) }}>{q.label}</button>
+                ))}
+                {/* Фильтр периода выбирает ОТЧЁТ: показывается последний отчёт,
+                    попавший в диапазон. Сказать это надо прямо — иначе человек
+                    ждёт, что цифры «просуммируются за период». */}
+                <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+                  показывается последний отчёт, попавший в период; «Динамика» — все точки диапазона
+                </span>
               </div>
 
               {/* Пресеты фильтров (сохранённые наборы, FR-13) */}

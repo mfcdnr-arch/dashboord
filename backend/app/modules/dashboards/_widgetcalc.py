@@ -126,8 +126,79 @@ def _normalize_cfg(cfg: dict) -> dict:
     return cfg
 
 
+# Виджеты, которым нужен весь РЯД периодов, а не один выпуск: они получают
+# диапазон как есть и сами разворачивают его во временную ось.
+RANGE_TYPES = {"dynamics", "yoy", "cross_dataset_compare"}
+
+
+async def _period_for_range(conn, org_id, code: str, from_date, to_date):
+    """Последний отчёт набора данных, попавший в выбранный диапазон.
+
+    Отдельная функция, а не условие внутри запроса, потому что смысл здесь
+    содержательный: «дашборд за июль» — это состояние на конец июля, то есть
+    последний июльский отчёт. Возвращает None, если отчётов за период нет
+    вовсе; подставлять вместо них свежие данные нельзя — именно так период и
+    «не работал» раньше.
+    """
+    conds = ["organization_id=$1", "code=$2", "status <> 'superseded'",
+             "reporting_period_start is not null"]
+    args = [org_id, code]
+    if from_date:
+        args.append(from_date)
+        conds.append(f"reporting_period_start >= ${len(args)}::text::date")
+    if to_date:
+        args.append(to_date)
+        conds.append(f"reporting_period_start <= ${len(args)}::text::date")
+    row = await conn.fetchval(
+        f"select reporting_period_start from dataset_releases where {' and '.join(conds)} "
+        "order by reporting_period_start desc, created_at desc limit 1", *args)
+    return row.isoformat() if row is not None else None
+
+
 async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
                           from_date=None, to_date=None, row=None, user=None) -> dict:
+    """Фильтр «Период» страницы + расчёт виджета.
+
+    🔴 До этого период действовал ТОЛЬКО на «Динамику» (и на сравнение
+    источников по периодам). Карточка, спидометр, таблица, графики, план-факт,
+    воронка, светофор читали последний выпуск и период игнорировали МОЛЧА:
+    человек ставил июль, видел прежние числа и либо решал, что данных нет, либо
+    — что хуже — принимал августовскую цифру за июльскую.
+
+    Здесь диапазон сводится к КОНКРЕТНОМУ выпуску (последний отчёт, попавший в
+    период) и подставляется тем же полем `period`, которым уже пользуются
+    страницы-срезы. Поэтому каждый тип виджета менять не пришлось: механизм
+    чтения «за дату» существовал с 15.08, им просто никто не пользовался из
+    фильтра страницы.
+    """
+    cfg = _normalize_cfg(cfg)
+    # Свой фильтр виджета перекрывает фильтр страницы — учитываем ДО поиска
+    # выпуска, иначе виджет со своим периодом получил бы чужой.
+    if cfg.get("filter_scope") == "own":
+        from_date = cfg.get("own_from") or None
+        to_date = cfg.get("own_to") or None
+
+    applied = None
+    if not cfg.get("period") and (from_date or to_date) and cfg.get("dataset_code") and t not in RANGE_TYPES:
+        applied = await _period_for_range(conn, org_id, cfg["dataset_code"], from_date, to_date)
+        if applied is None:
+            # Молчаливый откат к свежим данным и был дефектом: честнее сказать,
+            # что за выбранный период отчётов нет, чем показать цифру не за тот.
+            return {"type": t, "title": name, "no_data_in_period": True,
+                    "from_date": from_date, "to_date": to_date}
+        cfg = {**cfg, "period": applied}
+
+    res = await _compute_widget_inner(conn, org_id, t, name, cfg, from_date, to_date, row, user)
+    if applied and isinstance(res, dict):
+        # Дата, за которую данные показаны НА САМОМ ДЕЛЕ. Без неё карточка
+        # подписалась бы датой последнего выпуска — то есть снова соврала бы.
+        res.setdefault("as_of", applied)
+        res["period_filtered"] = True
+    return res
+
+
+async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
+                                from_date=None, to_date=None, row=None, user=None) -> dict:
     cfg = _normalize_cfg(cfg)
     # Виджетный фильтр (переопределение глобального): если у виджета задан
     # собственный фильтр (filter_scope='own'), он игнорирует фильтр страницы.
