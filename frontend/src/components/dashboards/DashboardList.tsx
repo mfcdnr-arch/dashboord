@@ -7,6 +7,7 @@ import type { Dashboard, DashTemplate, Doc, Folder, Obj } from '../../api'
 import { folderLabel, folderTree } from '../../lib/folderTree'
 import { PubBadge, btn, btnAuto, input, muted, rowForm, rowItem, tab, tabActive } from './shared'
 import RequestAccessDialog from './RequestAccessDialog'
+import PlanFactDialog from './PlanFactDialog'
 
 /** Отчётные даты — по-русски, как везде в системе. */
 const ruDate = (iso?: string | null): string =>
@@ -27,7 +28,7 @@ export function DashboardList({
   filterDocs, docFilter, setDocFilter,
   selectedIds, setSelectedIds, onBulkMove, toggleSelect,
   dashboards, dashTotal, openDashboard, toggleFav, loadMoreDash, onToggleFeatured,
-  onOpenAppeals,
+  onOpenAppeals, onPlanFactBuilt,
 }: {
   canManage: boolean; objects: Obj[]; templates: DashTemplate[]
   newDash: string; setNewDash: (v: string) => void; addDashboard: (e: FormEvent) => void; busy: boolean
@@ -50,10 +51,14 @@ export function DashboardList({
   onToggleFeatured: (e: React.MouseEvent, d: Dashboard) => void
   /** Перейти в свои обращения после запроса доступа (п. 15). */
   onOpenAppeals?: () => void
+  /** Открыть собранный сводный дашборд «План/факт». */
+  onPlanFactBuilt?: (dashboardId: string) => void
 }) {
   // Запрос доступа к отчёту, которого зритель не видит. Состояние локальное:
   // окно нужно только этому списку и никому больше.
   const [requestOpen, setRequestOpen] = useState(false)
+  // Сводный дашборд «План/факт» по всем папкам (запрос заказчика 17.08).
+  const [planFactOpen, setPlanFactOpen] = useState(false)
   return (
     <div>
       {canManage && (
@@ -70,6 +75,20 @@ export function DashboardList({
             {objects.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
           <button style={btnAuto} disabled={busy || !autoObj} onClick={autoBuild}>✨ Собрать</button>
+        </div>
+      )}
+      {/* Сводный «План/факт» — по ВСЕМ объектам и папкам сразу. Полоса
+          «план-факт» внутри дашборда объекта остаётся как была: она про одну
+          форму из одной папки, а здесь общая картина по организации. */}
+      {canManage && (
+        <div style={{ ...rowForm, alignItems: 'center' }}>
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            или сводная страница по всем папкам:
+          </span>
+          <button style={btnAuto} disabled={busy} onClick={() => setPlanFactOpen(true)}
+            title="Собрать дашборд «План/факт»: выполнение планов по всем объектам и папкам, с цветом по проценту">
+            🎯 План/факт
+          </button>
         </div>
       )}
       {canManage && templates.length > 0 && (
@@ -256,6 +275,9 @@ export function DashboardList({
       </div>
       {requestOpen && (
         <RequestAccessDialog onClose={() => setRequestOpen(false)} onOpenAppeals={onOpenAppeals} />
+      )}
+      {planFactOpen && (
+        <PlanFactDialog onClose={() => setPlanFactOpen(false)} onBuilt={onPlanFactBuilt} />
       )}
     </div>
   )

@@ -726,6 +726,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
           }}
           onToggleFeatured={toggleFeatured}
           onOpenAppeals={onOpenAppeals}
+          onPlanFactBuilt={(id) => { refresh(); openDashboard(id) }}
           query={query} setQuery={setQuery} favOnly={favOnly} setFavOnly={setFavOnly}
           dashFrom={dashFrom} setDashFrom={setDashFrom} dashTo={dashTo} setDashTo={setDashTo}
           filterObjId={filterObjId} setFilterObjId={setFilterObjId} filterFolders={filterFolders}

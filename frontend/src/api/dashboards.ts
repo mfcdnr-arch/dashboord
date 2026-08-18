@@ -528,6 +528,28 @@ export async function dashboardMetricCodes(id: string): Promise<{ codes: string[
   return res.json()
 }
 
+// Сводная страница «План/факт» по ВСЕМ объектам и папкам. Полоса «план-факт»
+// внутри дашборда объекта остаётся как была — она про одну форму из одной
+// папки; здесь собирается общая картина выполнения планов по организации.
+export type PlanFactPlan = {
+  widgets: number
+  objects: { name: string; indicators: string[] }[]
+}
+export async function planFactPreview(): Promise<PlanFactPlan> {
+  const res = await fetch('/dashboards/plan-fact/plan', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function buildPlanFact(opts: { name?: string; dashboardId?: string } = {}):
+  Promise<{ dashboard_id: string; page_id: string; widgets: number; objects: number }> {
+  const res = await fetch('/dashboards/plan-fact', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ name: opts.name || null, dashboard_id: opts.dashboardId || null }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 // «Куда можно перейти от этой цифры» (п. 1). Пункты строятся сервером по
 // данным — из формул и настроек виджетов, а не из связок, настроенных руками:
 // такие связки устаревают молча и ведут в никуда.

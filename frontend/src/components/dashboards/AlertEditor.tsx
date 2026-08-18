@@ -5,7 +5,8 @@ import { F, btn, btnGhost, dialog, muted, overlay, rmBtn, sel } from './shared'
 // ── Редактор порогов KPI-алерта (условное форматирование) ──────────────────
 type AlertRule = { level: string; op: string; value: string; value2?: string; label?: string }
 const LEVELS = [
-  { v: 'danger', t: 'Критично (красный)' }, { v: 'warn', t: 'Внимание (жёлтый)' }, { v: 'good', t: 'Хорошо (зелёный)' },
+  { v: 'danger', t: 'Критично (красный)' }, { v: 'poor', t: 'Плохо (оранжевый)' },
+  { v: 'warn', t: 'Внимание (жёлтый)' }, { v: 'good', t: 'Хорошо (зелёный)' },
 ]
 const OPS = [
   { v: 'lt', t: '<' }, { v: 'lte', t: '≤' }, { v: 'gt', t: '>' }, { v: 'gte', t: '≥' },

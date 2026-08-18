@@ -159,6 +159,33 @@ async def auto_build(body: AutoIn, user: dict = Depends(manage)):
             raise _bad(e)
 
 
+class PlanFactIn(BaseModel):
+    name: Optional[str] = None
+    dashboard_id: Optional[str] = None
+
+
+# Сводная страница «План/факт» по ВСЕМ объектам и папкам. Полоса «план-факт»
+# внутри дашборда объекта остаётся как была — она про одну форму из одной
+# папки; здесь собирается общая картина выполнения планов по организации.
+@router.get("/dashboards/plan-fact/plan")
+async def plan_fact_preview(user: dict = Depends(manage)):
+    """Что попадёт на сводную страницу — до создания."""
+    async with db.acquire(user["id"]) as conn:
+        return await service.plan_fact_plan(conn, user["organization_id"])
+
+
+@router.post("/dashboards/plan-fact", status_code=status.HTTP_201_CREATED)
+async def plan_fact_build(body: PlanFactIn, user: dict = Depends(manage)):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            async with conn.transaction():
+                return await service.build_plan_fact_dashboard(
+                    conn, user["organization_id"], user["id"],
+                    name=body.name, dashboard_id=body.dashboard_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 class FeaturedIn(BaseModel):
     featured: bool
     order: Optional[int] = None
