@@ -7,6 +7,7 @@ import {
 // Тот же формат числа, что на дашборде и в предложениях метрик: два знака
 // после запятой. Свой toLocaleString печатал «656,868 %» там, где везде «656,87 %».
 import { fmtNumber } from '../../lib/format'
+import { plural } from '../../lib/text'
 
 /**
  * Мастер авто-сборки: что нашли в объекте и что из этого собрать.
@@ -162,6 +163,11 @@ export default function AutoBuildWizard(
   }
   /** Отдельная страница-срез за эту отчётную дату.
    *  Сводные страницы обновляются сами; страница периода — снимок и не меняется. */
+  // Потолок страниц-срезов. Столько же на бэкенде (MAX_AUTO_PERIOD_PAGES):
+  // каждая неделя — это отдельная страница с полным набором виджетов, и на
+  // пятнадцати отчётах дашборд перестаёт открываться.
+  const MAX_PERIODS = 8
+
   function togglePeriod(code: string, period: string) {
     setSel((s) => {
       if (!s) return s
@@ -258,10 +264,16 @@ export default function AutoBuildWizard(
                   </div>
                   {(d.period_dates || []).length > 1 && (
                     <>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '12px 0 4px' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '12px 0 4px', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 12.5, fontWeight: 600 }}>
-                          Отдельные страницы по отчётам ({(pick.periods || []).length})
+                          Отдельные страницы по отчётам ({(pick.periods || []).length} из {MAX_PERIODS})
                         </span>
+                        {(pick.periods || []).length > 0 && (
+                          <button type="button" style={linkBtn}
+                            onClick={() => setSel((st) => (st ? { ...st, [d.code]: { ...st[d.code], periods: [] } } : st))}>
+                            снять все
+                          </button>
+                        )}
                       </div>
                       <div style={{ ...muted, fontSize: 12, marginBottom: 6 }}>
                         Страницы выше — сводные: они показывают последний отчёт и обновляются сами,
@@ -269,16 +281,33 @@ export default function AutoBuildWizard(
                         привязаны к этой дате и не меняются. Отметьте недели, которые нужно
                         сохранить отдельно (не больше восьми).
                       </div>
+                      {(pick.periods || []).length >= MAX_PERIODS && (
+                        // Без этой строки недоступные галочки выглядят поломкой:
+                        // человек жмёт по неделе, ничего не происходит, и почему —
+                        // не сказано. Особенно когда выбор восстановлен из прошлой
+                        // сборки и занят старыми неделями, а нужны свежие.
+                        <div style={{ fontSize: 12, color: 'var(--accent)', marginBottom: 6 }}>
+                          Отмечено максимум ({MAX_PERIODS}). Чтобы отметить другую неделю,
+                          снимите лишнюю — или нажмите «снять все» и выберите заново.
+                        </div>
+                      )}
                       <div style={{ ...fieldBox, maxHeight: 110 }}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                          {(d.period_dates || []).map((p) => (
-                            <label key={p} style={chk}>
-                              <input type="checkbox" checked={(pick.periods || []).includes(p)}
-                                disabled={!(pick.periods || []).includes(p) && (pick.periods || []).length >= 8}
-                                onChange={() => togglePeriod(d.code, p)} />
-                              {ruDate(p)}
-                            </label>
-                          ))}
+                          {(d.period_dates || []).map((p) => {
+                            const on = (pick.periods || []).includes(p)
+                            const blocked = !on && (pick.periods || []).length >= MAX_PERIODS
+                            return (
+                              <label key={p} style={{ ...chk, opacity: blocked ? 0.45 : 1 }}
+                                title={blocked
+                                  ? `Уже отмечено ${MAX_PERIODS} ${plural(MAX_PERIODS, 'неделя', 'недели', 'недель')} — это максимум. `
+                                    + 'Снимите любую другую, чтобы выбрать эту.'
+                                  : 'Отдельная страница-снимок за эту неделю'}>
+                                <input type="checkbox" checked={on} disabled={blocked}
+                                  onChange={() => togglePeriod(d.code, p)} />
+                                {ruDate(p)}
+                              </label>
+                            )
+                          })}
                         </div>
                       </div>
                     </>
@@ -397,7 +426,7 @@ export default function AutoBuildWizard(
 
             <div style={total}>
               Будет создано: <b>{plan.pages?.length || 0}</b> {pagePlural(plan.pages?.length || 0)}
-              {' · '}<b>{plan.widgets}</b> {plural(plan.widgets)}
+              {' · '}<b>{plan.widgets}</b> {plural(plan.widgets, 'виджет', 'виджета', 'виджетов')}
               {(plan.pages || []).length > 0 && (
                 <div style={{ color: 'var(--text-muted)', marginTop: 3 }}>
                   {plan.pages.map((p) => `${p.name}: ${p.widgets}`).join(' · ')}
@@ -435,15 +464,6 @@ function pagePlural(n: number): string {
   }
 }
 
-function plural(n: number): string {
-  const t = n % 100
-  if (t >= 11 && t <= 14) return 'виджетов'
-  switch (n % 10) {
-    case 1: return 'виджет'
-    case 2: case 3: case 4: return 'виджета'
-    default: return 'виджетов'
-  }
-}
 
 const backdrop: React.CSSProperties = {
   position: 'fixed', inset: 0, background: 'rgba(20,20,20,0.45)',
