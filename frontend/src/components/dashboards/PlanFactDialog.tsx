@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { buildPlanFact, planFactPreview, type PlanFactPlan } from '../../api'
+import { buildPlanFact, DuplicateError, planFactPreview, type PlanFactPlan } from '../../api'
 
 // Сводный дашборд «План/факт» по ВСЕМ объектам и папкам.
 //
@@ -17,6 +17,9 @@ export default function PlanFactDialog(
 ) {
   const [plan, setPlan] = useState<PlanFactPlan | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  // Переспрос про одноимённый дашборд — отдельно от ошибки: это не сбой,
+  // а вопрос, и у него есть кнопка ответа.
+  const [dup, setDup] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -29,14 +32,17 @@ export default function PlanFactDialog(
     return () => window.removeEventListener('keydown', esc)
   }, [onClose])
 
-  const build = async () => {
-    setBusy(true); setErr(null)
+  const build = async (force = false) => {
+    setBusy(true); setErr(null); setDup(null)
     try {
-      const r = await buildPlanFact()
+      const r = await buildPlanFact({ force })
       onClose()
       onBuilt?.(r.dashboard_id)
     } catch (e) {
-      setErr((e as Error).message)
+      // Дашборд «План/факт» уже есть: чаще всего нужно пересобрать его, а не
+      // завести второй такой же — иначе в списке два неразличимых.
+      if (e instanceof DuplicateError) setDup((e as Error).message)
+      else setErr((e as Error).message)
     } finally {
       setBusy(false)
     }
@@ -65,6 +71,19 @@ export default function PlanFactDialog(
         </div>
 
         {err && <div style={errBox}>{err}</div>}
+        {dup && (
+          <div style={{ ...errBox, background: 'var(--accent-weak-bg)', color: 'var(--text)' }}>
+            <div style={{ marginBottom: 8 }}>{dup}</div>
+            <div style={{ ...muted, fontSize: 12.5, marginBottom: 8 }}>
+              Обычно нужно пересобрать существующий «План/факт», а не заводить второй:
+              при пересборке права доступа и обсуждение сохраняются.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button style={ghostBtn} onClick={() => setDup(null)} disabled={busy}>Отмена</button>
+              <button style={primaryBtn} onClick={() => build(true)} disabled={busy}>Всё равно создать</button>
+            </div>
+          </div>
+        )}
         {!plan && !err && <div style={muted}>Ищу пары «План + Факт»…</div>}
 
         {plan && !nothing && (
@@ -99,7 +118,7 @@ export default function PlanFactDialog(
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
           <button style={ghostBtn} onClick={onClose} disabled={busy}>Отмена</button>
-          <button style={primaryBtn} onClick={build} disabled={busy || !plan || !!nothing}>
+          <button style={primaryBtn} onClick={() => build()} disabled={busy || !plan || !!nothing}>
             {busy ? 'Собираю…' : 'Собрать'}
           </button>
         </div>

@@ -116,8 +116,37 @@ async def find_dashboard_by_name(conn, org_id, name: str) -> Optional[dict]:
             "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None}
 
 
+class DuplicateDashboardName(DashboardError):
+    """Дашборд с таким названием уже есть. Не запрет, а повод переспросить."""
+
+    def __init__(self, duplicate: dict):
+        self.duplicate = duplicate
+        where = " / ".join(x for x in (duplicate.get("object_name"), duplicate.get("folder_name")) if x)
+        super().__init__(
+            f"Дашборд «{duplicate['name']}» уже есть"
+            + (f" (📁 {where})" if where else "")
+            + f", автор {duplicate.get('author') or '—'}. Два одинаковых названия в списке "
+            "не различить — переименуйте новый или создайте копию осознанно."
+        )
+
+
 async def create_dashboard(conn, org_id, user_id, name: str, description: Optional[str],
-                           folder_id: Optional[str]) -> dict:
+                           folder_id: Optional[str], force: bool = False) -> dict:
+    """Создать дашборд. При совпадении названия — отказ с переспросом.
+
+    Проверка стоит ЗДЕСЬ, а не в обработчике запроса, потому что дашборд
+    создают пять разных путей: вручную, мастером авто-сборки, сводным
+    «План/факт», из шаблона и переносом на другой объект. Раньше проверял
+    только ручной, и мастер молча завёл заказчику три «Дашборд «ИТ»» —
+    в списке и в отчёте о популярности они неразличимы.
+
+    Именно переспрос, а не запрет: копия «на следующий год» с тем же именем
+    в другой папке законна, и решать это человеку.
+    """
+    if not force:
+        dup = await find_dashboard_by_name(conn, org_id, name)
+        if dup is not None:
+            raise DuplicateDashboardName(dup)
     row = await conn.fetchrow(
         "insert into dashboards(organization_id, name, description, folder_id, created_by) "
         "values($1,$2,$3,$4::uuid,$5) returning id, name, description, publication_status, created_at",

@@ -362,6 +362,27 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
     if (page) { try { setWidgets((await listPageWidgets(page.id)).widgets) } catch (e) { fail(e) } }
   }
 
+  /** Создание из шаблона с переспросом об одноимённом.
+   *
+   *  Три места создают дашборд из шаблона (простое создание, перепривязка
+   *  кодов и перенос на другой объект), и переспрашивать должно каждое —
+   *  иначе одно из них останется единственным, что молча плодит копии. */
+  async function withDuplicateAsk<T>(run: (force: boolean) => Promise<T>): Promise<T | null> {
+    try {
+      return await run(false)
+    } catch (e) {
+      if (!(e instanceof DuplicateError)) throw e
+      const again = await ask({
+        title: 'Дашборд с таким названием уже есть',
+        message: e.message,
+        confirmLabel: 'Всё равно создать',
+        busyLabel: 'Создание…',
+        tone: 'accent',
+      })
+      return again ? await run(true) : null
+    }
+  }
+
   async function addDashboard(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError(null)
     try {
@@ -611,7 +632,9 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       const datasets = b.datasets.map((code) => ({ code, missing: !dcodes.has(code) }))
       const metrics = b.metrics.map((code) => ({ code, missing: !mcodes.has(code) }))
       if (!datasets.some((d) => d.missing) && !metrics.some((m) => m.missing)) {
-        const r = await instantiateTemplate(tpl, name.trim())  // все коды на месте
+        const r = await withDuplicateAsk((force) =>
+          instantiateTemplate(tpl, name.trim(), {}, {}, {}, force))  // все коды на месте
+        if (!r) return
         setTpl(''); await refresh(); openDashboard(r.dashboard_id)
       } else {
         setRebind({ templateId: tpl, name: name.trim(), datasets, metrics, availDatasets, availMetrics, datasetMap: {}, metricMap: {} })
@@ -622,7 +645,9 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
     if (!rebind) return
     setBusy(true); setError(null)
     try {
-      const r = await instantiateTemplate(rebind.templateId, rebind.name, rebind.datasetMap, rebind.metricMap)
+      const r = await withDuplicateAsk((force) =>
+        instantiateTemplate(rebind.templateId, rebind.name, rebind.datasetMap, rebind.metricMap, {}, force))
+      if (!r) return
       setRebind(null); setTpl(''); await refresh(); openDashboard(r.dashboard_id)
     } catch (e) { fail(e) } finally { setBusy(false) }
   }
@@ -1113,7 +1138,9 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
           onCreate={async ({ name, datasetMap, fieldMap }) => {
             setBusy(true); setError(null)
             try {
-              const r = await instantiateTemplate(cloneTpl.id, name, datasetMap, {}, fieldMap)
+              const r = await withDuplicateAsk((force) =>
+                instantiateTemplate(cloneTpl.id, name, datasetMap, {}, fieldMap, force))
+              if (!r) return
               setCloneTpl(null); setTpl(''); await refresh(); openDashboard(r.dashboard_id)
             } catch (e) { fail(e) } finally { setBusy(false) }
           }}

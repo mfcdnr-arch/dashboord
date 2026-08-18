@@ -159,6 +159,8 @@ export async function autoBuildDashboard(
     metrics?: string[]
     /** Пороги невыполнения плана: полоса и спидометр краснеют ниже нормы. */
     alerts?: boolean
+    /** «Всё равно создать» после переспроса об одноимённом дашборде. */
+    force?: boolean
     /** Собрать по КОНКРЕТНОМУ файлу (объект → папка → файл). */
     documentId?: string
     /** Закрепить виджеты за отчётной датой файла (по умолчанию да). */
@@ -174,9 +176,13 @@ export async function autoBuildDashboard(
       alerts: opts.alerts !== false,
       document_id: opts.documentId || null,
       lock_period: opts.lockPeriod !== false,
+      force: opts.force === true,
     }),
   })
-  if (!res.ok) throw new Error(await errText(res))
+  if (!res.ok) {
+    const msg = await errText(res)
+    throw res.status === 409 ? new DuplicateError(msg) : new Error(msg)
+  }
   return res.json()
 }
 export async function getDashboard(id: string): Promise<{ dashboard: Dashboard; pages: DashPage[] }> {
@@ -215,12 +221,16 @@ export async function getTemplateBindings(templateId: string): Promise<TemplateB
 export async function instantiateTemplate(templateId: string, name: string,
   datasetMap: Record<string, string> = {}, metricMap: Record<string, string> = {},
   /** Перепривязка ПОЛЕЙ: у другого объекта коды показателей свои. */
-  fieldMap: Record<string, string> = {}): Promise<{ dashboard_id: string }> {
+  fieldMap: Record<string, string> = {},
+  force = false): Promise<{ dashboard_id: string }> {
   const res = await fetch(`/dashboard-templates/${templateId}/instantiate`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
-    body: JSON.stringify({ name, dataset_map: datasetMap, metric_map: metricMap, field_map: fieldMap }),
+    body: JSON.stringify({ name, dataset_map: datasetMap, metric_map: metricMap, field_map: fieldMap, force }),
   })
-  if (!res.ok) throw new Error(await errText(res))
+  if (!res.ok) {
+    const msg = await errText(res)
+    throw res.status === 409 ? new DuplicateError(msg) : new Error(msg)
+  }
   return res.json()
 }
 export async function publishDashboard(id: string): Promise<{ publication_status: string; version_no: number }> {
@@ -540,13 +550,18 @@ export async function planFactPreview(): Promise<PlanFactPlan> {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
-export async function buildPlanFact(opts: { name?: string; dashboardId?: string } = {}):
+export async function buildPlanFact(opts: { name?: string; dashboardId?: string; force?: boolean } = {}):
   Promise<{ dashboard_id: string; page_id: string; widgets: number; objects: number }> {
   const res = await fetch('/dashboards/plan-fact', {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
-    body: JSON.stringify({ name: opts.name || null, dashboard_id: opts.dashboardId || null }),
+    body: JSON.stringify({
+      name: opts.name || null, dashboard_id: opts.dashboardId || null, force: opts.force === true,
+    }),
   })
-  if (!res.ok) throw new Error(await errText(res))
+  if (!res.ok) {
+    const msg = await errText(res)
+    throw res.status === 409 ? new DuplicateError(msg) : new Error(msg)
+  }
   return res.json()
 }
 

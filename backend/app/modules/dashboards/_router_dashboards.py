@@ -45,6 +45,8 @@ class DatasetPick(BaseModel):
 class AutoIn(BaseModel):
     object_id: str
     name: Optional[str] = None
+    # Осознанное согласие на одноимённый дашборд (после переспроса).
+    force: bool = False
     # Выбор мастера: {код набора: что из него взять}. Не передан — берём всё.
     selection: Optional[Dict[str, DatasetPick]] = None
     # Пересобрать существующий дашборд вместо создания нового: страницы и
@@ -77,6 +79,8 @@ class TemplateIn(BaseModel):
 
 class InstantiateIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
+    # Осознанное согласие на одноимённый дашборд (после переспроса).
+    force: bool = False
     # Перепривязка кодов датасетов/метрик шаблона к кодам нового контекста
     # (старый код → новый). Пусто — использовать коды шаблона как есть.
     dataset_map: dict[str, str] = {}
@@ -105,26 +109,27 @@ class FolderMoveIn(BaseModel):
 
 
 # --- Дашборды ---
+def _duplicate(e: "service.DuplicateDashboardName") -> HTTPException:
+    """Одинаковое имя → 409 с подробностями о «сопернике».
+
+    Текст и форма ответа одни на все пути создания: человек должен увидеть
+    одно и то же и в форме создания, и в мастере, и в «План/факт».
+    """
+    return HTTPException(status.HTTP_409_CONFLICT, {"message": str(e), "duplicate": e.duplicate})
+
+
 @router.post("/dashboards", status_code=status.HTTP_201_CREATED)
 async def create_dashboard(body: DashboardIn, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:
         try:
             # Одноимённый дашборд — повод переспросить, а не отказать: копия «на
-            # следующий год» с тем же названием законна. Но два одинаковых имени
-            # в списке означают, что руководитель однажды откроет заброшенное.
-            if not body.force:
-                dup = await service.find_dashboard_by_name(conn, user["organization_id"], body.name)
-                if dup is not None:
-                    where = " / ".join(x for x in (dup["object_name"], dup["folder_name"]) if x)
-                    raise HTTPException(status.HTTP_409_CONFLICT, {
-                        "message": (f"Дашборд «{dup['name']}» уже есть"
-                                    + (f" (📁 {where})" if where else "")
-                                    + f", автор {dup['author']}. Два одинаковых названия в списке "
-                                    "не различить — переименуйте новый или создайте копию осознанно."),
-                        "duplicate": dup,
-                    })
+            # следующий год» с тем же названием законна. Сама проверка живёт в
+            # сервисе, чтобы её получили ВСЕ пути создания, а не только этот.
             return await service.create_dashboard(conn, user["organization_id"], user["id"],
-                                                  body.name, body.description, body.folder_id)
+                                                  body.name, body.description, body.folder_id,
+                                                  force=body.force)
+        except service.DuplicateDashboardName as e:
+            raise _duplicate(e)
         except DashboardError as e:
             raise _bad(e)
 
@@ -154,7 +159,10 @@ async def auto_build(body: AutoIn, user: dict = Depends(manage)):
                     conn, user["organization_id"], user["id"], body.object_id, body.name,
                     selection=body.as_selection(), dashboard_id=body.dashboard_id,
                     metrics=body.metrics, alerts=body.alerts,
-                    document_id=body.document_id, lock_period=body.lock_period)
+                    document_id=body.document_id, lock_period=body.lock_period,
+                    force=body.force)
+        except service.DuplicateDashboardName as e:
+            raise _duplicate(e)
         except DashboardError as e:
             raise _bad(e)
 
@@ -162,6 +170,8 @@ async def auto_build(body: AutoIn, user: dict = Depends(manage)):
 class PlanFactIn(BaseModel):
     name: Optional[str] = None
     dashboard_id: Optional[str] = None
+    # Осознанное согласие на одноимённый дашборд (после переспроса).
+    force: bool = False
 
 
 # Сводная страница «План/факт» по ВСЕМ объектам и папкам. Полоса «план-факт»
@@ -181,7 +191,9 @@ async def plan_fact_build(body: PlanFactIn, user: dict = Depends(manage)):
             async with conn.transaction():
                 return await service.build_plan_fact_dashboard(
                     conn, user["organization_id"], user["id"],
-                    name=body.name, dashboard_id=body.dashboard_id)
+                    name=body.name, dashboard_id=body.dashboard_id, force=body.force)
+        except service.DuplicateDashboardName as e:
+            raise _duplicate(e)
         except DashboardError as e:
             raise _bad(e)
 
@@ -398,7 +410,10 @@ async def instantiate_template(template_id: str, body: InstantiateIn, user: dict
             async with conn.transaction():
                 return await service.create_from_template(
                     conn, user["organization_id"], user["id"], template_id, body.name,
-                    body.dataset_map, body.metric_map, body.field_map, body.folder_id)
+                    body.dataset_map, body.metric_map, body.field_map, body.folder_id,
+                    force=body.force)
+        except service.DuplicateDashboardName as e:
+            raise _duplicate(e)
         except DashboardError as e:
             raise _bad(e)
 

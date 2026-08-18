@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  autoBuildDashboard, autoBuildPlan, listDocuments, listFolders,
+  autoBuildDashboard, autoBuildPlan, DuplicateError, listDocuments, listFolders,
   type AutoPlan, type DatasetPick, type Dashboard, type Doc, type Folder,
 } from '../../api'
 // Тот же формат числа, что на дашборде и в предложениях метрик: два знака
@@ -180,7 +180,10 @@ export default function AutoBuildWizard(
     setSel((s) => (s ? { ...s, [code]: { ...s[code], fields: on ? all : [] } } : s))
   }
 
-  async function build() {
+  // Текст переспроса про одноимённый дашборд (null — переспроса нет).
+  const [dup, setDup] = useState<string | null>(null)
+
+  async function build(force = false) {
     if (!sel) return
     setBusy(true)
     try {
@@ -188,10 +191,39 @@ export default function AutoBuildWizard(
         documentId: docId || undefined,
         lockPeriod,
         name: `Дашборд «${objectName}»`, selection: sel, dashboardId: target || undefined,
-        metrics: [...metricPicks], alerts,
+        metrics: [...metricPicks], alerts, force,
       })
       onDone(r.dashboard_id)
-    } catch (e) { onError((e as Error).message); setBusy(false) }
+    } catch (e) {
+      // Одноимённый дашборд: мастер называет новый по объекту, поэтому вторая
+      // сборка того же объекта раньше молча плодила копию — у заказчика так
+      // появились три «Дашборд «ИТ»», неразличимые в списке и в отчётах.
+      // Не запрещаем (иногда копия нужна), но спрашиваем и предлагаем
+      // пересобрать существующий — обычно человек хочет именно это.
+      if (e instanceof DuplicateError) { setDup(e.message); setBusy(false); return }
+      onError((e as Error).message); setBusy(false)
+    }
+  }
+
+  if (dup) {
+    return createPortal(
+      <div style={backdrop} onClick={() => setDup(null)}>
+        <div style={{ ...card, maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+          <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>Дашборд с таким названием уже есть</h3>
+          <div style={{ fontSize: 13.5, lineHeight: 1.45, marginBottom: 14 }}>{dup}</div>
+          <div style={{ ...muted, fontSize: 12.5, marginBottom: 14 }}>
+            Обычно нужно не второй дашборд, а пересобрать существующий: закройте это окно
+            и выберите его в списке «Собрать заново» — права доступа, обсуждение и история
+            при пересборке сохраняются.
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button style={btnGhost} onClick={() => setDup(null)}>Отмена</button>
+            <button style={btn} disabled={busy} onClick={() => { setDup(null); build(true) }}>
+              Всё равно создать
+            </button>
+          </div>
+        </div>
+      </div>, document.body)
   }
 
   return createPortal(
@@ -442,7 +474,7 @@ export default function AutoBuildWizard(
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
               <button style={btnGhost} onClick={onClose}>Отмена</button>
-              <button style={btn} disabled={busy || plan.widgets === 0} onClick={build}>
+              <button style={btn} disabled={busy || plan.widgets === 0} onClick={() => build()}>
                 {busy ? 'Собираем…' : target ? 'Пересобрать' : 'Собрать'}
               </button>
             </div>

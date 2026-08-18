@@ -114,7 +114,8 @@ async def template_bindings(conn, org_id, template_id: str) -> dict:
 
 async def create_from_template(conn, org_id, user_id, template_id: str, name: str,
                                dataset_map: Optional[dict] = None, metric_map: Optional[dict] = None,
-                               field_map: Optional[dict] = None, folder_id: Optional[str] = None) -> dict:
+                               field_map: Optional[dict] = None, folder_id: Optional[str] = None,
+                               force: bool = False) -> dict:
     spec = await conn.fetchval(
         "select spec from dashboard_templates where id=$1::uuid and organization_id=$2", template_id, org_id)
     if spec is None:
@@ -123,7 +124,8 @@ async def create_from_template(conn, org_id, user_id, template_id: str, name: st
         spec = json.loads(spec)
     from . import service as svc  # ленивый импорт: избегаем цикла модулей
     dmap, mmap, fmap = dataset_map or {}, metric_map or {}, field_map or {}
-    dash = await svc.create_dashboard(conn, org_id, user_id, name, "Создан из шаблона", folder_id)
+    dash = await svc.create_dashboard(conn, org_id, user_id, name, "Создан из шаблона", folder_id,
+                                      force=force)
     did = str(dash["id"])
     for page in spec.get("pages", []):
         p = await svc.create_page(conn, org_id, user_id, did, page["name"], page.get("description"))
