@@ -99,6 +99,9 @@ async def run_extraction(job_id: str) -> None:
             json.dumps(result.warnings, ensure_ascii=False),
         )
         await _check_template(conn, job_id)
+        # Совпал бланк и нет замечаний — выпускаем сразу: заказчик просил, чтобы
+        # план/факт пересчитывался при добавлении файла, а не после ручного шага.
+        await _auto_release(conn, job_id)
         await conn.execute(
             "update documents set status='extracted' where id=$1", job["document_id"]
         )
@@ -134,6 +137,126 @@ async def _check_template(conn, job_id: str) -> None:
             job_id, match, note)
     except Exception as exc:  # noqa: BLE001 — подсказка не важнее самого разбора
         log.warning("Сверка с шаблоном не удалась для задания %s: %s", job_id, exc)
+
+
+async def _auto_release(conn, job_id: str) -> None:
+    """Выпуск данных без участия человека — когда файл в точности повторяет
+    прошлый (запрос заказчика 17.08).
+
+    Раньше правило было «автомат готовит — выпускает человек» (15.08), и оно
+    остаётся для всего, что хоть чем-то отличается. Автоматически выпускаем
+    только при СОВПАДЕНИИ ВСЕХ условий сразу:
+
+      • у папки включена автоподготовка (тот же тумблер, что запускает
+        распознавание: папка «на хранение» не должна попадать в дашборды);
+      • отпечаток структуры совпал с прошлым выпуском (`match == exact`) —
+        изменившийся бланк по-прежнему ждёт человека, потому что чужая
+        разметка дала бы неверные цифры молча;
+      • число строк тоже совпало (`rows_differ` ложно): появился новый субъект
+        — позиционно снятые строки переносить нельзя, исключение «строка 4»
+        выбросило бы данные того, кто встал на её место;
+      • у файла указана отчётная дата и за неё ЕЩЁ НЕТ выпуска — замещать
+        существующие данные автоматически нельзя, это потеря информации;
+      • проверки качества не дали ни одного замечания. Именно они ловят
+        главную беду недельных форм: перенесённые без изменения строки,
+        уменьшившийся накопительный итог, недельное больше накопительного.
+
+    Любая осечка не должна ронять распознавание: файл уже разобран, и терять
+    результат из-за неудавшегося выпуска нельзя — человек всё равно сможет
+    выпустить его кнопкой.
+    """
+    from . import mapping
+    try:
+        job = await conn.fetchrow(
+            "select ej.id, ej.template_match, ej.document_version_id, "
+            "       d.reporting_period_start, d.original_filename, f.auto_prepare, "
+            "       d.organization_id "
+            "from extraction_jobs ej "
+            "join document_versions dv on dv.id = ej.document_version_id "
+            "join documents d on d.id = dv.document_id "
+            "join folders f on f.id = d.folder_id "
+            "where ej.id = $1::uuid", job_id)
+        if job is None or not job["auto_prepare"] or job["template_match"] != "exact":
+            return
+        if job["reporting_period_start"] is None:
+            return
+
+        ctx = await mapping.resolve_context(conn, job_id)
+        if ctx is None or ctx["object_id"] is None:
+            return
+        tables = await conn.fetch(
+            "select id from extracted_tables where extraction_job_id=$1::uuid order by table_index", job_id)
+        tpl = await mapping.layout_template_for_tables(
+            conn, ctx["object_id"], [str(t["id"]) for t in tables])
+        if tpl is None or tpl.get("match") != "exact" or not tpl.get("table_id"):
+            return
+        if tpl.get("rows_differ"):
+            # Состав граф тот же, но СТРОК стало другое число: в форме появился
+            # (или исчез) субъект. Позиционно снятые строки при этом переносить
+            # нельзя — исключение «строка 4» выбросило бы данные того, кто встал
+            # на её место. Такой файл смотрит человек.
+            return
+        code = tpl.get("dataset_code")
+        fields = tpl.get("fields") or []
+        if not code or not fields:
+            return
+
+        period = job["reporting_period_start"]
+        exists = await conn.fetchval(
+            "select 1 from dataset_releases where organization_id=$1 and code=$2 "
+            "and reporting_period_start=$3 and status <> 'superseded'",
+            job["organization_id"], code, period)
+        if exists:
+            # За этот период данные уже есть. Замещать их автоматически нельзя:
+            # решение «эти цифры теперь неверны» принимает человек.
+            return
+
+        warnings = await _auto_quality(conn, job, tpl, code, period, fields)
+        if warnings:
+            # Замечания есть — оставляем файл человеку. Он увидит их в панели
+            # выпуска и решит сам; молча выпустить сомнительные данные хуже,
+            # чем подождать.
+            return
+
+        # Автор выпуска — тот, кто загрузил файл: в журнале должно быть видно
+        # живого человека, а не «система». Колонка называется uploaded_by.
+        author = await conn.fetchval(
+            "select uploaded_by from document_versions where id=$1", job["document_version_id"])
+        await mapping.build_release(
+            conn, job_id=str(job_id), table_id=str(tpl["table_id"]), code=code,
+            name=job["original_filename"] or code,
+            reporting_period_start=period, reporting_period_end=None,
+            fields=fields, layout=tpl.get("layout"), cells=tpl.get("cells") or [],
+            supersede=False, user={"id": author},
+        )
+        log.info("Авто-выпуск: задание %s, набор %s, отчёт за %s", job_id, code, period)
+    except Exception as exc:  # noqa: BLE001 — выпуск не важнее самого разбора
+        log.warning("Авто-выпуск не выполнен для задания %s: %s", job_id, exc)
+
+
+async def _auto_quality(conn, job, tpl: dict, code: str, period, fields: list) -> list:
+    """Те же проверки качества, что видит человек перед кнопкой «Выпустить».
+
+    Считаются ТЕМ ЖЕ кодом (`mapping.quality_warnings`), иначе «автомат выпустил
+    молча, а у человека были бы замечания» стало бы неизбежным.
+    """
+    from . import mapping
+    row = await conn.fetchrow(
+        "select data, merges, header_rows from extracted_tables where id=$1::uuid", tpl["table_id"])
+    if row is None:
+        return []
+    import json as _json
+    grid = _json.loads(row["data"]) if isinstance(row["data"], str) else (row["data"] or [])
+    raw_merges = _json.loads(row["merges"]) if isinstance(row["merges"], str) else (row["merges"] or [])
+    merges = [tuple(m) for m in raw_merges]
+    lay = {**mapping.DEFAULT_LAYOUT, **(tpl.get("layout") or {})}
+    hdr = int((row["header_rows"] if lay.get("header_rows") is None else lay["header_rows"]) or 0)
+    area = mapping.analysis_grid(grid, merges, lay.get("data_rect"), lay.get("orientation"))
+    rows = mapping.data_rows(area, hdr, lay.get("skip_rows") or [])
+    label = next((f["column_index"] for f in fields if f.get("is_row_label")), None)
+    return await mapping.quality_warnings(
+        conn, job["organization_id"], code=code, period=period,
+        rows=rows, fields=fields, label_col=label)
 
 
 async def _fail(job_id: str, document_id, message: str) -> None:

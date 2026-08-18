@@ -128,7 +128,14 @@ async def test_upload_starts_extraction_itself(client, admin_headers, folder, mo
 
 
 async def test_second_week_becomes_ready_by_itself(client, admin_headers, folder, monkeypatch, offline_queue):
-    """Вторая неделя доходит до «данные подготовлены» без участия человека."""
+    """Вторая неделя доходит до ВЫПУЩЕННЫХ данных без участия человека.
+
+    До 17.08 она доходила до «данные подготовлены» и ждала кнопки. По решению
+    заказчика форма, в точности повторяющая прошлую (тот же отпечаток структуры,
+    столько же строк, без замечаний качества), выпускается сама — иначе
+    план/факт не пересчитывался бы при добавлении файла. Всё, что хоть чем-то
+    отличается, по-прежнему ждёт человека (см. test_auto_release.py).
+    """
     up1 = await _upload(client, admin_headers, folder["folder_id"], _form(WEEK1), "2026-07-22", monkeypatch)
     await service.run_extraction(up1["extraction_job_id"])
     job = (await client.get(f"/extraction-jobs/{up1['extraction_job_id']}", headers=admin_headers)).json()
@@ -139,7 +146,7 @@ async def test_second_week_becomes_ready_by_itself(client, admin_headers, folder
 
     r = await client.get(f"/folders/{folder['folder_id']}/documents", headers=admin_headers)
     by_name = {i["original_filename"]: i for i in r.json()["items"]}
-    assert by_name["f_2026-07-29.xlsx"]["pipeline"] == "ready", by_name["f_2026-07-29.xlsx"]
+    assert by_name["f_2026-07-29.xlsx"]["pipeline"] == "released", by_name["f_2026-07-29.xlsx"]
     # Первый файл уже выпущен — его состояние другое.
     assert by_name["f_2026-07-22.xlsx"]["pipeline"] == "released"
 

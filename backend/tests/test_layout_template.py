@@ -138,13 +138,24 @@ async def test_template_is_reused_by_next_file_of_same_form(
     assert any(f["is_row_label"] and f["field_code"] == "subject" for f in tpl["fields"])
     assert tpl["dataset_code"] == "ztpl_code"
 
-    # Разметка, подставленная шаблоном, даёт тот же выпуск, что и ручная.
+    # С 17.08 совпавшая по структуре форма ВЫПУСКАЕТСЯ САМА (решение заказчика:
+    # план/факт должен пересчитываться при добавлении файла, а не после ручного
+    # шага). Поэтому выпуск за эту неделю к этому моменту уже есть…
+    from app import db
+    async with db.acquire() as conn:
+        rel = await conn.fetchrow(
+            "select id, (select count(*) from dataset_values v where v.dataset_release_id=r.id) as vals "
+            "from dataset_releases r where code='ztpl_code' and reporting_period_start='2026-07-29'")
+    assert rel is not None, "форма той же структуры должна выпуститься автоматически"
+    assert rel["vals"] > 0, "значения должны материализоваться, а не остаться пустыми"
+
+    # …а повторный ручной выпуск за тот же период честно отвечает конфликтом,
+    # а не создаёт второй набор данных за ту же неделю.
     body2 = _release_body(job2, "ztpl_code", "2026-07-29")
     body2["layout"] = tpl["layout"]
     body2["fields"] = tpl["fields"]
     r = await client.post(f"/extraction-jobs/{job2['job_id']}/release", headers=admin_headers, json=body2)
-    assert r.status_code == 201, r.text
-    assert r.json()["rows"] == 1, "строка-заготовка должна остаться исключённой"
+    assert r.status_code == 409, r.text
 
 
 async def test_template_not_applied_when_form_changed(client, admin_headers, obj, monkeypatch):
