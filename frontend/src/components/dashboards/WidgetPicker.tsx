@@ -87,9 +87,20 @@ function Card({ m, active, onPick }: { m: Meta; active: boolean; onPick: (v: str
         border: `1.5px solid ${active ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 12, padding: 10,
         background: active ? 'var(--accent-weak-bg)' : 'var(--surface)', cursor: 'pointer', boxShadow: active ? '0 0 0 3px rgba(47,84,150,0.12)' : 'none',
       }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {/* Значок НАД названием, а не слева от него.
+          Рядом со значком заголовку оставалось ~70px из 150, и «Сравнение
+          подразделений» либо вылезало за карточку (flex-элемент без
+          minWidth: 0 не может стать уже содержимого, а кнопка обрезает), либо
+          рвалось посреди слова на четыре строки. Сверху заголовку достаётся
+          вся ширина карточки — слова переносятся целиком.
+          overflowWrap оставлен страховкой на случай ещё более длинного имени
+          типа виджета: лучше перенос внутри слова, чем обрезанный текст. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <div style={{ flexShrink: 0 }}>{ICONS[m.v]}</div>
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{m.t}</span>
+        <span style={{
+          fontSize: 13, fontWeight: 600, color: 'var(--text)',
+          overflowWrap: 'anywhere', lineHeight: 1.25,
+        }}>{m.t}</span>
       </div>
       <span style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.3 }}>{m.hint}</span>
     </button>
