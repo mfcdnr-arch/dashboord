@@ -120,7 +120,7 @@ function chartOption(data: any): EChartsOption {
     xAxis: { type: 'category', data: cats, axisLabel: { interval: 0, rotate: cats.some((c) => c.length > 6) ? 30 : 0, fontSize: 11 } },
     yAxis: { type: 'value' },
     series: [{ type: isLine ? 'line' : 'bar', data: vals, smooth: isLine,
-      itemStyle: { color: C.c1 }, lineStyle: { color: C.c1, width: 2 }, areaStyle: isLine ? { opacity: 0.08 } : undefined,
+      color: C.c1, itemStyle: { color: C.c1 }, lineStyle: { color: C.c1, width: 2 }, areaStyle: isLine ? { opacity: 0.08 } : undefined,
       barMaxWidth: 40 }],
   }
 }
@@ -622,22 +622,34 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
   if (data.type === 'dynamics') {
     const periods: string[] = data.periods || []
     if (periods.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных за период</div>
-    const series: any[] = [{ type: 'line', name: 'Значение', data: data.values, smooth: true, itemStyle: { color: C.c1 },
+    const series: any[] = [{ type: 'line', name: 'Значение', data: data.values, smooth: true,
+      color: C.c1, itemStyle: { color: C.c1 },
       lineStyle: { color: C.c1, width: 2 }, areaStyle: { opacity: 0.08 } }]
     // Линейный тренд (наложение): прямая по концам от бэкенда, интерполируем по периодам.
     if (data.trend && periods.length >= 2) {
       const [s, e] = data.trend
       const n = periods.length
       const line = periods.map((_, i) => s + (e - s) * i / (n - 1))
+      // 🔴 Цвет задаётся ряду ЦЕЛИКОМ, а не только линии. Раньше стоял один
+      // lineStyle.color, а сам ряд оставался без цвета — и ECharts брал для
+      // маркера в подсказке второй цвет своей палитры (синий), хотя линию
+      // рисовал жёлтой. Подсказка показывала цвет, которого на графике нет.
+      // Тон холодный и приглушённый намеренно: тренд — это РАСЧЁТ, а не данные,
+      // он не должен спорить с фактом за внимание.
       series.push({ type: 'line', name: 'Тренд', data: line, smooth: false, symbol: 'none',
-        lineStyle: { color: '#c69b2f', width: 2, type: 'dashed' } })
+        color: C.trend, lineStyle: { color: C.trend, width: 2, type: 'dashed' } })
     }
     // Волна F: точки, отклонившиеся от тренда больше чем на N σ — красные маркеры поверх ряда.
     const anomalies: { index: number; period: string; value: number; expected: number; deviation: number }[] = data.anomalies || []
     if (anomalies.length > 0) {
+      // Аномалия отличается не только цветом, но и ФОРМОЙ (ромб вместо круга) и
+      // белой обводкой. Цветом одним обойтись нельзя: сигнальный красный и
+      // фирменный красный факта — соседние оттенки, на карточке ниже 150px
+      // легенда скрыта, а различать цвета умеют не все (дальтонизм ~8% мужчин).
       series.push({
-        type: 'scatter', name: 'Аномалии', symbol: 'circle', symbolSize: 12,
-        itemStyle: { color: 'var(--danger)', borderColor: '#fff', borderWidth: 1 },
+        type: 'scatter', name: 'Аномалии', symbol: 'diamond', symbolSize: 14,
+        color: C.signal,
+        itemStyle: { color: C.signal, borderColor: '#fff', borderWidth: 2 },
         data: anomalies.map((a) => [a.index, a.value]),
       })
     }
@@ -660,7 +672,10 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
           const lines = [`<b>${fmtPeriod(periods[i])}</b>`]
           arr.forEach((p: any) => {
             const v = Array.isArray(p.value) ? p.value[1] : p.value
-            if (v != null) lines.push(`${p.marker} ${p.seriesName}: <b>${fmt(v)}</b>`)
+            // Само число красим в цвет ряда: на карточке легенды нет, и подсказка
+            // остаётся единственным местом, где видно, «где что». Маленькой точки
+            // рядом с названием для этого мало.
+            if (v != null) lines.push(`${p.marker} ${p.seriesName}: <b style="color:${p.color}">${fmt(v)}</b>`)
           })
           if (i > 0 && vals[i] != null && vals[i - 1] != null) {
             const d = vals[i] - vals[i - 1]
@@ -720,10 +735,10 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     const series: any[] = [] // eslint-disable-line @typescript-eslint/no-explicit-any
     if (data.previous_year != null) {
       series.push({ type: 'line', name: String(data.previous_year), data: data.previous, smooth: true, symbol: 'circle', symbolSize: 5,
-        itemStyle: { color: C.prev }, lineStyle: { color: C.prev, width: 2, type: 'dashed' } })
+        color: C.prev, itemStyle: { color: C.prev }, lineStyle: { color: C.prev, width: 2, type: 'dashed' } })
     }
     series.push({ type: 'line', name: String(data.current_year), data: data.current, smooth: true, symbol: 'circle', symbolSize: 5,
-      itemStyle: { color: C.c1 }, lineStyle: { color: C.c1, width: 2.5 }, areaStyle: { opacity: 0.08 } })
+      color: C.c1, itemStyle: { color: C.c1 }, lineStyle: { color: C.c1, width: 2.5 }, areaStyle: { opacity: 0.08 } })
     // У «Года к году» легенда (два года) нужна всегда — резервируем под неё место,
     // иначе она ложится на подписи месяцев.
     const opt: EChartsOption = {

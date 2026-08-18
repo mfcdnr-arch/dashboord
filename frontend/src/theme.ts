@@ -32,12 +32,20 @@ export function setTheme(t: Theme): void {
 // ── Палитра графиков из токенов темы ─────────────────────────────────────────
 // ECharts рисует на canvas/svg и не понимает var(); значения серий читаем из
 // CSS-токенов. Дефолты — палитра «Мои Документы» (если токен не задан).
-export type ChartColors = { palette: string[]; c1: string; prev: string; heat: string[] }
+export type ChartColors = {
+  palette: string[]; c1: string; prev: string; heat: string[]
+  /** Роли на графике: вспомогательная линия (тренд/прогноз) и сигнал (аномалия).
+   *  Берутся ОТДЕЛЬНО от палитры серий: это не «ещё одна серия данных», а разное
+   *  назначение, и цвет должен говорить именно о назначении. */
+  trend: string; signal: string
+}
 
 const FALLBACK: ChartColors = {
-  palette: ['#e04e39', '#c39367', '#623b2a', '#8a5a1a', '#e0885f', '#a5563c', '#d0a97e'],
+  palette: ['#e04e39', '#2f7d95', '#d99a2b', '#4f7a5f', '#a5563c', '#7a5ea8', '#8b8178'],
   c1: '#e04e39',
   prev: '#c39367',
+  trend: '#6b7f99',
+  signal: '#b3261e',
   heat: ['#faf0e9', '#e0b58f', '#e0885f', '#e04e39', '#a5563c'],
 }
 
@@ -49,6 +57,8 @@ export function chartColors(): ChartColors {
     palette,
     c1: palette[0],
     prev: tok('--chart-prev', FALLBACK.prev),
+    trend: tok('--chart-trend', FALLBACK.trend),
+    signal: tok('--chart-signal', FALLBACK.signal),
     heat: FALLBACK.heat.map((fb, i) => tok(`--chart-heat-${i + 1}`, fb)),
   }
 }

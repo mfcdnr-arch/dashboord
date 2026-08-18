@@ -22,6 +22,53 @@ function themeDefaults(): EChartsOption {
   return { textStyle: { color: muted } }
 }
 
+/**
+ * Оси и подписи значений — цветом ТЕМЫ, а не умолчаниями ECharts.
+ *
+ * 🔴 `textStyle` наследуют не все элементы: подписи столбиков рисовались `#333`,
+ * а деления осей — `#6E7079`. В светлой теме это сходит с рук, а в тёмной текст
+ * оказывается почти на фоне (контраст около 1.5:1) — числа над столбиками
+ * прочитать нельзя. Правим в ОДНОМ месте, чтобы про это не пришлось помнить
+ * при каждом новом типе виджета.
+ *
+ * Заданное явно не трогаем (`...` идёт ПОСЛЕ умолчания): у спидометра своя
+ * шкала, у тепловой карты свои цвета — они должны остаться как есть.
+ */
+export function withThemedText(option: EChartsOption): EChartsOption {
+  const cs = getComputedStyle(document.documentElement)
+  const tok = (name: string, fb: string) => cs.getPropertyValue(name).trim() || fb
+  const muted = tok('--text-muted', '#6b7280')
+  const text = tok('--text-2', tok('--text', '#333'))
+  const line = tok('--border', '#e5e7eb')
+  const faint = tok('--border-faint', '#f1f5f9')
+
+  type Ax = Record<string, unknown>
+  const axis = (a: Ax): Ax => ({
+    ...a,
+    axisLabel: { color: muted, ...(a.axisLabel as Ax || {}) },
+    axisLine: a.axisLine ?? { lineStyle: { color: line } },
+    splitLine: a.splitLine ?? { lineStyle: { color: faint } },
+  })
+  const eachAxis = (ax: unknown) =>
+    Array.isArray(ax) ? ax.map((a) => axis(a as Ax)) : ax ? axis(ax as Ax) : ax
+
+  const o = option as Record<string, unknown>
+  const series = Array.isArray(o.series)
+    ? o.series.map((sr) => {
+        const one = sr as Ax
+        return one?.label ? { ...one, label: { color: text, ...(one.label as Ax) } } : one
+      })
+    : o.series
+
+  return {
+    ...option,
+    ...(o.xAxis ? { xAxis: eachAxis(o.xAxis) } : {}),
+    ...(o.yAxis ? { yAxis: eachAxis(o.yAxis) } : {}),
+    ...(series ? { series } : {}),
+    ...(o.legend ? { legend: { textStyle: { color: muted }, ...(o.legend as Ax) } } : {}),
+  } as EChartsOption
+}
+
 // Подсказка при наведении рисуется ВНУТРИ контейнера графика, а карточка виджета
 // обрезает всё, что вылезло за её край (overflow: hidden) — у узких карточек от
 // подсказки оставалась половина слова. Выносим её в body, как уже сделано для
@@ -62,13 +109,14 @@ export default function EChart({ option, height = 200, onPick }: { option: EChar
     const ro = new ResizeObserver(() => chart.resize())
     ro.observe(ref.current)
     // Перерисовать при смене темы (data-theme на <html>) — обновить цвета текста.
-    const mo = new MutationObserver(() => chart.setOption(withDetachedTooltip({ ...themeDefaults(), ...optionRef.current }), true))
+    const mo = new MutationObserver(() => chart.setOption(
+      withThemedText(withDetachedTooltip({ ...themeDefaults(), ...optionRef.current })), true))
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     return () => { ro.disconnect(); mo.disconnect(); chart.dispose(); chartRef.current = null }
   }, [])
 
   useEffect(() => {
-    chartRef.current?.setOption(withDetachedTooltip({ ...themeDefaults(), ...option }), true)
+    chartRef.current?.setOption(withThemedText(withDetachedTooltip({ ...themeDefaults(), ...option })), true)
   }, [option])
 
   return <div ref={ref} style={{ width: '100%', height }} />
