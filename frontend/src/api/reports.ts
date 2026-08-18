@@ -45,7 +45,14 @@ export interface PopularityReport {
   days: number
   period?: PeriodInfo
   totals: { views: number; viewers: number }
-  top_dashboards: { dashboard_id: string; name: string; views: number; viewers: number; last_view: string | null }[]
+  /** Просмотры отчётов, которые ещё существуют: с этим числом сходится таблица. */
+  existing: { views: number; viewers: number }
+  /** Отчёты удалены, а просмотры остались в журнале — он не переписывается задним числом. */
+  deleted: { views: number; dashboards: number }
+  /** Просмотры живых отчётов, не попавших в топ-10. */
+  others_views: number
+  top_dashboards: { dashboard_id: string; name: string; views: number; viewers: number
+    created_at: string | null; last_view: string | null }[]
 }
 export async function getPopularityReport(p: ReportPeriod = {}): Promise<PopularityReport> {
   const res = await fetch(`/reports/popularity${pq(p)}`, { headers: authH() })

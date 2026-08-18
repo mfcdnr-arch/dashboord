@@ -5,6 +5,7 @@ import {
 } from '../api'
 import { useConfirm } from './dashboards/ConfirmDialog'
 import EChart from './EChartLazy'
+import { plural } from '../lib/text'
 import UserCard from './users/UserCard'
 import AttendanceChart from './reports/AttendanceChart'
 import { fmtNumber as num } from '../lib/format'
@@ -348,20 +349,58 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
       <Section title="Популярность дашбордов" action={<ExportButtons onExport={(f) => doExport('popularity', f)} />}>
         {!pop ? <span style={muted}>Загрузка…</span> : (
           <div>
-            <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 6 }}>
               <Stat t="Просмотров" v={pop.totals.views} />
               <Stat t="Зрителей" v={pop.totals.viewers} />
             </div>
-            {pop.top_dashboards.length === 0 ? <span style={muted}>Просмотров за период пока нет.</span> : (
+            {/* Без этой строки итог сверху и таблица снизу выглядят как ошибка:
+                итог считает ВСЕ просмотры, а таблица — только по отчётам,
+                которые ещё существуют; разница бывает кратной.
+                Поля появились позже самого отчёта: при обновлении сначала
+                выкатывается веб, а API может секунду отвечать прежним ответом —
+                страница не должна из-за этого падать в белый экран. */}
+            {((pop.deleted?.views ?? 0) > 0 || (pop.others_views ?? 0) > 0) && (
+              <div style={{ ...muted, fontSize: 12, marginBottom: 12 }}>
+                Из них <b>{pop.existing?.views ?? 0}</b> — по отчётам, которые сейчас есть в системе.
+                {(pop.deleted?.views ?? 0) > 0 && (
+                  <> Ещё <b>{pop.deleted?.views}</b>{' '}
+                    {plural(pop.deleted?.views ?? 0, 'просмотр', 'просмотра', 'просмотров')} — по
+                    удалённым отчётам ({pop.deleted?.dashboards}{' '}
+                    {plural(pop.deleted?.dashboards ?? 0, 'штука', 'штуки', 'штук')}): журнал
+                    просмотров переживает удаление и не переписывается задним числом.</>
+                )}
+                {(pop.others_views ?? 0) > 0 && (
+                  <> И {pop.others_views} — по отчётам за пределами первой десятки.</>
+                )}
+              </div>
+            )}
+            {pop.top_dashboards.length === 0 ? <span style={muted}>Просмотров за период пока нет.</span> : (() => {
+              // Одноимённые отчёты в списке неразличимы («Дашборд «ИТ»» трижды —
+              // реальный случай на боевом: мастер сборки не запрещает повтор
+              // имени). Различаем ДАТОЙ СОЗДАНИЯ и только там, где имя повторяется:
+              // дописывать её каждому — лишний шум.
+              const seen = new Map<string, number>()
+              pop.top_dashboards.forEach((d) => seen.set(d.name, (seen.get(d.name) || 0) + 1))
+              const label = (d: PopularityReport['top_dashboards'][number]) =>
+                (seen.get(d.name) || 0) > 1 && d.created_at
+                  ? `${d.name} · создан ${new Date(d.created_at).toLocaleDateString('ru-RU')}`
+                  : d.name
+              return (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
                 <div>
                   {/* Диаграмма просмотров (req #4). Клик по столбцу → «кто смотрел» */}
                   <EChart height={Math.max(160, pop.top_dashboards.length * 34)}
-                    onPick={(name) => { const d = pop.top_dashboards.find((x) => x.name === name); if (d) getDashboardViewers(d.dashboard_id).then(setViewers).catch((e) => setError((e as Error).message)) }}
+                    onPick={(_name, i) => {
+                      // По номеру, а не по имени: одноимённые отчёты встречаются
+                      // (мастер сборки не запрещает повтор имени), и поиск по
+                      // имени всегда открывал бы первый из них.
+                      const d = pop.top_dashboards[i]
+                      if (d) getDashboardViewers(d.dashboard_id).then(setViewers).catch((e) => setError((e as Error).message))
+                    }}
                     option={{
                       grid: { left: 4, right: 24, top: 6, bottom: 6, containLabel: true },
                       xAxis: { type: 'value', splitLine: { lineStyle: { color: '#eef0f3' } } },
-                      yAxis: { type: 'category', inverse: true, data: pop.top_dashboards.map((d) => d.name), axisLabel: { fontSize: 11, width: 130, overflow: 'truncate' } },
+                      yAxis: { type: 'category', inverse: true, data: pop.top_dashboards.map(label), axisLabel: { fontSize: 11, width: 130, overflow: 'truncate' } },
                       tooltip: { trigger: 'item' },
                       series: [{ type: 'bar', data: pop.top_dashboards.map((d) => d.views), itemStyle: { color: '#e04e39', borderRadius: [0, 4, 4, 0] }, barMaxWidth: 20, label: { show: true, position: 'right', fontSize: 11 } }],
                     }} />
@@ -397,7 +436,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
                           {pop.top_dashboards.map((d, i) => (
                             <tr key={d.dashboard_id}>
                               <td style={{ ...td, color: 'var(--text-faint)', textAlign: 'center' }}>{i + 1}</td>
-                              <td style={{ ...td, fontWeight: 600 }}>{d.name}</td>
+                              <td style={{ ...td, fontWeight: 600 }}>{label(d)}</td>
                               <td style={{ ...td, textAlign: 'center' }}>{d.views}</td>
                               <td style={{ ...td, textAlign: 'center' }}>{d.viewers}</td>
                               <td style={{ ...td, whiteSpace: 'nowrap' }}><button style={{ border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12 }} onClick={() => getDashboardViewers(d.dashboard_id).then(setViewers).catch((e) => setError((e as Error).message))}>кто смотрел</button></td>
@@ -409,7 +448,8 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
                   )}
                 </div>
               </div>
-            )}
+              )
+            })()}
           </div>
         )}
       </Section>

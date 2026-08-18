@@ -248,8 +248,19 @@ async def attendance(conn, org_id, from_date=None, to_date=None) -> dict:
 async def popularity(conn, org_id, from_date=None, to_date=None) -> dict:
     """Популярность дашбордов по просмотрам (audit_log action=view) за период.
 
-    Учитывает только существующие дашборды (join). Просмотры троттлятся на
-    уровне логирования, поэтому счётчик ≈ число сессий просмотра.
+    🔴 Итог сверху и таблица снизу считались по РАЗНЫМ множествам: итог — по
+    всем записям просмотра, таблица — только по существующим дашбордам (join).
+    У заказчика это дало «38 просмотров» над таблицей, где строки давали 5:
+    24 отчёта успели удалить, а их просмотры остались в журнале. Экран, где
+    два числа про разное и нигде не сказано, про что каждое, отвечает на
+    вопрос «сколько смотрели» неверно дважды.
+
+    Поэтому считаем ОБА множества явно и отдаём их порознь: `totals` — всё,
+    что было (журнал переживает удаление, и это правильно), `existing` — по
+    живым отчётам, `deleted` — разница с числом самих отчётов. Тогда сумма
+    строк таблицы сходится с `existing`, а расхождение с `totals` объяснено.
+
+    Просмотры троттлятся на уровне логирования, поэтому счётчик ≈ число сессий.
     """
     p = period_bounds(from_date, to_date)
     args = (org_id, p["start"], p["end"])
@@ -257,20 +268,41 @@ async def popularity(conn, org_id, from_date=None, to_date=None) -> dict:
         "select count(*) as views, count(distinct actor_user_id) as viewers "
         "from audit_log where organization_id=$1 and action='view' "
         "and created_at::date >= $2 and created_at::date <= $3", *args)
+    live = await conn.fetchrow(
+        "select count(*) as views, count(distinct a.actor_user_id) as viewers "
+        "from audit_log a join dashboards d on d.id=a.entity_id "
+        "where a.organization_id=$1 and a.action='view' "
+        "and a.created_at::date >= $2 and a.created_at::date <= $3", *args)
+    gone = await conn.fetchrow(
+        "select count(*) as views, count(distinct a.entity_id) as dashboards "
+        "from audit_log a left join dashboards d on d.id=a.entity_id "
+        "where a.organization_id=$1 and a.action='view' and d.id is null "
+        "and a.created_at::date >= $2 and a.created_at::date <= $3", *args)
     top = await conn.fetch(
-        "select d.id, d.name, count(*) as views, count(distinct a.actor_user_id) as viewers, "
-        "max(a.created_at) as last_view "
+        # created_at — чтобы различить ОДНОИМЁННЫЕ отчёты: мастер сборки не
+        # запрещает повтор имени, и в отчёте три «Дашборд «ИТ»» неразличимы.
+        "select d.id, d.name, d.created_at, count(*) as views, "
+        "count(distinct a.actor_user_id) as viewers, max(a.created_at) as last_view "
         "from audit_log a join dashboards d on d.id=a.entity_id "
         "where a.organization_id=$1 and a.action='view' "
         "and a.created_at::date >= $2 and a.created_at::date <= $3 "
-        "group by d.id, d.name order by count(*) desc, max(a.created_at) desc limit 10", *args)
+        "group by d.id, d.name, d.created_at order by count(*) desc, max(a.created_at) desc limit 10", *args)
+    shown = sum(r["views"] for r in top)
     return {
         "period": {"from": p["start"].isoformat(), "to": p["end"].isoformat(),
                    "days": p["days"], "label": p["label"], "clamped": p["clamped"]},
         "days": p["days"],
         "totals": {"views": totals["views"], "viewers": totals["viewers"]},
+        # Просмотры живых отчётов: с этим числом сходится сумма строк таблицы
+        # (если она не обрезана потолком в 10 — тогда см. `others_views`).
+        "existing": {"views": live["views"], "viewers": live["viewers"]},
+        # Отчёты удалены, а просмотры остались: журнал не переписывают задним
+        # числом, иначе он перестал бы отвечать на вопрос «что было».
+        "deleted": {"views": gone["views"], "dashboards": gone["dashboards"]},
+        "others_views": max(0, live["views"] - shown),
         "top_dashboards": [{
             "dashboard_id": str(r["id"]), "name": r["name"], "views": r["views"], "viewers": r["viewers"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
             "last_view": r["last_view"].isoformat() if r["last_view"] else None,
         } for r in top],
     }
@@ -385,9 +417,17 @@ async def export_report(conn, org_id, user: dict, kind: str,
         return ("Посещаемость", ["Дата", "Входов", "Неудачных попыток"], rows)
     if kind == "popularity":
         rep = await popularity(conn, org_id, from_date, to_date)
-        rows = [[d["name"], d["views"], d["viewers"], _ru_dt(d["last_view"])]
+        # Дата создания различает ОДНОИМЁННЫЕ отчёты (имя не уникально), а
+        # строка про удалённые объясняет разницу с итогом — без неё файл
+        # повторял бы ту же загадку «38 сверху, 5 в таблице», что и экран.
+        rows = [[d["name"], _ru_dt(d["created_at"]), d["views"], d["viewers"], _ru_dt(d["last_view"])]
                 for d in rep["top_dashboards"]]
-        return ("Популярность", ["Дашборд", "Просмотров", "Зрителей", "Последний просмотр"], rows)
+        if rep["others_views"]:
+            rows.append(["Прочие отчёты (вне первой десятки)", "", rep["others_views"], "", ""])
+        if rep["deleted"]["views"]:
+            rows.append([f"Удалённые отчёты ({rep['deleted']['dashboards']})", "",
+                         rep["deleted"]["views"], "", ""])
+        return ("Популярность", ["Дашборд", "Создан", "Просмотров", "Зрителей", "Последний просмотр"], rows)
     if kind == "moderation":
         rep = await moderation_stats(conn, org_id, from_date, to_date)
         t = rep["totals"]

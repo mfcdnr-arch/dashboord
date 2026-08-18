@@ -93,7 +93,10 @@ function withDetachedTooltip(option: EChartsOption): EChartsOption {
 
 // Тонкая обёртка над ECharts: инициализирует график в div, применяет option,
 // подстраивает размер под контейнер, освобождает ресурсы при размонтировании.
-export default function EChart({ option, height = 200, onPick }: { option: EChartsOption; height?: number; onPick?: (name: string) => void }) {
+// onPick получает и ИМЯ, и порядковый номер точки: по имени нельзя надёжно
+// найти строку, если имена повторяются (три отчёта «Дашборд «ИТ»» — реальный
+// случай на боевом), и клик открывал бы всегда первый из них.
+export default function EChart({ option, height = 200, onPick }: { option: EChartsOption; height?: number; onPick?: (name: string, index: number) => void }) {
   const ref = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null)
   const optionRef = useRef(option)
@@ -105,7 +108,7 @@ export default function EChart({ option, height = 200, onPick }: { option: EChar
     if (!ref.current) return
     const chart = echarts.init(ref.current, undefined, { renderer: 'svg' })
     chartRef.current = chart
-    chart.on('click', (p: any) => { if (p?.name) pickRef.current?.(p.name) })
+    chart.on('click', (p: any) => { if (p?.name) pickRef.current?.(p.name, p.dataIndex ?? 0) })
     const ro = new ResizeObserver(() => chart.resize())
     ro.observe(ref.current)
     // Перерисовать при смене темы (data-theme на <html>) — обновить цвета текста.

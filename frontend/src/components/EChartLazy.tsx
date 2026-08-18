@@ -6,7 +6,7 @@ import type { EChartsOption } from 'echarts'
 // иначе статический импорт затянет echarts в основной бандл.
 const EChartInner = lazy(() => import('./EChart'))
 
-export default function EChartLazy(props: { option: EChartsOption; height?: number; onPick?: (name: string) => void }) {
+export default function EChartLazy(props: { option: EChartsOption; height?: number; onPick?: (name: string, index: number) => void }) {
   return (
     <Suspense fallback={<div style={{ height: props.height ?? 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9aa4b2', fontSize: 13 }}>Загрузка графика…</div>}>
       <EChartInner {...props} />
