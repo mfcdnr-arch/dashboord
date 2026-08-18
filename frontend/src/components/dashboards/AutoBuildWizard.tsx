@@ -65,6 +65,10 @@ export default function AutoBuildWizard(
   const [alerts, setAlerts] = useState(true)
   const [restored, setRestored] = useState(false)
   const [target, setTarget] = useState('')          // '' — новый дашборд
+  // Имя нового дашборда. Раньше мастер молча называл его по объекту, поэтому
+  // вторая сборка того же объекта давала второй «Дашборд «ИТ»» — в списке и в
+  // отчётах они неразличимы. Имя предлагается, но остаётся за человеком.
+  const [name, setName] = useState(`Дашборд «${objectName}»`)
   // Сборка по КОНКРЕТНОМУ отчёту: объект → папка → файл. Пусто — весь объект,
   // как раньше. Выбранный файл закрепляет дашборд за своей отчётной датой:
   // человек указал отчёт за 22.07, значит и через неделю там должно быть 22.07.
@@ -183,6 +187,20 @@ export default function AutoBuildWizard(
   // Текст переспроса про одноимённый дашборд (null — переспроса нет).
   const [dup, setDup] = useState<string | null>(null)
 
+  // Занято ли имя. Сверяем по списку, который мастер и так загрузил для
+  // «Пересобрать», — отдельный запрос не нужен. Сравнение как на сервере:
+  // без учёта регистра и внешних пробелов.
+  const norm = (x: string) => x.trim().toLowerCase()
+  const nameTaken = dashboards.some((d) => norm(d.name) === norm(name)) && !target
+  // Подсказка «сделать уникальным»: дата последнего отчёта отличает сборку
+  // лучше, чем «(2)» — по ней видно, на каких данных дашборд собран.
+  const uniqueName = (() => {
+    const dates = (plan?.datasets || []).flatMap((d) => d.period_dates || [])
+    const last = dates.sort().slice(-1)[0]
+    const suffix = last ? ` — ${ruDate(last)}` : ` — ${new Date().toLocaleDateString('ru-RU')}`
+    return `${name.trim()}${suffix}`
+  })()
+
   async function build(force = false) {
     if (!sel) return
     setBusy(true)
@@ -190,7 +208,7 @@ export default function AutoBuildWizard(
       const r = await autoBuildDashboard(objectId, {
         documentId: docId || undefined,
         lockPeriod,
-        name: `Дашборд «${objectName}»`, selection: sel, dashboardId: target || undefined,
+        name: name.trim() || `Дашборд «${objectName}»`, selection: sel, dashboardId: target || undefined,
         metrics: [...metricPicks], alerts, force,
       })
       onDone(r.dashboard_id)
@@ -449,9 +467,31 @@ export default function AutoBuildWizard(
                 <option value="">Новый дашборд</option>
                 {dashboards.map((d) => <option key={d.id} value={d.id}>Пересобрать «{d.name}»</option>)}
               </select>
-              {target && (
+              {target ? (
                 <div style={{ ...muted, fontSize: 12.5, marginTop: 6 }}>
                   Страницы и виджеты будут заменены. Права доступа, обсуждение и история версий останутся.
+                  Название дашборда не меняется.
+                </div>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Название</div>
+                  <input style={input} value={name} onChange={(e) => setName(e.target.value)}
+                    placeholder={`Дашборд «${objectName}»`} />
+                  {nameTaken ? (
+                    // Предупреждаем ДО нажатия: отказ после сборки человек уже
+                    // воспримет как сбой, а тут он просто правит поле.
+                    <div style={{ fontSize: 12.5, color: 'var(--accent)', marginTop: 5 }}>
+                      Дашборд с таким названием уже есть. Измените название — иначе в списке будут
+                      два неразличимых, — или выберите его выше в «Пересобрать».{' '}
+                      <button type="button" style={linkBtn} onClick={() => setName(uniqueName)}>
+                        сделать уникальным
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ ...muted, fontSize: 12, marginTop: 5 }}>
+                      Так дашборд будет называться в списке и в отчётах.
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -21,6 +21,9 @@ export default function PlanFactDialog(
   // а вопрос, и у него есть кнопка ответа.
   const [dup, setDup] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Имя задаётся здесь по той же причине, что и в мастере сборки: иначе
+  // второе нажатие даёт второй «План/факт», неразличимый в списке.
+  const [name, setName] = useState('План/факт')
 
   useEffect(() => {
     planFactPreview().then(setPlan).catch((e) => setErr((e as Error).message))
@@ -35,7 +38,7 @@ export default function PlanFactDialog(
   const build = async (force = false) => {
     setBusy(true); setErr(null); setDup(null)
     try {
-      const r = await buildPlanFact({ force })
+      const r = await buildPlanFact({ name: name.trim() || 'План/факт', force })
       onClose()
       onBuilt?.(r.dashboard_id)
     } catch (e) {
@@ -113,6 +116,22 @@ export default function PlanFactDialog(
             Пар «План + Факт» не нашлось. Такая пара собирается из двух граф одной формы:
             одна с ролью «План», вторая — «Факт» в основном разрезе (нарастающим итогом).
             Проверьте, что в загруженных формах есть графы плана.
+          </div>
+        )}
+
+        {!nothing && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Название дашборда</div>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="План/факт"
+              style={{
+                width: '100%', boxSizing: 'border-box', padding: '7px 10px', fontSize: 13,
+                border: '1px solid var(--border-strong)', borderRadius: 8,
+                background: 'var(--surface)', color: 'var(--text)',
+              }} />
+            <div style={{ ...muted, fontSize: 12, marginTop: 5 }}>
+              Так дашборд будет называться в списке и в отчётах. Если такой уже есть,
+              система переспросит.
+            </div>
           </div>
         )}
 
