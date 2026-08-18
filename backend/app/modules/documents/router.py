@@ -368,7 +368,12 @@ async def list_documents(
             # прямо в списке папки и заходит только туда, где нужен он сам.
             "j.status as job_status, j.template_match, j.template_note, "
             "(select count(*) from dataset_releases r "
-            "   where r.source_document_version_id = v.id and r.status <> 'superseded') as releases "
+            "   where r.source_document_version_id = v.id and r.status <> 'superseded') as releases, "
+            # Выпущено человеком или автоматом — разные состояния для того, кто
+            # смотрит папку: во втором случае он кнопку не нажимал и должен
+            # понять, откуда взялись данные.
+            "(select bool_or(r.auto_released) from dataset_releases r "
+            "   where r.source_document_version_id = v.id and r.status <> 'superseded') as auto_released "
             "from documents d "
             "left join lateral (select id, file_size_bytes from document_versions v "
             "  where v.document_id=d.id order by version_no desc limit 1) v on true "
@@ -395,7 +400,13 @@ def _with_pipeline(row: dict) -> dict:
     """
     job, match = row.get("job_status"), row.get("template_match")
     if row.get("releases"):
-        state, hint = "released", "Данные выпущены и уже считаются на дашбордах."
+        if row.get("auto_released"):
+            state = "released_auto"
+            hint = ("Данные выпущены автоматически: форма совпала с прошлым отчётом и замечаний "
+                    "к ней не было. Они уже считаются на дашбордах — проверьте цифры, и если "
+                    "что-то не так, откройте файл и нажмите «Отменить выпуск».")
+        else:
+            state, hint = "released", "Данные выпущены и уже считаются на дашбордах."
     elif job in (None, "queued", "running"):
         state = "parsing" if job else "new"
         hint = "Идёт распознавание…" if job else "Файл ещё не распознавался."

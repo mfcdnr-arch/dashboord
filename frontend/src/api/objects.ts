@@ -13,8 +13,12 @@ export interface Folder {
   name: string
   parent_folder_id: string | null
   /** Готовить ли выпуск автоматически: распознавать новый файл и подставлять
-   *  разметку прошлого выпуска. Сам выпуск всё равно подтверждает человек. */
+   *  разметку прошлого выпуска. */
   auto_prepare?: boolean
+  /** Выпускать ли данные без участия человека, когда форма в точности повторяет
+   *  прошлый отчёт. Отдельное решение от подготовки: «готовь без меня» не
+   *  означает «выпускай без меня». */
+  auto_release?: boolean
   created_at: string
 }
 export interface Doc {
@@ -69,7 +73,7 @@ export async function deleteObject(objectId: string): Promise<void> {
 
 export async function updateFolder(
   objectId: string, folderId: string,
-  patch: string | { name?: string; auto_prepare?: boolean },
+  patch: string | { name?: string; auto_prepare?: boolean; auto_release?: boolean },
 ): Promise<Folder> {
   const body = typeof patch === 'string' ? { name: patch } : patch
   const res = await fetch(`/objects/${objectId}/folders/${folderId}`, {

@@ -652,7 +652,8 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
                         reporting_period_start, reporting_period_end,
                         fields: List[dict], supersede: bool, user: dict,
                         layout: Optional[dict] = None,
-                        cells: Optional[List[dict]] = None) -> dict:
+                        cells: Optional[List[dict]] = None,
+                        auto: bool = False) -> dict:
     """Создаёт dataset_release, поля и материализует значения. Транзакция — снаружи.
 
     `layout` — что именно пользователь выделил в конструкторе разметки:
@@ -700,15 +701,18 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
 
     # конфликт по (организация, код, период) — только среди АКТИВНЫХ выпусков
     existing = await conn.fetchrow(
-        "select id, name, status, created_at from dataset_releases "
+        "select id, name, status, created_at, auto_released from dataset_releases "
         "where organization_id=$1 and code=$2 and reporting_period_start is not distinct from $3 "
         "and status <> 'superseded'",
         org_id, code, reporting_period_start,
     )
     if existing is not None and not supersede:
+        # `auto` в отказе — чтобы человек понял, ПОЧЕМУ период занят, хотя он
+        # ничего не выпускал: данные выпустил автомат по совпадению формы.
         raise ReleaseConflict({
             "id": str(existing["id"]), "name": existing["name"],
             "status": existing["status"], "created_at": existing["created_at"].isoformat(),
+            "auto": bool(existing["auto_released"]),
         })
 
     # supersede: помечаем прежний выпуск ДО вставки нового (частичный unique-индекс
@@ -731,13 +735,16 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         )
 
     # выпуск (status=validated: данные подтверждены; публикация — в модерации)
+    # `auto_released` отвечает на вопрос «кто нажал кнопку»: автором остаётся
+    # живой человек (тот, кто загрузил файл), но выпуск, сделанный автоматом по
+    # его загрузке, не должен выглядеть как его собственное решение.
     release = await conn.fetchrow(
         "insert into dataset_releases(organization_id, object_id, code, name, status, "
         "source_document_version_id, reporting_period_start, reporting_period_end, "
-        "validated_by, validated_at, created_by) "
-        "values($1,$2,$3,$4,'validated',$5,$6,$7,$8,now(),$8) returning id",
+        "validated_by, validated_at, created_by, auto_released) "
+        "values($1,$2,$3,$4,'validated',$5,$6,$7,$8,now(),$8,$9) returning id",
         org_id, object_id, code, name, ctx["document_version_id"],
-        reporting_period_start, reporting_period_end, user["id"],
+        reporting_period_start, reporting_period_end, user["id"], bool(auto),
     )
     release_id = release["id"]
 
@@ -859,6 +866,7 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
     return {
         "release_id": str(release_id),
         "status": "validated",
+        "auto": bool(auto),
         "values_count": n_values,
         "rows": n_rows,
         "superseded_release_id": superseded_id,

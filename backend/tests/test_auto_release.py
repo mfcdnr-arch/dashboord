@@ -24,8 +24,8 @@ async def test_auto_release_skips_when_no_template_match(monkeypatch):
             if "extraction_jobs ej" in sql:
                 return {"id": "j", "template_match": "structure_differs",
                         "document_version_id": "v", "reporting_period_start": "2026-08-12",
-                        "original_filename": "f.xlsx", "auto_prepare": True,
-                        "organization_id": "o"}
+                        "original_filename": "f.xlsx", "auto_prepare": True, "auto_release": True,
+                        "folder_name": "Папка", "organization_id": "o"}
             return None
         async def fetch(self, *a, **k):
             return []
@@ -48,7 +48,8 @@ async def test_auto_release_skips_when_folder_auto_prepare_off(monkeypatch):
             if "extraction_jobs ej" in sql:
                 return {"id": "j", "template_match": "exact", "document_version_id": "v",
                         "reporting_period_start": "2026-08-12", "original_filename": "f.xlsx",
-                        "auto_prepare": False, "organization_id": "o"}
+                        "auto_prepare": False, "auto_release": True,
+                        "folder_name": "Папка", "organization_id": "o"}
             return None
         async def fetch(self, *a, **k):
             return []
@@ -70,7 +71,36 @@ async def test_auto_release_skips_without_reporting_date(monkeypatch):
             if "extraction_jobs ej" in sql:
                 return {"id": "j", "template_match": "exact", "document_version_id": "v",
                         "reporting_period_start": None, "original_filename": "f.xlsx",
-                        "auto_prepare": True, "organization_id": "o"}
+                        "auto_prepare": True, "auto_release": True,
+                        "folder_name": "Папка", "organization_id": "o"}
+            return None
+        async def fetch(self, *a, **k):
+            return []
+        async def fetchval(self, *a, **k):
+            return None
+
+    from app.modules.ingestion import mapping
+    monkeypatch.setattr(mapping, "build_release", lambda *a, **k: calls.append(k))
+    await ing._auto_release(FakeConn(), "j")
+    assert not calls
+
+
+async def test_auto_release_skips_when_folder_refused_it(monkeypatch):
+    """Папка сняла авто-выпуск, оставив автоподготовку.
+
+    Это разные решения: «готовь без меня» не означает «выпускай без меня».
+    Проверяем именно пару (подготовка включена, выпуск снят) — иначе тест
+    прошёл бы и в том случае, если бы код по-прежнему смотрел на один тумблер.
+    """
+    calls = []
+
+    class FakeConn:
+        async def fetchrow(self, sql, *args):
+            if "extraction_jobs ej" in sql:
+                return {"id": "j", "template_match": "exact", "document_version_id": "v",
+                        "reporting_period_start": "2026-08-12", "original_filename": "f.xlsx",
+                        "auto_prepare": True, "auto_release": False,
+                        "folder_name": "Папка", "organization_id": "o"}
             return None
         async def fetch(self, *a, **k):
             return []

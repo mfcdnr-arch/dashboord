@@ -220,6 +220,18 @@ export default function ObjectsPage(
     } catch (e) { fail(e) }
   }
 
+  /** Выпускать ли данные без человека, когда форма в точности повторяет прошлый
+   *  отчёт. Отдельно от подготовки: папка может готовить сама, но оставлять
+   *  последнее слово за модератором. */
+  async function toggleAutoRelease(f: Folder) {
+    if (!obj) return
+    setError(null)
+    try {
+      await updateFolder(obj.id, f.id, { auto_release: f.auto_release === false })
+      setFolders(await listFolders(obj.id))
+    } catch (e) { fail(e) }
+  }
+
   async function saveFolder(vals: Record<string, string>) {
     if (!obj || !editFolder) return
     setBusy(true)
@@ -410,6 +422,7 @@ export default function ObjectsPage(
               sub: '',
               onClick: () => openFolder(f),
               badge: canManage ? (
+                <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); toggleAutoPrepare(f) }}
@@ -431,6 +444,30 @@ export default function ObjectsPage(
                   <span>{f.auto_prepare === false ? '☐' : '☑'}</span>
                   Автоподготовка: {f.auto_prepare === false ? 'выключена' : 'включена'}
                 </button>
+                {/* Второй тумблер показывается только при включённой подготовке:
+                    без распознавания выпускать нечего, и предлагать выбор,
+                    который ни на что не влияет, — обман. */}
+                {f.auto_prepare !== false && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleAutoRelease(f) }}
+                    title={f.auto_release === false
+                      ? 'Сейчас выключено: файл доходит до «данные подготовлены», выпуск подтверждает человек. Нажмите, чтобы выпускать автоматически'
+                      : 'Сейчас включено: если форма в точности повторяет прошлый отчёт и замечаний нет, данные выпускаются сами. Всё, что отличается, по-прежнему ждёт человека. Нажмите, чтобы выключить'}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      fontSize: 11.5, padding: '3px 10px', borderRadius: 10, cursor: 'pointer',
+                      border: '1px solid ' + (f.auto_release === false ? 'var(--border-strong)' : 'var(--accent)'),
+                      background: f.auto_release === false ? 'var(--surface)' : 'var(--accent-weak-bg)',
+                      color: f.auto_release === false ? 'var(--text-muted)' : 'var(--accent)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <span>{f.auto_release === false ? '☐' : '☑'}</span>
+                    Авто-выпуск: {f.auto_release === false ? 'выключен' : 'включён'}
+                  </button>
+                )}
+                </span>
               ) : undefined,
               actions: canManage ? (
                 <>
@@ -572,6 +609,9 @@ function PipelineBadge({ state, hint }: { state?: string; hint?: string }) {
     attention: { t: '⚠ требует внимания', bg: 'var(--warn-bg)', c: 'var(--warn)' },
     needs_markup: { t: 'нужна разметка', bg: 'var(--accent-weak-bg)', c: 'var(--accent)' },
     released: { t: 'данные выпущены', bg: 'var(--surface-3)', c: 'var(--text-muted)' },
+    // Выпущено автоматом — отдельное состояние, а не оттенок «выпущено»:
+    // человек этой кнопки не нажимал, и он должен понять, откуда данные.
+    released_auto: { t: '⚙ выпущено автоматически', bg: 'var(--accent-weak-bg)', c: 'var(--accent)' },
   }
   const s = map[state || ''] || map.new
   return (

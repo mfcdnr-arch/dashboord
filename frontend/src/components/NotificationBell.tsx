@@ -33,6 +33,11 @@ function message(n: NotificationItem): string {
   if (n.event_type === 'system.degraded') return `Автопочинка не устранила все проблемы (статус: ${p.status_after ?? 'degraded'}). Посмотрите раздел «Отчёты» → «Здоровье системы».`
   if (n.event_type === 'appeal.created' || n.event_type === 'appeal.message') return `${p.author ?? ''}: ${p.snippet ?? ''}`
   if (n.event_type === 'appeal.replied') return `${p.author ?? 'Администратор'} ответил на ваше обращение: ${p.snippet ?? ''}`
+  if (n.event_type === 'data.auto_released') {
+    return `Данные из «${p.document ?? 'файла'}» за ${ruDate(p.period)} выпущены автоматически`
+      + `${p.folder ? ` (папка «${p.folder}»)` : ''}: форма совпала с прошлым отчётом, замечаний нет. `
+      + `Значений: ${p.values ?? '—'}. Уже считаются на дашбордах.`
+  }
   if (n.event_type === 'appeal.seen') return `${p.author ?? 'Администратор'} открыл ваше обращение${p.subject ? ` «${p.subject}»` : ''} — ответ придёт следующим уведомлением.`
   return n.label
 }
@@ -56,6 +61,12 @@ function targetOf(n: NotificationItem, staff: boolean): NotifyTarget | null {
   }
   if (n.event_type === 'data.stale' || n.event_type === 'data.missing') {
     return { section: 'objects', objectId: id }
+  }
+  // У выпуска своего экрана нет — ведём к объекту, где лежит файл (id берём из
+  // payload: entity_id здесь — сам выпуск).
+  if (n.event_type === 'data.auto_released') {
+    const oid = (n.payload || {}).object_id as string | undefined
+    return oid ? { section: 'objects', objectId: oid } : { section: 'objects' }
   }
   if (n.event_type === 'data.retention') return { section: 'settings' }
   if (n.event_type === 'system.degraded') return { section: 'reports' }

@@ -322,7 +322,7 @@ async def create_release(job_id: str, body: ReleaseIn, user: dict = Depends(mana
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание извлечения не найдено")
         try:
             async with conn.transaction():
-                return await mapping.build_release(
+                res = await mapping.build_release(
                     conn, job_id=job_id, table_id=body.table_id, code=body.code,
                     name=body.name, reporting_period_start=body.reporting_period_start,
                     reporting_period_end=body.reporting_period_end,
@@ -331,11 +331,32 @@ async def create_release(job_id: str, body: ReleaseIn, user: dict = Depends(mana
                     cells=[c.model_dump() for c in body.cells],
                     supersede=body.supersede, user=user,
                 )
+                # Создание выпуска пишется в журнал наравне с автоматическим:
+                # после него меняются цифры на дашбордах, и вопрос «кто это
+                # сделал» должен иметь ответ независимо от того, нажали кнопку
+                # или сработал автомат.
+                await audit_svc.write_event(
+                    conn, user["organization_id"], user["id"], "create", "dataset_release",
+                    res["release_id"],
+                    new_data={"code": body.code, "period": str(body.reporting_period_start),
+                              "auto": False, "values": res.get("values_count"),
+                              "rows": res.get("rows"),
+                              "superseded": res.get("superseded_release_id")})
+                return res
         except mapping.ReleaseConflict as conflict:
+            # Отказ должен объяснять ПРИЧИНУ и показывать выход. Раньше он
+            # сообщал только факт, и человек, который сам ничего не выпускал,
+            # видел «уже существует» и читал это как поломку.
+            auto = bool(conflict.existing.get("auto"))
+            msg = ("Данные за этот период уже выпущены автоматически — форма совпала с прошлым "
+                   "отчётом, и замечаний к ней не было. Проверьте цифры; если нужна ваша "
+                   "разметка — отметьте «Заместить», прежний выпуск будет снят с использования."
+                   if auto else
+                   "Выпуск за этот период уже существует. Чтобы заменить его своей разметкой, "
+                   "отметьте «Заместить» — прежний выпуск будет снят с использования.")
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
-                detail={"message": "Выпуск за этот период уже существует",
-                        "existing": conflict.existing},
+                detail={"message": msg, "existing": conflict.existing},
             )
         except ValueError as err:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err))
@@ -543,6 +564,7 @@ async def list_version_releases(version_id: str, user: dict = Depends(get_curren
     async with db.get_pool().acquire() as conn:
         rows = await conn.fetch(
             "select r.id, r.code, r.name, r.status, r.reporting_period_start, r.created_at, "
+            "  r.auto_released, "
             "  (select count(*) from dataset_values dv where dv.dataset_release_id=r.id) as values_count "
             "from dataset_releases r "
             "where r.source_document_version_id=$1::uuid and r.organization_id=$2 "

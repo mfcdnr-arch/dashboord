@@ -149,6 +149,9 @@ async def _auto_release(conn, job_id: str) -> None:
 
       • у папки включена автоподготовка (тот же тумблер, что запускает
         распознавание: папка «на хранение» не должна попадать в дашборды);
+      • и отдельно — не снят тумблер авто-выпуска: «готовь без меня» и
+        «выпускай без меня» это разные решения, и второе папка может
+        отменить, не теряя первого;
       • отпечаток структуры совпал с прошлым выпуском (`match == exact`) —
         изменившийся бланк по-прежнему ждёт человека, потому что чужая
         разметка дала бы неверные цифры молча;
@@ -170,13 +173,18 @@ async def _auto_release(conn, job_id: str) -> None:
         job = await conn.fetchrow(
             "select ej.id, ej.template_match, ej.document_version_id, "
             "       d.reporting_period_start, d.original_filename, f.auto_prepare, "
-            "       d.organization_id "
+            "       f.auto_release, f.name as folder_name, d.organization_id "
             "from extraction_jobs ej "
             "join document_versions dv on dv.id = ej.document_version_id "
             "join documents d on d.id = dv.document_id "
             "join folders f on f.id = d.folder_id "
             "where ej.id = $1::uuid", job_id)
         if job is None or not job["auto_prepare"] or job["template_match"] != "exact":
+            return
+        if job["auto_release"] is False:
+            # Автоподготовка и авто-выпуск — РАЗНЫЕ решения: «готовь без меня»
+            # не означает «выпускай без меня». Папка вправе отказаться от
+            # второго, оставив первое.
             return
         if job["reporting_period_start"] is None:
             return
@@ -222,16 +230,55 @@ async def _auto_release(conn, job_id: str) -> None:
         # живого человека, а не «система». Колонка называется uploaded_by.
         author = await conn.fetchval(
             "select uploaded_by from document_versions where id=$1", job["document_version_id"])
-        await mapping.build_release(
+        res = await mapping.build_release(
             conn, job_id=str(job_id), table_id=str(tpl["table_id"]), code=code,
             name=job["original_filename"] or code,
             reporting_period_start=period, reporting_period_end=None,
             fields=fields, layout=tpl.get("layout"), cells=tpl.get("cells") or [],
-            supersede=False, user={"id": author},
+            supersede=False, user={"id": author}, auto=True,
         )
+        await _announce_auto_release(conn, job, code, period, res, author, ctx["object_id"])
         log.info("Авто-выпуск: задание %s, набор %s, отчёт за %s", job_id, code, period)
     except Exception as exc:  # noqa: BLE001 — выпуск не важнее самого разбора
         log.warning("Авто-выпуск не выполнен для задания %s: %s", job_id, exc)
+
+
+async def _announce_auto_release(conn, job, code: str, period, res: dict, author, object_id) -> None:
+    """След авто-выпуска: запись в журнал действий и одно уведомление.
+
+    **Создание выпуска до сих пор не попадало в аудит вообще** — ни ручное, ни
+    автоматическое (там были только отмена, возврат и удаление). Это самая
+    ответственная операция конвейера: после неё меняются цифры на дашбордах,
+    и на вопрос «откуда взялись эти данные» журнал не отвечал. Пишем оба
+    случая, признак `auto` различает их.
+
+    Уведомление — ОДНО на выпуск и только при автоматическом: человек, нажавший
+    кнопку сам, в сообщении о своём же действии не нуждается. Получатели —
+    загрузивший файл (он узнает, что делать больше ничего не нужно) и
+    управляющие: данные ушли на дашборды без их участия, и они вправе это
+    увидеть в тот же день, а не через неделю.
+    """
+    from ..audit import service as audit_svc
+    from ..notifications import service as notif_svc
+
+    # `object_id` — чтобы клик по уведомлению вёл к объекту, где лежит файл:
+    # у выпуска своего экрана нет, а уведомление без перехода — тупик.
+    payload = {
+        "code": code, "period": str(period), "auto": True,
+        "values": res.get("values_count"), "rows": res.get("rows"),
+        "document": job["original_filename"], "folder": job["folder_name"],
+        "object_id": str(object_id) if object_id else None,
+    }
+    await audit_svc.write_event(
+        conn, job["organization_id"], author, "create", "dataset_release",
+        res["release_id"], new_data=payload)
+
+    recipients = set(await notif_svc.management_user_ids(conn, job["organization_id"]))
+    if author:
+        recipients.add(author)
+    await notif_svc.notify(
+        conn, job["organization_id"], "data.auto_released", "dataset_release",
+        res["release_id"], payload, list(recipients))
 
 
 async def _auto_quality(conn, job, tpl: dict, code: str, period, fields: list) -> list:
@@ -251,7 +298,11 @@ async def _auto_quality(conn, job, tpl: dict, code: str, period, fields: list) -
     merges = [tuple(m) for m in raw_merges]
     lay = {**mapping.DEFAULT_LAYOUT, **(tpl.get("layout") or {})}
     hdr = int((row["header_rows"] if lay.get("header_rows") is None else lay["header_rows"]) or 0)
-    area = mapping.analysis_grid(grid, merges, lay.get("data_rect"), lay.get("orientation"))
+    # Ориентация может лежать в шаблоне явным null (разметка, сохранённая до
+    # появления поля) — берём умолчание, иначе сетка считалась бы «как выйдет».
+    area = mapping.analysis_grid(
+        grid, merges, lay.get("data_rect"),
+        lay.get("orientation") or mapping.DEFAULT_LAYOUT["orientation"])
     rows = mapping.data_rows(area, hdr, lay.get("skip_rows") or [])
     label = next((f["column_index"] for f in fields if f.get("is_row_label")), None)
     return await mapping.quality_warnings(

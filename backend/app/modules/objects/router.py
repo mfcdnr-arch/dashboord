@@ -46,6 +46,7 @@ class FolderPatch(BaseModel):
     # Готовить ли выпуск автоматически: распознавать новый файл и подставлять
     # разметку прошлого выпуска. Сам выпуск всё равно подтверждает человек.
     auto_prepare: Optional[bool] = None
+    auto_release: Optional[bool] = None
 
 
 @router.get("")
@@ -230,7 +231,7 @@ async def list_folders(object_id: str, user: dict = Depends(get_current_user)):
         if not obj:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
         rows = await conn.fetch(
-            "select id, name, parent_folder_id, auto_prepare, created_at from folders "
+            "select id, name, parent_folder_id, auto_prepare, auto_release, created_at from folders "
             "where object_id=$1::uuid order by name",
             object_id,
         )
@@ -272,7 +273,7 @@ async def create_folder(object_id: str, data: FolderIn, user: dict = Depends(man
 async def _folder_of_object(conn, object_id: str, folder_id: str, org_id):
     """Папка запрошенного объекта в организации пользователя либо 404."""
     row = await conn.fetchrow(
-        "select id, name, auto_prepare from folders "
+        "select id, name, auto_prepare, auto_release from folders "
         "where id=$1::uuid and object_id=$2::uuid and organization_id=$3",
         folder_id, object_id, org_id,
     )
@@ -283,7 +284,7 @@ async def _folder_of_object(conn, object_id: str, folder_id: str, org_id):
 
 @router.patch("/{object_id}/folders/{folder_id}")
 async def update_folder(object_id: str, folder_id: str, data: FolderPatch, user: dict = Depends(manage)):
-    """Правка папки: имя и признак автоподготовки выпуска.
+    """Правка папки: имя, автоподготовка и авто-выпуск.
 
     Частичность как у объекта: передаём только то, что меняем, — галочку можно
     переключить, не трогая название.
@@ -302,16 +303,19 @@ async def update_folder(object_id: str, folder_id: str, data: FolderPatch, user:
             params.append(name); sets.append(f"name=${len(params)}")
         if "auto_prepare" in patch:
             params.append(bool(patch["auto_prepare"])); sets.append(f"auto_prepare=${len(params)}")
+        if "auto_release" in patch:
+            params.append(bool(patch["auto_release"])); sets.append(f"auto_release=${len(params)}")
         params.append(folder_id)
         async with conn.transaction():
             row = await conn.fetchrow(
                 f"update folders set {', '.join(sets)} where id=${len(params)}::uuid "
-                "returning id, name, parent_folder_id, auto_prepare, created_at",
+                "returning id, name, parent_folder_id, auto_prepare, auto_release, created_at",
                 *params,
             )
             await write_event(
                 conn, user["organization_id"], user["id"], "update", "folder", folder_id,
-                old_data={"name": old["name"], "auto_prepare": old.get("auto_prepare")},
+                old_data={"name": old["name"], "auto_prepare": old.get("auto_prepare"),
+                          "auto_release": old.get("auto_release")},
                 new_data={k: v for k, v in patch.items()},
             )
     return dict(row)

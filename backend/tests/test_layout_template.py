@@ -20,6 +20,8 @@ from app import db
 from app.modules.documents import storage
 from app.modules.ingestion import mapping, service
 
+from pipeline_helpers import purge_release_traces
+
 
 def _form(rows: list[tuple], extra_col: bool = False) -> bytes:
     """Недельная форма: две строки шапки, «№ п/п», субъект и показатели."""
@@ -56,6 +58,9 @@ async def obj(client, admin_headers):
             "delete from dataset_release_fields where dataset_release_id in "
             "(select id from dataset_releases where object_id=$1::uuid)", oid)
         await conn.execute("delete from object_layout_templates where object_id=$1::uuid", oid)
+        # Вторая неделя здесь совпадает с первой, поэтому срабатывает авто-выпуск
+        # и оставляет уведомление и запись в журнале — их каскад не заберёт.
+        await purge_release_traces(conn, oid)
         await conn.execute("delete from dataset_releases where object_id=$1::uuid", oid)
         await conn.execute("delete from canonical_fields where object_id=$1::uuid", oid)
         await conn.execute(

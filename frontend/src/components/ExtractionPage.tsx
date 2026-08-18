@@ -877,15 +877,30 @@ function ResultPanel({ result, onBack }: { result: ReleaseResult; onBack: () => 
   )
 }
 
+/**
+ * Период занят. Окно объясняет ПОЧЕМУ, а не только факт.
+ *
+ * С появлением авто-выпуска человек может увидеть его, ничего перед этим не
+ * выпуская: файл, в точности повторяющий прошлый отчёт, выпускается сам. Без
+ * объяснения это читается как поломка — «я нажал, а система говорит, что уже
+ * есть». Выход прежний и он же единственно правильный: заместить своей
+ * разметкой, прежний выпуск уйдёт в историю.
+ */
 function ConflictDialog({ conflict, busy, onSupersede, onCancel }: {
-  conflict: { name: string; created_at: string }; busy: boolean
+  conflict: { name: string; created_at: string; auto?: boolean }; busy: boolean
   onSupersede: () => void; onCancel: () => void
 }) {
   return (
     <div style={overlay} onClick={onCancel}>
       <div style={dialog} onClick={(e) => e.stopPropagation()}>
-        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>Выпуск за этот период уже существует</div>
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>
+          {conflict.auto ? 'Данные за этот период уже выпущены автоматически' : 'Выпуск за этот период уже существует'}
+        </div>
         <div style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: 16 }}>
+          {conflict.auto && (
+            <>Форма в точности совпала с прошлым отчётом, и замечаний к данным не было —
+            система выпустила их сама, поэтому период занят.<br /></>
+          )}
           Активный выпуск: «{conflict.name}» от {new Date(conflict.created_at).toLocaleString('ru-RU')}.<br />
           Заместить его новыми данными? Прежний сохранится в истории как замещённый.
         </div>
@@ -1012,6 +1027,16 @@ function ReleasesPanel(
               background: off ? 'var(--danger-bg)' : 'var(--success-bg)',
               color: off ? 'var(--danger)' : 'var(--success)',
             }}>{off ? 'снят с использования' : 'в работе'}</span>
+            {/* Кто выпустил. Сказано ровно там, где стоит кнопка отмены: человек,
+                который кнопку «Выпустить» не нажимал, узнаёт и откуда данные, и
+                что с ними делать, если цифры не те. */}
+            {r.auto_released && (
+              <span title="Форма в точности совпала с прошлым отчётом, замечаний к данным не было — система выпустила их сама. Если цифры не те, нажмите «Отменить выпуск»."
+                style={{
+                  fontSize: 11, padding: '1px 8px', borderRadius: 8,
+                  background: 'var(--accent-weak-bg)', color: 'var(--accent)',
+                }}>⚙ выпущено автоматически</span>
+            )}
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
               {off
                 ? <button style={btnGhostSm} disabled={busy} onClick={() => act(() => restoreRelease(r.id))}>Вернуть в работу</button>

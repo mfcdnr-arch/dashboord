@@ -93,7 +93,7 @@ export interface ReleaseResult {
 }
 export interface ReleaseConflict {
   conflict: true
-  existing: { id: string; name: string; status: string; created_at: string }
+  existing: { id: string; name: string; status: string; created_at: string; auto?: boolean }
 }
 
 export async function startExtraction(versionId: string): Promise<{ job_id: string; status: string }> {
@@ -213,6 +213,8 @@ export type VersionRelease = {
   status: string
   reporting_period_start: string | null
   values_count: number
+  /** Выпущено автоматом (форма совпала с прошлым отчётом), а не нажатием кнопки. */
+  auto_released?: boolean
 }
 
 /** Выпуски, сделанные из этой версии документа. */
