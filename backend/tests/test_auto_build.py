@@ -250,3 +250,50 @@ async def test_rebuild_replaces_content_and_keeps_dashboard(client, admin_header
         if did:
             await purge_dashboard(did)
         await _cleanup_fields(rel)
+
+
+def test_form_title_strips_trailing_report_date():
+    """Заголовок виджета называет ФОРМУ, а не отчётную дату.
+
+    Имя виджета фиксируется в момент сборки и больше не меняется, а данные
+    обновляются — поэтому любая дата в заголовке рано или поздно устаревает.
+    Живая дата у виджета своя: строка «🕓 данные на …» под ним.
+    """
+    from app.modules.dashboards._suggest import form_title
+
+    assert form_title("Показатели MAX 22.07.2026") == "Показатели MAX"
+    assert form_title("Показатели MAX 2026-07-22") == "Показатели MAX"
+    assert form_title("Форма №2 (01.04.2026)") == "Форма №2"
+    assert form_title("Сводка 15.04.26") == "Сводка"
+    # Год внутри имени — часть названия формы, а не отчётная дата.
+    assert form_title("Отчёт за 2026 год") == "Отчёт за 2026 год"
+    assert form_title("Внедрение сервиса МАХ") == "Внедрение сервиса МАХ"
+    # Пустой результат не отдаём: лучше имя с датой, чем виджет без имени.
+    assert form_title("22.07.2026") == "22.07.2026"
+
+
+async def test_dataset_name_taken_from_latest_release(client, admin_headers, seed_dataset):
+    """🔴 Имя набора бралось как max(name) — АЛФАВИТНЫЙ максимум по названиям
+    выпусков. У формы, названной с датой, это давало не последний отчёт:
+    «29.06.2026» «больше» строки «22.07.2026» посимвольно.
+    """
+    from app import db
+    from app.modules.dashboards._suggest import _dataset_display_name
+
+    async with db.acquire() as conn:
+        org = await conn.fetchval(
+            "select organization_id from dataset_releases where code=$1 limit 1", seed_dataset["code"])
+        # Старое имя у ПОЗДНЕГО отчёта, «алфавитно большее» — у раннего.
+        await conn.execute(
+            "update dataset_releases set name='Показатели MAX 22.07.2026' "
+            "where code=$1 and reporting_period_start='2026-02-01'", seed_dataset["code"])
+        await conn.execute(
+            "update dataset_releases set name='Показатели MAX 29.06.2026' "
+            "where code=$1 and reporting_period_start='2026-01-01'", seed_dataset["code"])
+        try:
+            name = await _dataset_display_name(conn, org, seed_dataset["code"])
+        finally:
+            await conn.execute(
+                "update dataset_releases set name='Тест ДС' where code=$1", seed_dataset["code"])
+    # Имя берётся у последнего отчёта, и дата из него убрана.
+    assert name == "Показатели MAX", name

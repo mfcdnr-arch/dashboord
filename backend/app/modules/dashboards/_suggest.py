@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import List, Optional
 
 from ..metrics import resolver as mr
@@ -194,9 +195,7 @@ async def suggest_widgets(conn, org_id, dataset_code: str) -> dict:
     fields = await _dataset_numeric_fields(conn, org_id, dataset_code)
     if not fields:
         raise DashboardError("У датасета нет числовых полей — сначала распознайте документ")
-    dsname = await conn.fetchval(
-        "select max(name) from dataset_releases where organization_id=$1 and code=$2 and status<>'superseded'",
-        org_id, dataset_code) or dataset_code
+    dsname = await _dataset_display_name(conn, org_id, dataset_code)
     periods = await conn.fetchval(
         "select count(distinct reporting_period_start) from dataset_releases "
         "where organization_id=$1 and code=$2 and status<>'superseded'", org_id, dataset_code) or 0
@@ -271,6 +270,43 @@ async def document_release_info(conn, org_id, document_id: str) -> dict:
             "filename": row["original_filename"]}
 
 
+# Дата в конце названия выпуска: «Показатели MAX 22.07.2026», «Форма 2026-07-22».
+_TRAILING_DATE = re.compile(r"[\s,·—-]*\(?\b(\d{2}[.\-/]\d{2}[.\-/]\d{2,4}|\d{4}-\d{2}-\d{2})\b\)?\s*$")
+
+
+def form_title(name: str) -> str:
+    """Название ФОРМЫ для заголовка виджета — без отчётной даты.
+
+    Заголовок виджета фиксируется в момент сборки и больше не меняется, а
+    данные обновляются. Поэтому любая дата в заголовке рано или поздно
+    устаревает: виджет назывался бы «Показатели MAX 29.06.2026», показывая
+    данные за 22.07.2026. Живая и честная дата у виджета уже есть — строка
+    «🕓 данные на …» под ним, она считается при каждом открытии.
+
+    Дату убираем ТОЛЬКО из хвоста: «Отчёт за 2026 год» — это часть имени
+    формы, а не отчётная дата.
+    """
+    cleaned = _TRAILING_DATE.sub("", (name or "").strip()).strip(" ,·—-")
+    return cleaned or (name or "").strip()
+
+
+async def _dataset_display_name(conn, org_id, code: str) -> str:
+    """Как называется набор данных сейчас — по ПОСЛЕДНЕМУ отчёту.
+
+    Раньше здесь стоял `max(name)` — алфавитный максимум по названиям
+    выпусков. У формы, названной с датой, он давал не последний отчёт, а
+    строку, которая «больше» посимвольно: при выпусках до 22.07.2026
+    выигрывало «Показатели MAX 29.06.2026» (сравниваются символы «2», «9»
+    против «2», «2»).
+    """
+    name = await conn.fetchval(
+        "select name from dataset_releases where organization_id=$1 and code=$2 "
+        "and status<>'superseded' "
+        "order by reporting_period_start desc nulls last, created_at desc limit 1",
+        org_id, code)
+    return form_title(name) if name else code
+
+
 async def collect_object_datasets(conn, org_id, object_id: str,
                                   only_code: Optional[str] = None) -> list:
     """Наборы данных объекта с их показателями — основа и плана, и мастера.
@@ -279,7 +315,7 @@ async def collect_object_datasets(conn, org_id, object_id: str,
     конкретному файлу (у файла всегда один код — это его форма).
     """
     rows = await conn.fetch(
-        "select code, max(name) as name, count(distinct reporting_period_start) as periods, "
+        "select code, count(distinct reporting_period_start) as periods, "
         "  count(*) as releases "
         "from dataset_releases where organization_id=$1 and object_id=$2::uuid and status<>'superseded' "
         + ("and code=$3 " if only_code else "")
@@ -296,7 +332,7 @@ async def collect_object_datasets(conn, org_id, object_id: str,
             "and reporting_period_start is not null order by 1 desc limit 60",
             org_id, d["code"])
         out.append({
-            "code": d["code"], "name": d["name"] or d["code"],
+            "code": d["code"], "name": await _dataset_display_name(conn, org_id, d["code"]),
             "periods": d["periods"] or 0, "releases": d["releases"] or 0,
             "fields": fields,
             "period_dates": [r["p"].isoformat() for r in dates],
