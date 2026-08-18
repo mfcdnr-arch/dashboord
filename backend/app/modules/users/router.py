@@ -58,6 +58,8 @@ class UserPatch(BaseModel):
     email: Optional[str] = None
     department_id: Optional[str] = None
     role_ids: Optional[List[str]] = None
+    # Показывать ли раздел «Руководителю» (подборка отчётов для руководства).
+    show_featured: Optional[bool] = None
 
 
 class ActiveIn(BaseModel):
@@ -177,7 +179,8 @@ async def update_user(user_id: str, body: UserPatch, user: dict = Depends(manage
             async with conn.transaction():
                 return await service.update_user(
                     conn, user["organization_id"], user_id, body.last_name, body.first_name,
-                    body.middle_name, body.email, body.department_id, body.role_ids, user)
+                    body.middle_name, body.email, body.department_id, body.role_ids, user,
+                    show_featured=body.show_featured)
         except UsersError as e:
             raise _bad(e)
 

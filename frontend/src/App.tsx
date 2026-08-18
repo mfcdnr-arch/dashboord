@@ -6,6 +6,8 @@ import ObjectsPage from './components/ObjectsPage'
 import MetricsPage from './components/MetricsPage'
 import DashboardsPage from './components/DashboardsPage'
 import HomePage from './components/HomePage'
+import InstructionsPage from './components/InstructionsPage'
+import UserHomePage from './components/UserHomePage'
 import UsersPage from './components/UsersPage'
 import ReportsPage from './components/ReportsPage'
 import AuditPage from './components/AuditPage'
@@ -88,12 +90,17 @@ function Centered({ children }: { children: React.ReactNode }) {
 // и комментирует их, а кнопки создания всё равно упирались бы в «Недостаточно прав».
 const NAV = [
   { key: 'home', label: 'Главная', ready: true, staffOnly: true },
+  // Своя главная для сотрудника: объявления, его отчёты по объектам, что нового
+  // в данных и справка о системе. Админская «Главная» — про наполнение системы.
+  { key: 'portal', label: 'Главная', ready: true, userOnly: true },
   { key: 'objects', label: 'Объекты', ready: true, staffOnly: true },
   { key: 'metrics', label: 'Метрики', ready: true, staffOnly: true },
-  // Раздел показываем, только когда в подборке действительно что-то есть для
-  // этого человека: пустой пункт меню читается как «сюда забыли положить».
+  // Подборка для руководства нужна единицам, поэтому показывается по галочке
+  // в карточке сотрудника (и всегда — управляющим). Раньше её видели все, у
+  // кого есть хоть один отчёт из подборки.
   { key: 'leadership', label: 'Руководителю', ready: true, featuredGate: true },
   { key: 'dashboards', label: 'Дашборды', ready: true },
+  { key: 'instructions', label: 'Инструкции', ready: true },
   { key: 'showcases', label: 'Витрины', ready: true, showcaseGate: true },
   { key: 'archive', label: 'Архив', ready: true, archiveGate: true },
   { key: 'moderation', label: 'Модерация', ready: true, modOnly: true },
@@ -133,6 +140,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   // уведомление было тупиком — человек читал «не работает выгрузка» и должен
   // был сам вспомнить, где искать это обращение.
   const [openAppeal, setOpenAppeal] = useState<string | null>(null)
+  // С какой вкладки открыть «Кабинет»: с главной ведёт кнопка «Написать администратору».
+  const [profileTab, setProfileTab] = useState<'profile' | 'appeals' | undefined>(undefined)
   const [openObject, setOpenObject] = useState<string | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
   useEffect(() => {
@@ -193,9 +202,12 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   }, [canModerate, section])
   const nav = NAV.filter((n) => (!n.adminOnly || isAdmin) && (!n.modOnly || canModerate)
     && (!(n as { staffOnly?: boolean }).staffOnly || canManage)
+    && (!(n as { userOnly?: boolean }).userOnly || !canManage)
     && (!(n as { archiveGate?: boolean }).archiveGate || archiveOk)
     && (!(n as { showcaseGate?: boolean }).showcaseGate || canManage || showcasesOk)
-    && (!(n as { featuredGate?: boolean }).featuredGate || canManage || featuredOk))
+    // Подборка «Руководителю»: управляющим всегда, остальным — по галочке
+    // (одного лишь наличия доступа к отчёту из подборки теперь мало).
+    && (!(n as { featuredGate?: boolean }).featuredGate || canManage || (me.show_featured && featuredOk)))
 
   return (
     <div style={{ fontFamily: 'var(--font-body)', minHeight: '100vh' }}>
@@ -281,6 +293,16 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
               // переписка у обычного пользователя живёт в «Кабинете» (раздела
               // «Обращения» у него нет) — то же правило, что у уведомлений.
               onOpenAppeals={() => setSection(staff ? 'appeals' : 'profile')} />
+          ) : section === 'portal' ? (
+            <UserHomePage fullName={me.full_name || me.login}
+              onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }}
+              onGoto={(s) => {
+                // «Написать администратору» ведёт в «Кабинет» сразу на вкладку
+                // переписки: отдельный пункт меню дублировал бы её.
+                if (s === 'appeals') { setProfileTab('appeals'); setSection('profile') } else setSection(s)
+              }} />
+          ) : section === 'instructions' ? (
+            <InstructionsPage canManage={canManage} />
           ) : section === 'showcases' ? (
             <ShowcasesPage canManage={canManage} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'users' ? (
@@ -301,7 +323,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ) : section === 'settings' ? (
             <SettingsPage me={me} />
           ) : section === 'profile' ? (
-            <ProfilePage me={me} initialAppealId={openAppeal}
+            <ProfilePage me={me} initialAppealId={openAppeal} initialTab={profileTab}
               onOpenDashboard={(id: string, pageId?: string | null) => { setOpenDash(id); setOpenPage(pageId || null); setSection('dashboards') }} />
           ) : (
             <div style={{ color: 'var(--text-faint)' }}>Раздел «{NAV.find((n) => n.key === section)?.label}» в разработке.</div>

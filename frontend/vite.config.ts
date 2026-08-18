@@ -49,6 +49,11 @@ export default defineConfig({
       '/dataset-releases': 'http://localhost:8080',
       '/metrics': 'http://localhost:8080',
       '/dashboards': 'http://localhost:8080',
+      // Инструкции и объявления — раздел пользователя. Новый префикс надо
+      // добавлять И сюда, И в nginx.locations.conf: иначе запрос попадает
+      // в SPA и приходит HTML вместо JSON («Unexpected token '<'»).
+      '/instructions': 'http://localhost:8080',
+      '/announcements': 'http://localhost:8080',
       '/dashboard-pages': 'http://localhost:8080',
       '/dashboard-templates': 'http://localhost:8080',
       '/widgets': 'http://localhost:8080',

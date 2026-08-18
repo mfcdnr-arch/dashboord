@@ -38,6 +38,76 @@ async def _metric_value(conn, org_id, code: str):
         return row["name"], None, str(e)
 
 
+async def portal_home(conn, org_id, user: dict) -> dict:
+    """Главная обычного пользователя.
+
+    Отдельно от админской «Главной» намеренно: там счётчики объектов, метрик и
+    пользователей — работа модератора. Пользователю нужны четыре ответа:
+    что мне сообщили, какие отчёты мне доступны, что в них нового и где
+    прочитать, как этим пользоваться.
+    """
+    from ..portal import service as portal_svc
+
+    visible = list(await dash_svc.visible_dashboard_ids(conn, org_id, user))
+
+    # Отчёты, сгруппированные по объекту: у одного отдела их бывает десяток, и
+    # вперемешку с чужими они не читаются.
+    rows = await conn.fetch(
+        "select d.id, d.name, d.updated_at, o.name as object_name, f.name as folder_name "
+        "from dashboards d "
+        "left join folders f on f.id = d.folder_id "
+        "left join objects o on o.id = f.object_id "
+        "where d.organization_id=$1 and d.id = any($2::uuid[]) "
+        "order by coalesce(o.name,'') , d.updated_at desc", org_id, visible)
+    groups: dict = {}
+    for r in rows:
+        key = r["object_name"] or "Без объекта"
+        g = groups.setdefault(key, {"object_name": key, "dashboards": []})
+        g["dashboards"].append({
+            "id": str(r["id"]), "name": r["name"], "folder_name": r["folder_name"],
+            "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+        })
+
+    # Что нового в данных за неделю — только по объектам доступных отчётов:
+    # человеку не нужно знать о поступлениях там, куда его не пускают.
+    fresh = await conn.fetch(
+        "select r.name, r.reporting_period_start as period, r.created_at, o.name as object_name "
+        "from dataset_releases r left join objects o on o.id = r.object_id "
+        "where r.organization_id=$1 and r.status <> 'superseded' "
+        "  and r.created_at > now() - interval '7 days' "
+        "  and (r.object_id is null or r.object_id in ("
+        "     select f.object_id from dashboards d join folders f on f.id=d.folder_id "
+        "     where d.id = any($2::uuid[]) and f.object_id is not null)) "
+        "order by r.created_at desc limit 8", org_id, visible)
+
+    instructions = await portal_svc.list_instructions(conn, org_id, user["id"])
+    me = await conn.fetchrow(
+        "select must_change_password, password_changed_at, show_featured, created_at "
+        "from users where id=$1", user["id"])
+
+    # Напоминание о пароле: временный форсируется при входе, но пароль, не
+    # менявшийся полгода, никто не отследит — о нём и напоминаем.
+    stale_password = False
+    if me is not None and not me["must_change_password"]:
+        changed = me["password_changed_at"]
+        stale_password = changed is None or (
+            (await conn.fetchval("select now()")) - changed).days > 180
+
+    return {
+        "announcements": await portal_svc.list_announcements(conn, org_id),
+        "objects": sorted(groups.values(), key=lambda g: g["object_name"]),
+        "dashboards_total": len(rows),
+        "fresh_data": [{
+            "name": r["name"], "object_name": r["object_name"],
+            "period": r["period"].isoformat() if r["period"] else None,
+            "created_at": r["created_at"].isoformat(),
+        } for r in fresh],
+        "instructions": {"total": len(instructions["items"]), "unread": instructions["unread"]},
+        "show_featured": bool(me["show_featured"]) if me else False,
+        "stale_password": stale_password,
+    }
+
+
 async def get_home(conn, org_id, user: dict) -> dict:
     # RLS: каталог/счётчик дашбордов/алерты — только по доступным пользователю дашбордам
     visible = list(await dash_svc.visible_dashboard_ids(conn, org_id, user))

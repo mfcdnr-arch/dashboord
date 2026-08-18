@@ -22,16 +22,19 @@ const ACTION_RU: Record<string, string> = {
 }
 
 export default function ProfilePage(
-  { me, initialAppealId, onOpenDashboard }: {
+  { me, initialAppealId, initialTab, onOpenDashboard }: {
     me: Me
     initialAppealId?: string | null
+    /** С какой вкладки открыть: раздел «Обращение администратору» ведёт сразу в переписку. */
+    initialTab?: 'profile' | 'appeals'
     /** Открыть отчёт, на который пожаловались кнопкой с виджета (п. 15). */
     onOpenDashboard?: (dashboardId: string, pageId?: string | null) => void
   },
 ) {
   // Переход из уведомления: сразу вкладка «Обращения», иначе человек попадал бы
   // в профиль и искал переписку сам.
-  const [tab, setTab] = useState<'profile' | 'appeals'>(initialAppealId ? 'appeals' : 'profile')
+  const [tab, setTab] = useState<'profile' | 'appeals'>(
+    initialAppealId || initialTab === 'appeals' ? 'appeals' : 'profile')
   return (
     <div>
       <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Личный кабинет</h2>

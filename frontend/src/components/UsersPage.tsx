@@ -360,6 +360,10 @@ function UserEditor({ user, depts, roles, canGrantSuper, onClose, onSaved }: {
   const [middle, setMiddle] = useState(user?.middle_name || '')
   const [email, setEmail] = useState(user?.email || '')
   const [deptId, setDeptId] = useState(user?.department_id || '')
+  // Раздел «Руководителю» — по галочке, а не по роли: подборка отчётов для
+  // руководства нужна единицам, а роль пришлось бы выдавать вдобавок к
+  // существующим и учитывать во всех проверках прав.
+  const [showFeatured, setShowFeatured] = useState(!!user?.show_featured)
   const [roleIds, setRoleIds] = useState<Set<string>>(new Set(
     user ? roles.filter((r) => user.roles.includes(r.code)).map((r) => r.id) : roles.filter((r) => r.code === 'user').map((r) => r.id)))
   const [busy, setBusy] = useState(false)
@@ -375,7 +379,7 @@ function UserEditor({ user, depts, roles, canGrantSuper, onClose, onSaved }: {
     if (isNew) { const v = checkPassword(password, policy, login); if (v) { setErr(v); return } }
     setBusy(true)
     try {
-      const common = { last_name: last.trim() || undefined, first_name: first.trim() || undefined, middle_name: middle.trim() || undefined, email: email.trim() || undefined, department_id: deptId || undefined, role_ids: [...roleIds] }
+      const common = { last_name: last.trim() || undefined, first_name: first.trim() || undefined, middle_name: middle.trim() || undefined, email: email.trim() || undefined, department_id: deptId || undefined, role_ids: [...roleIds], show_featured: showFeatured }
       if (isNew) await createUser({ login: login.trim(), password, ...common })
       else await updateUser(user!.id, { ...common, department_id: deptId || null })
       onSaved()
@@ -401,6 +405,19 @@ function UserEditor({ user, depts, roles, canGrantSuper, onClose, onSaved }: {
             <option value="">— без отдела —</option>
             {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select></L>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13 }}>
+            <input type="checkbox" checked={showFeatured} style={{ marginTop: 2 }}
+              onChange={(e) => setShowFeatured(e.target.checked)} />
+            <span>
+              Показывать раздел «Руководителю»
+              <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)' }}>
+                Подборка отчётов для руководства. Доступ к самим отчётам она НЕ выдаёт —
+                это отдельное действие; галочка лишь показывает раздел в меню.
+              </span>
+            </span>
+          </label>
         </div>
         <div style={{ marginTop: 12 }}>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Роли</div>

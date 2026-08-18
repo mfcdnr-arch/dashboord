@@ -14,6 +14,8 @@ export interface AppUser {
   last_name: string | null; first_name: string | null; middle_name: string | null
   email: string | null; is_active: boolean; must_change_password: boolean
   department_id: string | null; department: string | null; roles: string[]; created_at: string
+  /** Показывать ли раздел «Руководителю» (подборка отчётов для руководства). */
+  show_featured?: boolean
 }
 export async function listDepartments(): Promise<Department[]> {
   const res = await fetch('/departments', { headers: authH() })
@@ -51,7 +53,8 @@ export async function createUser(body: UserInput): Promise<{ id: string; login: 
   return res.json()
 }
 export async function updateUser(id: string, patch: {
-  last_name?: string; first_name?: string; middle_name?: string; email?: string; department_id?: string | null; role_ids?: string[]
+  last_name?: string; first_name?: string; middle_name?: string; email?: string
+  department_id?: string | null; role_ids?: string[]; show_featured?: boolean
 }): Promise<void> {
   const res = await fetch(`/users/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify(patch) })
   if (!res.ok) throw new Error(await errText(res))

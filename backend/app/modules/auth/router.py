@@ -121,7 +121,9 @@ async def me(user: dict = Depends(get_current_user)):
         # Доп. поля — для личного кабинета (профиль), не только для гейтинга ролей.
         extra = await conn.fetchrow(
             "select u.email, u.last_name, u.first_name, u.middle_name, u.created_at, "
-            "d.name as department_name "
+            # Раздел «Руководителю» показывается по галочке у сотрудника, а не
+            # по роли: подборка отчётов для руководства нужна единицам.
+            "u.show_featured, d.name as department_name "
             "from users u left join departments d on d.id = u.department_id where u.id = $1",
             user["id"],
         )
@@ -138,4 +140,5 @@ async def me(user: dict = Depends(get_current_user)):
         "middle_name": extra["middle_name"],
         "department_name": extra["department_name"],
         "created_at": extra["created_at"],
+        "show_featured": extra["show_featured"],
     }

@@ -80,6 +80,8 @@ export interface Me {
   middle_name: string | null
   department_name: string | null
   created_at: string
+  /** Показывать ли раздел «Руководителю» — выдаётся галочкой в карточке сотрудника. */
+  show_featured?: boolean
 }
 
 export async function getMe(token: string): Promise<Me> {

@@ -23,6 +23,13 @@ async def home(user: dict = Depends(get_current_user)):
         return await service.get_home(conn, user["organization_id"], user)
 
 
+@router.get("/home/portal")
+async def portal_home(user: dict = Depends(get_current_user)):
+    """Главная обычного пользователя: объявления, его отчёты, что нового, инструкции."""
+    async with db.get_pool().acquire() as conn:
+        return await service.portal_home(conn, user["organization_id"], user)
+
+
 @router.post("/home/kpis", status_code=status.HTTP_201_CREATED)
 async def add_kpi(body: KpiIn, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:

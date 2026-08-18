@@ -136,7 +136,7 @@ async def list_users(conn, org_id, q: Optional[str] = None, limit: int = 50, off
     total = await conn.fetchval(f"select count(*) from users u where {where}", *params)
     rows = await conn.fetch(
         "select u.id, u.login, u.full_name, u.last_name, u.first_name, u.middle_name, u.email, "
-        "u.is_active, u.must_change_password, u.created_at, u.department_id, "
+        "u.is_active, u.must_change_password, u.created_at, u.department_id, u.show_featured, "
         "dep.name as department, "
         "coalesce((select array_agg(r.code order by r.code) from user_roles ur "
         "  join roles r on r.id=ur.role_id where ur.user_id=u.id), '{}') as roles "
@@ -223,7 +223,8 @@ async def _user_org(conn, org_id, user_id: str):
 
 
 async def update_user(conn, org_id, user_id: str, last_name, first_name, middle_name,
-                      email, department_id, role_ids: Optional[List[str]], actor: dict) -> dict:
+                      email, department_id, role_ids: Optional[List[str]], actor: dict,
+                      show_featured: Optional[bool] = None) -> dict:
     troles = await _guard_manage(conn, org_id, user_id, actor)
     await _dept_ok(conn, org_id, department_id)
     full = _full_name(last_name, first_name, middle_name)
@@ -231,6 +232,10 @@ async def update_user(conn, org_id, user_id: str, last_name, first_name, middle_
         "update users set last_name=$2, first_name=$3, middle_name=$4, full_name=$5, "
         "email=$6, department_id=$7::uuid where id=$1::uuid",
         user_id, last_name, first_name, middle_name, full, email, department_id)
+    if show_featured is not None:
+        # Раздел «Руководителю» — по галочке: подборка отчётов для руководства
+        # нужна единицам, а роль пришлось бы выдавать вдобавок к существующим.
+        await conn.execute("update users set show_featured=$2 where id=$1::uuid", user_id, show_featured)
     if role_ids is not None:
         await _set_roles(conn, org_id, user_id, role_ids, actor, current_roles=troles)
     return {"id": user_id}

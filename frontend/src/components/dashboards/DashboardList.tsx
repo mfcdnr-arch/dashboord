@@ -2,6 +2,7 @@
 // поиск + фильтры (избранное/дата/папка), массовое перемещение в папку,
 // сама таблица строк + «показать ещё». Вынесено из DashboardsPage.tsx.
 import { useState } from 'react'
+import { groupByObject } from '../../lib/dashboardGroups'
 import type { FormEvent } from 'react'
 import type { Dashboard, DashTemplate, Doc, Folder, Obj } from '../../api'
 import { folderLabel, folderTree } from '../../lib/folderTree'
@@ -195,8 +196,21 @@ export function DashboardList({
         {dashboards.length === 0 ? (
           <div style={muted}>{query.trim() || favOnly || dashFrom || dashTo || folderFilter ? 'Ничего не найдено.' : 'Пока нет дашбордов.'}</div>
         ) : (
+          // Группировка по объекту: у одного отдела отчётов бывает десяток, и
+          // вперемешку с чужими список не читается — человек не понимает, к чему
+          // относится строка. Внутри объекта свежие сверху: чаще всего нужен
+          // последний. Заголовок группы не показываем, когда объект один, —
+          // это была бы лишняя строка ни о чём.
+          groupByObject(dashboards).map(([objectName, list]) => (
+          <div key={objectName} style={{ marginBottom: 14 }}>
+            {groupByObject(dashboards).length > 1 && (
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent)', margin: '0 0 6px 2px' }}>
+                🏢 {objectName}
+                <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · отчётов: {list.length}</span>
+              </div>
+            )}
           <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-            {dashboards.map((d, i) => (
+            {list.map((d, i) => (
               // Строка списка — интерактивный элемент: без role/tabindex её нельзя
               // было открыть с клавиатуры (важно для доступности госсистемы).
               // Вложенные кнопки (★, чекбокс) сохраняют свои обработчики и
@@ -266,6 +280,8 @@ export function DashboardList({
               </div>
             ))}
           </div>
+          </div>
+          ))
         )}
         {dashboards.length < dashTotal && (
           <div style={{ textAlign: 'center', marginTop: 12 }}>
