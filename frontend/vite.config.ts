@@ -38,6 +38,12 @@ export default defineConfig({
   },
   server: {
     port: 3080,
+    // Слушаем ВСЕ интерфейсы, а не только `localhost`. По умолчанию Node на
+    // macOS понимает «localhost» как IPv6 и поднимает сервер на `[::1]`
+    // — тогда `http://127.0.0.1:3080` не отвечает вовсе, и у части браузеров
+    // страница просто не открывается (проверено: curl на IPv4 давал отказ
+    // соединения при живом сервере на IPv6).
+    host: true,
     proxy: {
       '/health': 'http://localhost:8080',
       '/system': 'http://localhost:8080',
