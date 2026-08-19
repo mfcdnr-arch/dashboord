@@ -125,7 +125,7 @@ function chartOption(data: any): EChartsOption {
   }
 }
 
-export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf, stripe = true, onNavigate, widgetName, onOpenAppeals, onAddField }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string;
+export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf, stripe = true, onNavigate, widgetName, onOpenAppeals, onAddField, print = false }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string;
   /** Рисовать ли цветную ленту состояния вокруг тела. На дашборде её рисует
    *  САМА карточка (по всей высоте, включая имя) — там лента здесь была бы
    *  второй полосой внутри первой. */
@@ -140,7 +140,11 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
   onOpenAppeals?: () => void
   /** Завести карточку соседней графы формы прямо из меню «куда дальше».
    *  Не передан — у смотрящего нет права менять дашборд. */
-  onAddField?: (field: string, name: string, datasetCode: string) => Promise<void> }) {
+  onAddField?: (field: string, name: string, datasetCode: string) => Promise<void>
+  /** Режим отчёта (выгрузка PDF): показываем ВСЁ, а не то, что влезло в карточку —
+   *  легенда целиком, таблица со всеми столбцами, график крупнее. На экране эти
+   *  ограничения осмысленны (место), в отчёте они превращаются в потерю данных. */
+  print?: boolean }) {
   const [data, setData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [drill, setDrill] = useState<any | null>(null)
@@ -186,7 +190,7 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
           title="Сработал порог KPI-алерта">⚠ {alert.label}</div>
       )}
       {data && <div className="w-appear">
-        <Body data={data} onPick={onPick} />
+        <Body data={data} onPick={onPick} print={print} />
       </div>}
       {/* Подвал действий («куда дальше», «проблема») в выгрузку не идёт: в PDF
           эти ссылки нажать нельзя, а место у самого числа они отнимают. */}
@@ -419,7 +423,7 @@ const stickyHead: React.CSSProperties = { zIndex: 3, background: 'var(--surface-
 // говорит, что это сортировка и что делает повторный клик.
 const SORT_HINT = 'Сортировать по этому столбцу: ▲ по возрастанию, ▼ по убыванию, третий клик — сброс'
 
-function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) {
+function Body({ data, onPick, print = false }: { data: any; onPick?: (name: string) => void; print?: boolean }) {
   useThemeVersion() // перерисовка при смене темы: цвета серий берутся из токенов
   const C = chartColors()
   const [tableSearch, setTableSearch] = useState('')
@@ -428,8 +432,18 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
   const [pivotSort, setPivotSort] = useState<SortState>(null)
   // Хук объявлен до ветвления по типу виджета: тип может смениться при правке
   // виджета, а порядок хуков между рендерами меняться не должен.
-  const fit = useFitHeight(196)
-  const gaugeFit = useFitHeight(190)
+  // В отчёте высоту не подгоняем под карточку: там места столько, сколько
+  // нужно графику, и ужимать его незачем — наоборот, он должен читаться.
+  const fitRaw = useFitHeight(196)
+  const gaugeRaw = useFitHeight(190)
+  const fit = print ? { ...fitRaw, h: 300 } : fitRaw
+  /** В отчёте графики рисуем БЕЗ анимации.
+   *
+   *  Снимок делается сразу после отрисовки, а ECharts анимирует появление ~1 с —
+   *  в кадр попадали пустые оси без столбиков и линий. Ждать дольше ненадёжно:
+   *  на слабой машине анимация идёт дольше, и дефект вернётся молча. */
+  const P = (o: EChartsOption): EChartsOption => (print ? { ...o, animation: false } : o)
+  const gaugeFit = print ? { ...gaugeRaw, h: 240 } : gaugeRaw
   // За выбранный период отчётов нет. Говорим об этом прямо: раньше фильтр
   // молча показывал последний отчёт, и цифру не за тот период принимали за
   // нужную — пустое место честнее.
@@ -539,7 +553,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     }
     return (
       <div ref={gaugeFit.box}>
-        <EChart option={opt} height={gaugeFit.h} />
+        <EChart option={P(opt)} height={gaugeFit.h} />
         <div ref={gaugeFit.labels} style={{ marginTop: -14 }}>
           {/* Шкалу подписываем, только когда она НЕ стандартная: у обычного
               процента верх 100 и так подразумевается, а вот 750 объясняет,
@@ -583,9 +597,39 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
       rows = rows.filter((r) => String(r.row ?? '').toLowerCase().includes(s) || cols.some((c) => String(r[c] ?? '').toLowerCase().includes(s)))
     }
     rows = sortRows(rows, tableSort, (r, c) => (c === '__row' ? r.row : r[c]))
+    // В отчёте широкая таблица разворачивается ВЕРТИКАЛЬНО: показатель —
+    // строкой, значения — столбцами. У госформы 15 граф, её естественная
+    // ширина 1474px против 1000px листа: на экране это лечится прокруткой, а
+    // в PDF половина столбцов просто пропала бы. Узкая таблица остаётся как есть.
+    if (print && cols.length > 6) {
+      return (
+        <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: '100%' }}>
+          <thead><tr>
+            <th style={{ ...th, textAlign: 'left', width: '55%' }}>Показатель</th>
+            {rows.map((r: any, i: number) => (
+              <th key={i} style={{ ...th, textAlign: 'right' }}>{r.row}</th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {cols.map((c: string) => (
+              <tr key={c}>
+                <td style={{ ...td, fontWeight: 600 }}>{(data.column_titles?.[c] as string) || c}</td>
+                {rows.map((r: any, i: number) => (
+                  <td key={i} style={{ ...td, textAlign: 'right' }}>
+                    {typeof r[c] === 'number' ? fmt(r[c]) : (r[c] ?? '—')}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )
+    }
     return (
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {/* Поиск и подсказка про сортировку — инструменты экрана: в отчёте
+            ими не воспользуешься, а место они занимают. */}
+        <div data-export-hide style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <input style={searchInput} placeholder="🔍 Поиск по таблице…" value={tableSearch} onChange={(e) => setTableSearch(e.target.value)} />
           <span style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 8 }}>
             клик по заголовку столбца сортирует: ▲ по возрастанию, ▼ по убыванию, третий клик — сброс
@@ -593,7 +637,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
         </div>
         {/* width:100% обязателен: без него контейнер растягивался под таблицу,
             прокрутка не включалась, и широкая таблица вылезала за карточку. */}
-        <div style={{ overflowX: 'auto', width: '100%', maxWidth: '100%' }}>
+        <div style={{ overflowX: print ? 'visible' : 'auto', width: '100%', maxWidth: '100%' }}>
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
           <thead><tr>
             {/* Названия строк закреплены слева: при прокрутке вправо уезжали и
@@ -701,7 +745,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     const showTotal = tot != null && (data.periods_count ?? 0) > 2
     return (
       <div ref={fit.box} style={{ height: '100%' }}>
-        <EChart option={opt} height={fit.h} />
+        <EChart option={P(opt)} height={fit.h} />
         <div ref={fit.labels}>
         {ch != null && (
           <div style={{ fontSize: 12.5, marginTop: 3, lineHeight: 1.35 }}>
@@ -754,7 +798,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     const ch = data.change
     return (
       <div>
-        <EChart option={opt} height={196} />
+        <EChart option={P(opt)} height={196} />
         {ch != null ? (
           <div style={{ fontSize: 13, marginTop: 4 }}>
             К {data.previous_year} г. (сопоставимые месяцы: {data.compared_months}): <b style={{ color: ch >= 0 ? 'var(--success)' : 'var(--danger)' }}>
@@ -792,11 +836,17 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     // Единственная длинная подпись («Донецкая Народная Республика») шире узкой
     // карточки и вылезала за края графика — переносим её по словам.
     const wrapSingle = cats.length === 1 && cats[0].length > 14
+    // В отчёте легенда развёрнута: каждый показатель на своей строке, а имена
+    // госформ длинные. Значит под неё нужно РЕЗЕРВИРОВАТЬ место, иначе она
+    // ложится поверх столбиков — график становится нечитаемым (проверено на
+    // форме из 13 показателей).
+    const printLegendH = print ? Math.max(1, seriesNames.length) * 17 + 12 : 0
     const legendRoom = 22
-    const catsRoom = rotated ? 58 : wrapSingle ? 44 : 30
+    const catsRoom = (rotated ? 58 : wrapSingle ? 44 : 30) + (print ? 14 : 0)
     const showLegend = seriesNames.length > 1 && fit.h >= 170
     const opt: EChartsOption = {
-      grid: { left: gridLeft((data.series || []).flatMap((x: any) => x.data || [])), right: 12, top: 12, bottom: catsRoom + (showLegend ? legendRoom : 0) },
+      grid: { left: gridLeft((data.series || []).flatMap((x: any) => x.data || [])), right: 12, top: 12,
+        bottom: catsRoom + (print ? printLegendH : showLegend ? legendRoom : 0) },
       // У столбиков подсказка — про ТОТ столбик, на который навели. При
       // trigger:'axis' ECharts вываливал список всех показателей сразу: на
       // форме из четырнадцати граф это простыня во весь экран, в которой
@@ -806,9 +856,15 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
       // Имена показателей одной формы совпадают началом и концом, поэтому в
       // легенде показываем только различающую часть (distinctLabels), а полное
       // имя остаётся в подсказке. Прокрутка — чтобы 5–6 показателей не съели график.
-      legend: showLegend
-        ? { bottom: 0, type: 'scroll', textStyle: { fontSize: 11 },
-            formatter: (name: string) => elideMiddle(shortSeries[name] || name, 38) }
+      // В отчёте легенда развёрнута и с полными именами: в PDF её не
+      // пролистаешь, а «1/13» на экране означало бы, что 12 показателей из 13
+      // остались без подписи цвета.
+      legend: showLegend || print
+        ? print
+          ? { bottom: 0, type: 'plain', textStyle: { fontSize: 11 }, itemGap: 8,
+              formatter: (name: string) => shortSeries[name] || name }
+          : { bottom: 0, type: 'scroll', textStyle: { fontSize: 11 },
+              formatter: (name: string) => elideMiddle(shortSeries[name] || name, 38) }
         : undefined,
       xAxis: { type: 'category', data: cats,
         axisLabel: {
@@ -847,7 +903,8 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     }
     return (
       <div ref={fit.box} style={{ height: '100%' }}>
-        <EChart option={opt} height={fit.h} onPick={onPick} />
+        {/* Высота растёт на высоту легенды: сам график от этого не ужимается. */}
+        <EChart option={P(opt)} height={fit.h + printLegendH} onPick={onPick} />
         <div ref={fit.labels}>
           {useLog && (
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
@@ -879,7 +936,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
         emphasis: { itemStyle: { shadowBlur: 6, shadowColor: 'rgba(0,0,0,0.3)' } } }],
     }
     const h = Math.min(380, Math.max(200, rows.length * 26 + (longX ? 96 : 82)))
-    return <EChart option={opt} height={h} />
+    return <EChart option={P(opt)} height={h} />
   }
 
   if (data.type === 'pivot') {
@@ -896,7 +953,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
     return (
       <div>
         <input style={searchInput} placeholder="🔍 Поиск по сводной…" value={pivotSearch} onChange={(e) => setPivotSearch(e.target.value)} />
-        <div style={{ overflowX: 'auto', width: '100%', maxWidth: '100%' }}>
+        <div style={{ overflowX: print ? 'visible' : 'auto', width: '100%', maxWidth: '100%' }}>
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
           <thead><tr>
             <th style={{ ...th, ...sortableTh, ...stickyCol, ...stickyHead }} title={SORT_HINT} onClick={() => toggleSort(setPivotSort, '__row')}>Строка{sortArrow(pivotSort, '__row')}</th>
@@ -1022,7 +1079,7 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
         { type: 'bar', stack: 'wf', data: bars, barMaxWidth: 40, label: { show: true, position: 'top', fontSize: 10, formatter: (p: any) => fmt(p.dataIndex < vals.length ? vals[p.dataIndex] : total) } },
       ],
     }
-    return <EChart option={opt} height={220} />
+    return <EChart option={P(opt)} height={220} />
   }
 
   if (data.type === 'objects_compare') {
@@ -1037,12 +1094,12 @@ function Body({ data, onPick }: { data: any; onPick?: (name: string) => void }) 
       series: [{ type: 'bar', barMaxWidth: 44, label: { show: true, position: 'top', fontSize: 11, formatter: (p: any) => fmt(p.value) },
         data: (data.values || []).map((v: number, i: number) => ({ value: v, itemStyle: { color: C.palette[i % C.palette.length] } })) }],
     }
-    return <EChart option={opt} height={220} onPick={onPick} />
+    return <EChart option={P(opt)} height={220} onPick={onPick} />
   }
 
   // bar | line | pie
   if ((data.categories || []).length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
-  return <EChart option={chartOption(data)} height={200} onPick={onPick} />
+  return <EChart option={P(chartOption(data))} height={200} onPick={onPick} />
 }
 
 function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
