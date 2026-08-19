@@ -289,7 +289,10 @@ def snapshot_to_xlsx(archive: dict) -> bytes:
             elif t == "table":
                 ws = wb.create_sheet(_sheet_name(wb, name))
                 cols = list(d.get("columns", []))
-                ws.append(["Строка"] + cols)
+                # Имена показателей, а не коды полей — как на экране. У старых
+                # слепков поля column_titles нет, поэтому запасной вариант — код.
+                titles = d.get("column_titles") or {}
+                ws.append(["Строка"] + [titles.get(c, c) for c in cols])
                 for r in d.get("rows", []):
                     ws.append([r.get("row")] + [r.get(c) for c in cols])
             elif t == "pivot":

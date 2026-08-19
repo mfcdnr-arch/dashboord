@@ -67,7 +67,11 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
         elif t == "table":
             ws = wb.create_sheet(sheet_name(name))
             cols = list(data.get("columns", []))
-            ws.append(["Строка"] + cols)
+            # Заголовки — ИМЕНА показателей, а не коды полей: на экране таблица
+            # подписана именами (column_titles, 2026-08-08), и файл обязан
+            # совпадать с тем, что человек видел. Код остаётся ключом строки.
+            titles = data.get("column_titles") or {}
+            ws.append(["Строка"] + [titles.get(c, c) for c in cols])
             for r in data.get("rows", []):
                 ws.append([r.get("row")] + [r.get(c) for c in cols])
         elif t in ("bar", "line", "pie"):
