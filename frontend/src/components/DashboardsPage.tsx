@@ -98,7 +98,18 @@ async function snapshot(
         el.style.left = `${m[1]}px`
         el.style.top = `${m[2]}px`
       })
-      doc.querySelectorAll('[data-export-hide]').forEach((n) => n.remove())
+      // 🔴 Служебное убираем, НО НИКОГДА не трогаем контейнер, внутри которого
+      // лежит сам снимаемый узел. Удалив предка, мы отсоединяем цель от
+      // документа, а у отсоединённого элемента getComputedStyle отдаёт ПУСТЫЕ
+      // строки — html2canvas падает на первом же свойстве (backgroundColor) с
+      // «Error parsing CSS component value, unexpected EOF», и выгрузка не
+      // получается вовсе. Ровно так и сломалось: вёрстка отчёта живёт за краем
+      // экрана в контейнере, который был помечен data-export-hide.
+      const root = doc.querySelector('[data-export-root]')
+      doc.querySelectorAll('[data-export-hide]').forEach((n) => {
+        if (root && n.contains(root)) return
+        n.remove()
+      })
       // Шапка есть только в выгрузке: на экране она была бы повтором того,
       // что и так написано в крошках над дашбордом.
       doc.querySelectorAll('[data-export-only]').forEach((n) => {
@@ -999,8 +1010,8 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                   Отдельный узел нужен потому, что отчёт устроен иначе, чем
                   дашборд: одна колонка, полные имена, развёрнутые таблицы. */}
               {reporting && (
-                <div data-export-hide style={{ position: 'fixed', left: -20000, top: 0, zIndex: -1 }}>
-                  <div ref={reportRef}>
+                <div style={{ position: 'fixed', left: -20000, top: 0, zIndex: -1 }}>
+                  <div ref={reportRef} data-export-root>
                     <ReportLayout
                       title={sel.dashboard.name} pageName={page.name}
                       objectName={sel.dashboard.object_name} folderName={sel.dashboard.folder_name}
