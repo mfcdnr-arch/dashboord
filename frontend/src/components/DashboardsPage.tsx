@@ -58,6 +58,50 @@ function surfaceColor(): string {
   return getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#ffffff'
 }
 
+/**
+ * Снимок страницы для выгрузки PDF/PNG.
+ *
+ * 🔴 Три вещи, без которых выгрузка получалась негодной.
+ *
+ * **Пустые карточки — главное.** Сетка раскладывает виджеты CSS-трансформацией
+ * (`transform: translate(x, y)`), а html2canvas рисует их содержимое по
+ * ИСХОДНЫМ координатам — и оно срезается собственным `overflow: hidden`
+ * карточки. В PDF заказчика из 29 виджетов отрисовался ровно один: тот, у
+ * которого сдвиг почти нулевой. Поэтому в клоне переводим трансформацию в
+ * обычные `left/top` — это то же самое, что делает сетка в режиме без
+ * трансформаций, и клипинг исчезает.
+ *
+ * Заодно гасим анимации: `.w-appear` в клоне начинается заново, и в кадр может
+ * попасть её первый кадр (`opacity: 0`).
+ *
+ * **Служебные элементы.** В снимок попадали кнопки правки («Двигать и менять
+ * размер», «удалить страницу»), пресеты фильтров и ссылки действий у каждого
+ * виджета. В отчёте, который несут руководителю, это мусор: нажать в PDF
+ * ничего нельзя. Прячем всё, помеченное `data-export-hide`.
+ */
+async function snapshot(
+  html2canvas: (el: HTMLElement, opts: Record<string, unknown>) => Promise<HTMLCanvasElement>,
+  el: HTMLElement,
+): Promise<HTMLCanvasElement> {
+  return html2canvas(el, {
+    scale: 2, backgroundColor: surfaceColor(), useCORS: true,
+    onclone: (doc: Document) => {
+      const st = doc.createElement('style')
+      st.textContent = '*,*::before,*::after{animation:none!important;transition:none!important}'
+      doc.head.appendChild(st)
+      doc.querySelectorAll('.react-grid-item').forEach((n) => {
+        const el = n as HTMLElement
+        const m = (el.style.transform || '').match(/translate(?:3d)?\(\s*(-?[\d.]+)px\s*,\s*(-?[\d.]+)px/)
+        if (!m) return
+        el.style.transform = 'none'
+        el.style.left = `${m[1]}px`
+        el.style.top = `${m[2]}px`
+      })
+      doc.querySelectorAll('[data-export-hide]').forEach((n) => n.remove())
+    },
+  })
+}
+
 // Быстрый выбор периода для фильтра страницы. Единицы те же, что в разделе
 // «Отчёты» (7/30/90/год), плюс «прошлый месяц» — самый частый вопрос
 // руководителя. Границы считаются от сегодняшнего дня, кроме прошлого месяца:
@@ -658,8 +702,11 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
     try {
       // тяжёлые библиотеки грузим по требованию (динамический импорт → отдельный чанк)
       const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
-      const canvas = await html2canvas(el, { scale: 2, backgroundColor: surfaceColor(), useCORS: true })
-      const pdf = new jsPDF('p', 'mm', 'a4')
+      const canvas = await snapshot(html2canvas, el)
+      // compress: true — иначе jsPDF кладёт в файл СЫРОЙ RGB: страница A4 при
+      // scale 2 весит 13 МБ, а выгрузка на три страницы — 28,8 МБ. Со сжатием
+      // тот же снимок занимает сотни килобайт.
+      const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true })
       const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight()
       const pageCanvasH = Math.floor((canvas.width * ph) / pw)
       let rendered = 0, first = true
@@ -682,7 +729,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
     setExporting(true)
     try {
       const { default: html2canvas } = await import('html2canvas')
-      const canvas = await html2canvas(el, { scale: 2, backgroundColor: surfaceColor(), useCORS: true })
+      const canvas = await snapshot(html2canvas, el)
       const a = document.createElement('a')
       a.href = canvas.toDataURL('image/png'); a.download = `${sel.dashboard.name} — ${page.name}.png`; a.click()
       logClientExport('dashboard', sel.dashboard.id, 'png')
@@ -896,12 +943,14 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
             <div ref={pageRef} style={{ background: 'var(--surface)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                 <h3 style={{ fontSize: 15, margin: 0 }}>Страница «{page.name}»</h3>
+                {/* Кнопки правки в выгрузку не идут: в PDF нажать их нельзя,
+                    а место и внимание они занимают (data-export-hide). */}
                 {canManage && (
-                  <button style={{ ...editBtn, cursor: 'pointer' }} title="Переименовать страницу"
+                  <button data-export-hide style={{ ...editBtn, cursor: 'pointer' }} title="Переименовать страницу"
                     onClick={() => setRenamePageTarget(page)}>✎</button>
                 )}
                 {canManage && (
-                  <button style={{ ...tab, height: 30, ...(editMode ? tabActive : {}) }}
+                  <button data-export-hide style={{ ...tab, height: 30, ...(editMode ? tabActive : {}) }}
                     title={editMode
                       ? 'Выйти из режима правки раскладки'
                       : 'Включить перетаскивание виджетов и изменение их размера'}
@@ -914,11 +963,11 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                     «Колич обращ за…», число не помещается. Растягивать их
                     мышью по одному — полчаса работы. */}
                 {canManage && editMode && (
-                  <button style={{ ...tab, height: 30 }} disabled={busy}
+                  <button data-export-hide style={{ ...tab, height: 30 }} disabled={busy}
                     title="Поставить каждому виджету размер по его типу и разложить по сетке. Состав страницы не изменится"
                     onClick={fitLayout}>↕ Подогнать размеры</button>
                 )}
-                {canManage && <button style={linkDanger} onClick={() => delPage(page)}>удалить страницу</button>}
+                {canManage && <button data-export-hide style={linkDanger} onClick={() => delPage(page)}>удалить страницу</button>}
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
                   <span>Период:</span>
                   <input type="date" style={{ ...input, height: 30, width: 140 }} value={pFrom} onChange={(e) => setPFrom(e.target.value)} />
@@ -961,8 +1010,9 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                 </span>
               </div>
 
-              {/* Пресеты фильтров (сохранённые наборы, FR-13) */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+              {/* Пресеты фильтров (сохранённые наборы, FR-13). В выгрузку не идут:
+                  это инструмент настройки экрана, а не содержимое отчёта. */}
+              <div data-export-hide style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Пресеты:</span>
                 {presets.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>нет сохранённых наборов</span>}
                 {presets.map((p) => (

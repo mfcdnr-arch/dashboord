@@ -188,7 +188,9 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
       {data && <div className="w-appear">
         <Body data={data} onPick={onPick} />
       </div>}
-      <div ref={footRef} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      {/* Подвал действий («куда дальше», «проблема») в выгрузку не идёт: в PDF
+          эти ссылки нажать нельзя, а место у самого числа они отнимают. */}
+      <div ref={footRef} data-export-hide style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         {/* Три подписи в подвале не помещаются на узкой карточке (12 колонок
             сетки — это ~120px) и уезжают на вторую строку, отнимая высоту у
             самого числа. Поэтому на узких карточках они сворачиваются в «⋯»:
