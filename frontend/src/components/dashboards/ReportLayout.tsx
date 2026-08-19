@@ -25,8 +25,16 @@ export type ReportWidget = {
 
 export const REPORT_WIDTH = 1000      // px вёрстки отчёта (≈ ширина A4 при 120 dpi)
 
+/** Ширина ШИРОКОГО отчёта (PNG): две колонки по ~950px — столько же, сколько
+ *  занимает блок в обычном отчёте, поэтому графики и таблицы выглядят так же. */
+export const REPORT_WIDTH_WIDE = 1960
+
+/** Виджеты, которые в две колонки не помещаются: у таблиц своя ширина, и в
+ *  узкой ячейке они вылезли бы за её край (в отчёте прокрутки нет). */
+const FULL_WIDTH = new Set(['table', 'pivot', 'heatmap'])
+
 export default function ReportLayout(
-  { title, pageName, objectName, folderName, widgets, data, from, to, row, asOf }: {
+  { title, pageName, objectName, folderName, widgets, data, from, to, row, asOf, columns = 1 }: {
     title: string
     pageName: string
     objectName?: string | null
@@ -37,6 +45,9 @@ export default function ReportLayout(
     to?: string
     row?: string | null
     asOf?: string | null
+    /** Колонок в потоке блоков. PDF — всегда 1 (страница А4), PNG — 2:
+     *  картинка на 20 000 точек в высоту нечитаема, а места по ширине вагон. */
+    columns?: number
   },
 ) {
   const meta = [
@@ -47,7 +58,8 @@ export default function ReportLayout(
   ].filter(Boolean).join(' · ')
 
   return (
-    <div style={{ width: REPORT_WIDTH, background: 'var(--surface)', color: 'var(--text)', padding: 24 }}>
+    <div style={{ width: columns > 1 ? REPORT_WIDTH_WIDE : REPORT_WIDTH,
+      background: 'var(--surface)', color: 'var(--text)', padding: 24 }}>
       {/* Шапка: по одному листу должно быть понятно, что это за отчёт и на
           какие данные он опирается. В прежней выгрузке не было даже названия. */}
       <div className="report-block" style={{ marginBottom: 18 }}>
@@ -61,6 +73,12 @@ export default function ReportLayout(
         <div style={{ borderBottom: '3px solid var(--accent)', marginTop: 10 }} />
       </div>
 
+      {/* Сетка, а не колоночный поток: html2canvas рисует блоки по их
+          прямоугольникам, и фрагментация текста по колонкам ему не даётся.
+          alignItems: start — чтобы низкий блок не растягивался до высоты
+          соседа. */}
+      <div style={{ display: 'grid', gap: 14,
+        gridTemplateColumns: `repeat(${Math.max(1, columns)}, 1fr)`, alignItems: 'start' }}>
       {widgets.map((w) => {
         const d = data[w.id]
         const src = sourceOf(w)
@@ -68,8 +86,9 @@ export default function ReportLayout(
           // Блок отчёта — единица разбивки по страницам: разрез проходит между
           // блоками, поэтому виджет не может оказаться разорванным.
           <div key={w.id} className="report-block" style={{
-            border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 14,
-            background: 'var(--surface)', breakInside: 'avoid',
+            border: '1px solid var(--border)', borderRadius: 12, padding: 16,
+            background: 'var(--surface)', breakInside: 'avoid', minWidth: 0,
+            ...(columns > 1 && FULL_WIDTH.has(w.widget_type) ? { gridColumn: '1 / -1' } : {}),
           }}>
             <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.3 }}>{w.name}</div>
             <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 3, marginBottom: 10 }}>
@@ -86,6 +105,7 @@ export default function ReportLayout(
           </div>
         )
       })}
+      </div>
     </div>
   )
 }

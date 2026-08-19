@@ -216,6 +216,10 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   // потерю данных.
   const reportRef = useRef<HTMLDivElement>(null)
   const [reporting, setReporting] = useState(false)
+  // Широкий отчёт — только для PNG: это ОДНА картинка, её не листают, и
+  // колонка в 1000px превращала её в ленту почти на 20 000 точек высотой.
+  // PDF остаётся в одну колонку: там ширина задана листом А4.
+  const [reportWide, setReportWide] = useState(false)
   const [objects, setObjects] = useState<Obj[]>([])
   const [wizardObj, setWizardObj] = useState<string | null>(null)
   const [autoObj, setAutoObj] = useState('')
@@ -787,6 +791,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   async function exportPng() {
     if (!sel || !page) return
     setExporting(true)
+    setReportWide(true)
     setReporting(true)
     try {
       const { default: html2canvas } = await import('html2canvas')
@@ -805,7 +810,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       a.href = url; a.download = `${sel.dashboard.name} — ${page.name}.png`; a.click()
       URL.revokeObjectURL(url)
       logClientExport('dashboard', sel.dashboard.id, 'png')
-    } catch (e) { fail(e) } finally { setReporting(false); setExporting(false) }
+    } catch (e) { fail(e) } finally { setReporting(false); setReportWide(false); setExporting(false) }
   }
   async function exportExcel() {
     if (!sel || !page) return
@@ -1024,7 +1029,8 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                       title={sel.dashboard.name} pageName={page.name}
                       objectName={sel.dashboard.object_name} folderName={sel.dashboard.folder_name}
                       widgets={widgets.map((w) => ({ id: w.id, name: w.name, widget_type: w.widget_type, config: w.config }))}
-                      data={pageData} from={pFrom} to={pTo} row={crossRow} asOf={asOf} />
+                      data={pageData} from={pFrom} to={pTo} row={crossRow} asOf={asOf}
+                      columns={reportWide ? 2 : 1} />
                   </div>
                 </div>
               )}
