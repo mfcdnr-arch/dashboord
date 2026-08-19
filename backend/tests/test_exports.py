@@ -63,6 +63,7 @@ async def test_page_xlsx_sheets_dates_and_titles(client, admin_headers, ids, see
     import io as _io
 
     from openpyxl import load_workbook
+    from openpyxl.styles.numbers import BUILTIN_FORMATS
 
     from app import db
     from conftest import purge_dashboard
@@ -104,9 +105,19 @@ async def test_page_xlsx_sheets_dates_and_titles(client, admin_headers, ids, see
         dyn = wb[[s for s, f in toc if f.startswith("Динамика")][0]]
         first = dyn.cell(row=2, column=1)
         assert hasattr(first.value, "year"), "период должен быть датой, а не строкой"
-        assert first.number_format == "DD.MM.YYYY"
+        # Формат — ВСТРОЕННЫЙ (numFmtId=14): свой код читалка должна разобрать
+        # сама, и это подводило — в ячейке показывалось «DD.07.YYYY».
+        assert first.number_format == BUILTIN_FORMATS[14]
 
         tbl = wb[[s for s, f in toc if f.startswith("Тест")][0]]
         assert "План на период" in [c.value for c in tbl[1]], "заголовок — имя, а не код поля"
     finally:
         await purge_dashboard(did)
+        # Убираем за собой: справочник полей объекта — ОБЩЕЕ состояние стенда,
+        # и оставленная запись меняет то, что видит авто-сборка в соседних
+        # тестах (поймано полным прогоном: test_period_pages падал не сам по
+        # себе, а из-за этой строки).
+        async with db.acquire() as conn:
+            await conn.execute(
+                "delete from canonical_fields where code='plan' and object_id in "
+                "(select id from objects where name='t_obj' and organization_id=$1)", ids["org"])

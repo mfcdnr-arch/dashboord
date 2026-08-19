@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from openpyxl.styles.numbers import BUILTIN_FORMATS
+
 from ._base import DashboardError
 from ._rls import _can_view, visible_widget_ids
 from ._sheetnames import LIMIT, clean_title, short_cores
@@ -36,12 +38,43 @@ def _ru_date(v) -> str:
     return d.strftime("%d.%m.%Y") if isinstance(d, date) else ("" if v is None else str(v))
 
 
+# ВСТРОЕННЫЙ формат даты Excel (numFmtId=14, «короткая дата»), а не свой код.
+# Свой код читалка обязана разобрать сама, и это подводит: при "DD.MM.YYYY" в
+# ячейке показывалось «DD.07.YYYY» — из трёх частей распозналась одна. У
+# встроенного формата разбирать нечего: номер 14 знает любая программа и
+# рисует дату так, как принято в системе пользователя (у нас — ДД.ММ.ГГГГ).
+# Строка ниже — это то, чем встроенный формат обозначается в openpyxl; на вид
+# она американская, но в файл уезжает именно НОМЕР, а не она.
+DATE_FMT = BUILTIN_FORMATS[14]
+
+
 def _row(ws, values: list) -> None:
     """Строка данных: даты кладём датами и подписываем форматом ДД.ММ.ГГГГ."""
     ws.append([_as_date(v) for v in values])
     for c in ws[ws.max_row]:
         if isinstance(c.value, date):
-            c.number_format = "DD.MM.YYYY"
+            c.number_format = DATE_FMT
+
+
+def _autofit(ws) -> None:
+    """Ширина столбцов по содержимому.
+
+    По умолчанию openpyxl оставляет 8 знаков, и подпись «За весь период
+    (22.07.2026 → 19.08.2026)» в файле обрезалась до «За весь пер» — то есть
+    строка итога переставала читаться. Потолок нужен, иначе имя показателя
+    госформы растянет столбец на пол-экрана.
+    """
+    from openpyxl.utils import get_column_letter
+
+    for i, col in enumerate(ws.iter_cols(), 1):
+        best = 0
+        for c in col:
+            if c.value is None:
+                continue
+            n = 10 if isinstance(c.value, date) else len(str(c.value))
+            best = max(best, n)
+        if best:
+            ws.column_dimensions[get_column_letter(i)].width = min(max(best + 2, 10), 60)
 
 
 def _pct(v: float | None) -> str:
@@ -201,6 +234,9 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
             toc.append([title, full])
         toc.column_dimensions["A"].width = 34
         toc.column_dimensions["B"].width = 90
+
+    for ws in wb.worksheets:
+        _autofit(ws)
 
     buf = io.BytesIO()
     wb.save(buf)
