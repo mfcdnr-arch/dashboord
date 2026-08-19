@@ -19,6 +19,7 @@ from openpyxl import Workbook
 from ..audit import service as audit_svc
 from ._base import ANNOTATION_TYPES, DashboardError
 from ._widgetdata import compute_widget_data
+from ._widgetexport import _row
 
 PRIVILEGED = {"admin", "superadmin", "moderator", "senior_moderator"}
 
@@ -272,7 +273,9 @@ def snapshot_to_xlsx(archive: dict) -> bytes:
                 ws = wb.create_sheet(_sheet_name(wb, name))
                 ws.append(["Период", "Значение"])
                 for pr, v in zip(d.get("periods", []), d.get("values", []), strict=False):
-                    ws.append([pr, v])
+                    # Дата — датой, а не строкой «2026-07-22»: слепок читают тем
+                    # же Excel, что и обычную выгрузку (см. _widgetexport._row).
+                    _row(ws, [pr, v])
             elif t == "yoy":
                 ws = wb.create_sheet(_sheet_name(wb, name))
                 py, cy = d.get("previous_year"), d.get("current_year")

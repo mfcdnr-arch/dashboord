@@ -794,8 +794,16 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       const el = reportRef.current
       if (!el) return
       const canvas = await snapshot(html2canvas, el)
+      // Через blob, а не data-URL: отчёт на 29 виджетов даёт ссылку длиной
+      // 5,6 млн знаков — вся картинка целиком лежит СТРОКОЙ в памяти вкладки,
+      // и с ростом отчёта это упирается либо в память, либо в предел длины
+      // ссылки у браузера. Blob отдаётся файлом, а ссылка на него — короткая.
+      const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
+      if (!blob) throw new Error('Не удалось собрать изображение для выгрузки')
+      const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = canvas.toDataURL('image/png'); a.download = `${sel.dashboard.name} — ${page.name}.png`; a.click()
+      a.href = url; a.download = `${sel.dashboard.name} — ${page.name}.png`; a.click()
+      URL.revokeObjectURL(url)
       logClientExport('dashboard', sel.dashboard.id, 'png')
     } catch (e) { fail(e) } finally { setReporting(false); setExporting(false) }
   }
