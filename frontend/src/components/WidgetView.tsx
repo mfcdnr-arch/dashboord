@@ -840,8 +840,21 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     // госформ длинные. Значит под неё нужно РЕЗЕРВИРОВАТЬ место, иначе она
     // ложится поверх столбиков — график становится нечитаемым (проверено на
     // форме из 13 показателей).
-    const printLegendH = print ? Math.max(1, seriesNames.length) * 17 + 12 : 0
+    // Шаг строки легенды: высота значка (14) + itemGap (8). Замер на форме из
+    // 13 показателей: 276px на 13 строк, то есть 21,3 на строку — прежние 17
+    // занижали резерв на 44px, легенда поднималась ВЫШЕ оси и накрывала подпись
+    // категории. Лучше зарезервировать с запасом (внизу останется белое поле),
+    // чем недобрать: недобор — это наложение.
+    const printLegendH = print ? Math.max(1, seriesNames.length) * 22 + 12 : 0
     const legendRoom = 22
+    // Полоса, в которую переносится единственная длинная подпись. На карточке
+    // она узкая поневоле (130px, и «Донецкая Народная Республика» встаёт в три
+    // строки), а в отчёте лист широкий — там та же подпись помещается в ОДНУ
+    // строку, и наезжать ей уже не на что. Ширину задаём явно, а не считаем
+    // строки: как именно ECharts переносит по словам, снаружи не воспроизвести
+    // (замер показал три строки там, где расчёт давал две), а ошибка в этой
+    // оценке — это наложение текста поверх текста.
+    const catLabelW = print ? 460 : 130
     const catsRoom = (rotated ? 58 : wrapSingle ? 44 : 30) + (print ? 14 : 0)
     const showLegend = seriesNames.length > 1 && fit.h >= 170
     const opt: EChartsOption = {
@@ -869,7 +882,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
       xAxis: { type: 'category', data: cats,
         axisLabel: {
           interval: 0, rotate: rotated ? 30 : 0, fontSize: 11, hideOverlap: true,
-          ...(wrapSingle ? { width: 130, overflow: 'break' as const } : {}),
+          ...(wrapSingle ? { width: catLabelW, overflow: 'break' as const } : {}),
           formatter: (v: string) => (wrapSingle ? v : elideMiddle(v, 28)),
         } },
       // На ужатом графике пять делений оси налезают друг на друга — оставляем меньше.
