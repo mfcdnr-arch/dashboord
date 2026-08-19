@@ -98,6 +98,11 @@ async function snapshot(
         el.style.top = `${m[2]}px`
       })
       doc.querySelectorAll('[data-export-hide]').forEach((n) => n.remove())
+      // Шапка есть только в выгрузке: на экране она была бы повтором того,
+      // что и так написано в крошках над дашбордом.
+      doc.querySelectorAll('[data-export-only]').forEach((n) => {
+        (n as HTMLElement).style.display = 'block'
+      })
     },
   })
 }
@@ -708,16 +713,105 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       // тот же снимок занимает сотни килобайт.
       const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true })
       const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight()
-      const pageCanvasH = Math.floor((canvas.width * ph) / pw)
-      let rendered = 0, first = true
+      const M = 10                    // поля страницы, мм
+      const px = canvas.width / (pw - M * 2)      // пикселей снимка на мм
+      const bodyH = Math.floor((ph - M * 2) * px)
+
+      // Границы виджетов в координатах снимка: по ним ищем, где резать.
+      const box = el.getBoundingClientRect()
+      const k = canvas.width / box.width
+      const cards = Array.from(el.querySelectorAll('.react-grid-item')).map((w) => {
+        const b = (w as HTMLElement).getBoundingClientRect()
+        return { top: (b.top - box.top) * k, bottom: (b.bottom - box.top) * k }
+      })
+
+      /** Где закончить страницу, начатую на `from`.
+       *
+       * Резать строго по линейке нельзя: разрез приходится на середину карточки,
+       * и число оказывается разорванным между страницами — ровно то, на что
+       * пожаловался заказчик. Поэтому ищем самый нижний край карточки, который
+       * помещается на страницу, и режем по нему. Если карточка выше страницы
+       * целиком (большая таблица), режем по линейке — иначе выгрузка зациклится. */
+      // Первая страница короче: сверху ляжет полоса с названием отчёта.
+      const titleH = Math.round(canvas.width * 0.012 * 3 + canvas.width * (0.026 + 0.017 + 0.014))
+      const cutAfter = (from: number): number => {
+        const limit = from + bodyH - (from === 0 ? titleH : 0)
+        if (limit >= canvas.height) return canvas.height
+        let best = 0
+        for (const c of cards) if (c.bottom > from && c.bottom <= limit) best = Math.max(best, c.bottom)
+        const crossing = cards.some((c) => c.top < limit && c.bottom > limit)
+        if (!crossing) return limit           // разрез никого не задевает
+        return best > from ? Math.ceil(best) + 2 : limit
+      }
+
+      /** Полоса с названием отчёта поверх первой страницы.
+       *
+       * Рисуем на ХОЛСТЕ, а не средствами jsPDF: у его встроенных шрифтов нет
+       * кириллицы — «Дашборд «ИТ»» вышел бы мусором (проверено чтением потока
+       * PDF). Через DOM тоже не выходит: html2canvas не рисует элемент, который
+       * в оригинале был скрыт, даже если показать его в клоне.
+       */
+      const withTitle = (src: HTMLCanvasElement): HTMLCanvasElement => {
+        const pad = Math.round(canvas.width * 0.012)
+        const h1 = Math.round(canvas.width * 0.026)
+        const h2 = Math.round(canvas.width * 0.017)
+        const h3 = Math.round(canvas.width * 0.014)
+        const bandH = pad * 2 + h1 + h2 + h3 + pad
+        const out = document.createElement('canvas')
+        out.width = src.width; out.height = src.height + bandH
+        const ctx = out.getContext('2d')!
+        ctx.fillStyle = surfaceColor(); ctx.fillRect(0, 0, out.width, out.height)
+        ctx.textBaseline = 'top'
+        ctx.fillStyle = '#111'
+        ctx.font = `700 ${h1}px system-ui, sans-serif`
+        ctx.fillText(sel.dashboard.name, pad, pad)
+        ctx.fillStyle = '#444'
+        ctx.font = `${h2}px system-ui, sans-serif`
+        ctx.fillText(`Страница «${page.name}»`
+          + (sel.dashboard.object_name ? ` · объект «${sel.dashboard.object_name}»` : ''),
+          pad, pad + h1 + pad * 0.4)
+        ctx.fillStyle = '#777'
+        ctx.font = `${h3}px system-ui, sans-serif`
+        const info = [
+          `выгружено ${new Date().toLocaleString('ru-RU')}`,
+          (pFrom || pTo) && `период ${pFrom || '…'} — ${pTo || '…'}`,
+          crossRow && `строка «${crossRow}»`,
+          asOf && `данные на ${new Date(asOf).toLocaleDateString('ru-RU')}`,
+        ].filter(Boolean).join(' · ')
+        ctx.fillText(info, pad, pad + h1 + h2 + pad * 0.8)
+        ctx.strokeStyle = '#e04e39'; ctx.lineWidth = Math.max(2, canvas.width * 0.002)
+        ctx.beginPath(); ctx.moveTo(pad, bandH - pad * 0.6)
+        ctx.lineTo(out.width - pad, bandH - pad * 0.6); ctx.stroke()
+        ctx.drawImage(src, 0, bandH)
+        return out
+      }
+
+      let rendered = 0, pageNo = 0
+      const slices: { y: number; h: number }[] = []
       while (rendered < canvas.height) {
-        const h = Math.min(pageCanvasH, canvas.height - rendered)
-        const slice = document.createElement('canvas')
-        slice.width = canvas.width; slice.height = h
-        slice.getContext('2d')!.drawImage(canvas, 0, rendered, canvas.width, h, 0, 0, canvas.width, h)
-        if (!first) pdf.addPage()
-        pdf.addImage(slice.toDataURL('image/png'), 'PNG', 0, 0, pw, (h * pw) / canvas.width)
-        rendered += h; first = false
+        const end = cutAfter(rendered)
+        slices.push({ y: rendered, h: end - rendered })
+        rendered = end
+      }
+      for (const sl of slices) {
+        if (pageNo) pdf.addPage()
+        pageNo++
+        // Шапка документа: что это за отчёт. Раньше её не было вовсе — в файле
+        // не было даже названия дашборда, и через неделю понять, откуда лист,
+        // было нельзя.
+        const raw = document.createElement('canvas')
+        raw.width = canvas.width; raw.height = sl.h
+        raw.getContext('2d')!.drawImage(canvas, 0, sl.y, canvas.width, sl.h, 0, 0, canvas.width, sl.h)
+        // Название отчёта — на первой странице: на остальных оно было бы
+        // повтором, а место отнимало бы у самих цифр.
+        const slice = pageNo === 1 ? withTitle(raw) : raw
+        pdf.addImage(slice.toDataURL('image/png'), 'PNG', M, M, pw - M * 2, slice.height / px)
+        // Только цифры: кириллицу встроенные шрифты jsPDF не умеют, а название
+        // отчёта уже нарисовано браузером в самом снимке (шапка на первой странице).
+        pdf.setFontSize(8.5)
+        pdf.setTextColor(130)
+        pdf.text(`${pageNo} / ${slices.length}`, pw - M, ph - 5, { align: 'right' })
+        pdf.setTextColor(0)
       }
       pdf.save(`${sel.dashboard.name} — ${page.name}.pdf`)
       logClientExport('dashboard', sel.dashboard.id, 'pdf')
@@ -941,7 +1035,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
             <div style={muted}>{sel.pages.length ? 'Выберите страницу.' : 'Создайте первую страницу дашборда.'}</div>
           ) : (
             <div ref={pageRef} style={{ background: 'var(--surface)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+              <div data-export-hide style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                 <h3 style={{ fontSize: 15, margin: 0 }}>Страница «{page.name}»</h3>
                 {/* Кнопки правки в выгрузку не идут: в PDF нажать их нельзя,
                     а место и внимание они занимают (data-export-hide). */}
@@ -995,7 +1089,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
               {/* Быстрый выбор периода: две даты руками — это шесть полей ввода
                   ради вопроса «а что было в прошлом месяце». Такие же кнопки уже
                   стоят в разделе «Отчёты», единицы те же. */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+              <div data-export-hide style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Быстро:</span>
                 {QUICK_PERIODS.map((q) => (
                   <button key={q.label} style={{ ...tab, height: 26, fontSize: 12 }}
@@ -1168,7 +1262,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
               </div>
 
               {canManage && sources && (
-                <div style={{ marginTop: 20 }}>
+                <div data-export-hide style={{ marginTop: 20 }}>
                   <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>Добавить виджет</h3>
                   <SourceCatalog sources={sources} />
                   {sources.datasets.length > 0 && <SuggestPanel datasets={sources.datasets} onAdd={addWidgetsBatch} />}
