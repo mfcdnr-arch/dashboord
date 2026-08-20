@@ -63,7 +63,8 @@ async def test_page_xlsx_sheets_dates_and_titles(client, admin_headers, ids, see
     import io as _io
 
     from openpyxl import load_workbook
-    from openpyxl.styles.numbers import BUILTIN_FORMATS
+
+    from app.modules.dashboards._widgetexport import DATE_FMT
 
     from app import db
     from conftest import purge_dashboard
@@ -105,9 +106,11 @@ async def test_page_xlsx_sheets_dates_and_titles(client, admin_headers, ids, see
         dyn = wb[[s for s, f in toc if f.startswith("Динамика")][0]]
         first = dyn.cell(row=2, column=1)
         assert hasattr(first.value, "year"), "период должен быть датой, а не строкой"
-        # Формат — ВСТРОЕННЫЙ (numFmtId=14): свой код читалка должна разобрать
-        # сама, и это подводило — в ячейке показывалось «DD.07.YYYY».
-        assert first.number_format == BUILTIN_FORMATS[14]
+        # Формат — строгий ДД.ММ.ГГГГ с ЭКРАНИРОВАННЫМИ точками: с обычным
+        # «dd.mm.yyyy» сторонние читалки отдают голое число (точка читается
+        # как десятичный разделитель и ломает разбор шаблона).
+        assert first.number_format == DATE_FMT
+        assert '"."' in DATE_FMT, "точки в коде формата должны быть экранированы"
 
         tbl = wb[[s for s, f in toc if f.startswith("Тест")][0]]
         assert "План на период" in [c.value for c in tbl[1]], "заголовок — имя, а не код поля"

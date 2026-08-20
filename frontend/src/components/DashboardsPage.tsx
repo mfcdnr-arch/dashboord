@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import ReportLayout from './dashboards/ReportLayout'
+import ReportLayout, { REPORT_COLUMNS_WIDE } from './dashboards/ReportLayout'
 import GridLayout, { type Layout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
@@ -1030,7 +1030,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                       objectName={sel.dashboard.object_name} folderName={sel.dashboard.folder_name}
                       widgets={widgets.map((w) => ({ id: w.id, name: w.name, widget_type: w.widget_type, config: w.config }))}
                       data={pageData} from={pFrom} to={pTo} row={crossRow} asOf={asOf}
-                      columns={reportWide ? 2 : 1} />
+                      columns={reportWide ? REPORT_COLUMNS_WIDE : 1} />
                   </div>
                 </div>
               )}
