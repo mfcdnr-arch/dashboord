@@ -30,11 +30,12 @@ import { RenameDialog } from './dashboards/RenameDialog'
 import { useConfirm } from './dashboards/ConfirmDialog'
 import { dashboardFreshness, dashboardMissingFields } from '../api/dashboards'
 import { FreshnessBar } from './dashboards/FreshnessBar'
+import { DashboardHeader } from './dashboards/DashboardHeader'
 import { MissingFieldsDialog } from './dashboards/MissingFieldsDialog'
 import { TemplateCloneDialog } from './dashboards/TemplateCloneDialog'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
 import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
-import { PubBadge, WT, alertBtn, btn, btnGhost, crumb, dialog, editBtn, editHint, errBox, input, linkDanger, muted, overlay, presetChip, rmBtn, tab, tabActive, widgetCard, wtBadge } from './dashboards/shared'
+import { WT, alertBtn, crumb, dialog, editBtn, editHint, errBox, linkDanger, muted, overlay, rmBtn, widgetCard, wtBadge } from './dashboards/shared'
 
 
 const DASH_PAGE = 50
@@ -842,21 +843,13 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, marginBottom: 16 }}>
-        <button style={crumb} onClick={() => { setSel(null); setPage(null) }}>Дашборды</button>
-        {sel && (
-          <>
-            <span style={{ color: 'var(--text-faint)' }}>/</span>
-            <span>{sel.dashboard.name}</span>
-            {canManage && (
-              <button style={{ ...editBtn, cursor: 'pointer' }} title="Переименовать дашборд, изменить описание"
-                onClick={() => setEditDash({ name: sel.dashboard.name, description: sel.dashboard.description || '' })}>✎</button>
-            )}
-            <button style={{ ...editBtn, cursor: 'pointer' }} title="Что это за дашборд и из чего он собран"
-              onClick={() => setAboutOpen(true)}>ℹ</button>
-          </>
-        )}
-      </div>
+      {/* Крошка списка. У ОТКРЫТОГО дашборда своя крошка внутри шапки
+          (DashboardHeader) — две подряд были бы дублем. */}
+      {!sel && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, marginBottom: 16 }}>
+          <button style={crumb} onClick={() => { setSel(null); setPage(null) }}>Дашборды</button>
+        </div>
+      )}
 
       {error && <div style={errBox}>{error}</div>}
 
@@ -890,90 +883,45 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
 
       {sel && (
         <div>
-          {/* Публикация и версии */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-            <PubBadge status={sel.dashboard.publication_status} />
-            <span style={{ fontSize: 12, color: 'var(--text-faint)' }} title="Дата создания / последнего изменения дашборда">
-              создан {new Date(sel.dashboard.created_at).toLocaleDateString('ru-RU')}
-              {sel.dashboard.updated_at && sel.dashboard.updated_at !== sel.dashboard.created_at
-                ? ` · изменён ${new Date(sel.dashboard.updated_at).toLocaleDateString('ru-RU')}` : ''}
-            </span>
-            {canManage && sel.dashboard.publication_status === 'draft' && <button style={btn} onClick={doSubmitReview}>Отправить на проверку</button>}
-            {canManage && isAdmin && sel.dashboard.publication_status === 'draft' && <button style={btnGhost} onClick={doPublish} title="Публикация без модерации (админ)">Опубликовать без проверки</button>}
-            {canManage && sel.dashboard.publication_status === 'review' && <button style={btnGhost} onClick={doCancelReview}>Отозвать заявку</button>}
-            {canManage && sel.dashboard.publication_status === 'published' && <button style={btnGhost} onClick={doUnpublish}>Снять с публикации</button>}
-            {canManage && <button style={btnGhost} onClick={loadVersions}>История версий</button>}
-            {sel.pages.length > 0 && <button style={btnGhost} onClick={() => setKiosk(true)} title="Полноэкранный показ с автопрокруткой (для ТВ)">📺 Витрина</button>}
-            {page && <button style={btnGhost} disabled={exporting} onClick={exportPdf}>{exporting ? 'Экспорт…' : '⤓ PDF'}</button>}
-            {page && <button style={btnGhost} disabled={exporting} onClick={exportExcel} title="Данные страницы в Excel">⤓ Excel</button>}
-            {page && <button style={btnGhost} disabled={exporting} onClick={exportPng} title="Снимок страницы в PNG">⤓ PNG</button>}
-            {canManage && <button style={btnGhost} onClick={() => setTemplateName(sel.dashboard.name)}>Сохранить как шаблон</button>}
-            {canManage && objects.length > 0 && (
-              <button style={btnGhost}
-                onClick={() => setFolderTarget({
-                  ids: [sel.dashboard.id], label: sel.dashboard.name,
-                  currentPath: sel.dashboard.folder_name ? `${sel.dashboard.object_name}/${sel.dashboard.folder_name}` : null,
-                })}
-                title="Разместить дашборд в папке объекта (банк отделов)">
-                📁 {sel.dashboard.folder_name ? `${sel.dashboard.object_name}/${sel.dashboard.folder_name}` : 'Без папки'}
-              </button>
-            )}
-            {canManage && <button style={btnGhost} onClick={() => setAccessOpen(true)} title="Кто видит этот дашборд">🔒 Доступ</button>}
-            <button
-              style={sel.dashboard.comments_count
-                ? { ...btnGhost, borderColor: 'var(--accent)', color: 'var(--accent)', background: 'var(--accent-weak-bg)', fontWeight: 600 }
-                : btnGhost}
-              onClick={() => setCommentsOpen(true)}
-              title={sel.dashboard.comments_count ? `Есть обсуждение: ${sel.dashboard.comments_count} коммент.` : 'Обсуждение дашборда (пока нет комментариев)'}>
-              {sel.dashboard.comments_count ? `💬 Обсуждение (${sel.dashboard.comments_count})` : '💬 Обсуждение'}
-            </button>
-            {canManage && <button style={btnGhost} onClick={() => setArchiveOpen(true)} title="Слепок данных в архив; дашборд уйдёт из основного списка">📦 В архив</button>}
-            {canManage && (
-              <button style={{ ...btnGhost, ...(sel.dashboard.auto_archive ? { borderColor: 'var(--accent)', color: 'var(--accent)', background: 'var(--accent-weak-bg)' } : {}) }}
-                title="Ежемесячная автоархивация: 1-го числа система сама сохранит слепок за прошедший месяц"
-                onClick={toggleAutoArchive}>📅 автослепок {sel.dashboard.auto_archive ? 'вкл' : 'выкл'}</button>
-            )}
-            {/* Удаление — крайним и отдельным цветом: соседство с «В архив» не
-                должно провоцировать промах, это разные по последствиям вещи. */}
-            {isSuperadmin && (
-              <button style={{ ...btnGhost, marginLeft: 'auto', borderColor: 'var(--danger)', color: 'var(--danger)' }}
-                onClick={doDeleteDashboard}
-                title="Удалить дашборд со страницами и виджетами (слепки в архиве сохранятся). Доступно только суперадминистратору">
-                🗑 Удалить
-              </button>
-            )}
-          </div>
+          <DashboardHeader
+            dashboard={sel.dashboard} pages={sel.pages} page={page} onOpenPage={openPage}
+            onBack={() => { setSel(null); setPage(null) }}
+            canManage={canManage} isAdmin={isAdmin} isSuperadmin={isSuperadmin}
+            editMode={editMode} setEditMode={setEditMode}
+            asOf={asOf} quickPeriods={QUICK_PERIODS}
+            pFrom={pFrom} pTo={pTo} setPFrom={setPFrom} setPTo={setPTo}
+            crossRow={crossRow} setCrossRow={setCrossRow} catOptions={catOptions}
+            missingCount={page ? (missingFields?.length || 0) : 0} onOpenMissing={() => setMissingOpen(true)}
+            presets={presets} applyPreset={applyPreset} removePreset={removePreset} savePreset={() => setPresetName('')}
+            newPage={newPage} setNewPage={setNewPage} addPage={addPage} busy={busy} exporting={exporting}
+            a={{
+              submitReview: doSubmitReview, cancelReview: doCancelReview, publish: doPublish, unpublish: doUnpublish,
+              versions: loadVersions, access: () => setAccessOpen(true),
+              moveFolder: () => setFolderTarget({
+                ids: [sel.dashboard.id], label: sel.dashboard.name,
+                currentPath: sel.dashboard.folder_name ? `${sel.dashboard.object_name}/${sel.dashboard.folder_name}` : null,
+              }),
+              saveTemplate: () => setTemplateName(sel.dashboard.name),
+              archive: () => setArchiveOpen(true), toggleAutoArchive, toggleSuggestFields,
+              del: doDeleteDashboard, comments: () => setCommentsOpen(true), kiosk: () => setKiosk(true),
+              about: () => setAboutOpen(true),
+              rename: () => setEditDash({ name: sel.dashboard.name, description: sel.dashboard.description || '' }),
+              exportPdf, exportExcel, exportPng, fitLayout,
+              deletePage: () => { if (page) delPage(page) },
+              renamePage: () => { if (page) setRenamePageTarget(page) },
+            }}
+          />
+          {/* Появился более свежий выпуск — предложение обновиться (сама дата
+              данных живёт в строке контекста шапки). */}
           <FreshnessBar
-            asOf={asOf} available={freshAvailable}
+            available={freshAvailable}
+            asOf={asOf}
             onRefresh={() => {
               setAsOf(freshAvailable)
               setFreshAvailable(null)
               setReloadKey((k) => k + 1)
             }}
           />
-
-          {canManage && missingFields && missingFields.length > 0 && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              background: 'var(--surface-2)', fontSize: 13, padding: '8px 12px',
-              borderRadius: 8, margin: '0 0 12px', color: 'var(--text-2)',
-            }}>
-              <span>
-                💡 В данных есть показатели, которых нет на дашборде ({missingFields.length}):{' '}
-                {missingFields.slice(0, 3).map((f) => `«${f.name}»`).join(', ')}
-                {missingFields.length > 3 ? ' и другие' : ''}.
-              </span>
-              <button type="button" style={{ ...btn, height: 28, fontSize: 12.5, marginLeft: 'auto' }}
-                disabled={!page}
-                title={page
-                  ? 'Выбрать показатели и добавить их карточками на эту страницу'
-                  : 'Сначала откройте страницу дашборда'}
-                onClick={() => setMissingOpen(true)}>Добавить на дашборд</button>
-              <button type="button" style={{ ...btnGhost, height: 28, fontSize: 12.5 }}
-                title="Отключить подсказку для этого дашборда"
-                onClick={toggleSuggestFields}>Больше не подсказывать</button>
-            </div>
-          )}
 
           {missingOpen && missingFields && (
             <MissingFieldsDialog
@@ -999,20 +947,6 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
               ))}
             </div>
           )}
-          {/* Вкладки страниц */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
-            {sel.pages.map((p) => (
-              <button key={p.id} onClick={() => openPage(p)} style={{ ...tab, ...(page?.id === p.id ? tabActive : {}) }}>
-                {p.name}
-              </button>
-            ))}
-            {canManage && (
-              <form onSubmit={addPage} style={{ display: 'flex', gap: 6 }}>
-                <input style={{ ...input, height: 32, width: 150 }} placeholder="Новая страница" value={newPage} onChange={(e) => setNewPage(e.target.value)} />
-                <button style={{ ...btn, height: 32 }} disabled={busy || !newPage.trim()}>＋</button>
-              </form>
-            )}
-          </div>
 
           {!page ? (
             <div style={muted}>{sel.pages.length ? 'Выберите страницу.' : 'Создайте первую страницу дашборда.'}</div>
@@ -1034,89 +968,6 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                   </div>
                 </div>
               )}
-              <div data-export-hide style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-                <h3 style={{ fontSize: 15, margin: 0 }}>Страница «{page.name}»</h3>
-                {/* Кнопки правки в выгрузку не идут: в PDF нажать их нельзя,
-                    а место и внимание они занимают (data-export-hide). */}
-                {canManage && (
-                  <button data-export-hide style={{ ...editBtn, cursor: 'pointer' }} title="Переименовать страницу"
-                    onClick={() => setRenamePageTarget(page)}>✎</button>
-                )}
-                {canManage && (
-                  <button data-export-hide style={{ ...tab, height: 30, ...(editMode ? tabActive : {}) }}
-                    title={editMode
-                      ? 'Выйти из режима правки раскладки'
-                      : 'Включить перетаскивание виджетов и изменение их размера'}
-                    onClick={() => setEditMode((v) => !v)}>
-                    {editMode ? '✓ Готово' : '✎ Двигать и менять размер'}
-                  </button>
-                )}
-                {/* Дашборды, собранные до перехода авто-сборки на крупные
-                    карточки, держат виджеты 3×3: имя обрезается до
-                    «Колич обращ за…», число не помещается. Растягивать их
-                    мышью по одному — полчаса работы. */}
-                {canManage && editMode && (
-                  <button data-export-hide style={{ ...tab, height: 30 }} disabled={busy}
-                    title="Поставить каждому виджету размер по его типу и разложить по сетке. Состав страницы не изменится"
-                    onClick={fitLayout}>↕ Подогнать размеры</button>
-                )}
-                {canManage && <button data-export-hide style={linkDanger} onClick={() => delPage(page)}>удалить страницу</button>}
-                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
-                  <span>Период:</span>
-                  <input type="date" style={{ ...input, height: 30, width: 140 }} value={pFrom} onChange={(e) => setPFrom(e.target.value)} />
-                  <span>—</span>
-                  <input type="date" style={{ ...input, height: 30, width: 140 }} value={pTo} onChange={(e) => setPTo(e.target.value)} />
-                  <span style={{ marginLeft: 4 }}>Строка:</span>
-                  {catOptions.length > 0 ? (
-                    <select style={{ ...input, height: 30, width: 160 }} value={crossRow || ''} onChange={(e) => setCrossRow(e.target.value || null)}>
-                      <option value="">все</option>
-                      {catOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  ) : (
-                    <input style={{ ...input, height: 30, width: 150 }} placeholder="категория" value={crossRow || ''} onChange={(e) => setCrossRow(e.target.value || null)} />
-                  )}
-                  {crossRow && (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--accent-weak-bg)', color: 'var(--accent)', padding: '2px 8px', borderRadius: 10, fontSize: 12 }}
-                      title="Связанная фильтрация: клик по строке/столбцу фильтрует ВСЕ виджеты страницы по этой строке. Повторный клик снимает.">
-                      🔗 связано: {crossRow}
-                      <button style={{ border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: 13 }} onClick={() => setCrossRow(null)}>✕</button>
-                    </span>
-                  )}
-                  {(pFrom || pTo || crossRow) && <button style={linkDanger} onClick={() => { setPFrom(''); setPTo(''); setCrossRow(null) }}>сброс</button>}
-                </div>
-              </div>
-              {/* Быстрый выбор периода: две даты руками — это шесть полей ввода
-                  ради вопроса «а что было в прошлом месяце». Такие же кнопки уже
-                  стоят в разделе «Отчёты», единицы те же. */}
-              <div data-export-hide style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Быстро:</span>
-                {QUICK_PERIODS.map((q) => (
-                  <button key={q.label} style={{ ...tab, height: 26, fontSize: 12 }}
-                    title={q.hint}
-                    onClick={() => { const [f, t] = q.range(); setPFrom(f); setPTo(t) }}>{q.label}</button>
-                ))}
-                {/* Фильтр периода выбирает ОТЧЁТ: показывается последний отчёт,
-                    попавший в диапазон. Сказать это надо прямо — иначе человек
-                    ждёт, что цифры «просуммируются за период». */}
-                <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-                  показывается последний отчёт, попавший в период; «Динамика» — все точки диапазона
-                </span>
-              </div>
-
-              {/* Пресеты фильтров (сохранённые наборы, FR-13). В выгрузку не идут:
-                  это инструмент настройки экрана, а не содержимое отчёта. */}
-              <div data-export-hide style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Пресеты:</span>
-                {presets.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>нет сохранённых наборов</span>}
-                {presets.map((p) => (
-                  <span key={p.id} style={presetChip}>
-                    <button style={{ border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: 13 }} onClick={() => applyPreset(p)} title="Применить набор фильтров">{p.name}</button>
-                    {canManage && <button style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0 }} onClick={() => removePreset(p)} title="Удалить пресет">✕</button>}
-                  </span>
-                ))}
-                {canManage && <button style={{ ...tab, height: 28 }} onClick={() => setPresetName('')}>💾 Сохранить текущие</button>}
-                <span style={{ fontSize: 12, color: 'var(--text-faint)', marginLeft: 4 }}>клик по столбцу/сектору тоже задаёт «Строку»</span>
-              </div>
 
               {/* В режиме правки объясняем, ЧЕМ именно двигать и тянуть: без
                   подсказки перетаскивание и изменение размера просто не
