@@ -5,10 +5,8 @@
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
-import os
 from datetime import date
 from typing import Optional
 
@@ -28,8 +26,7 @@ from fastapi.concurrency import run_in_threadpool
 from ... import db
 from ..audit.service import write_event
 from ..auth.deps import get_current_user, require_roles
-from ..ingestion import queue
-from ..ingestion import service as ing_service
+from . import service as svc
 from . import storage
 
 log = logging.getLogger(__name__)
@@ -37,12 +34,8 @@ log = logging.getLogger(__name__)
 router = APIRouter(tags=["documents"])
 manage = require_roles("superadmin", "admin", "moderator")
 
-ALLOWED = {"xlsx", "xls", "csv", "pdf", "docx"}
 MAX_DOCS_LIMIT = 200
-# Серверный лимит размера загружаемого документа (в дополнение к nginx
-# client_max_body_size). Читаем чанками с ранним обрывом, чтобы ограничить
-# память даже при прямом доступе к API (без прокси).
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 МБ
+# Размер и список форматов живут в service.py — их же применяет зона «Загрузка».
 
 
 async def _read_capped(file, limit: int) -> bytes:
@@ -67,32 +60,6 @@ async def _folder_in_org(conn, folder_id: str, org_id) -> bool:
     )
 
 
-async def _find_duplicate(conn, org_id, checksum: str) -> Optional[dict]:
-    """Тот же файл (побайтово) уже загружен в организацию?
-
-    Контрольная сумма считалась с самого начала, но никогда не проверялась —
-    один и тот же отчёт можно было залить дважды молча, а затем дважды выпустить
-    из него данные. Ищем по ВСЕЙ организации, а не по текущей папке: файл,
-    положенный второй раз в соседнюю папку, — тот же дубль, просто найти его
-    потом ещё труднее.
-    """
-    row = await conn.fetchrow(
-        "select d.id, d.original_filename, d.reporting_period_start, d.created_at, "
-        "f.name as folder_name, o.name as object_name, "
-        "exists(select 1 from dataset_releases r where r.source_document_version_id=v.id) as released "
-        "from document_versions v join documents d on d.id=v.document_id "
-        "left join folders f on f.id=d.folder_id left join objects o on o.id=f.object_id "
-        "where d.organization_id=$1 and v.checksum=$2 order by d.created_at limit 1",
-        org_id, checksum)
-    if row is None:
-        return None
-    return {"document_id": str(row["id"]), "filename": row["original_filename"],
-            "folder_name": row["folder_name"], "object_name": row["object_name"],
-            "reporting_period_start": str(row["reporting_period_start"]),
-            "uploaded_at": row["created_at"].isoformat() if row["created_at"] else None,
-            "released": row["released"]}
-
-
 @router.post("/folders/{folder_id}/documents", status_code=status.HTTP_201_CREATED)
 async def upload_document(
     folder_id: str,
@@ -102,96 +69,25 @@ async def upload_document(
     force: bool = Form(False),
     user: dict = Depends(manage),
 ):
-    # Имя файла приходит от клиента: берём ТОЛЬКО базовое имя. Иначе браузер или
-    # самодельный клиент может прислать «../../evil.xlsx», и такие сегменты уедут
-    # в ключ объекта MinIO (minio-py их отвергает — получался сырой 500, а строка
-    # documents к тому моменту уже была вставлена → «документ без версии»).
-    filename = os.path.basename((file.filename or "file").replace("\\", "/")).strip() or "file"
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    if ext not in ALLOWED:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            f"Неподдерживаемый формат: .{ext}. Разрешены: {', '.join(sorted(ALLOWED))}",
-        )
-    content = await _read_capped(file, MAX_UPLOAD_BYTES)
-    if not content:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустой файл")
-    checksum = hashlib.sha256(content).hexdigest()
+    """Загрузка файла в КОНКРЕТНУЮ папку (человек уже знает, куда кладёт).
+
+    Сам путь сохранения общий с зоной «Загрузка» (`service.save_document`):
+    проверка дублей, запись в хранилище и постановка распознавания должны быть
+    одни и те же, иначе два входа в систему однажды повели бы себя по-разному.
+    """
+    filename = svc.safe_filename(file.filename)
+    content = await _read_capped(file, svc.MAX_UPLOAD_BYTES)
 
     async with db.get_pool().acquire() as conn:
         if not await _folder_in_org(conn, folder_id, user["organization_id"]):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Папка не найдена")
-        # Дубль — предупреждение, а не запрет: бывает, что тот же файл заводят
-        # повторно осознанно (например, в другой объект). Поэтому 409 с полным
-        # описанием находки, а решение принимает человек кнопкой «всё равно
-        # загрузить» (force). Молча пропускать нельзя: из дубля так же молча
-        # выпустят вторые данные за тот же период.
-        if not force:
-            dup = await _find_duplicate(conn, user["organization_id"], checksum)
-            if dup is not None:
-                where = " / ".join(x for x in (dup["object_name"], dup["folder_name"]) if x)
-                raise HTTPException(status.HTTP_409_CONFLICT, {
-                    "message": (f"Этот файл уже загружен: «{dup['filename']}»"
-                                + (f" (📁 {where})" if where else "")
-                                + f", отчётный период {dup['reporting_period_start']}"
-                                + (", данные из него уже выпущены" if dup["released"] else "")
-                                + ". Содержимое совпадает побайтово."),
-                    "duplicate": dup,
-                })
-        # Одна транзакция на документ + версию + запись в хранилище: сбой записи
-        # в MinIO не должен оставлять в БД «документ без версии» (такой документ
-        # виден в списке, но его нельзя ни скачать, ни отправить на распознавание).
-        async with conn.transaction():
-            doc = await conn.fetchrow(
-                "insert into documents(organization_id, folder_id, original_filename, source_type, "
-                "reporting_period_start, reporting_period_end, period_confirmed_by, period_confirmed_at, uploaded_by) "
-                "values($1,$2::uuid,$3,$4::document_source_type,$5,$6,$7,now(),$7) returning id",
-                user["organization_id"], folder_id, filename, ext,
-                reporting_period_start, reporting_period_end, user["id"],
-            )
-            doc_id = doc["id"]
-            object_name = f"{folder_id}/{doc_id}/v1/{filename}"
-            try:
-                storage_path = await run_in_threadpool(
-                    storage.put_object, object_name, content,
-                    file.content_type or "application/octet-stream",
-                )
-            except Exception as e:  # хранилище недоступно/отвергло имя объекта
-                raise HTTPException(
-                    status.HTTP_502_BAD_GATEWAY,
-                    f"Не удалось сохранить файл в хранилище: {e}",
-                )
-            ver = await conn.fetchrow(
-                "insert into document_versions(document_id, version_no, storage_path, checksum, file_size_bytes, uploaded_by) "
-                "values($1,1,$2,$3,$4,$5) returning id",
-                doc_id, storage_path, checksum, len(content), user["id"],
-            )
-
-        # Распознавание запускаем САМИ: раньше его отдельным вызовом делал
-        # интерфейс, и файл, залитый мимо формы, оставался нераспознанным
-        # навсегда. Сбой очереди не проваливает загрузку — файл уже в
-        # хранилище, а повисшие задания добирает ежедневное задание воркера.
-        # Галочка папки «готовить автоматически» это отключает: бывают папки,
-        # куда файлы складывают на хранение, а не под выпуск.
-        job_id = None
-        auto = await conn.fetchval("select auto_prepare from folders where id=$1::uuid", folder_id)
-        if auto:
-            try:
-                job_id = await ing_service.enqueue_or_run(conn, str(ver["id"]))
-                await queue.enqueue_extraction(job_id)
-            except Exception as exc:  # noqa: BLE001 — очередь недоступна
-                log.warning("Не удалось поставить распознавание документа %s: %s", doc_id, exc)
-
-    return {
-        "extraction_job_id": job_id,
-        "id": str(doc_id),
-        "original_filename": filename,
-        "source_type": ext,
-        "size": len(content),
-        "reporting_period_start": str(reporting_period_start),
-        "storage_path": storage_path,
-        "version_id": str(ver["id"]),
-    }
+        try:
+            return await svc.save_document(
+                conn, org_id=user["organization_id"], user_id=user["id"], folder_id=folder_id,
+                filename=filename, content=content, content_type=file.content_type,
+                period_start=reporting_period_start, period_end=reporting_period_end, force=force)
+        except svc.UploadError as e:
+            raise HTTPException(e.status_code, e.detail)
 
 
 async def _dataset_usage(conn, org_id, document_id: str) -> list:

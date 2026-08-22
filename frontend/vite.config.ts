@@ -60,6 +60,8 @@ export default defineConfig({
       // в SPA и приходит HTML вместо JSON («Unexpected token '<'»).
       '/instructions': 'http://localhost:8080',
       '/announcements': 'http://localhost:8080',
+      // Общая зона загрузки (шаг ⑤): файл кладут без выбора папки.
+      '/uploads': 'http://localhost:8080',
       '/dashboard-pages': 'http://localhost:8080',
       '/dashboard-templates': 'http://localhost:8080',
       '/widgets': 'http://localhost:8080',

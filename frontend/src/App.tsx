@@ -19,6 +19,7 @@ import ShowcasesPage from './components/ShowcasesPage'
 import AppealsPage from './components/AppealsPage'
 import NotificationBell from './components/NotificationBell'
 import OnboardingHint from './components/OnboardingHint'
+import UploadsPage from './components/UploadsPage'
 import ThemeToggle from './components/ThemeToggle'
 import Logo from './components/Logo'
 import SetupWizard from './components/SetupWizard'
@@ -93,6 +94,8 @@ const NAV = [
   // Своя главная для сотрудника: объявления, его отчёты по объектам, что нового
   // в данных и справка о системе. Админская «Главная» — про наполнение системы.
   { key: 'portal', label: 'Главная', ready: true, userOnly: true },
+  // Общая зона загрузки: сдать форму, не зная устройства системы.
+  { key: 'uploads', label: 'Загрузка', ready: true, staffOnly: true },
   { key: 'objects', label: 'Объекты', ready: true, staffOnly: true },
   { key: 'metrics', label: 'Метрики', ready: true, staffOnly: true },
   // Подборка для руководства нужна единицам, поэтому показывается по галочке
@@ -280,6 +283,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {section === 'home' ? (
             <HomePage me={me} canManage={canManage}
               onOpenDashboard={(id, pageId) => { setOpenDash(id); setOpenPage(pageId || null); setSection('dashboards') }} />
+          ) : section === 'uploads' ? (
+            <UploadsPage />
           ) : section === 'objects' ? (
             <ObjectsPage canManage={canManage} isSuperadmin={isSuperadmin} initialObjectId={openObject} />
           ) : section === 'metrics' ? (

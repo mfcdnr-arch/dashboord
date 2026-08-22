@@ -98,6 +98,11 @@ async def run_extraction(job_id: str) -> None:
             job_id, status, avg_conf,
             json.dumps(result.warnings, ensure_ascii=False),
         )
+        # Файл из общей зоны загрузки сначала находит свою папку: сверка с
+        # шаблоном и авто-выпуск работают уже с объектом папки, поэтому маршрут
+        # обязан быть определён раньше них.
+        from ..uploads import service as uploads_svc
+        await uploads_svc.route_after_extraction(conn, job_id)
         await _check_template(conn, job_id)
         # Совпал бланк и нет замечаний — выпускаем сразу: заказчик просил, чтобы
         # план/факт пересчитывался при добавлении файла, а не после ручного шага.

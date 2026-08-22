@@ -32,6 +32,7 @@ from .modules.portal.router import router as portal_router
 from .modules.reports.router import router as reports_router
 from .modules.showcases.router import router as showcases_router
 from .modules.system.router import router as system_router
+from .modules.uploads.router import router as uploads_router
 from .modules.users.router import router as users_router
 
 
@@ -104,6 +105,7 @@ app.include_router(auth_router)
 app.include_router(audit_router)
 app.include_router(objects_router)
 app.include_router(documents_router)
+app.include_router(uploads_router)
 app.include_router(ingestion_router)
 app.include_router(metrics_router)
 app.include_router(dashboards_router)

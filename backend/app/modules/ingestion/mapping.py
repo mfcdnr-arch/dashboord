@@ -872,3 +872,44 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         "superseded_release_id": superseded_id,
         "validation": {"warnings": warnings, "ok": len(warnings) == 0},
     }
+
+
+async def match_any_template(conn, org_id, table_ids: Sequence[str]) -> List[dict]:
+    """Формы организации, отпечаток которых совпал с этим файлом.
+
+    Нужна общей зоне загрузки: человек кладёт файл, не выбирая папку, и систему
+    просят узнать форму «в лицо». Сравнить хеши напрямую нельзя — отпечаток
+    считается ПО РАЗМЕТКЕ (область данных, число этажей шапки, ориентация), а у
+    каждого шаблона она своя; поэтому область файла выкраивается по разметке
+    КАЖДОГО шаблона и только потом сравнивается.
+
+    Возвращает все совпадения, а не первое: две формы с одинаковой структурой —
+    повод спросить человека, а не выбрать за него молча.
+    """
+    tpls = await conn.fetch(
+        "select t.object_id, t.fingerprint, t.layout, t.dataset_code, o.name as object_name, "
+        "  t.source_release_id "
+        "from object_layout_templates t join objects o on o.id = t.object_id "
+        "where o.organization_id=$1", org_id)
+    if not tpls:
+        return []
+    tables = []
+    for tid in table_ids:
+        row = await conn.fetchrow(
+            "select data, merges, header_rows from extracted_tables where id=$1::uuid", tid)
+        if row is not None:
+            tables.append((tid, _jsonb(row["data"], []),
+                           [tuple(m) for m in _jsonb(row["merges"], [])], row["header_rows"]))
+    out: List[dict] = []
+    for tpl in tpls:
+        lay = {**DEFAULT_LAYOUT, **_jsonb(tpl["layout"], {})}
+        for tid, grid, merges, hdr_rows in tables:
+            rect, _extended = fit_rect(lay["data_rect"], grid)
+            hdr = int((lay["header_rows"] if lay["header_rows"] is not None else hdr_rows) or 0)
+            area = analysis_grid(grid, merges, rect, lay["orientation"])
+            if structure_fingerprint(area, hdr, lay["orientation"]) == tpl["fingerprint"]:
+                out.append({"object_id": tpl["object_id"], "object_name": tpl["object_name"],
+                            "dataset_code": tpl["dataset_code"],
+                            "source_release_id": tpl["source_release_id"], "table_id": str(tid)})
+                break
+    return out
