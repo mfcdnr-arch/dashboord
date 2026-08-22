@@ -15,6 +15,7 @@ from ._base import DashboardError
 from ._rowrls import allowed_rows_for_dataset
 from ._widgetsources import (
     _dataset_as_of,
+    _dataset_field_period_matrix,
     _dataset_multi_series,
     _dataset_period_series,
     _dataset_row_period_matrix,
@@ -486,16 +487,29 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         # все строки в одно число, сводная таблица показывает строки × поля на
         # ОДНУ дату. Вопрос «какой район просел на прошлой неделе» до сих пор
         # требовал открывать несколько срезов подряд и сравнивать глазами.
-        if not cfg.get("dataset_code") or not cfg.get("value_field"):
+        if not cfg.get("dataset_code") or not (cfg.get("value_field") or cfg.get("value_fields")):
             raise DashboardError("Матрица: укажите dataset_code и показатель (value_field)")
         try:
             max_periods = int(cfg.get("max_periods") or 12)
         except (TypeError, ValueError):
             max_periods = 12
         max_periods = max(2, min(max_periods, 52))
-        m = await _dataset_row_period_matrix(
-            conn, org_id, cfg["dataset_code"], cfg["value_field"],
-            from_date, to_date, row, allowed, max_periods)
+        # Два разреза одной матрицы. «По строкам» отвечает на «какой район
+        # просел», «по показателям» — на «какой показатель какой был на каждую
+        # дату». У сводной формы строка одна, и первый разрез вырождается в
+        # одну строку; второй как раз для неё.
+        by_fields = (cfg.get("by") == "fields")
+        if by_fields:
+            fields = [f for f in (cfg.get("value_fields") or []) if f]
+            if not cfg.get("dataset_code") or not fields:
+                raise DashboardError("Матрица по показателям: укажите dataset_code и показатели")
+            m = await _dataset_field_period_matrix(
+                conn, org_id, cfg["dataset_code"], fields,
+                from_date, to_date, row, allowed, max_periods)
+        else:
+            m = await _dataset_row_period_matrix(
+                conn, org_id, cfg["dataset_code"], cfg["value_field"],
+                from_date, to_date, row, allowed, max_periods)
         periods = m["periods"]
         n = len(periods)
         matrix_rows: List[dict] = []
@@ -519,7 +533,10 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             last = next((v for v in reversed(cells) if v is not None), None)
             first = next((v for v in cells if v is not None), None)
             matrix_rows.append({
-                "row": lbl, "values": cells, "deltas": deltas, "delta_pcts": pcts,
+                "row": (m.get("names", {}).get(lbl, lbl) if by_fields else lbl),
+                "field": lbl if by_fields else None,
+                "aggregate": (m.get("how", {}).get(lbl) if by_fields else None),
+                "values": cells, "deltas": deltas, "delta_pcts": pcts,
                 "last": last,
                 # Итог строки за весь показанный отрезок — то же, что «всего» у
                 # «Динамики»: без него матрица отвечает на «сколько сейчас», но
@@ -529,10 +546,22 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
                     (last - first) / first * 100.0
                     if (last is not None and first is not None and first) else None),
             })
-        title = await _field_title(conn, org_id, cfg["dataset_code"], cfg["value_field"])
-        return {"type": "matrix", "title": name, "periods": periods, "rows": matrix_rows,
-                "col_totals": matrix_totals, "field_title": title or cfg["value_field"],
-                "unit": cfg.get("unit"),
+        if by_fields:
+            # Итог по столбцу здесь сложил бы РАЗНЫЕ показатели (обращения с
+            # процентами) — число получилось бы бессмысленным, поэтому его нет.
+            subtitle = f"показателей: {len(matrix_rows)}"
+        else:
+            title = await _field_title(conn, org_id, cfg["dataset_code"], cfg["value_field"])
+            subtitle = title or cfg["value_field"]
+        return {"type": "matrix", "title": name, "by": ("fields" if by_fields else "rows"),
+                # Дата, за которую данные показаны на самом деле: у матрицы это
+                # её последний столбец. Общая метка свежести здесь соврала бы —
+                # при фильтре периода она показывала бы дату последнего выпуска,
+                # которого на экране нет.
+                "as_of": (periods[-1] if periods else None),
+                "periods": periods, "rows": matrix_rows,
+                "col_totals": (None if by_fields else matrix_totals),
+                "field_title": subtitle, "unit": cfg.get("unit"),
                 "total_periods": m["total_periods"], "shown_periods": m["shown_periods"]}
 
     if t == "dynamics":
@@ -545,7 +574,10 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         change = values[-1] - values[-2] if len(values) >= 2 else None
         change_pct = (change / values[-2] * 100.0) if (change is not None and values[-2]) else None
         res = {"type": "dynamics", "title": name, "periods": periods, "values": values,
-               "change": change, "change_pct": change_pct}
+               "change": change, "change_pct": change_pct,
+               # Та же логика, что у матрицы: свежесть виджета — его последняя
+               # показанная точка, а не последний выпуск набора данных.
+               "as_of": (periods[-1] if periods else None)}
         if len(values) >= 2:
             # К какой ПАРЕ дат относится «к пред. периоду»: когда точек больше двух,
             # по одному числу не понять, между чем и чем прирост.
@@ -565,11 +597,20 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             # 7 тыс. записей) на одной оси, не превращая маленький ряд в прямую
             # у нуля. Считается на сервере, а не на клиенте, чтобы выгрузка в
             # Excel показывала ровно то же, что экран.
-            base = next((v for v in values if v), None)
-            if base:
+            # База — первый отчёт ряда либо ВЫБРАННЫЙ человеком: вопрос «сколько
+            # сейчас относительно 22.07» задают чаще, чем «относительно начала
+            # ряда», а ряд к тому же меняется с приходом новых данных.
+            want = cfg.get("index_base_period")
+            idx = periods.index(want) if want in periods else None
+            if want and idx is None:
+                res["index_base_missing"] = want
+            if idx is None:
+                idx = next((i for i, v in enumerate(values) if v), None)
+            base = values[idx] if idx is not None else None
+            if base and idx is not None:
                 res["index_values"] = [round(v / base * 100.0, 2) if v is not None else None
                                        for v in values]
-                res["index_base_period"] = periods[0] if periods else None
+                res["index_base_period"] = periods[idx]
         if cfg.get("trend"):
             tr = _linear_trend(values)
             if tr:

@@ -30,12 +30,15 @@ async def test_autobuild_offers_matrix_only_when_it_answers_something(client, ad
     specs = plan_auto_build(many)
     matrices = [s for s in specs if s["widget_type"] == "matrix"]
     assert len(matrices) == 1, "матрица должна быть одна на набор данных, а не на каждый показатель"
+    assert matrices[0]["config"].get("by") is None, "при нескольких строках разрез — по строкам"
     assert matrices[0]["page"] == "Динамика" and matrices[0]["width"] == 12
 
-    # Одна строка в форме (нынешние данные заказчика) — матрица дословно
-    # повторяла бы «Динамику», поэтому её нет.
+    # Одна строка в форме (нынешние данные заказчика): разрез по строкам
+    # выродился бы в одну строку, поэтому матрица ставится по ПОКАЗАТЕЛЯМ —
+    # «какой показатель какой был на каждую дату» (см. отдельный тест разрезов).
     one_row = [{**many[0], "rows": 1}]
-    assert not [s for s in plan_auto_build(one_row) if s["widget_type"] == "matrix"]
+    only = [s for s in plan_auto_build(one_row) if s["widget_type"] == "matrix"]
+    assert len(only) == 1 and only[0]["config"]["by"] == "fields"
     # Один отчёт — один столбец, показывать нечего.
     one_period = [{**many[0], "periods": 1}]
     assert not [s for s in plan_auto_build(one_period) if s["widget_type"] == "matrix"]
@@ -197,3 +200,75 @@ async def test_plan_fact_forecast_end_to_end(client, admin_headers, seed_dataset
         assert d2["forecast"]["reason"] == "done"
     finally:
         await purge_dashboard(did)
+
+async def test_matrix_by_fields_answers_what_each_indicator_was(client, admin_headers, seed_dataset):
+    """Матрица «показатель × дата»: у сводной формы строка одна, и разрез по
+    строкам вырождается — здесь строками идут сами показатели."""
+    did = (await client.post("/dashboards", headers=admin_headers, json={"name": "ztest_matrix_f"})).json()["id"]
+    try:
+        pid = (await client.post(f"/dashboards/{did}/pages", headers=admin_headers, json={"name": "M"})).json()["id"]
+        wid = await _widget(client, admin_headers, pid, "показатели по датам", "matrix",
+                            {"dataset_code": "t_ds", "by": "fields", "value_fields": ["plan", "fact"]})
+        d = (await client.get(f"/widgets/{wid}/data", headers=admin_headers)).json()
+        assert d["by"] == "fields"
+        assert d["periods"] == ["2026-01-01", "2026-02-01"]
+        by_row = {r["field"]: r for r in d["rows"]}
+        # plan есть в обоих выпусках (95+45+25 → 100+50+30), fact — только во втором.
+        assert by_row["plan"]["values"] == [165.0, 180.0]
+        assert by_row["plan"]["deltas"][1] == 15.0
+        assert by_row["fact"]["values"][0] is None and by_row["fact"]["values"][1] == 173.0
+        # Итога по столбцу быть НЕ должно: он сложил бы разные показатели.
+        assert d["col_totals"] is None
+        # Строка подписана человеческим именем показателя, а не кодом поля.
+        assert by_row["plan"]["row"]
+
+        # Даты отчётов страницы — список для выбора конкретного отчёта фильтром.
+        dates = (await client.get(f"/dashboard-pages/{pid}/report-dates", headers=admin_headers)).json()
+        assert dates["dates"] == ["2026-02-01", "2026-01-01"], "свежие отчёты — сверху"
+    finally:
+        await purge_dashboard(did)
+
+
+async def test_growth_index_can_start_from_chosen_report(client, admin_headers, seed_dataset):
+    """База индекса — выбранный отчёт, а не только первый ряда."""
+    did = (await client.post("/dashboards", headers=admin_headers, json={"name": "ztest_index_base"})).json()["id"]
+    try:
+        pid = (await client.post(f"/dashboards/{did}/pages", headers=admin_headers, json={"name": "D"})).json()["id"]
+        wid = await _widget(client, admin_headers, pid, "динамика", "dynamics",
+                            {"dataset_code": "t_ds", "value_field": "plan", "growth_index": True,
+                             "index_base_period": "2026-02-01"})
+        d = (await client.get(f"/widgets/{wid}/data", headers=admin_headers)).json()
+        assert d["index_base_period"] == "2026-02-01"
+        assert d["index_values"][1] == 100.0
+        # Прошлый отчёт относительно выбранной базы — меньше 100 %.
+        assert d["index_values"][0] == pytest.approx(165 / 180 * 100, abs=0.01)
+
+        # Выбрана дата, которой в данных нет: считаем от первой и ГОВОРИМ об этом,
+        # иначе человек читал бы проценты не от той базы.
+        wid2 = await _widget(client, admin_headers, pid, "динамика-2", "dynamics",
+                             {"dataset_code": "t_ds", "value_field": "plan", "growth_index": True,
+                              "index_base_period": "2020-01-01"})
+        d2 = (await client.get(f"/widgets/{wid2}/data", headers=admin_headers)).json()
+        assert d2["index_base_missing"] == "2020-01-01"
+        assert d2["index_values"][0] == 100.0
+    finally:
+        await purge_dashboard(did)
+
+
+async def test_autobuild_picks_matrix_cut_by_data(client, admin_headers):
+    """Разрез матрицы выбирается по данным: районы — по строкам, сводная форма
+    (одна строка) — по показателям."""
+    from app.modules.dashboards._suggest import plan_auto_build
+
+    fields = [{"code": "plan", "name": "Заявлений принято нарастающим итогом"},
+              {"code": "fact", "name": "Заявлений принято за отчетную неделю"}]
+    base = {"code": "t_ds", "name": "Форма", "periods": 4, "fields": fields, "period_dates": []}
+
+    m_rows = [s for s in plan_auto_build([{**base, "rows": 6}]) if s["widget_type"] == "matrix"]
+    assert len(m_rows) == 1 and m_rows[0]["config"].get("by") is None, "у формы с районами разрез по строкам"
+
+    m_fields = [s for s in plan_auto_build([{**base, "rows": 1}]) if s["widget_type"] == "matrix"]
+    assert len(m_fields) == 1, "у сводной формы матрица теперь есть — в разрезе по показателям"
+    assert m_fields[0]["config"]["by"] == "fields"
+    assert m_fields[0]["config"]["value_fields"] == ["plan", "fact"]
+

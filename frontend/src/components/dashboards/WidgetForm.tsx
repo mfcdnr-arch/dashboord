@@ -321,16 +321,24 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   }
 
   const [pickerOpen, setPickerOpen] = useState(false)
+  // Разрез матрицы: строки формы (районы) или её показатели. У сводной формы
+  // строка одна, и осмыслен только второй разрез.
+  const [matrixBy, setMatrixBy] = useState<string>(cfg0.by === 'fields' ? 'fields' : 'rows')
+  // База индекса роста: пусто — первый отчёт ряда, иначе выбранная дата.
+  const [indexBase, setIndexBase] = useState<string>((cfg0.index_base_period as string) || '')
   const isObjectsCompare = type === 'objects_compare'
   const isCrossCompare = type === 'cross_dataset_compare'
   const isText = type === 'text'
   const isImage = type === 'image'
   const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
   const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall', 'matrix'].includes(type)
-  const usesValueField = ['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall', 'matrix'].includes(type) || (['kpi', 'gauge'].includes(type) && source === 'dataset')
+  const usesValueField = ['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall'].includes(type)
+    || (type === 'matrix' && matrixBy !== 'fields')
+    || (['kpi', 'gauge'].includes(type) && source === 'dataset')
   // Воронка тоже набирается из нескольких полей, но порядок галочек для неё
   // ЗНАЧИМ: это последовательность этапов, а не просто набор столбцов.
   const usesMulti = type === 'compare' || type === 'heatmap' || type === 'pivot' || type === 'funnel'
+    || (type === 'matrix' && matrixBy === 'fields')
   const toggleField = (c: string) => setMultiFields((s) => s.includes(c) ? s.filter((x) => x !== c) : [...s, c])
 
   // Шкала спидометра (gauge): максимум; пусто — авто.
@@ -390,12 +398,23 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     if (type === 'status_grid') return (dataset && valueField)
       ? { dataset_code: dataset, value_field: valueField, ...(planField ? { plan_field: planField } : {}) } : null
     if (type === 'heatmap' || type === 'pivot') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields } : null
-    if (type === 'matrix') return (dataset && valueField)
-      ? { dataset_code: dataset, value_field: valueField, max_periods: Number(maxPeriods) || 12 } : null
+    if (type === 'matrix') {
+      if (!dataset) return null
+      if (matrixBy === 'fields') {
+        return multiFields.length
+          ? { dataset_code: dataset, by: 'fields', value_fields: multiFields,
+              max_periods: Number(maxPeriods) || 12 }
+          : null
+      }
+      return valueField
+        ? { dataset_code: dataset, value_field: valueField, max_periods: Number(maxPeriods) || 12 }
+        : null
+    }
     if (type === 'dynamics') return (dataset && valueField) ? {
       dataset_code: dataset, value_field: valueField,
       ...(trend ? { trend: true } : {}),
       ...(growthIndex ? { growth_index: true } : {}),
+      ...(growthIndex && indexBase ? { index_base_period: indexBase } : {}),
       ...(anomalies ? { anomalies: true, anomaly_threshold: Number(anomalyThreshold) || 2 } : {}),
     } : null
     return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null // bar/line/pie/yoy
@@ -619,6 +638,15 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }} title="Первая точка = 100 %, дальше — рост в процентах к ней. Абсолютные значения остаются в подсказке.">
             <input type="checkbox" checked={growthIndex} onChange={(e) => setGrowthIndex(e.target.checked)} />Индекс роста (первая точка = 100 %)
           </label>
+          {growthIndex && (
+            <F t="База индекса (100 %)">
+              <input type="date" style={sel} value={indexBase} onChange={(e) => setIndexBase(e.target.value)}
+                title="Пусто — первый отчёт ряда. Иначе рост считается от выбранного отчёта: «сколько сейчас относительно 22.07»." />
+              <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4, maxWidth: 320 }}>
+                Пусто — считаем от первого отчёта ряда. Выбранная дата должна быть отчётной датой файла.
+              </div>
+            </F>
+          )}
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }} title="Отметить точки, отклонившиеся от линии тренда больше чем на N стандартных отклонений (простая статистика, без ИИ)">
             <input type="checkbox" checked={anomalies} onChange={(e) => setAnomalies(e.target.checked)} />Отмечать аномалии
           </label>
@@ -628,6 +656,15 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
             </F>
           )}
         </>
+      )}
+      {type === 'matrix' && (
+        <F t="Что в строках">
+          <select style={sel} value={matrixBy} onChange={(e) => setMatrixBy(e.target.value)}
+            title="У сводной формы строка одна — тогда осмыслен разрез «показатели × даты»">
+            <option value="rows">Строки формы (районы, отделения) × даты</option>
+            <option value="fields">Показатели формы × даты</option>
+          </select>
+        </F>
       )}
       {type === 'matrix' && (
         <F t="Сколько последних отчётов">
@@ -642,7 +679,8 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       {usesMulti && (
         <>
           <F t={type === 'heatmap' ? 'Поля (столбцы карты)'
-            : type === 'funnel' ? 'Этапы воронки — в порядке следования' : 'Поля (несколько)'}>
+            : type === 'funnel' ? 'Этапы воронки — в порядке следования'
+            : type === 'matrix' ? 'Показатели — строками матрицы' : 'Поля (несколько)'}>
             {/* Высота была жёстко задана в 34px: полтора десятка длинных имён
                 показателей госформы туда не помещались и наезжали на соседние
                 поля формы. Теперь список занимает столько, сколько нужно, но не

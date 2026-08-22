@@ -369,6 +369,9 @@ MAX_AUTO_PERIOD_PAGES = 8
 # самого виджета: собранная мастером страница не должна отличаться от той, где
 # матрицу добавили руками.
 MATRIX_PERIODS = 12
+# Сколько показателей помещается в матрицу «показатель × дата», не превращая её
+# в стену: у госформы их полтора десятка, и все они осмысленны.
+MATRIX_FIELDS = 20
 
 
 def default_view(field_name: str, has_periods: bool) -> str:
@@ -543,15 +546,24 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
         # («Донецкая Народная Республика») матрица дословно повторяет
         # «Динамику», и место она занимала бы зря.
         many_rows = int(d.get("rows") or 0) > 1
-        if "matrix" in blocks and has_dyn and many_rows:
-            # Показатель берём тот, который человек и так смотрит в движении;
-            # матрица на каждый показатель превратила бы страницу в стену.
-            base = next((f for f in shown if view_of(f) in ("dynamics", "both")), shown[0])
-            specs.append({"page": PAGE_DYNAMICS,
-                          "name": f"{_split_name(base['name'])['subject']}: по строкам и датам",
-                          "widget_type": "matrix",
-                          "config": {"dataset_code": code, "value_field": base["code"],
-                                     "max_periods": MATRIX_PERIODS},
+        if "matrix" in blocks and has_dyn:
+            # Разрез выбирается по самим данным. Строк в форме несколько
+            # (районы, отделения) — интереснее «кто как двигался»; строка одна
+            # (сводная форма по субъекту) — матрица по строкам выродилась бы в
+            # одну строку, и нужен обратный разрез: показатели × даты, то самое,
+            # ради чего файлы сводят в Excel руками.
+            if many_rows:
+                base = next((f for f in shown if view_of(f) in ("dynamics", "both")), shown[0])
+                spec_cfg = {"dataset_code": code, "value_field": base["code"],
+                            "max_periods": MATRIX_PERIODS}
+                spec_name = f"{_split_name(base['name'])['subject']}: по строкам и датам"
+            else:
+                spec_cfg = {"dataset_code": code, "by": "fields",
+                            "value_fields": [f["code"] for f in shown[:MATRIX_FIELDS]],
+                            "max_periods": MATRIX_PERIODS}
+                spec_name = f"{dsname}: показатели по датам"
+            specs.append({"page": PAGE_DYNAMICS, "name": spec_name, "widget_type": "matrix",
+                          "config": spec_cfg,
                           "position_x": 0, "position_y": dyn_y, "width": 12, "height": 8})
             dyn_y += 8
 

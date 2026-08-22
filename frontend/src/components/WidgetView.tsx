@@ -834,6 +834,11 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         {idxVals && data.index_base_period && (
           <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 3 }}>
             индекс роста: {fmtPeriod(data.index_base_period)} = 100 %
+            {data.index_base_missing && (
+              <span style={{ color: 'var(--warn)' }}>
+                {' '}· выбранного отчёта за {fmtPeriod(data.index_base_missing)} в данных нет — считаем от первого
+              </span>
+            )}
           </div>
         )}
         {ch != null && (
@@ -1057,6 +1062,23 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     const periods: string[] = data.periods || []
     let rows: any[] = data.rows || []
     if (rows.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных за период</div>
+    // Разрез матрицы: строки формы (районы) или показатели формы. Во втором
+    // случае строка — это ПОКАЗАТЕЛЬ, и провалиться в неё нельзя: фильтр
+    // страницы работает по строкам данных, а не по графам.
+    const byFields = data.by === 'fields'
+    const pickRow = byFields ? undefined : onPick
+    // Имена показателей госформы различаются СЕРЕДИНОЙ («Количество обращений …
+    // нарастающим итогом» / «… за отчётную неделю»): без отсечения общей части
+    // тринадцать строк матрицы выглядят одинаково. Тот же приём, что в легенде
+    // графиков (09.08); полное имя остаётся в подсказке.
+    // Ключом служит само имя, а не индекс: строки матрицы можно сортировать
+    // кликом по заголовку, и позиции после этого не совпадают с исходными.
+    const shortRow: Record<string, string> = {}
+    if (byFields) {
+      const src = (data.rows || []).map((r: any) => String(r.row))
+      distinctLabels(src).forEach((short, i) => { shortRow[src[i]] = short })
+    }
+    const labelOf = (r: any) => (byFields ? (shortRow[String(r.row)] || r.row) : r.row)
     const mVal = (r: any, col: string) => (col === '__row' ? r.row : col === '__chg' ? r.total_change : r.values[Number(col)])
     rows = sortRows(rows, matrixSort, mVal)
     const totCell: React.CSSProperties = { ...td, fontWeight: 700, background: 'var(--surface-accent)' }
@@ -1072,21 +1094,28 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
           <thead><tr>
             <th style={{ ...th, ...sortableTh, ...stickyCol, ...stickyHead }} title={SORT_HINT}
-              onClick={() => toggleSort(setMatrixSort, '__row')}>Строка{sortArrow(matrixSort, '__row')}</th>
+              onClick={() => toggleSort(setMatrixSort, '__row')}>{byFields ? 'Показатель' : 'Строка'}{sortArrow(matrixSort, '__row')}</th>
             {periods.map((p, i) => (
               <th key={p + i} style={{ ...th, ...sortableTh, textAlign: 'right' }} title={SORT_HINT}
                 onClick={() => toggleSort(setMatrixSort, String(i))}>{fmtPeriod(p)}{sortArrow(matrixSort, String(i))}</th>
             ))}
-            <th style={{ ...th, ...sortableTh, textAlign: 'right', color: 'var(--accent)' }} title={SORT_HINT}
-              onClick={() => toggleSort(setMatrixSort, '__chg')}>За период{sortArrow(matrixSort, '__chg')}</th>
+            {/* При одном отчёте «за период» дало бы ноль в каждой строке —
+                колонку не рисуем вовсе. */}
+            {periods.length > 1 && (
+              <th style={{ ...th, ...sortableTh, textAlign: 'right', color: 'var(--accent)' }} title={SORT_HINT}
+                onClick={() => toggleSort(setMatrixSort, '__chg')}>За период{sortArrow(matrixSort, '__chg')}</th>
+            )}
           </tr></thead>
           <tbody>
             {rows.map((r: any, i: number) => (
-              <tr key={i} onClick={onPick && !print ? () => onPick(String(r.row)) : undefined}
-                style={onPick && !print ? { cursor: 'pointer' } : undefined}
-                title={onPick && !print ? `Показать всю страницу по строке «${r.row}»` : undefined}>
+              <tr key={i} onClick={pickRow && !print ? () => pickRow(String(r.row)) : undefined}
+                style={pickRow && !print ? { cursor: 'pointer' } : undefined}
+                title={pickRow && !print ? `Показать всю страницу по строке «${r.row}»` : undefined}>
                 <td style={{ ...td, fontWeight: 600, ...stickyCol,
-                  ...(onPick && !print ? { color: 'var(--accent)' } : {}) }}>{r.row}</td>
+                  ...(pickRow && !print ? { color: 'var(--accent)' } : {}) }}
+                  title={`${r.row}${r.aggregate === 'avg' ? '\nДоля: строки формы усредняются, а не складываются' : ''}`}>
+                  {labelOf(r)}{r.aggregate === 'avg' ? ' ⌀' : ''}
+                </td>
                 {periods.map((_p, ci) => {
                   const v = r.values[ci]
                   const d = r.deltas?.[ci]
@@ -1103,6 +1132,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                     </td>
                   )
                 })}
+                {periods.length > 1 && (
                 <td style={{ ...totCell, textAlign: 'right', whiteSpace: 'nowrap',
                   color: typeof r.total_change === 'number' ? (r.total_change >= 0 ? 'var(--success)' : 'var(--danger)') : undefined }}
                   title="Изменение от первого показанного отчёта к последнему">
@@ -1111,18 +1141,20 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                     <div style={{ fontSize: 10.5 }}>{r.total_change_pct > 0 ? '+' : ''}{fmt(r.total_change_pct)} %</div>
                   )}
                 </td>
+                )}
               </tr>
             ))}
           </tbody>
-          {/* Итог по столбцу показываем, только когда строк больше одной:
-              у формы с единственной строкой он дословно повторял бы её. */}
-          {rows.length > 1 && (
+          {/* Итог по столбцу показываем, только когда строк больше одной: у
+              формы с единственной строкой он повторял бы её. У матрицы по
+              ПОКАЗАТЕЛЯМ итога нет вовсе — он сложил бы обращения с процентами. */}
+          {rows.length > 1 && data.col_totals && (
             <tfoot><tr>
               <td style={{ ...totCell, ...stickyCol, background: 'var(--surface-2)' }}>Итого</td>
               {(data.col_totals || []).map((v: number | null, i: number) => (
                 <td key={i} style={{ ...totCell, textAlign: 'right' }}>{typeof v === 'number' ? fmt(v) : '—'}</td>
               ))}
-              <td style={totCell} />
+              {periods.length > 1 && <td style={totCell} />}
             </tr></tfoot>
           )}
         </table>

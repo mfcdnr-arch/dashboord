@@ -108,6 +108,16 @@ async def page_row_rank(page_id: str, row: str = Query(...),
             raise _bad(e)
 
 
+@router.get("/dashboard-pages/{page_id}/report-dates")
+async def page_report_dates(page_id: str, user: dict = Depends(get_current_user)):
+    """Отчётные даты страницы — список для выбора конкретного отчёта фильтром."""
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.page_report_dates(conn, user["organization_id"], page_id, user)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.get("/dashboard-pages/{page_id}/attention")
 async def page_attention(page_id: str, user: dict = Depends(get_current_user)):
     """«На что посмотреть»: замечания к данным страницы (те же проверки качества,

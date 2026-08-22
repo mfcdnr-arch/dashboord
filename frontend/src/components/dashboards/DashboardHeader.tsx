@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Dashboard, DashPage, DashPreset } from '../../api'
+import { pageReportDates, type Dashboard, type DashPage, type DashPreset } from '../../api'
 import { PubBadge, input, linkDanger, presetChip } from './shared'
 
 /**
@@ -226,6 +226,21 @@ export function DashboardHeader({
     }
   }, [pages])
 
+  /**
+   * Отчётные даты страницы — чтобы открыть нужный отчёт выбором из списка, а
+   * не набором одной и той же даты в двух календарях. При недельной форме за
+   * год это 52 даты, которые иначе нужно помнить.
+   */
+  const [reportDates, setReportDates] = useState<string[]>([])
+  useEffect(() => {
+    if (!page?.id) { setReportDates([]); return }
+    let cancelled = false
+    pageReportDates(page.id).then((r) => { if (!cancelled) setReportDates(r.dates) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [page?.id])
+  // Выбранный отчёт — это период «с этой даты по эту же».
+  const pickedReport = pFrom && pFrom === pTo ? pFrom : ''
+
   const sliceActive = Boolean(page?.period)
   /**
    * Фильтры, меняющие цифры. Рисуются ДВАЖДЫ одним кодом: наверху страницы и —
@@ -240,6 +255,14 @@ export function DashboardHeader({
                 title="Период: с" onChange={(e) => setPFrom(e.target.value)} />
               <input type="date" style={{ ...input, height: 30, width: 138, fontSize: 12.5 }} value={pTo}
                 title="Период: по" onChange={(e) => setPTo(e.target.value)} />
+              {reportDates.length > 1 && (
+                <select style={{ ...input, height: 30, width: 168, fontSize: 12.5 }} value={pickedReport}
+                  title="Открыть конкретный отчёт: вся страница покажет его цифры"
+                  onChange={(e) => { const v = e.target.value; setPFrom(v); setPTo(v) }}>
+                  <option value="">Отчёт: последний</option>
+                  {reportDates.map((d) => <option key={d} value={d}>{ru(d)}</option>)}
+                </select>
+              )}
               <Dropdown label="быстро" title="Готовые периоды" open={quickOpen === quickId} setOpen={(v) => setQuickOpen(v ? quickId : null)} width={270}>
                 {quickPeriods.map((q) => (
                   <button key={q.label} type="button" style={menuItem} title={q.hint}

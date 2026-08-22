@@ -191,7 +191,8 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
             ws = wb.create_sheet(sheet_name(wid, name))
             periods = list(data.get("periods", []))
             ws.append([data.get("field_title") or name])
-            ws.append(["Строка"] + [_as_date(p) for p in periods] + ["За период"])
+            first_col = "Показатель" if data.get("by") == "fields" else "Строка"
+            ws.append([first_col] + [_as_date(p) for p in periods] + ["За период"])
             for r in data.get("rows", []):
                 _row(ws, [r.get("row")] + list(r.get("values", [])) + [r.get("total_change")])
             # Прирост отдельным блоком, а не второй колонкой на каждую дату: в
@@ -200,12 +201,15 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
             # его читают глазами, здесь считают.
             ws.append([])
             ws.append(["Изменение к прошлому отчёту"])
-            ws.append(["Строка"] + [_as_date(p) for p in periods])
+            ws.append([first_col] + [_as_date(p) for p in periods])
             for r in data.get("rows", []):
                 _row(ws, [r.get("row")] + list(r.get("deltas", [])))
-            if len(data.get("rows", [])) > 1:
+            # У матрицы по ПОКАЗАТЕЛЯМ итога по столбцу нет и быть не может:
+            # он сложил бы обращения с процентами.
+            totals = data.get("col_totals") or []
+            if totals and len(data.get("rows", [])) > 1:
                 ws.append([])
-                _row(ws, ["Итого по отчёту"] + list(data.get("col_totals", [])))
+                _row(ws, ["Итого по отчёту"] + list(totals))
         elif t == "yoy":
             ws = wb.create_sheet(sheet_name(wid, name))
             py, cy = data.get("previous_year"), data.get("current_year")

@@ -291,6 +291,13 @@ export interface AttentionItem {
   warnings: AttentionWarning[]
 }
 export interface PageAttention { items: AttentionItem[]; datasets_checked: number }
+/** Отчётные даты страницы — список для выбора конкретного отчёта фильтром. */
+export async function pageReportDates(pageId: string): Promise<{ dates: string[] }> {
+  const res = await fetch(`/dashboard-pages/${pageId}/report-dates`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 export async function pageAttention(pageId: string): Promise<PageAttention> {
   const res = await fetch(`/dashboard-pages/${pageId}/attention`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))

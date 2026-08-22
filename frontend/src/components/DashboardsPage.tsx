@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import ReportLayout, { REPORT_COLUMNS_WIDE } from './dashboards/ReportLayout'
 import GridLayout, { type Layout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
@@ -201,6 +201,21 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   // Виджеты всегда в батч-режиме (ждут данные родителя, не фетчат сами); при СБОЕ
   // батча — фолбэк: batchFailed=true → виджеты дофетчат по одному.
   const [pageData, setPageData] = useState<Record<string, PageWidgetData>>({})
+  /**
+   * Дата, за которую данные показаны СЕЙЧАС.
+   *
+   * `asOf` — свежесть датасета (последний выпуск), и при фильтре периода она
+   * врёт: человек открыл отчёт за 12.08, а в строке контекста стояло «данные на
+   * 19.08». Виджеты уже отдают дату, за которую посчитаны (`as_of`), — берём её.
+   */
+  const shownAsOf = useMemo(() => {
+    const dates = Object.values(pageData)
+      .map((w) => (w?.data as { as_of?: string } | undefined)?.as_of)
+      .filter((d): d is string => Boolean(d))
+    if (!dates.length) return asOf
+    const max = dates.sort().slice(-1)[0]
+    return max
+  }, [pageData, asOf])
   const [batchFailed, setBatchFailed] = useState(false)
   useEffect(() => {
     if (!page) { setPageData({}); setBatchFailed(false); return }
@@ -945,7 +960,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
             onBack={() => { setSel(null); setPage(null) }}
             canManage={canManage} isAdmin={isAdmin} isSuperadmin={isSuperadmin}
             editMode={editMode} setEditMode={setEditMode} flowMode={flowMode}
-            asOf={asOf} quickPeriods={QUICK_PERIODS}
+            asOf={shownAsOf} quickPeriods={QUICK_PERIODS}
             pFrom={pFrom} pTo={pTo} setPFrom={setPFrom} setPTo={setPTo}
             crossRow={crossRow} setCrossRow={setCrossRow} catOptions={catOptions}
             missingCount={page ? (missingFields?.length || 0) : 0} onOpenMissing={() => setMissingOpen(true)}

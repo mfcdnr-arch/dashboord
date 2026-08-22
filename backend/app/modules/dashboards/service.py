@@ -73,6 +73,7 @@ from ._widgetdata import (  # noqa: F401
     compute_page_data,
     compute_widget_data,
     list_org_alerts,
+    page_report_dates,
     preview_widget,
     widget_drill,
 )

@@ -290,3 +290,73 @@ async def _dataset_row_period_matrix(conn, org_id, dataset_code: str, value_fiel
     labels = sorted(grid, key=lambda x: order[x])
     return {"periods": periods, "labels": labels, "grid": grid,
             "total_periods": total, "shown_periods": len(ids)}
+
+
+async def _dataset_field_period_matrix(conn, org_id, dataset_code: str, value_fields: List[str],
+                                       from_date=None, to_date=None, row=None, allowed=None,
+                                       max_periods: int = 12):
+    """Матрица «показатель × отчётная дата» — обратный разрез к строкам формы.
+
+    У сводной формы строка одна («Донецкая Народная Республика»), и матрица по
+    строкам вырождается в одну строку. А вопрос, ради которого файлы сводят в
+    Excel руками, звучит иначе: «какой показатель какой был на каждую дату».
+    Здесь показатели идут строками, отчёты — столбцами.
+
+    Строки формы сворачиваются ТЕМ ЖЕ правилом, что и карточка показателя
+    (`aggregate_series`): количества складываются, доли и проценты
+    усредняются — иначе «12,4 % + 9,8 %» дало бы 22,2 %, то есть бессмыслицу с
+    видом настоящего показателя.
+    """
+    from ._aggregate import aggregate_series
+
+    rels = await conn.fetch(
+        "select id, reporting_period_start from dataset_releases "
+        "where organization_id=$1 and code=$2 and status <> 'superseded' "
+        "and ($3::text is null or reporting_period_start >= $3::text::date) "
+        "and ($4::text is null or reporting_period_start <= $4::text::date) "
+        "order by reporting_period_start nulls last",
+        org_id, dataset_code, from_date, to_date,
+    )
+    if not rels:
+        raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
+    total = len(rels)
+    kept = rels[-max_periods:] if max_periods and total > max_periods else list(rels)
+    ids = [r["id"] for r in kept]
+    periods = [r["reporting_period_start"].isoformat() if r["reporting_period_start"] else "—"
+               for r in kept]
+
+    # Имена показателей — человеческие: по ним же решается, складывать или
+    # усреднять, поэтому берём их до расчёта, а не для одной лишь подписи.
+    names = {r["code"]: r["name"] for r in await conn.fetch(
+        "select cf.code, cf.name from canonical_fields cf "
+        "where cf.object_id=(select object_id from dataset_releases where id=$1) "
+        "and cf.code = any($2::text[])", ids[-1], value_fields)}
+
+    params: list = [ids, value_fields, row]
+    acl = _row_acl_clause(params, allowed)
+    vals = await conn.fetch(
+        "select dataset_release_id as rel, canonical_field_code as code, value_number as val "
+        "from dataset_values "
+        "where dataset_release_id = any($1::uuid[]) and canonical_field_code = any($2::text[]) "
+        f"and value_number is not null and ($3::text is null or row_label=$3){acl}", *params)
+
+    pos = {rid: i for i, rid in enumerate(ids)}
+    buckets: Dict[str, List[List[float]]] = {f: [[] for _ in ids] for f in value_fields}
+    for v in vals:
+        if v["code"] in buckets:
+            buckets[v["code"]][pos[v["rel"]]].append(float(v["val"]))
+
+    grid: Dict[str, List[Optional[float]]] = {}
+    how: Dict[str, str] = {}
+    for f in value_fields:
+        cells: List[Optional[float]] = []
+        for chunk in buckets[f]:
+            if not chunk:
+                cells.append(None)
+                continue
+            value, mode = aggregate_series(chunk, names.get(f, f))
+            how[f] = mode
+            cells.append(value)
+        grid[f] = cells
+    return {"periods": periods, "labels": value_fields, "grid": grid, "names": names,
+            "how": how, "total_periods": total, "shown_periods": len(ids)}

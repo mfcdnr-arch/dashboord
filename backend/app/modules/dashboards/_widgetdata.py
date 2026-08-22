@@ -192,3 +192,28 @@ async def widget_drill(conn, org_id, widget_id: str, user: dict) -> dict:
 
     return {"widget": w["name"], "widget_type": w["widget_type"],
             "metrics": metrics_info, "datasets": seen, "tables": tables}
+
+
+async def page_report_dates(conn, org_id, page_id: str, user: dict) -> dict:
+    """Отчётные даты, доступные на этой странице, — для выбора отчёта фильтром.
+
+    Фильтр периода умеет открыть любой прошлый отчёт (он сводит диапазон к
+    последнему отчёту внутри него), но до сих пор дату приходилось набирать в
+    двух календарях. При недельной форме за год это 52 даты, которые надо
+    помнить. Здесь они просто перечислены.
+
+    Даты собираются по датасетам ВИДЖЕТОВ страницы: список должен совпадать с
+    тем, что страница реально способна показать.
+    """
+    from . import service
+
+    wl = await service.list_page_widgets(conn, org_id, page_id, user)
+    codes = sorted({str((w.get("config") or {}).get("dataset_code"))
+                    for w in wl["widgets"] if (w.get("config") or {}).get("dataset_code")})
+    if not codes:
+        return {"dates": []}
+    rows = await conn.fetch(
+        "select distinct reporting_period_start as p from dataset_releases "
+        "where organization_id=$1 and code = any($2::text[]) and status<>'superseded' "
+        "and reporting_period_start is not null order by 1 desc limit 200", org_id, codes)
+    return {"dates": [r["p"].isoformat() for r in rows]}
