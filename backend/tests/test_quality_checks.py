@@ -179,3 +179,29 @@ async def test_quality_check_endpoint_sees_copied_week(client, admin_headers, mo
             await conn.execute("delete from documents where folder_id=$1::uuid", fid)
             await conn.execute("delete from folders where id=$1::uuid", fid)
             await conn.execute("delete from objects where id=$1::uuid", oid)
+
+
+def test_plan_value_must_not_move_between_reports():
+    """План задаётся на СРОК и меняться от отчёта к отчёту не должен.
+
+    Найдено осмотром данных заказчика: план по записавшимся шёл
+    38 992 → 38 992 → 40 552 → 41 971 при неизменном сроке «до 1 сентября».
+    Так выглядит факт, попавший в графу «План», — и тогда «выполнение плана»
+    на дашборде считается сам с собой.
+    """
+    names = {"plan": "Записались · План (до 1 сентября 2026 г.)",
+             "fact": "Записались · Факт · нарастающим итогом"}
+    prev = {("ДНР", "plan"): 38992.0, ("ДНР", "fact"): 250000.0}
+    cur = {("ДНР", "plan"): 41971.0, ("ДНР", "fact"): 275694.0}
+    codes = {w["code"] for w in quality.compare_with_previous(cur, prev, names)}
+    assert "plan_changed" in codes, "изменение плана обязано попасть в замечания"
+
+    # Факт растёт — это норма, о нём правило молчит.
+    same_plan = {("ДНР", "plan"): 38992.0, ("ДНР", "fact"): 275694.0}
+    codes2 = {w["code"] for w in quality.compare_with_previous(same_plan, prev, names)}
+    assert "plan_changed" not in codes2
+
+    # Текст называет и показатель, и обе величины: без них замечание не проверить.
+    msg = next(w["message"] for w in quality.compare_with_previous(cur, prev, names)
+               if w["code"] == "plan_changed")
+    assert "38 992" in msg and "41 971" in msg and "Записались" in msg
