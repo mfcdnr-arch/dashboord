@@ -443,14 +443,37 @@ function PlanForecast({ f, unit }: { f: any; unit?: string }) {
       Прогноз не строится: {f.reason === 'few_points' ? 'нужно минимум два отчёта с разными датами' : 'нет данных'}
     </div>
   )
-  const rate = f.rate >= 1 ? fmt(Math.round(f.rate)) : fmt(Number(f.rate.toFixed(2)))
+  const num = (v: number) => (Math.abs(v) >= 1 ? fmt(Math.round(v)) : fmt(Number(v.toFixed(2))))
+  const rate = num(f.rate)
+  // Когда темп последних отчётов заметно расходится со средним, одна дата
+  // выглядит увереннее, чем есть: показываем промежуток между двумя оценками.
+  const pair: string[] | null = f.date_alt
+    ? [f.date, f.date_alt].sort()
+    : null
   return (
     <div style={base}>
       <span style={{ color: 'var(--text-2)' }}>При нынешнем темпе план будет достигнут </span>
-      <b>≈ {ru(f.date)}</b>
-      <span style={{ color: 'var(--text-2)' }}> (через {f.days} дн.)</span>
+      {pair
+        ? <b>≈ между {ru(pair[0])} и {ru(pair[1])}</b>
+        : <><b>≈ {ru(f.date)}</b><span style={{ color: 'var(--text-2)' }}> (через {f.days} дн.)</span></>}
       <div style={{ color: 'var(--text-faint)', fontSize: 11, marginTop: 2 }}>
         средний темп +{rate}{unit ? ` ${unit}` : ''} в день по {f.points} отчётам с {ru(f.from_period)} по {ru(f.to_period)}; осталось {fmt(f.remain)}
+        {f.rate_recent != null && f.rate_recent > 0 && (f.date_alt || f.alt_too_far)
+          ? ` · по последним двум отчётам темп другой: +${num(f.rate_recent)} в день`
+          : ''}
+      </div>
+      {f.stalled && (
+        <div style={{ color: 'var(--warn)', fontSize: 11, marginTop: 2 }}>
+          ⚠ последний отчёт роста не дал — дата посчитана по среднему темпу и может оказаться оптимистичной
+        </div>
+      )}
+      {f.alt_too_far && !f.stalled && (
+        <div style={{ color: 'var(--warn)', fontSize: 11, marginTop: 2 }}>
+          ⚠ темп последних отчётов сильно ниже среднего — при нём срок уходит за горизонт
+        </div>
+      )}
+      <div style={{ color: 'var(--text-faint)', fontSize: 10.5, marginTop: 2 }}>
+        Оценка линейная: сезонность и разовые всплески не учитываются.
       </div>
     </div>
   )

@@ -94,6 +94,7 @@ WIDGET_SIZE = {
     "bar": (12, 6), "line": (12, 6), "pie": (6, 6), "waterfall": (6, 6),
     "compare": (12, 8), "cross_dataset_compare": (12, 8), "yoy": (12, 6),
     "heatmap": (6, 7), "pivot": (12, 6), "table": (12, 6), "matrix": (12, 7),
+    "funnel": (6, 7), "status_grid": (6, 6), "objects_compare": (6, 7),
     "text": (12, 2), "image": (6, 5),
 }
 
@@ -245,7 +246,7 @@ async def suggest_widgets(conn, org_id, dataset_code: str) -> dict:
 # Общие блоки дашборда. «kpi» и «dynamics» остались для совместимости выбора,
 # но вид конкретного показателя задаётся отдельно (VIEWS) — так человек может
 # сказать «этот числом, этот трендом», а не только «все или никак».
-BLOCKS = ["plan_fact", "kpi", "compare", "dynamics", "bar", "table"]
+BLOCKS = ["plan_fact", "kpi", "compare", "dynamics", "matrix", "bar", "table"]
 
 
 async def document_release_info(conn, org_id, document_id: str) -> dict:
@@ -331,9 +332,18 @@ async def collect_object_datasets(conn, org_id, object_id: str,
             "where organization_id=$1 and code=$2 and status<>'superseded' "
             "and reporting_period_start is not null order by 1 desc limit 60",
             org_id, d["code"])
+        # Сколько строк в форме (районов/отделений) — по последнему выпуску.
+        # От этого зависит, есть ли смысл в матрице «строка × дата»: у формы с
+        # единственной строкой она дословно повторяет «Динамику».
+        n_rows = await conn.fetchval(
+            "select count(distinct row_label) from dataset_values where dataset_release_id = ("
+            "  select id from dataset_releases where organization_id=$1 and code=$2 "
+            "  and status<>'superseded' order by reporting_period_start desc nulls last, created_at desc limit 1)",
+            org_id, d["code"])
         out.append({
             "code": d["code"], "name": await _dataset_display_name(conn, org_id, d["code"]),
             "periods": d["periods"] or 0, "releases": d["releases"] or 0,
+            "rows": int(n_rows or 0),
             "fields": fields,
             "period_dates": [r["p"].isoformat() for r in dates],
         })
@@ -355,6 +365,10 @@ PAGE_PERIOD_PREFIX = "Отчёт за"
 # Потолок страниц-срезов: каждая страница — это ещё десяток запросов данных,
 # а дашборд из полусотни вкладок невозможно листать.
 MAX_AUTO_PERIOD_PAGES = 8
+# Сколько отчётов показывает собранная матрица. То же число, что и умолчание
+# самого виджета: собранная мастером страница не должна отличаться от той, где
+# матрицу добавили руками.
+MATRIX_PERIODS = 12
 
 
 def default_view(field_name: str, has_periods: bool) -> str:
@@ -522,6 +536,24 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
                           "position_x": 0, "position_y": ov_y, "width": 12,
                           "height": 8 if len(cards) > 4 else 6})
             ov_y += 8 if len(cards) > 4 else 6
+
+        # ── Матрица «строка × дата» ──────────────────────────────────────────
+        # Появляется только там, где отвечает на свой вопрос: строк в форме
+        # больше одной И отчётов больше одного. У формы с единственной строкой
+        # («Донецкая Народная Республика») матрица дословно повторяет
+        # «Динамику», и место она занимала бы зря.
+        many_rows = int(d.get("rows") or 0) > 1
+        if "matrix" in blocks and has_dyn and many_rows:
+            # Показатель берём тот, который человек и так смотрит в движении;
+            # матрица на каждый показатель превратила бы страницу в стену.
+            base = next((f for f in shown if view_of(f) in ("dynamics", "both")), shown[0])
+            specs.append({"page": PAGE_DYNAMICS,
+                          "name": f"{_split_name(base['name'])['subject']}: по строкам и датам",
+                          "widget_type": "matrix",
+                          "config": {"dataset_code": code, "value_field": base["code"],
+                                     "max_periods": MATRIX_PERIODS},
+                          "position_x": 0, "position_y": dyn_y, "width": 12, "height": 8})
+            dyn_y += 8
 
         # ── Динамика: тренд по каждому показателю, которому он назначен ──
         trends = ([f for f in shown if view_of(f) in ("dynamics", "both")][:MAX_AUTO_DYNAMICS]

@@ -19,6 +19,31 @@ async def _widget(client, headers, page_id, name, wtype, cfg):
     return r.json()["id"]
 
 
+async def test_autobuild_offers_matrix_only_when_it_answers_something(client, admin_headers, seed_dataset):
+    """Мастер ставит матрицу там, где она отвечает на свой вопрос: строк больше
+    одной И отчётов больше одного."""
+    from app.modules.dashboards._suggest import plan_auto_build
+
+    fields = [{"code": "plan", "name": "Заявлений принято нарастающим итогом"},
+              {"code": "fact", "name": "Заявлений принято за отчетную неделю"}]
+    many = [{"code": "t_ds", "name": "Форма", "periods": 4, "rows": 6, "fields": fields, "period_dates": []}]
+    specs = plan_auto_build(many)
+    matrices = [s for s in specs if s["widget_type"] == "matrix"]
+    assert len(matrices) == 1, "матрица должна быть одна на набор данных, а не на каждый показатель"
+    assert matrices[0]["page"] == "Динамика" and matrices[0]["width"] == 12
+
+    # Одна строка в форме (нынешние данные заказчика) — матрица дословно
+    # повторяла бы «Динамику», поэтому её нет.
+    one_row = [{**many[0], "rows": 1}]
+    assert not [s for s in plan_auto_build(one_row) if s["widget_type"] == "matrix"]
+    # Один отчёт — один столбец, показывать нечего.
+    one_period = [{**many[0], "periods": 1}]
+    assert not [s for s in plan_auto_build(one_period) if s["widget_type"] == "matrix"]
+    # Блок снят галочкой в мастере — матрицы нет.
+    sel = {"t_ds": {"fields": ["plan", "fact"], "blocks": ["kpi", "table"]}}
+    assert not [s for s in plan_auto_build(many, sel) if s["widget_type"] == "matrix"]
+
+
 async def test_matrix_shows_every_row_across_reports(client, admin_headers, seed_dataset):
     """Матрица: строка × отчёт, в ячейке значение и прирост к прошлому отчёту."""
     did = (await client.post("/dashboards", headers=admin_headers, json={"name": "ztest_matrix"})).json()["id"]
@@ -125,6 +150,28 @@ async def test_plan_forecast_is_honest_about_what_it_cannot_say():
     # Едва заметный рост: формально дата есть, но это «никогда» другими словами.
     crawl = [("2026-01-01", 100.0), ("2026-02-01", 100.1)]
     assert _plan_forecast(crawl, plan=10_000.0, fact=100.1)["reason"] == "too_far"
+
+
+async def test_plan_forecast_shows_range_when_pace_changed():
+    """Средний темп слеп к развороту: если последние отчёты идут иначе, одна
+    дата выглядит увереннее, чем есть, — показываем промежуток."""
+    # Разгон: 50 → 150 → 400, последняя пара быстрее среднего.
+    fast = [("2026-01-01", 50.0), ("2026-02-01", 150.0), ("2026-03-01", 400.0)]
+    r = _plan_forecast(fast, plan=1000.0, fact=400.0)
+    assert r["reason"] == "ok" and r["date_alt"], "разворот темпа не замечен"
+    # По более быстрому темпу дата ближе — промежуток именно между ними.
+    assert r["date_alt"] < r["date"]
+
+    # Затухание: последний отчёт роста не дал вовсе — дата остаётся, но с
+    # оговоркой, иначе она выдаётся за надёжную.
+    stalled = [("2026-01-01", 50.0), ("2026-02-01", 150.0), ("2026-03-01", 150.0)]
+    r2 = _plan_forecast(stalled, plan=300.0, fact=150.0)
+    assert r2["reason"] == "ok" and r2["stalled"] is True
+
+    # Ровный темп — никакой второй даты: лишний промежуток запутал бы.
+    steady = [("2026-01-01", 100.0), ("2026-02-01", 200.0), ("2026-03-04", 300.0)]
+    r3 = _plan_forecast(steady, plan=400.0, fact=300.0)
+    assert r3["reason"] == "ok" and "date_alt" not in r3
 
 
 async def test_plan_fact_forecast_end_to_end(client, admin_headers, seed_dataset):

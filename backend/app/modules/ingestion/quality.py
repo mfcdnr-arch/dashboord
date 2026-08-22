@@ -49,8 +49,15 @@ def compare_with_previous(
     previous: Dict[Key, float],
     names: Dict[str, str],
     previous_period: Optional[str] = None,
+    partial: bool = False,
 ) -> List[dict]:
-    """Сравнение готовящегося выпуска с предыдущим. Чистая функция, без БД."""
+    """Сравнение готовящегося выпуска с предыдущим. Чистая функция, без БД.
+
+    `partial` — сравнивается НЕ вся форма, а только часть строк (так бывает на
+    дашборде, где действует RLS по строкам). Тогда «все данные совпадают»
+    означает «все ДОСТУПНЫЕ вам строки»: без этой оговорки человек с одной
+    разрешённой строкой решил бы, что не обновилась вся форма.
+    """
     warnings: List[dict] = []
     if not previous:
         return warnings
@@ -113,7 +120,9 @@ def compare_with_previous(
             same_rows.append(row)
     if same_rows:
         whole = len(same_rows) == len(rows_now)
-        head = ("Все данные совпадают с прошлым выпуском" if whole
+        all_txt = ("Все доступные вам строки совпадают с прошлым выпуском" if partial
+                   else "Все данные совпадают с прошлым выпуском")
+        head = (all_txt if whole
                 else f"Совпадают с прошлым выпуском строки: {', '.join(f'«{r}»' for r in same_rows[:5])}")
         warnings.append({
             "code": "same_as_previous", "count": len(same_rows),

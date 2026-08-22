@@ -145,6 +145,30 @@ def _plan_forecast(series: list, plan, fact) -> dict:
     out = {"reason": "ok", "rate": rate, "days": int(round(need)),
            "date": (d1 + timedelta(days=int(round(need)))).isoformat(),
            "remain": remain, "from_period": p0, "to_period": p1, "points": len(pts)}
+
+    # ── Насколько этой дате можно верить ─────────────────────────────────────
+    # Средний темп по всему отрезку — устойчивая, но слепая к развороту оценка:
+    # если последние недели идут медленнее (сезонный спад, исчерпание базы),
+    # одна дата выглядит увереннее, чем есть на самом деле. Считаем ВТОРОЙ темп
+    # — по последней паре отчётов — и, когда он заметно расходится со средним,
+    # честно показываем не точку, а промежуток.
+    if len(pts) >= 3:
+        (pa, va), (pb, vb) = pts[-2], pts[-1]
+        gap = (date.fromisoformat(pb) - date.fromisoformat(pa)).days
+        if gap > 0:
+            recent = (vb - va) / gap
+            out["rate_recent"] = recent
+            if recent <= 0:
+                # Последний отчёт роста не дал вовсе: дата по среднему темпу
+                # остаётся, но выдавать её за надёжную нельзя.
+                out["stalled"] = True
+            elif abs(recent - rate) / rate > 0.25:
+                alt = remain / recent
+                if alt <= 3650:
+                    out["days_alt"] = int(round(alt))
+                    out["date_alt"] = (d1 + timedelta(days=int(round(alt)))).isoformat()
+                else:
+                    out["alt_too_far"] = True
     return out
 
 

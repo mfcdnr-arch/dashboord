@@ -127,6 +127,10 @@ async def test_attention_respects_row_level_access(client, admin_headers, viewer
         # (Формулировка здесь «все данные», потому что видимая часть формы у
         # этого человека и есть одна строка.)
         assert res["items"] and "совпада" in text
+        # И формулировка честная: «все данные» превратились бы в неправду —
+        # человек с одной доступной строкой решил бы, что не обновилась вся форма.
+        assert "доступные вам строки" in text
+        assert "Все данные совпадают" not in text
     finally:
         await purge_dashboard(did)
         async with db.acquire() as conn:

@@ -62,16 +62,20 @@ async def page_attention(conn, org_id, page_id: str, user: dict) -> dict:
         if rel is None:
             continue
         allowed = await allowed_rows_for_dataset(conn, org_id, user, code) if user is not None else None
-        current = _filter_allowed(await _release_values(conn, rel["id"]), allowed)
+        raw_current = await _release_values(conn, rel["id"])
+        current = _filter_allowed(raw_current, allowed)
         previous, prev_period = await previous_release_values(
             conn, org_id, code, rel["reporting_period_start"])
         previous = _filter_allowed(previous, allowed)
+        # Видна ли человеку вся форма: от этого зависит формулировка «все
+        # данные» — при RLS она означает «все доступные вам строки».
+        partial = len({k[0] for k in current}) < len({k[0] for k in raw_current})
         if not current or not previous:
             # Первый выпуск формы: сравнивать не с чем — это не замечание.
             continue
         names = {r["code"]: r["name"] for r in await conn.fetch(
             "select code, name from canonical_fields where object_id=$1", rel["object_id"])}
-        warnings = compare_with_previous(current, previous, names, prev_period)
+        warnings = compare_with_previous(current, previous, names, prev_period, partial=partial)
         if warnings:
             period = rel["reporting_period_start"]
             items.append({
