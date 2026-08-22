@@ -97,11 +97,14 @@ class InstantiateIn(BaseModel):
 class PageIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: Optional[str] = None
+    # grid — свободная сетка (умолчание, как было), flow — «поток» по типам.
+    layout_mode: str = "grid"
 
 
 class PagePatch(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    layout_mode: Optional[str] = None
 
 
 class FolderMoveIn(BaseModel):
@@ -532,7 +535,7 @@ async def create_page(dashboard_id: str, body: PageIn, user: dict = Depends(mana
     async with db.acquire(user["id"]) as conn:
         try:
             return await service.create_page(conn, user["organization_id"], user["id"],
-                                             dashboard_id, body.name, body.description)
+                                             dashboard_id, body.name, body.description, body.layout_mode)
         except DashboardError as e:
             raise _bad(e)
 
@@ -542,7 +545,8 @@ async def create_page(dashboard_id: str, body: PageIn, user: dict = Depends(mana
 async def update_page(page_id: str, body: PagePatch, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:
         try:
-            return await service.update_page(conn, user["organization_id"], page_id, body.name, body.description)
+            return await service.update_page(conn, user["organization_id"], page_id, body.name,
+                                             body.description, body.layout_mode)
         except DashboardError as e:
             raise _bad(e)
 

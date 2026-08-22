@@ -28,7 +28,14 @@ export async function setDashboardFavorite(id: string, on: boolean): Promise<voi
   const res = await fetch(`/dashboards/${id}/favorite`, { method: on ? 'POST' : 'DELETE', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
 }
-export interface DashPage { id: string; name: string; description: string | null; position: number }
+export interface DashPage {
+  id: string
+  name: string
+  description: string | null
+  position: number
+  /** Раскладка страницы: 'grid' — свободная сетка, 'flow' — «поток» по типам. */
+  layout_mode?: string
+}
 export interface Widget {
   id: string
   name: string
@@ -243,7 +250,7 @@ export async function unpublishDashboard(id: string): Promise<void> {
   if (!res.ok) throw new Error(await errText(res))
 }
 /** Переименование страницы дашборда (вкладки). */
-export async function updatePage(pageId: string, patch: { name?: string; description?: string }): Promise<DashPage> {
+export async function updatePage(pageId: string, patch: { name?: string; description?: string; layout_mode?: string }): Promise<DashPage> {
   const res = await fetch(`/dashboard-pages/${pageId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...authH() },

@@ -19,6 +19,8 @@ export interface ShowcaseItem {
   object_name: string | null
   page_id: string | null
   page_name: string | null
+  /** Раскладка первой страницы дашборда: 'grid' или 'flow'. */
+  layout_mode?: string
   position: number
 }
 export interface ShowcaseDetail {
@@ -32,6 +34,7 @@ export interface ShowcaseDataItem {
   id: string
   dashboard_id: string
   page_id: string | null
+  layout_mode?: string
   widgets: Widget[]
   data: Record<string, PageWidgetData>
   error?: string

@@ -59,7 +59,11 @@ async def _visible_items(conn, org_id, user: dict, showcase_id: str) -> list:
         "(select p.id from dashboard_pages p where p.dashboard_id=d.id "
         " order by p.position, p.created_at limit 1) as page_id, "
         "(select p.name from dashboard_pages p where p.dashboard_id=d.id "
-        " order by p.position, p.created_at limit 1) as page_name "
+        " order by p.position, p.created_at limit 1) as page_name, "
+        # Раскладка страницы нужна и здесь: в «потоке» координат у виджетов нет,
+        # и панель витрины, нарисованная по ним, показала бы мусор.
+        "(select p.layout_mode from dashboard_pages p where p.dashboard_id=d.id "
+        " order by p.position, p.created_at limit 1) as layout_mode "
         "from showcase_items i join dashboards d on d.id=i.dashboard_id "
         "left join folders fo on fo.id=d.folder_id left join objects ob on ob.id=fo.object_id "
         "where i.showcase_id=$1::uuid order by i.position, i.created_at", showcase_id)
@@ -73,6 +77,7 @@ async def _visible_items(conn, org_id, user: dict, showcase_id: str) -> list:
             "folder_name": r["folder_name"], "object_name": r["object_name"],
             "page_id": str(r["page_id"]) if r["page_id"] else None,
             "page_name": r["page_name"],
+            "layout_mode": r["layout_mode"],
         })
     return items
 
@@ -92,7 +97,8 @@ async def get_showcase_data(conn, org_id, user: dict, showcase_id: str) -> dict:
     items = await _visible_items(conn, org_id, user, showcase_id)
     out = []
     for it in items:
-        entry = {"id": it["id"], "dashboard_id": it["dashboard_id"], "page_id": it["page_id"]}
+        entry = {"id": it["id"], "dashboard_id": it["dashboard_id"], "page_id": it["page_id"],
+                 "layout_mode": it["layout_mode"]}
         if it["page_id"] is None:
             entry["widgets"] = []
             entry["data"] = {}

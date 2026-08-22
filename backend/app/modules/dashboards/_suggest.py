@@ -344,6 +344,12 @@ async def collect_object_datasets(conn, org_id, object_id: str,
 # вид подбирается по РОЛИ показателя, которую система и так разбирает в имени
 # столбца госформы («Показатель · Роль · Разрез»).
 VIEWS = ["kpi", "dynamics", "both", "none"]
+# Мастер собирает страницу в режиме «поток»: он и так расставляет виджеты по
+# типу, а «поток» пересчитывает то же самое при каждой отрисовке — собранная
+# страница не может поехать и не оставляет дыр, а на широком мониторе сама
+# становится плотнее. Человек переключает страницу на свободную сетку одной
+# кнопкой; уже собранные страницы миграция не трогает.
+AUTO_LAYOUT_MODE = "flow"
 PAGE_OVERVIEW, PAGE_DYNAMICS, PAGE_RAW = "Обзор", "Динамика", "Первичные данные"
 PAGE_PERIOD_PREFIX = "Отчёт за"
 # Потолок страниц-срезов: каждая страница — это ещё десяток запросов данных,
@@ -808,7 +814,7 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
     for spec in specs:
         title = spec.get("page") or PAGE_OVERVIEW
         if title not in pages:
-            page = await svc.create_page(conn, org_id, user_id, did, title, None)
+            page = await svc.create_page(conn, org_id, user_id, did, title, None, AUTO_LAYOUT_MODE)
             pages[title] = str(page["id"])
             if first_pid is None:
                 first_pid = pages[title]
@@ -823,7 +829,7 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
     made_metrics = 0
     if metrics:
         if PAGE_OVERVIEW not in pages:
-            page = await svc.create_page(conn, org_id, user_id, did, PAGE_OVERVIEW, None)
+            page = await svc.create_page(conn, org_id, user_id, did, PAGE_OVERVIEW, None, AUTO_LAYOUT_MODE)
             pages[PAGE_OVERVIEW] = str(page["id"])
             if first_pid is None:
                 first_pid = pages[PAGE_OVERVIEW]

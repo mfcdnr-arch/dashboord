@@ -197,7 +197,8 @@ export default function ShowcasesPage({ canManage, onOpenDashboard }: {
                     </div>
                     {it.page_id
                       ? (batch
-                        ? <PagePreview pageId={it.page_id} injWidgets={batch.widgets} injPageData={batch.data} />
+                        ? <PagePreview pageId={it.page_id} injWidgets={batch.widgets} injPageData={batch.data}
+                            flow={batch.layout_mode === 'flow'} />
                         : <div style={muted}>Загрузка…</div>)
                       : <div style={muted}>У дашборда нет страниц.</div>}
                   </div>

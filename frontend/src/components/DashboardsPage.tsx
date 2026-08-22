@@ -11,9 +11,8 @@ import {
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Doc, type Folder, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
 } from '../api'
 import { useContainerWidth } from '../lib/useWidth'
-import { elideMiddle } from '../lib/text'
-import WidgetView from './WidgetView'
-import InfoTip from './InfoTip'
+import { GAP as FLOW_GAP, flowItems } from '../lib/flowLayout'
+import { WidgetCard } from './dashboards/WidgetCard'
 import { WIDGET_META } from './dashboards/WidgetPicker'
 import KioskView from './KioskView'
 import ArchiveDialog from './dashboards/ArchiveDialog'
@@ -35,7 +34,7 @@ import { MissingFieldsDialog } from './dashboards/MissingFieldsDialog'
 import { TemplateCloneDialog } from './dashboards/TemplateCloneDialog'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
 import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
-import { WT, alertBtn, crumb, dialog, editBtn, editHint, errBox, linkDanger, muted, overlay, rmBtn, widgetCard, wtBadge } from './dashboards/shared'
+import { crumb, dialog, editHint, errBox, linkDanger, muted, overlay, rmBtn } from './dashboards/shared'
 
 
 const DASH_PAGE = 50
@@ -841,6 +840,62 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
     return Array.from(labels)
   })()
 
+  // Раскладка страницы: «поток» считает место и размер по типу виджета при
+  // отрисовке, свободная сетка хранит их у виджета. Свойство страницы, а не
+  // дашборда: на «Обзоре» уместен поток, а собранную вручную страницу-рассказ
+  // человек мог разложить по-своему.
+  const flowMode = page?.layout_mode === 'flow'
+
+  async function toggleFlowMode() {
+    if (!page) return
+    const next = flowMode ? 'grid' : 'flow'
+    if (next === 'grid') {
+      // Переход «поток → сетка» без раскладки дал бы кучу виджетов в левом
+      // верхнем углу: в потоке координаты не хранятся и остались прежними.
+      // Раскладываем тем же кодом, что и кнопка «↕ Подогнать размеры».
+      if (!await ask({
+        title: 'Перейти на свободную сетку?',
+        message: 'Виджеты получат размер по своему типу и будут разложены по сетке — дальше их можно двигать мышью. '
+          + 'Состав страницы не изменится, ни один виджет не пропадёт.',
+        confirmLabel: 'Перейти на сетку',
+      })) return
+    }
+    setBusy(true)
+    try {
+      const upd = await updatePage(page.id, { layout_mode: next })
+      if (next === 'grid') await fitPageLayout(page.id)
+      setPage((p) => (p ? { ...p, layout_mode: upd.layout_mode } : p))
+      setSel((cur) => (cur
+        ? { ...cur, pages: cur.pages.map((x) => (x.id === page.id ? { ...x, layout_mode: upd.layout_mode } : x)) }
+        : cur))
+      setWidgets((await listPageWidgets(page.id)).widgets)
+    } catch (e) { fail(e) } finally { setBusy(false) }
+  }
+
+  /** Всё, что нужно карточке виджета: одинаково для обеих раскладок. */
+  function cardProps(w: Widget) {
+    return {
+      w,
+      data: pageData[w.id]?.data,
+      error: pageData[w.id]?.error,
+      alert: pageData[w.id]?.data?.alert,
+      isCollapsed: collapsed.has(w.id),
+      onToggleCollapse: toggleCollapse,
+      highlighted: highlight === w.id,
+      editMode, canManage, hasSources: Boolean(sources),
+      onEdit: setEditWidget, onAlerts: setAlertWidget, onDelete: delWidget,
+      tip: widgetTip(w),
+      reloadKey,
+      from: pFrom || undefined, to: pTo || undefined, row: crossRow || undefined,
+      asOf: asOf || undefined,
+      onPick: (name: string) => setCrossRow((cur) => (cur === name ? null : name)),
+      batched: !batchFailed,
+      onNavigate: navigateToWidget,
+      onAddField: canManage ? addSiblingField : undefined,
+      onOpenAppeals,
+    }
+  }
+
   return (
     <div>
       {/* Крошка списка. У ОТКРЫТОГО дашборда своя крошка внутри шапки
@@ -887,7 +942,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
             dashboard={sel.dashboard} pages={sel.pages} page={page} onOpenPage={openPage}
             onBack={() => { setSel(null); setPage(null) }}
             canManage={canManage} isAdmin={isAdmin} isSuperadmin={isSuperadmin}
-            editMode={editMode} setEditMode={setEditMode}
+            editMode={editMode} setEditMode={setEditMode} flowMode={flowMode}
             asOf={asOf} quickPeriods={QUICK_PERIODS}
             pFrom={pFrom} pTo={pTo} setPFrom={setPFrom} setPTo={setPTo}
             crossRow={crossRow} setCrossRow={setCrossRow} catOptions={catOptions}
@@ -906,7 +961,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
               del: doDeleteDashboard, comments: () => setCommentsOpen(true), kiosk: () => setKiosk(true),
               about: () => setAboutOpen(true),
               rename: () => setEditDash({ name: sel.dashboard.name, description: sel.dashboard.description || '' }),
-              exportPdf, exportExcel, exportPng, fitLayout,
+              exportPdf, exportExcel, exportPng, fitLayout, toggleFlow: toggleFlowMode,
               deletePage: () => { if (page) delPage(page) },
               renamePage: () => { if (page) setRenamePageTarget(page) },
             }}
@@ -992,7 +1047,25 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                   react-grid-layout начинал тащить виджет, а события click не
                   возникало вовсе. Кнопка при этом получала фокус и выглядела
                   сломанной (жалоба на ⚠ «нажимаю — ничего не происходит»). */}
-              {widgets.length === 0 ? <div style={muted}>На странице пока нет виджетов.</div> : gridWidth !== undefined && (
+              {widgets.length === 0 ? <div style={muted}>На странице пока нет виджетов.</div> : flowMode ? (
+                /* «Поток»: место и размер считаются по типу виджета при
+                   отрисовке (lib/flowLayout), двигать нечего — страница не
+                   может поехать и не оставляет дыр. */
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: FLOW_GAP }}>
+                  {flowItems(widgets, gridWidth ?? 0, (id) => collapsed.has(id)).map((it) => {
+                    const w = widgets.find((x) => x.id === it.id)!
+                    return (
+                      /* Карточка с авто-высотой не задаёт height: в ряду её
+                         растянет соседний виджет (сетка выравнивает по высоте
+                         ряда), а одна в ряду — обожмёт содержимое. */
+                      <div key={it.id} style={{ gridColumn: `span ${it.span}`, minWidth: 0,
+                        ...(it.auto ? { minHeight: 120 } : { height: it.height }) }}>
+                        <WidgetCard {...cardProps(w)} />
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : gridWidth !== undefined && (
                 <GridLayout className="layout" width={gridWidth} cols={12} rowHeight={40} margin={[12, 12]}
                   isDraggable={canManage && editMode} isResizable={canManage && editMode}
                   draggableHandle=".wdrag" draggableCancel=".wnodrag" compactType="vertical"
@@ -1008,103 +1081,8 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                       «магических» 78px, и при любой правке шапки число KPI
                       снова начинало обрезаться. */}
                   {widgets.map((w) => (
-                    <div key={w.id} data-widget-id={w.id} style={{ ...widgetCard, height: '100%', overflow: 'hidden',
-                      display: 'flex', flexDirection: 'column',
-                      // Подсветка цели перехода из меню «↗ куда дальше»: гаснет
-                      // сама через пару секунд, чтобы не остаться навсегда.
-                      ...(highlight === w.id
-                        ? { boxShadow: '0 0 0 3px var(--accent)', transition: 'box-shadow .2s' }
-                        : { transition: 'box-shadow .4s' }),
-                      // Состояние показателя — лентой по ВСЕЙ карточке, вместе с
-                      // именем: раньше красилось только тело под шапкой, и на
-                      // странице из полутора десятков карточек «где плохо»
-                      // приходилось искать глазами по цифрам.
-                      ...(pageData[w.id]?.data?.alert
-                        ? { borderLeft: `4px solid ${pageData[w.id]!.data!.alert.color}`,
-                            background: pageData[w.id]!.data!.alert.bg }
-                        : {}),
-                      outline: editMode ? '1px dashed var(--text-faint)' : 'none' }}>
-                      {/* Шапка в два ряда: сверху ИМЯ (оно главное — виджет без
-                          названия ничего не сообщает), снизу значок типа и
-                          действия. Когда всё было одной строкой, на узкой
-                          карточке значок типа и четыре кнопки съедали её
-                          целиком, а имя сжималось до нулевой ширины и
-                          пропадало. У СВЁРНУТОГО виджета высота всего 40px —
-                          там оставляем только ▸ и имя, иначе не поместится
-                          даже кнопка разворачивания. */}
-                      <div className={editMode ? 'wdrag' : ''} style={{ marginBottom: 4, flexShrink: 0, cursor: editMode ? 'move' : 'default' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
-                          <button className="wnodrag" style={{ ...editBtn, cursor: 'pointer', flexShrink: 0 }} onClick={() => toggleCollapse(w.id)}
-                            title={collapsed.has(w.id) ? 'Развернуть виджет' : 'Свернуть виджет'}>{collapsed.has(w.id) ? '▸' : '▾'}</button>
-                          {/* У развёрнутого виджета имя занимает до ДВУХ строк: имена
-                              из авто-сборки длинные («… · Факт · нарастающим итогом»),
-                              и в одну строку на карточке видно только «Внедре…» —
-                              руководитель не понимает, что за число перед ним.
-                              У свёрнутого (высота 40px) вторая строка не помещается. */}
-                          {/* Обрезает ЛИБО стиль (по строкам), ЛИБО elideMiddle —
-                              вместе они давали двойное многоточие («обращений……»).
-                              У развёрнутого виджета обрезаем стилем: три строки на
-                              карточке шириной в треть ряда вмещают осмысленный
-                              кусок имени, а полное имя — в подсказке. */}
-                          {/* Имя занимает ВСЮ ширину строки: на карточке в треть
-                              ряда каждый соседний элемент отъедает у него столько,
-                              что остаётся «Колич обр…» — проверено, значок ⓘ рядом
-                              с именем именно к этому и приводил. Значок живёт
-                              отдельной строкой ниже. */}
-                          <div style={{
-                            fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden',
-                            ...(collapsed.has(w.id)
-                              ? { textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-                              : { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', lineHeight: 1.2 }),
-                          }}
-                            title={w.name}>{collapsed.has(w.id) ? elideMiddle(w.name, 70) : w.name}</div>
-                          {/* ⓘ — в строке с именем, а не отдельным рядом: свой ряд
-                              стоил 21px, и на карточке в три ряда (144px) их не
-                              хватало под само число. По ширине значок отнимает у
-                              имени ~20px из 200 — три строки остаются читаемыми
-                              (проверено: до двух строк ужимать нельзя, тогда от
-                              имени остаётся «Колич обр…»). */}
-                          {!collapsed.has(w.id) && !editMode && (
-                            <span style={{ flexShrink: 0, alignSelf: 'flex-start' }}><InfoTip text={widgetTip(w)} /></span>
-                          )}
-                        </div>
-                        {/* Служебный ряд (тип виджета, правка, пороги, удаление)
-                            показываем ТОЛЬКО в режиме правки. В обычном просмотре
-                            он съедал треть маленькой карточки — из-за него у KPI
-                            обрезалось само число, ради которого карточка и стоит.
-                            Значок ⓘ остаётся всегда: он объясняет, что за цифра.
-                            У зрителя режима правки нет, поэтому раньше ряд висел
-                            у него ПОСТОЯННО: бейдж типа занимал строку, и места
-                            под число оставалось меньше, чем у администратора —
-                            хотя именно зритель смотрит на цифру, а не правит. */}
-                        {!collapsed.has(w.id) && editMode && (
-                          <div className="wnodrag" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
-                            <span style={wtBadge}>{WT.find((x) => x.v === w.widget_type)?.t || w.widget_type}</span>
-                            <InfoTip text={widgetTip(w)} />
-                            <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-                              {canManage && sources && <button style={editBtn} onClick={() => setEditWidget(w)} title="Изменить данные/тип виджета">✎</button>}
-                              {canManage && ['kpi', 'gauge', 'plan_fact', 'dynamics'].includes(w.widget_type) && (
-                                <button style={alertBtn} onClick={() => setAlertWidget(w)}
-                                  title="Пороги KPI-алерта (условное форматирование)">⚠</button>
-                              )}
-                              {canManage && <button style={rmBtn} onClick={() => delWidget(w)} title="Удалить">✕</button>}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      {!collapsed.has(w.id) && (
-                        <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>
-                          <WidgetView widgetId={w.id} reloadKey={reloadKey} from={pFrom || undefined} to={pTo || undefined} row={crossRow || undefined}
-                            pageAsOf={asOf || undefined}
-                            onPick={(name) => setCrossRow((cur) => cur === name ? null : name)}
-                            batched={!batchFailed} injData={pageData[w.id]?.data} injError={pageData[w.id]?.error}
-                            onNavigate={navigateToWidget}
-                            widgetName={w.name}
-                            onAddField={canManage ? addSiblingField : undefined}
-                            onOpenAppeals={onOpenAppeals}
-                            stripe={false} />
-                        </div>
-                      )}
+                    <div key={w.id}>
+                      <WidgetCard {...cardProps(w)} />
                     </div>
                   ))}
                 </GridLayout>

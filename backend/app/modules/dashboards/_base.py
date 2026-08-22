@@ -10,5 +10,10 @@ class DashboardError(Exception):
 WIDGET_TYPES = {"kpi", "gauge", "table", "bar", "line", "pie", "plan_fact", "dynamics", "compare",
                 "heatmap", "pivot", "waterfall", "objects_compare", "cross_dataset_compare", "yoy",
                 "funnel", "status_grid", "text", "image"}
+# Режимы раскладки страницы: свободная сетка (виджеты двигают мышью) и «поток»
+# (место и размер считаются по типу виджета при отрисовке — страница не может
+# поехать и не оставляет дыр).
+LAYOUT_MODES = {"grid", "flow"}
+
 # Аннотационные виджеты (без данных) — заголовок/текст и картинка/лого.
 ANNOTATION_TYPES = {"text", "image"}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import GridLayout, { type Layout } from 'react-grid-layout'
+import { GAP as FLOW_GAP, flowItems } from '../lib/flowLayout'
 import { listPageWidgets, type DashPage, type Widget } from '../api'
 import { useContainerWidth } from '../lib/useWidth'
 import WidgetView from './WidgetView'
@@ -92,6 +93,23 @@ export default function KioskView({ dashboardName, pages, onClose }: {
         {widgets.length === 0 ? (
           <div style={{ color: '#94a3b8', textAlign: 'center', marginTop: 80, fontSize: 18 }}>
             {page ? 'Загрузка страницы…' : 'На дашборде нет страниц'}
+          </div>
+        ) : page?.layout_mode === 'flow' ? (
+          /* Страница в «потоке»: координат у виджетов нет, раскладка считается
+             по их типам — иначе на экране в холле показался бы мусор. */
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: FLOW_GAP }}>
+            {flowItems(widgets, gridWidth ?? 0).map((it) => {
+              const w = widgets.find((x) => x.id === it.id)!
+              return (
+                <div key={it.id} style={{ ...card, gridColumn: `span ${it.span}`, minWidth: 0,
+                  ...(it.auto ? { minHeight: 140 } : { height: it.height * 1.5 }) }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>{w.name}</div>
+                  <div style={{ overflow: 'auto', maxHeight: 'calc(100% - 26px)' }}>
+                    <WidgetView widgetId={w.id} reloadKey={reloadKey} showDrill={false} />
+                  </div>
+                </div>
+              )
+            })}
           </div>
         ) : gridWidth !== undefined && (
           <GridLayout className="layout" width={gridWidth} cols={12} rowHeight={60} margin={[16, 16]}

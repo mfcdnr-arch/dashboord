@@ -154,13 +154,14 @@ export interface HeaderActions {
   exportExcel: () => void
   exportPng: () => void
   fitLayout: () => void
+  toggleFlow: () => void
   deletePage: () => void
   renamePage: () => void
 }
 
 export function DashboardHeader({
   dashboard, pages, page, onOpenPage, onBack,
-  canManage, isAdmin, isSuperadmin, editMode, setEditMode,
+  canManage, isAdmin, isSuperadmin, editMode, setEditMode, flowMode,
   asOf, quickPeriods, pFrom, pTo, setPFrom, setPTo, crossRow, setCrossRow, catOptions,
   missingCount, onOpenMissing, presets, applyPreset, removePreset, savePreset,
   newPage, setNewPage, addPage, busy, exporting, a,
@@ -175,6 +176,8 @@ export function DashboardHeader({
   isSuperadmin?: boolean
   editMode: boolean
   setEditMode: (v: boolean) => void
+  /** Раскладка текущей страницы: «поток» вместо свободной сетки. */
+  flowMode: boolean
   asOf: string | null
   quickPeriods: { label: string; hint: string; range: () => [string, string] }[]
   pFrom: string
@@ -398,9 +401,19 @@ export function DashboardHeader({
           {canManage && editMode && page && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 8 }}>
               <button type="button" style={{ ...hbtn, height: 26 }} title="Переименовать страницу" onClick={a.renamePage}>✎ имя</button>
-              <button type="button" style={{ ...hbtn, height: 26 }}
-                title="Поставить каждому виджету размер по его типу и разложить по сетке. Состав страницы не изменится"
-                onClick={a.fitLayout}>↕ Подогнать размеры</button>
+              {/* Раскладка страницы. В «потоке» место и размер считаются по типу
+                  виджета при отрисовке, поэтому подгонять и двигать нечего —
+                  кнопки сетки там не показываем. */}
+              <button type="button" style={{ ...hbtn, height: 26, ...(flowMode ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+                title={flowMode
+                  ? 'Сейчас «поток»: виджеты сами укладываются по типу. Перейти на свободную сетку с перетаскиванием'
+                  : 'Сейчас свободная сетка. Перейти на «поток»: карточки, графики и таблицы уложатся сами и не оставят дыр'}
+                onClick={a.toggleFlow}>⧉ {flowMode ? 'Поток' : 'Сетка'}</button>
+              {!flowMode && (
+                <button type="button" style={{ ...hbtn, height: 26 }}
+                  title="Поставить каждому виджету размер по его типу и разложить по сетке. Состав страницы не изменится"
+                  onClick={a.fitLayout}>↕ Подогнать размеры</button>
+              )}
               <button type="button" style={{ ...linkDanger, fontSize: 12 }} onClick={a.deletePage}>удалить страницу</button>
             </span>
           )}
