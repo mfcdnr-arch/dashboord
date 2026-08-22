@@ -647,6 +647,14 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 2 }}>Выполнение: <b>{fmt(pct)}%</b></div>
           </div>
         )}
+        {/* Разрезы плана и факта различаются — проценты сопоставимы не
+            полностью. Молчать об этом нельзя: «выполнение 656 %» несут
+            руководителю как достижение. */}
+        {data.slice_note && (
+          <div style={{ fontSize: 11, color: 'var(--warn)', marginTop: 4 }} title="Разбор разрезов взят из проверок качества выпуска">
+            ⚠ {data.slice_note}
+          </div>
+        )}
         {/* Прогноз даты достижения плана: линейная экстраполяция по среднему
             темпу между первым и последним отчётом. Метод назван прямо в
             подписи — цифра «когда» без объяснения «откуда» доверия не
@@ -1055,6 +1063,46 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     }
     const h = Math.min(380, Math.max(200, rows.length * 26 + (longX ? 96 : 82)))
     return <EChart option={P(opt)} height={h} />
+  }
+
+  if (data.type === 'kpi_group') {
+    // Один показатель во всех его разрезах. Заголовок карточки — имя
+    // показателя (его рисует WidgetCard), строки — разрезы: «нарастающим
+    // итогом», «текущий месяц», «за отчётную неделю». Каждая строка сохраняет
+    // свой прирост и свою подсветку: значения разного масштаба, и общий цвет
+    // карточки был бы неверен.
+    const lines: any[] = data.lines || []
+    if (!lines.length) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {lines.map((l, i) => (
+          <div key={l.field || i}
+            style={{ display: 'flex', alignItems: 'baseline', gap: 8,
+              paddingBottom: i < lines.length - 1 ? 6 : 0,
+              borderBottom: i < lines.length - 1 ? '1px solid var(--border-faint)' : 'none' }}>
+            <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flex: 1, minWidth: 0,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              title={l.name}>
+              {l.label}{l.aggregate === 'avg' ? ' ⌀' : ''}
+            </span>
+            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+              <b style={{ fontSize: 17, lineHeight: 1.1, whiteSpace: 'nowrap',
+                color: l.alert?.color || 'var(--text)' }}>
+                {fmt(l.value)}{data.unit ? ` ${data.unit}` : ''}
+              </b>
+              {typeof l.delta === 'number' && l.delta !== 0 && (
+                <span style={{ fontSize: 10.5, whiteSpace: 'nowrap',
+                  color: l.delta > 0 ? 'var(--success)' : 'var(--danger)' }}
+                  title={l.prev_period ? `К отчёту за ${fmtAsOf(l.prev_period)}: ${fmt(l.prev_value)}` : undefined}>
+                  {l.delta > 0 ? '▲ +' : '▼ '}{fmt(l.delta)}
+                  {typeof l.delta_pct === 'number' ? ` (${l.delta_pct > 0 ? '+' : ''}${fmt(l.delta_pct)} %)` : ''}
+                </span>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+    )
   }
 
   if (data.type === 'matrix') {

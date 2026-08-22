@@ -223,6 +223,37 @@ async def _period_for_range(conn, org_id, code: str, from_date, to_date):
     return row.isoformat() if row is not None else None
 
 
+# Как называются разрезы в разборе имён госформ (ingestion/quality.classify_slice).
+_SLICE_RU = {"cumulative": "нарастающим итогом", "weekly": "за отчётную неделю",
+             "other": "в своём разрезе"}
+
+
+async def _slice_mismatch(conn, org_id, code: str, plan_field: str, fact_field: str,
+                          period) -> Optional[str]:
+    """Предупреждение, когда план и факт заданы в РАЗНЫХ разрезах.
+
+    Разбор разреза уже живёт в проверках качества выпуска
+    (`ingestion.quality.classify_slice`) — берём его, чтобы система не
+    противоречила сама себе: то, что при выпуске названо «за неделю», не может
+    на дашборде считаться накопительным.
+    """
+    from ..ingestion.quality import classify_slice
+
+    plan_name = await _field_title(conn, org_id, code, plan_field, period)
+    fact_name = await _field_title(conn, org_id, code, fact_field, period)
+    if not plan_name or not fact_name:
+        return None
+    ps, fs = classify_slice(plan_name), classify_slice(fact_name)
+    if ps == fs:
+        return None
+    # «Прочий» разрез у ПЛАНА — норма: план обычно задан на срок («до 1
+    # сентября»), и сравнивать его с накопительным фактом правильно.
+    if ps == "other" and fs == "cumulative":
+        return None
+    return (f"План задан {_SLICE_RU.get(ps, ps)}, факт — {_SLICE_RU.get(fs, fs)}: "
+            "проценты выполнения сопоставимы не полностью.")
+
+
 async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
                           from_date=None, to_date=None, row=None, user=None) -> dict:
     """Фильтр «Период» страницы + расчёт виджета.
@@ -480,6 +511,50 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
                 "scale": cfg.get("scale"),
                 "growth_index": bool(cfg.get("growth_index") and match_by == "period"),
                 "categories": categories, "series": series, "match_by": match_by, "sources": sources_meta}
+
+    if t == "kpi_group":
+        # Группа разрезов ОДНОГО показателя одной карточкой.
+        # В госформе у показателя обычно три столбца («нарастающим итогом»,
+        # «нарастающим итогом (текущий месяц)», «за отчётную неделю»), и до сих
+        # пор каждый занимал свою карточку: на «Обзоре» тринадцать карточек
+        # оказывались четырьмя показателями, а экран — стеной одинаковых
+        # заголовков, в которой имя весит больше самого числа.
+        fields = cfg.get("value_fields") or []
+        if not cfg.get("dataset_code") or not fields:
+            raise DashboardError("Группа показателей: укажите dataset_code и разрезы (value_fields)")
+        from ..metrics.data_suggestions import _clean, _split_name
+
+        series = None
+        if cfg.get("compare_prev"):
+            series = {}
+        lines: List[dict] = []
+        subject = None
+        for f in fields:
+            value, how, rows_used = await _column_value(conn, org_id, cfg, f, row, allowed, period)
+            title = await _field_title(conn, org_id, cfg["dataset_code"], f, period) or f
+            parts = _split_name(title)
+            subject = subject or _clean(parts["subject"])
+            # Подпись строки — РАЗРЕЗ показателя: имя показателя стоит в
+            # заголовке карточки, повторять его в каждой строке незачем.
+            label = _clean(parts["slice"]) or _clean(parts["role"]) or title
+            line = {"field": f, "label": label, "name": title, "value": value}
+            if how == "avg" and rows_used > 1:
+                line["aggregate"], line["rows_used"] = how, rows_used
+            if cfg.get("compare_prev"):
+                trend = await _dataset_period_series(
+                    conn, org_id, cfg["dataset_code"], f, None, period, row, allowed)
+                if len(trend) > 1:
+                    prev_period, prev_value = trend[-2]
+                    line["prev_value"], line["prev_period"] = prev_value, prev_period
+                    line["delta"] = value - prev_value
+                    line["delta_pct"] = (round((value - prev_value) / prev_value * 100, 2)
+                                         if prev_value else None)
+            # Пороги подсветки работают ПОСТРОЧНО: у разрезов одного показателя
+            # значения разного масштаба, общий цвет карточки был бы неверен.
+            line["alert"] = evaluate_alert("kpi", cfg, {"value": value})
+            lines.append(line)
+        return {"type": "kpi_group", "title": name, "subject": subject or name,
+                "unit": cfg.get("unit"), "lines": lines}
 
     if t == "matrix":
         # Матрица «строка × отчётная дата»: как КАЖДАЯ строка формы двигалась от
@@ -756,6 +831,13 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             raise DashboardError("План-факт: укажите plan_metric+fact_metric или dataset_code+plan_field+fact_field")
         pct = (fact / plan * 100.0) if plan else None
         res = {"type": "plan_fact", "plan": plan, "fact": fact, "delta": fact - plan, "pct": pct, "unit": unit, "title": name}
+        if cfg.get("dataset_code") and cfg.get("plan_field") and cfg.get("fact_field"):
+            # «Выполнение: 656,87 %» бывает арифметически верным и при этом
+            # бессмысленным: план задан на месяц, а факт идёт нарастающим итогом
+            # с начала года. Считать за человека нельзя — данные такие, какие
+            # они есть, — но молчать об этом хуже: цифру несут руководителю.
+            res["slice_note"] = await _slice_mismatch(
+                conn, org_id, cfg["dataset_code"], cfg["plan_field"], cfg["fact_field"], period)
         if cfg.get("forecast") and cfg.get("dataset_code") and cfg.get("fact_field") and how_fact == "sum":
             # «Успеем ли к сроку» — вопрос, ради которого на план-факт и смотрят;
             # до сих пор его считали в уме. Прогноз строится ТОЛЬКО для

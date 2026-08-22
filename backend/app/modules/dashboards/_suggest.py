@@ -11,7 +11,7 @@ import re
 from typing import List, Optional
 
 from ..metrics import resolver as mr
-from ..metrics.data_suggestions import _is_main_slice, _split_name, _subject_key
+from ..metrics.data_suggestions import _clean, _is_main_slice, _split_name, _subject_key
 from ._aggregate import is_share
 from ._alerts import _cfg
 from ._base import DashboardError
@@ -88,6 +88,8 @@ WIDGET_SIZE = {
     # заголовок, намеренно обрезанный по трём строкам через line-clamp, а не
     # прокрутка содержимого. Мерить надо элементы с overflow auto/scroll.)
     "kpi": (4, 5),
+    # Группа разрезов: высота считается по числу строк при сборке (см. ниже).
+    "kpi_group": (4, 8),
     "gauge": (4, 7),
     "plan_fact": (6, 6),
     "dynamics": (4, 6),
@@ -379,6 +381,9 @@ MATRIX_PERIODS = 12
 # Сколько показателей помещается в матрицу «показатель × дата», не превращая её
 # в стену: у госформы их полтора десятка, и все они осмысленны.
 MATRIX_FIELDS = 20
+# Сколько трендов оставить рядом с матрицей: она уже отвечает «что где было»,
+# а график нужен, чтобы увидеть ФОРМУ движения у главных показателей.
+MAX_TRENDS_WITH_MATRIX = 4
 
 
 def default_view(field_name: str, has_periods: bool) -> str:
@@ -517,6 +522,38 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
         # четверти ширины от них оставалось «Количестı отправ…» — карточка
         # переставала отвечать на вопрос, что за число она показывает.
         # Высота 4 вместо 3: под числом помещается прирост к прошлому отчёту.
+        # Разрезы одного показателя — ОДНОЙ карточкой. В госформе у показателя
+        # обычно три столбца («нарастающим итогом», «… текущий месяц», «за
+        # отчётную неделю»), и раньше каждый занимал свою карточку: тринадцать
+        # карточек «Обзора» оказывались четырьмя показателями, а экран — стеной
+        # одинаковых заголовков, где имя весит больше самого числа.
+        # Группируем тем же разбором имени, что и всё остальное в системе.
+        all_cards = list(cards)    # до группировки — по ним строится «Сравнение»
+        groups: list = []          # [(ключ показателя, [поля])]
+        singles: list = []
+        by_subject: dict = {}
+        for f in cards:
+            key = _subject_key(_split_name(f["name"])["subject"])
+            by_subject.setdefault(key, []).append(f)
+        for key, fs in by_subject.items():
+            (groups if len(fs) > 1 else singles).append((key, fs))
+
+        gi = 0
+        for _key, fs in groups:
+            head = _clean(_split_name(fs[0]["name"])["subject"]) or fs[0]["name"]
+            # Высота — по числу разрезов: строка занимает ~1 ряд сетки.
+            g_h = max(KPI_H, 3 + len(fs))
+            specs.append({"page": PAGE_OVERVIEW, "name": head, "widget_type": "kpi_group",
+                          "config": {"dataset_code": code,
+                                     "value_fields": [f["code"] for f in fs],
+                                     **({"compare_prev": True} if has_dyn else {})},
+                          "position_x": (gi % 3) * KPI_W, "position_y": ov_y + (gi // 3) * g_h,
+                          "width": KPI_W, "height": g_h})
+            gi += 1
+        if groups:
+            ov_y += ((len(groups) + 2) // 3) * max(KPI_H, 3 + max(len(fs) for _k, fs in groups))
+
+        cards = [fs[0] for _k, fs in singles]
         for i, f in enumerate(cards):
             specs.append({"page": PAGE_OVERVIEW, "name": f["name"], "widget_type": "kpi",
                           "config": {"dataset_code": code, "value_field": f["code"],
@@ -539,13 +576,16 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
 
         # Сравнение: десяток карточек даёт точные числа, но не даёт увидеть
         # соотношение. 8 рядов — замерено: при 6 график ужимается до полоски.
-        if "compare" in blocks and len(cards) > 1:
-            specs.append({"page": PAGE_OVERVIEW, "name": f"{dsname}: сравнение показателей",
+        # Сравнение строится по ВСЕМ показателям, а не по остатку после
+        # группировки: соотношение величин — как раз то, чего карточки (хоть
+        # одиночные, хоть сгруппированные) не показывают.
+        if "compare" in blocks and len(all_cards) > 1:
+            specs.append({"page": PAGE_OVERVIEW, "name": f"{form_title(dsname)}: сравнение показателей",
                           "widget_type": "compare",
-                          "config": {"dataset_code": code, "value_fields": [f["code"] for f in cards]},
+                          "config": {"dataset_code": code, "value_fields": [f["code"] for f in all_cards]},
                           "position_x": 0, "position_y": ov_y, "width": 12,
-                          "height": 8 if len(cards) > 4 else 6})
-            ov_y += 8 if len(cards) > 4 else 6
+                          "height": 8 if len(all_cards) > 4 else 6})
+            ov_y += 8 if len(all_cards) > 4 else 6
 
         # ── Матрица «строка × дата» ──────────────────────────────────────────
         # Появляется только там, где отвечает на свой вопрос: строк в форме
@@ -553,6 +593,7 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
         # («Донецкая Народная Республика») матрица дословно повторяет
         # «Динамику», и место она занимала бы зря.
         many_rows = int(d.get("rows") or 0) > 1
+        matrix_added = False
         if "matrix" in blocks and has_dyn:
             # Разрез выбирается по самим данным. Строк в форме несколько
             # (районы, отделения) — интереснее «кто как двигался»; строка одна
@@ -577,9 +618,16 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
                           "config": spec_cfg,
                           "position_x": 0, "position_y": dyn_y, "width": 12, "height": m_h})
             dyn_y += m_h
+            matrix_added = True
 
         # ── Динамика: тренд по каждому показателю, которому он назначен ──
-        trends = ([f for f in shown if view_of(f) in ("dynamics", "both")][:MAX_AUTO_DYNAMICS]
+        # Матрица показывает движение ВСЕХ показателей по всем датам, поэтому
+        # рядом с ней тринадцать почти одинаковых графиков — дублирование:
+        # страница превращалась в ленту, на которой ничего не выделено. Когда
+        # матрица поставлена, оставляем тренды только для главных показателей
+        # (остальные добавляются кнопкой «💡 показатели не показаны»).
+        limit = MAX_TRENDS_WITH_MATRIX if matrix_added else MAX_AUTO_DYNAMICS
+        trends = ([f for f in shown if view_of(f) in ("dynamics", "both")][:limit]
                   if has_dyn and "dynamics" in blocks else [])
         for i, f in enumerate(trends):
             specs.append({"page": PAGE_DYNAMICS, "name": f"Динамика: {f['name']}",

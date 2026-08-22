@@ -72,22 +72,32 @@ async def test_auto_build_makes_kpi_for_every_numeric_field(client, admin_header
                 "select widget_type, name, config, position_x, position_y, width "
                 "from widgets where dashboard_id=$1::uuid order by position_y, position_x", did)
 
-        kpis = [w for w in rows if w["widget_type"] == "kpi"]
-        assert len(kpis) == len(FIELDS), \
-            f"карточек должно быть столько же, сколько показателей: ожидали {len(FIELDS)}, получили {len(kpis)}"
-
-        # каждый показатель представлен ровно один раз
         import json
-        used = sorted(json.loads(w["config"])["value_field"] if isinstance(w["config"], str)
-                      else w["config"]["value_field"] for w in kpis)
-        assert used == sorted(c for c, _ in FIELDS)
+
+        def cfg_of(w):
+            return json.loads(w["config"]) if isinstance(w["config"], str) else w["config"]
+
+        # Разрезы одного показателя идут ОДНОЙ карточкой (kpi_group), одиночные —
+        # обычной. Проверяем не число карточек, а покрытие: ни один показатель
+        # не должен потеряться при группировке.
+        cards = [w for w in rows if w["widget_type"] in ("kpi", "kpi_group")]
+        used = []
+        for w in cards:
+            c = cfg_of(w)
+            used += c.get("value_fields") or ([c["value_field"]] if c.get("value_field") else [])
+        assert sorted(used) == sorted(c for c, _ in FIELDS), \
+            f"каждый показатель должен быть показан ровно один раз: {sorted(used)}"
+        groups = [w for w in rows if w["widget_type"] == "kpi_group"]
+        assert groups, "у показателя с несколькими разрезами должна быть группа"
+        assert all(len(cfg_of(w)["value_fields"]) > 1 for w in groups), \
+            "в группу попадают только показатели с несколькими разрезами"
 
         # По ТРИ карточки в ряд (ширина 4): на четверти ширины длинные имена
         # госформ обрезались до «Количестı отправ…», и карточка переставала
         # отвечать на вопрос, что за число она показывает. 3 × 4 = 12 колонок
         # заполняются без дыр.
-        assert {w["position_x"] for w in kpis} == {0, 4, 8}
-        assert all(w["width"] == 4 for w in kpis)
+        assert {w["position_x"] for w in cards} <= {0, 4, 8}
+        assert all(w["width"] == 4 for w in cards)
 
         types = [w["widget_type"] for w in rows]
         assert "table" in types, "таблица-первичка обязательна"
@@ -127,9 +137,22 @@ async def test_view_is_chosen_by_role_of_the_indicator(client, admin_headers, se
                 out.append(cfg.get("value_field"))
             return sorted(f for f in out if f)
 
-        assert fields_of("dynamics") == sorted(c for c, _ in FIELDS), \
-            f"тренд нужен каждому показателю, по которому он возможен: {fields_of('dynamics')}"
-        assert fields_of("kpi") == sorted(c for c, _ in FIELDS), "карточка нужна каждому"
+        # Тренды рядом с матрицей ограничены главными показателями: матрица уже
+        # показывает движение ВСЕХ по всем датам, и полтора десятка почти
+        # одинаковых графиков превращали страницу в ленту. Сами показатели при
+        # этом не теряются — они строки матрицы.
+        dyn = fields_of("dynamics")
+        assert 0 < len(dyn) <= 4, f"трендов должно остаться немного: {dyn}"
+        assert set(dyn) <= {c for c, _ in FIELDS}
+        matrix = [w for w in rows if w["widget_type"] == "matrix"]
+        assert matrix, "движение остальных показателей обязана показывать матрица"
+        # Карточка нужна каждому показателю, но разрезы одного показателя идут
+        # одной группой — считаем покрытие, а не число карточек.
+        import json as _json
+        covered = sorted(fields_of("kpi") + [
+            f for w in rows if w["widget_type"] == "kpi_group"
+            for f in (_json.loads(w["config"]) if isinstance(w["config"], str) else w["config"])["value_fields"]])
+        assert covered == sorted(c for c, _ in FIELDS), f"показатель потерялся: {covered}"
         assert any(w["widget_type"] == "plan_fact" for w in rows), \
             "у «Доставленные» есть и План, и Факт — должна быть полоса выполнения"
     finally:
@@ -208,13 +231,15 @@ async def test_selection_narrows_the_build(client, admin_headers, seed_dataset, 
             "selection": {code: {"fields": ["f1", "f2"], "blocks": ["kpi"]}},
         }
         plan = (await client.post("/dashboards/auto/plan", headers=admin_headers, json=body)).json()
-        assert plan["widgets"] == 2, f"ожидали 2 карточки, план говорит {plan['widgets']}"
+        assert plan["widgets"] == 1, f"два разреза одного показателя — одна карточка, план говорит {plan['widgets']}"
 
         did = (await client.post("/dashboards/auto", headers=admin_headers, json=body)).json()["dashboard_id"]
         async with db.acquire() as conn:
             types = await conn.fetch(
                 "select widget_type from widgets where dashboard_id=$1::uuid", did)
-        assert [t["widget_type"] for t in types] == ["kpi", "kpi"]
+        # f1 и f2 — разрезы ОДНОГО показателя («Обращения»), поэтому карточка
+        # одна: группа с двумя строками.
+        assert [t["widget_type"] for t in types] == ["kpi_group"]
     finally:
         if did:
             await purge_dashboard(did)

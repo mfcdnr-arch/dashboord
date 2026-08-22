@@ -298,6 +298,25 @@ export async function pageReportDates(pageId: string): Promise<{ dates: string[]
   return res.json()
 }
 
+/** «Как дела»: что выросло и что просело к прошлому отчёту. */
+export interface SummaryMove { field: string; name: string; full_name: string; value: number; delta: number; delta_pct: number | null }
+export interface PageSummary {
+  period?: string | null
+  prev_period?: string | null
+  grew: number
+  fell: number
+  same: number
+  top: SummaryMove[]
+  worst: SummaryMove[]
+  plans?: { name: string; pct: number }[]
+  single_report?: boolean
+}
+export async function pageSummary(pageId: string): Promise<PageSummary> {
+  const res = await fetch(`/dashboard-pages/${pageId}/summary`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 export async function pageAttention(pageId: string): Promise<PageAttention> {
   const res = await fetch(`/dashboard-pages/${pageId}/attention`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))

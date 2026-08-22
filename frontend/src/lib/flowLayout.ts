@@ -27,6 +27,8 @@
 export const FLOW_SIZE: Record<string, { w: number; h: number }> = {
   // Показатели: полоса вверху страницы.
   kpi: { w: 4, h: 5 },
+  // Группа разрезов одного показателя: высота — по содержимому (AUTO_HEIGHT).
+  kpi_group: { w: 4, h: 8 },
   gauge: { w: 4, h: 7 },
   dynamics: { w: 4, h: 6 },
   image: { w: 4, h: 5 },
@@ -81,7 +83,7 @@ export interface FlowItem {
 // Матрица здесь же: у неё столько строк, сколько показателей в форме
 // (у госформы — тринадцать), и в фиксированные 8 рядов помещаются две.
 // Карточка-таблица с внутренней прокруткой читается хуже длинной страницы.
-const AUTO_HEIGHT = new Set(['kpi', 'text', 'status_grid', 'image', 'matrix'])
+const AUTO_HEIGHT = new Set(['kpi', 'kpi_group', 'text', 'status_grid', 'image', 'matrix'])
 
 /**
  * Типы, которые на широком мониторе не грех уплотнить, и предел уплотнения.
@@ -90,7 +92,7 @@ const AUTO_HEIGHT = new Set(['kpi', 'text', 'status_grid', 'image', 'matrix'])
  * за…»), но при ширине окна под 1900px четверть ряда — это уже ~460px, и имя
  * помещается целиком. Графики и таблицы не уплотняем: им нужна ширина.
  */
-const DENSE_MIN: Record<string, number> = { kpi: 3, gauge: 3, dynamics: 3, image: 3, plan_fact: 4 }
+const DENSE_MIN: Record<string, number> = { kpi: 3, kpi_group: 3, gauge: 3, dynamics: 3, image: 3, plan_fact: 4 }
 
 /** Ширина, при которой имя показателя в три строки читается целиком. */
 const COMFORT = 330

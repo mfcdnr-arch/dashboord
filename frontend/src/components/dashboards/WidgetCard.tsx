@@ -15,7 +15,7 @@ import { WT, alertBtn, editBtn, rmBtn, widgetCard, wtBadge } from './shared'
 export function WidgetCard({
   w, data, error, alert, isCollapsed, onToggleCollapse, highlighted, editMode, canManage,
   hasSources, onEdit, onAlerts, onDelete, tip,
-  reloadKey, from, to, row, asOf, onPick, batched, onNavigate, onAddField, onOpenAppeals,
+  reloadKey, from, to, row, asOf, onPick, batched, onNavigate, onAddField, onOpenAppeals, shortName,
 }: {
   w: Widget
   data?: Record<string, unknown>
@@ -40,6 +40,15 @@ export function WidgetCard({
   batched: boolean
   onNavigate: (dashboardId: string, pageId: string | null, widgetId: string) => void
   onAddField?: (field: string, name: string, datasetCode: string) => Promise<void>
+  /**
+   * Имя без общей для всей страницы части.
+   *
+   * У госформы имена показателей отличаются серединой («Количество
+   * обращений … нарастающим итогом» / «… за отчётную неделю»), и в
+   * заголовке карточки повторяющееся начало занимало две-три строки —
+   * визуально тяжелее самого числа. Полное имя остаётся в подсказке.
+   */
+  shortName?: string
   onOpenAppeals?: () => void
 }) {
   return (
@@ -92,7 +101,7 @@ export function WidgetCard({
                   ? { textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
                   : { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', lineHeight: 1.2 }),
               }}
-                title={w.name}>{isCollapsed ? elideMiddle(w.name, 70) : w.name}</div>
+                title={w.name}>{isCollapsed ? elideMiddle(shortName || w.name, 70) : (shortName || w.name)}</div>
               {/* ⓘ — в строке с именем, а не отдельным рядом: свой ряд
                   стоил 21px, и на карточке в три ряда (144px) их не
                   хватало под само число. По ширине значок отнимает у

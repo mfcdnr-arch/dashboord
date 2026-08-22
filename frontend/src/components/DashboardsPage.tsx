@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import ReportLayout, { REPORT_COLUMNS_WIDE } from './dashboards/ReportLayout'
+import { distinctLabels } from '../lib/text'
 import GridLayout, { type Layout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
@@ -31,6 +32,7 @@ import { dashboardFreshness, dashboardMissingFields } from '../api/dashboards'
 import { FreshnessBar } from './dashboards/FreshnessBar'
 import { DashboardHeader } from './dashboards/DashboardHeader'
 import { AttentionBar } from './dashboards/AttentionBar'
+import { SummaryBar } from './dashboards/SummaryBar'
 import { RowDrillBar } from './dashboards/RowDrillBar'
 import { MissingFieldsDialog } from './dashboards/MissingFieldsDialog'
 import { TemplateCloneDialog } from './dashboards/TemplateCloneDialog'
@@ -890,6 +892,22 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   }
 
   /** Всё, что нужно карточке виджета: одинаково для обеих раскладок. */
+  /**
+   * Заголовки виджетов страницы без общей части.
+   *
+   * У госформы имена различаются серединой, и на «Обзоре» из полутора десятков
+   * карточек получалась стена одинаковых начал: имя в три строки весило больше
+   * самого числа. Отсекаем общее (тот же `distinctLabels`, что в легенде
+   * графиков и в матрице); полное имя остаётся в подсказке.
+   */
+  const shortNames = useMemo(() => {
+    const list = widgets.filter((w) => w.widget_type !== 'text' && w.widget_type !== 'image')
+    const short = distinctLabels(list.map((w) => w.name))
+    const out: Record<string, string> = {}
+    list.forEach((w, i) => { if (short[i] && short[i] !== w.name) out[w.id] = short[i] })
+    return out
+  }, [widgets])
+
   function cardProps(w: Widget) {
     return {
       w,
@@ -910,6 +928,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       onNavigate: navigateToWidget,
       onAddField: canManage ? addSiblingField : undefined,
       onOpenAppeals,
+      shortName: shortNames[w.id],
     }
   }
 
@@ -986,6 +1005,10 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
           {/* Провалились в строку данных: куда именно и как она на фоне других. */}
           <RowDrillBar pageId={page?.id ?? null} row={crossRow} from={pFrom} to={pTo}
             onClear={() => setCrossRow(null)} />
+
+          {/* «Как дела»: что выросло и что просело к прошлому отчёту —
+              первый экран отвечал «сколько», но не «как дела». */}
+          <SummaryBar pageId={page?.id ?? null} />
 
           {/* Замечания к данным страницы — те же, что видит модератор при
               выпуске. До сих пор дальше очереди выпуска они не доходили. */}

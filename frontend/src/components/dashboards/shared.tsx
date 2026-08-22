@@ -2,7 +2,7 @@
 
 // размеры по умолчанию для новых виджетов (сетка cols=12, rowHeight=40)
 export const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
-  kpi: { w: 3, h: 3 }, gauge: { w: 3, h: 5 }, plan_fact: { w: 4, h: 5 }, table: { w: 6, h: 6 },
+  kpi: { w: 3, h: 3 }, kpi_group: { w: 4, h: 8 }, gauge: { w: 3, h: 5 }, plan_fact: { w: 4, h: 5 }, table: { w: 6, h: 6 },
   bar: { w: 5, h: 6 }, line: { w: 5, h: 6 }, pie: { w: 4, h: 6 },
   dynamics: { w: 6, h: 6 }, yoy: { w: 6, h: 6 }, compare: { w: 6, h: 7 }, heatmap: { w: 6, h: 7 }, pivot: { w: 6, h: 6 }, waterfall: { w: 6, h: 6 },
   objects_compare: { w: 6, h: 6 }, cross_dataset_compare: { w: 6, h: 7 }, text: { w: 6, h: 2 }, image: { w: 3, h: 3 },

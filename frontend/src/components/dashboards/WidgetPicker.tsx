@@ -8,6 +8,7 @@ const box: React.CSSProperties = { width: 52, height: 34 }
 
 const ICONS: Record<string, React.ReactNode> = {
   kpi: <svg style={box} viewBox="0 0 52 34"><text x="26" y="24" textAnchor="middle" fontSize="20" fontWeight="700" fill={C1}>42</text></svg>,
+  kpi_group: <svg style={box} viewBox="0 0 52 34"><rect x="7" y="4" width="38" height="26" rx="3" fill="none" stroke={C1} strokeWidth="1.5" /><text x="11" y="14" fontSize="7" fill={C3}>нараст.</text><text x="41" y="14" fontSize="8" textAnchor="end" fontWeight="700" fill={C1}>1,0м</text><text x="11" y="22" fontSize="7" fill={C3}>месяц</text><text x="41" y="22" fontSize="8" textAnchor="end" fontWeight="700" fill={C1}>158к</text><text x="11" y="29" fontSize="7" fill={C3}>неделя</text><text x="41" y="29" fontSize="8" textAnchor="end" fontWeight="700" fill={GREEN}>5,3к</text></svg>,
   gauge: <svg style={box} viewBox="0 0 52 34"><path d="M8 28 A18 18 0 0 1 44 28" fill="none" stroke="#eef0f3" strokeWidth="5" /><path d="M8 28 A18 18 0 0 1 34 13" fill="none" stroke={C1} strokeWidth="5" /><line x1="26" y1="28" x2="34" y2="16" stroke={C1} strokeWidth="2" /></svg>,
   plan_fact: <svg style={box} viewBox="0 0 52 34"><rect x="8" y="8" width="8" height="20" fill={C3} /><rect x="20" y="14" width="8" height="14" fill={C1} /><rect x="6" y="30" width="40" height="3" rx="1.5" fill="#eef0f3" /><rect x="6" y="30" width="26" height="3" rx="1.5" fill={GREEN} /></svg>,
   bar: <svg style={box} viewBox="0 0 52 34"><rect x="8" y="16" width="7" height="12" fill={C1} /><rect x="19" y="8" width="7" height="20" fill={C1} /><rect x="30" y="20" width="7" height="8" fill={C1} /><rect x="41" y="12" width="7" height="16" fill={C1} /></svg>,
@@ -38,6 +39,7 @@ export const WIDGET_GROUPS: Group[] = [
     key: 'kpi', title: 'Показатели', note: 'одно число — быстрый акцент',
     items: [
       { v: 'kpi', t: 'KPI (число)', hint: 'Крупное значение метрики или формулы' },
+      { v: 'kpi_group', t: 'Показатель в разрезах', hint: 'Один показатель во всех его разрезах одной карточкой: значение и прирост построчно' },
       { v: 'gauge', t: 'Спидометр', hint: 'Значение на шкале — % выполнения' },
       { v: 'plan_fact', t: 'План-факт', hint: 'План, факт, отклонение и % выполнения' },
     ],

@@ -58,6 +58,7 @@ from ._suggest import (  # noqa: F401
     place_metric_widget,
     suggest_widgets,
 )
+from ._summary import page_summary  # noqa: F401
 from ._templates import (  # noqa: F401
     _remap_config,
     _template_codes,
