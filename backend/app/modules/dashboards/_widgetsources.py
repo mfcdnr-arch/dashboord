@@ -230,3 +230,63 @@ async def _attach_as_of(conn, org_id, cfg: dict, result):
             # надо сказать, иначе её примут за устаревший дашборд.
             result["period_locked"] = True
     return result
+
+
+async def _dataset_row_period_matrix(conn, org_id, dataset_code: str, value_field: str,
+                                     from_date=None, to_date=None, row=None, allowed=None,
+                                     max_periods: int = 12):
+    """Матрица «строка × отчётная дата» по одному показателю.
+
+    Ни один существующий источник этого не даёт: `_dataset_period_series`
+    сворачивает все строки в одно число за период, а `_dataset_multi_series` —
+    это строки × ПОЛЯ на ОДНУ дату. Здесь нужен третий разрез: как каждая
+    строка формы (район, отделение) двигалась от отчёта к отчёту.
+
+    `max_periods` — сколько последних отчётов показать. Ограничение
+    содержательное, а не техническое: недельная форма за год даёт 52 столбца,
+    и матрица перестаёт читаться; сколько отчётов есть на самом деле,
+    возвращается отдельно (`total_periods`), чтобы это можно было сказать
+    человеку, а не умолчать.
+    """
+    rels = await conn.fetch(
+        "select id, reporting_period_start from dataset_releases "
+        "where organization_id=$1 and code=$2 and status <> 'superseded' "
+        "and ($3::text is null or reporting_period_start >= $3::text::date) "
+        "and ($4::text is null or reporting_period_start <= $4::text::date) "
+        "order by reporting_period_start nulls last",
+        org_id, dataset_code, from_date, to_date,
+    )
+    if not rels:
+        raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
+    total = len(rels)
+    kept = rels[-max_periods:] if max_periods and total > max_periods else list(rels)
+    ids = [r["id"] for r in kept]
+    periods = [r["reporting_period_start"].isoformat() if r["reporting_period_start"] else "—"
+               for r in kept]
+
+    params: list = [ids, value_field, row]
+    acl = _row_acl_clause(params, allowed)
+    vals = await conn.fetch(
+        "select dataset_release_id as rel, row_label, min(row_index) as ri, "
+        "       sum(value_number) as val "
+        "from dataset_values "
+        "where dataset_release_id = any($1::uuid[]) and canonical_field_code=$2 "
+        f"and value_number is not null and ($3::text is null or row_label=$3){acl} "
+        "group by dataset_release_id, row_label", *params)
+
+    pos = {rid: i for i, rid in enumerate(ids)}
+    # Порядок строк — как в САМОМ СВЕЖЕМ отчёте (там актуальный состав районов),
+    # строки, которых в нём уже нет, идут следом: молча терять их нельзя, по ним
+    # есть история.
+    order: Dict[str, tuple] = {}
+    grid: Dict[str, List[Optional[float]]] = {}
+    for v in vals:
+        lbl = v["row_label"]
+        cells = grid.setdefault(lbl, [None] * len(ids))
+        cells[pos[v["rel"]]] = float(v["val"])
+        key = (-pos[v["rel"]], int(v["ri"] or 0))
+        if lbl not in order or key < order[lbl]:
+            order[lbl] = key
+    labels = sorted(grid, key=lambda x: order[x])
+    return {"periods": periods, "labels": labels, "grid": grid,
+            "total_periods": total, "shown_periods": len(ids)}

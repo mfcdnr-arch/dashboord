@@ -326,8 +326,8 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const isText = type === 'text'
   const isImage = type === 'image'
   const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
-  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall'].includes(type)
-  const usesValueField = ['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall'].includes(type) || (['kpi', 'gauge'].includes(type) && source === 'dataset')
+  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall', 'matrix'].includes(type)
+  const usesValueField = ['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall', 'matrix'].includes(type) || (['kpi', 'gauge'].includes(type) && source === 'dataset')
   // Воронка тоже набирается из нескольких полей, но порядок галочек для неё
   // ЗНАЧИМ: это последовательность этапов, а не просто набор столбцов.
   const usesMulti = type === 'compare' || type === 'heatmap' || type === 'pivot' || type === 'funnel'
@@ -338,6 +338,12 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   // Цель/бенчмарк (kpi/gauge) и линейный тренд (dynamics).
   const [target, setTarget] = useState<string>(cfg0.target != null ? String(cfg0.target) : '')
   const [trend, setTrend] = useState<boolean>(!!cfg0.trend)
+  // Индекс роста (dynamics / сравнение источников): первая точка = 100 %.
+  const [growthIndex, setGrowthIndex] = useState<boolean>(!!cfg0.growth_index)
+  // Прогноз даты достижения плана (plan_fact по датасету).
+  const [forecast, setForecast] = useState<boolean>(!!cfg0.forecast)
+  // Сколько последних отчётов показывает матрица «строка × дата».
+  const [maxPeriods, setMaxPeriods] = useState<string>(cfg0.max_periods != null ? String(cfg0.max_periods) : '12')
   // Волна F: обнаружение аномалий (без ИИ — отклонение от линии тренда в σ).
   const [anomalies, setAnomalies] = useState<boolean>(!!cfg0.anomalies)
   const [anomalyThreshold, setAnomalyThreshold] = useState<string>(cfg0.anomaly_threshold != null ? String(cfg0.anomaly_threshold) : '2')
@@ -364,13 +370,17 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       }
       return base
     }
-    if (type === 'plan_fact') return source === 'metric' ? ((metricCode && factMetric) ? { plan_metric: metricCode, fact_metric: factMetric } : null) : ((dataset && planField && factField) ? { dataset_code: dataset, plan_field: planField, fact_field: factField } : null)
+    if (type === 'plan_fact') return source === 'metric'
+      ? ((metricCode && factMetric) ? { plan_metric: metricCode, fact_metric: factMetric } : null)
+      : ((dataset && planField && factField)
+        ? { dataset_code: dataset, plan_field: planField, fact_field: factField, ...(forecast ? { forecast: true } : {}) }
+        : null)
     if (type === 'table') return dataset ? { dataset_code: dataset } : null
     if (type === 'objects_compare') return objField ? { value_field: objField } : null
     if (type === 'cross_dataset_compare') {
       const valid = crossSeries.filter((s) => s.dataset_code && s.value_field)
       return valid.length >= 2
-        ? { series: valid.map((s) => ({ dataset_code: s.dataset_code, value_field: s.value_field, ...(s.label.trim() ? { label: s.label.trim() } : {}) })), match_by: matchBy, viz, ...(scale ? { scale } : {}) }
+        ? { series: valid.map((s) => ({ dataset_code: s.dataset_code, value_field: s.value_field, ...(s.label.trim() ? { label: s.label.trim() } : {}) })), match_by: matchBy, viz, ...(scale ? { scale } : {}), ...(growthIndex && matchBy === 'period' ? { growth_index: true } : {}) }
         : null
     }
     if (type === 'compare') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields, viz, ...(scale ? { scale } : {}) } : null
@@ -380,9 +390,12 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     if (type === 'status_grid') return (dataset && valueField)
       ? { dataset_code: dataset, value_field: valueField, ...(planField ? { plan_field: planField } : {}) } : null
     if (type === 'heatmap' || type === 'pivot') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields } : null
+    if (type === 'matrix') return (dataset && valueField)
+      ? { dataset_code: dataset, value_field: valueField, max_periods: Number(maxPeriods) || 12 } : null
     if (type === 'dynamics') return (dataset && valueField) ? {
       dataset_code: dataset, value_field: valueField,
       ...(trend ? { trend: true } : {}),
+      ...(growthIndex ? { growth_index: true } : {}),
       ...(anomalies ? { anomalies: true, anomaly_threshold: Number(anomalyThreshold) || 2 } : {}),
     } : null
     return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null // bar/line/pie/yoy
@@ -547,6 +560,15 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
             <option value="period">По периоду (по месяцу выпуска)</option>
           </select></F>
           <F t="Вид"><select style={sel} value={viz} onChange={(e) => setViz(e.target.value)}><option value="bar">Столбцы</option><option value="line">Линии</option></select></F>
+          {/* Именно здесь индекс роста нужен больше всего: два источника разного
+              масштаба (миллионы уведомлений и тысячи записей) на одной оси
+              несравнимы, пока каждый не приведён к своему старту за 100 %. */}
+          {matchBy === 'period' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }}
+              title="Каждый источник приводится к СВОЕЙ первой точке = 100 %. Сравниваются темпы, а не величины.">
+              <input type="checkbox" checked={growthIndex} onChange={(e) => setGrowthIndex(e.target.checked)} />Индекс роста (у каждого источника первая точка = 100 %)
+            </label>
+          )}
           <div style={{ fontSize: 11, color: 'var(--text-muted)', margin: '8px 0 4px' }}>Источники (минимум 2, из разных датасетов/файлов)</div>
           {crossSeries.map((it, i) => (
             <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 6, flexWrap: 'wrap' }}>
@@ -591,6 +613,12 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }} title="Наложить линию линейного тренда (метод наименьших квадратов)">
             <input type="checkbox" checked={trend} onChange={(e) => setTrend(e.target.checked)} />Линия тренда
           </label>
+          {/* Индекс роста отвечает не на «сколько», а на «насколько выросло»:
+              первая точка принимается за 100 %. Нужен, когда показатели разного
+              масштаба сравнивают между собой или когда важна не величина, а темп. */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }} title="Первая точка = 100 %, дальше — рост в процентах к ней. Абсолютные значения остаются в подсказке.">
+            <input type="checkbox" checked={growthIndex} onChange={(e) => setGrowthIndex(e.target.checked)} />Индекс роста (первая точка = 100 %)
+          </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }} title="Отметить точки, отклонившиеся от линии тренда больше чем на N стандартных отклонений (простая статистика, без ИИ)">
             <input type="checkbox" checked={anomalies} onChange={(e) => setAnomalies(e.target.checked)} />Отмечать аномалии
           </label>
@@ -600,6 +628,16 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
             </F>
           )}
         </>
+      )}
+      {type === 'matrix' && (
+        <F t="Сколько последних отчётов">
+          <input style={{ ...sel, width: 80 }} type="number" min="2" max="52" value={maxPeriods}
+            onChange={(e) => setMaxPeriods(e.target.value)}
+            title="Недельная форма за год даёт полсотни столбцов — матрица перестаёт читаться. Сколько отчётов есть всего, виджет скажет сам." />
+          <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4, maxWidth: 320 }}>
+            Строки формы × отчётные даты: в ячейке значение и прирост к прошлому отчёту.
+          </div>
+        </F>
       )}
       {usesMulti && (
         <>
@@ -664,6 +702,12 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         <>
           <F t="Поле (план)"><select style={sel} value={planField} onChange={(e) => setPlanField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></F>
           <F t="Поле (факт)"><select style={sel} value={factField} onChange={(e) => setFactField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></F>
+          {/* «Успеем ли к сроку» — вопрос, ради которого на план-факт и смотрят.
+              Прогноз линейный: средний темп между первым и последним отчётом. */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }}
+            title="Линейная экстраполяция по среднему темпу между первым и последним отчётом. Для долей и процентов не считается — там «темп в день» смысла не имеет.">
+            <input type="checkbox" checked={forecast} onChange={(e) => setForecast(e.target.checked)} />Прогноз даты достижения плана
+          </label>
         </>
       )}
       {!isText && !isImage && (

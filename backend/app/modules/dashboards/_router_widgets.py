@@ -108,6 +108,17 @@ async def page_row_rank(page_id: str, row: str = Query(...),
             raise _bad(e)
 
 
+@router.get("/dashboard-pages/{page_id}/attention")
+async def page_attention(page_id: str, user: dict = Depends(get_current_user)):
+    """«На что посмотреть»: замечания к данным страницы (те же проверки качества,
+    что видит модератор при выпуске)."""
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.page_attention(conn, user["organization_id"], page_id, user)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.post("/dashboard-pages/{page_id}/widgets", status_code=status.HTTP_201_CREATED)
 async def create_widget(page_id: str, body: WidgetIn, user: dict = Depends(manage)):
     async with db.acquire(user["id"]) as conn:

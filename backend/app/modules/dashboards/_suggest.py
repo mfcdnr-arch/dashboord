@@ -93,7 +93,7 @@ WIDGET_SIZE = {
     "dynamics": (4, 6),
     "bar": (12, 6), "line": (12, 6), "pie": (6, 6), "waterfall": (6, 6),
     "compare": (12, 8), "cross_dataset_compare": (12, 8), "yoy": (12, 6),
-    "heatmap": (6, 7), "pivot": (12, 6), "table": (12, 6),
+    "heatmap": (6, 7), "pivot": (12, 6), "table": (12, 6), "matrix": (12, 7),
     "text": (12, 2), "image": (6, 5),
 }
 

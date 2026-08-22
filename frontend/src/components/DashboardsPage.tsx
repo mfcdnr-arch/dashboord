@@ -30,6 +30,7 @@ import { useConfirm } from './dashboards/ConfirmDialog'
 import { dashboardFreshness, dashboardMissingFields } from '../api/dashboards'
 import { FreshnessBar } from './dashboards/FreshnessBar'
 import { DashboardHeader } from './dashboards/DashboardHeader'
+import { AttentionBar } from './dashboards/AttentionBar'
 import { RowDrillBar } from './dashboards/RowDrillBar'
 import { MissingFieldsDialog } from './dashboards/MissingFieldsDialog'
 import { TemplateCloneDialog } from './dashboards/TemplateCloneDialog'
@@ -970,6 +971,10 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
           {/* Провалились в строку данных: куда именно и как она на фоне других. */}
           <RowDrillBar pageId={page?.id ?? null} row={crossRow} from={pFrom} to={pTo}
             onClear={() => setCrossRow(null)} />
+
+          {/* Замечания к данным страницы — те же, что видит модератор при
+              выпуске. До сих пор дальше очереди выпуска они не доходили. */}
+          <AttentionBar pageId={page?.id ?? null} />
 
           {/* Появился более свежий выпуск — предложение обновиться (сама дата
               данных живёт в строке контекста шапки). */}

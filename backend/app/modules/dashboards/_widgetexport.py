@@ -146,6 +146,12 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
             summary.append([name, "План-факт", "план", data.get("plan")])
             summary.append([name, "План-факт", "факт", data.get("fact")])
             summary.append([name, "План-факт", "выполнение, %", data.get("pct")]); has_summary = True
+            f = data.get("forecast") or {}
+            if f.get("reason") == "ok":
+                # Прогноз попадает в файл ровно тем же, чем он подписан на
+                # экране: датой и темпом, по которому она получена.
+                summary.append([name, "План-факт", "прогноз достижения плана", _as_date(f.get("date"))])
+                summary.append([name, "План-факт", "средний темп в день", f.get("rate")])
         elif t == "table":
             ws = wb.create_sheet(sheet_name(wid, name))
             cols = list(data.get("columns", []))
@@ -164,9 +170,12 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
         elif t == "dynamics":
             ws = wb.create_sheet(sheet_name(wid, name))
             anomaly_idx = {a["index"] for a in data.get("anomalies", [])}
-            ws.append(["Период", "Значение", "Аномалия"])
+            idx = data.get("index_values") or []
+            head = ["Период", "Значение"] + (["Индекс роста, %"] if idx else []) + ["Аномалия"]
+            ws.append(head)
             for i, (pr, v) in enumerate(zip(data.get("periods", []), data.get("values", []), strict=False)):
-                _row(ws, [pr, v, "⚠" if i in anomaly_idx else ""])
+                _row(ws, [pr, v] + ([idx[i] if i < len(idx) else None] if idx else [])
+                     + ["⚠" if i in anomaly_idx else ""])
             # Те же итоги, что видны под графиком — иначе в выгрузке пришлось бы
             # считать их заново вручную, и цифры разошлись бы с экраном.
             if data.get("total_change") is not None:
@@ -178,6 +187,25 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
                 ws.append([f"К пред. периоду ({_ru_date(data.get('change_from_period'))} → "
                            f"{_ru_date(data.get('change_to_period'))})",
                            data.get("change"), _pct(data.get("change_pct"))])
+        elif t == "matrix":
+            ws = wb.create_sheet(sheet_name(wid, name))
+            periods = list(data.get("periods", []))
+            ws.append([data.get("field_title") or name])
+            ws.append(["Строка"] + [_as_date(p) for p in periods] + ["За период"])
+            for r in data.get("rows", []):
+                _row(ws, [r.get("row")] + list(r.get("values", [])) + [r.get("total_change")])
+            # Прирост отдельным блоком, а не второй колонкой на каждую дату: в
+            # файле с ним работают формулами и сводными, и «дата | Δ | дата | Δ»
+            # такую работу ломает. На экране прирост стоит под значением — там
+            # его читают глазами, здесь считают.
+            ws.append([])
+            ws.append(["Изменение к прошлому отчёту"])
+            ws.append(["Строка"] + [_as_date(p) for p in periods])
+            for r in data.get("rows", []):
+                _row(ws, [r.get("row")] + list(r.get("deltas", [])))
+            if len(data.get("rows", [])) > 1:
+                ws.append([])
+                _row(ws, ["Итого по отчёту"] + list(data.get("col_totals", [])))
         elif t == "yoy":
             ws = wb.create_sheet(sheet_name(wid, name))
             py, cy = data.get("previous_year"), data.get("current_year")

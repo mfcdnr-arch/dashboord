@@ -280,6 +280,23 @@ export async function pageRowRank(pageId: string, row: string, from = '', to = '
   return res.json()
 }
 
+/** «На что посмотреть»: замечания к данным страницы (те же проверки качества,
+ *  что видит модератор при выпуске). */
+export interface AttentionWarning { code: string; count: number; message: string }
+export interface AttentionItem {
+  dataset_code: string
+  dataset_name: string
+  period: string | null
+  previous_period: string | null
+  warnings: AttentionWarning[]
+}
+export interface PageAttention { items: AttentionItem[]; datasets_checked: number }
+export async function pageAttention(pageId: string): Promise<PageAttention> {
+  const res = await fetch(`/dashboard-pages/${pageId}/attention`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 export async function updatePage(pageId: string, patch: { name?: string; description?: string; layout_mode?: string }): Promise<DashPage> {
   const res = await fetch(`/dashboard-pages/${pageId}`, {
     method: 'PATCH',

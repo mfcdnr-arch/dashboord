@@ -17,6 +17,7 @@ from ._widgetsources import (
     _dataset_as_of,
     _dataset_multi_series,
     _dataset_period_series,
+    _dataset_row_period_matrix,
     _dataset_series,
     _dataset_table,
     _field_title,
@@ -105,6 +106,48 @@ def _detect_anomalies(periods: list, values: list, threshold: float = 2.0) -> li
     return out
 
 
+def _plan_forecast(series: list, plan, fact) -> dict:
+    """Когда факт дорастёт до плана при нынешнем темпе (линейная экстраполяция).
+
+    Темп берётся как средний прирост в ДЕНЬ между первым и последним отчётом
+    ряда, а не между двумя последними: недельные формы приходят неровно
+    («пятница/понедельник»), и пара соседних отчётов даёт то втрое больший, то
+    втрое меньший темп. Средний по отрезку объясним человеку словами — «в
+    среднем +N в день с 22.07 по 05.08», — и именно это пишется в подписи.
+
+    Ответ всегда честный: «план уже выполнен», «при таком темпе план не будет
+    достигнут» (темп ноль или вниз) или «данных мало» — вместо выдуманной даты.
+    """
+    from datetime import date, timedelta
+
+    out: dict = {"reason": None, "date": None}
+    if plan is None or fact is None:
+        return {"reason": "no_data"}
+    if fact >= plan:
+        return {"reason": "done"}
+    pts = [(p, v) for p, v in series if len(p) == 10 and p[:4].isdigit()]
+    if len(pts) < 2:
+        return {"reason": "few_points"}
+    (p0, v0), (p1, v1) = pts[0], pts[-1]
+    d0, d1 = date.fromisoformat(p0), date.fromisoformat(p1)
+    days = (d1 - d0).days
+    if days <= 0:
+        return {"reason": "few_points"}
+    rate = (v1 - v0) / days
+    if rate <= 0:
+        return {"reason": "no_growth", "rate": rate, "from_period": p0, "to_period": p1}
+    remain = plan - fact
+    need = remain / rate
+    if need > 3650:
+        # Десять лет — это не прогноз, а способ сказать «такими темпами никогда».
+        return {"reason": "too_far", "rate": rate, "days": round(need),
+                "from_period": p0, "to_period": p1}
+    out = {"reason": "ok", "rate": rate, "days": int(round(need)),
+           "date": (d1 + timedelta(days=int(round(need)))).isoformat(),
+           "remain": remain, "from_period": p0, "to_period": p1, "points": len(pts)}
+    return out
+
+
 def _normalize_cfg(cfg: dict) -> dict:
     """Сглаживает историческое расхождение ключей конфигурации виджетов.
 
@@ -128,7 +171,7 @@ def _normalize_cfg(cfg: dict) -> dict:
 
 # Виджеты, которым нужен весь РЯД периодов, а не один выпуск: они получают
 # диапазон как есть и сами разворачивают его во временную ось.
-RANGE_TYPES = {"dynamics", "yoy", "cross_dataset_compare"}
+RANGE_TYPES = {"dynamics", "yoy", "cross_dataset_compare", "matrix"}
 
 
 async def _period_for_range(conn, org_id, code: str, from_date, to_date):
@@ -400,9 +443,73 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             sources_meta.append({"label": label, "dataset_code": dc, "as_of": await _dataset_as_of(conn, org_id, dc)})
         categories = sorted(cat_order)
         series = [{"name": label, "data": [vmap.get(c) for c in categories]} for label, vmap in raw_series]
+        if cfg.get("growth_index") and match_by == "period":
+            # Ровно ради этого случая индекс и нужен: два источника разного
+            # масштаба на одной оси. КАЖДЫЙ ряд нормируется на СВОЮ первую
+            # точку — общая база сделала бы сравнение бессмысленным.
+            for srs in series:
+                base = next((v for v in srs["data"] if v), None)
+                srs["data"] = ([round(v / base * 100.0, 2) if v is not None else None
+                                for v in srs["data"]] if base else srs["data"])
         return {"type": "cross_dataset_compare", "title": name, "viz": cfg.get("viz", "bar"),
                 "scale": cfg.get("scale"),
+                "growth_index": bool(cfg.get("growth_index") and match_by == "period"),
                 "categories": categories, "series": series, "match_by": match_by, "sources": sources_meta}
+
+    if t == "matrix":
+        # Матрица «строка × отчётная дата»: как КАЖДАЯ строка формы двигалась от
+        # отчёта к отчёту. Такого разреза у нас не было: «Динамика» сворачивает
+        # все строки в одно число, сводная таблица показывает строки × поля на
+        # ОДНУ дату. Вопрос «какой район просел на прошлой неделе» до сих пор
+        # требовал открывать несколько срезов подряд и сравнивать глазами.
+        if not cfg.get("dataset_code") or not cfg.get("value_field"):
+            raise DashboardError("Матрица: укажите dataset_code и показатель (value_field)")
+        try:
+            max_periods = int(cfg.get("max_periods") or 12)
+        except (TypeError, ValueError):
+            max_periods = 12
+        max_periods = max(2, min(max_periods, 52))
+        m = await _dataset_row_period_matrix(
+            conn, org_id, cfg["dataset_code"], cfg["value_field"],
+            from_date, to_date, row, allowed, max_periods)
+        periods = m["periods"]
+        n = len(periods)
+        matrix_rows: List[dict] = []
+        matrix_totals: List[Optional[float]] = [None] * n
+        for lbl in m["labels"]:
+            cells = m["grid"][lbl]
+            deltas: List[Optional[float]] = [None] * n
+            pcts: List[Optional[float]] = [None] * n
+            prev_cell: Optional[float] = None
+            for i, v in enumerate(cells):
+                if v is None:
+                    continue
+                if prev_cell is not None:
+                    deltas[i] = v - prev_cell
+                    # Прирост в процентах от НУЛЯ не считается: «рост на
+                    # бесконечность» ничего не сообщает, честнее показать
+                    # только абсолютное изменение.
+                    pcts[i] = ((v - prev_cell) / prev_cell * 100.0) if prev_cell else None
+                prev_cell = v
+                matrix_totals[i] = (matrix_totals[i] or 0.0) + v
+            last = next((v for v in reversed(cells) if v is not None), None)
+            first = next((v for v in cells if v is not None), None)
+            matrix_rows.append({
+                "row": lbl, "values": cells, "deltas": deltas, "delta_pcts": pcts,
+                "last": last,
+                # Итог строки за весь показанный отрезок — то же, что «всего» у
+                # «Динамики»: без него матрица отвечает на «сколько сейчас», но
+                # не на «куда движется за период».
+                "total_change": (last - first) if (last is not None and first is not None) else None,
+                "total_change_pct": (
+                    (last - first) / first * 100.0
+                    if (last is not None and first is not None and first) else None),
+            })
+        title = await _field_title(conn, org_id, cfg["dataset_code"], cfg["value_field"])
+        return {"type": "matrix", "title": name, "periods": periods, "rows": matrix_rows,
+                "col_totals": matrix_totals, "field_title": title or cfg["value_field"],
+                "unit": cfg.get("unit"),
+                "total_periods": m["total_periods"], "shown_periods": m["shown_periods"]}
 
     if t == "dynamics":
         if not cfg.get("dataset_code") or not cfg.get("value_field"):
@@ -427,6 +534,18 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             res["first_period"], res["last_period"] = periods[0], periods[-1]
             res["first_value"], res["last_value"] = values[0], values[-1]
             res["periods_count"] = len(values)
+        if cfg.get("growth_index"):
+            # Индекс роста: первая точка = 100 %. Отвечает не на «сколько», а на
+            # «насколько выросло с начала отрезка» — единственный способ
+            # сравнивать показатели разного масштаба (2,3 млн уведомлений и
+            # 7 тыс. записей) на одной оси, не превращая маленький ряд в прямую
+            # у нуля. Считается на сервере, а не на клиенте, чтобы выгрузка в
+            # Excel показывала ровно то же, что экран.
+            base = next((v for v in values if v), None)
+            if base:
+                res["index_values"] = [round(v / base * 100.0, 2) if v is not None else None
+                                       for v in values]
+                res["index_base_period"] = periods[0] if periods else None
         if cfg.get("trend"):
             tr = _linear_trend(values)
             if tr:
@@ -566,12 +685,20 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             # Тем же правилом, что и карточка: план и факт в процентах по
             # нескольким строкам складывать нельзя.
             plan, _, _ = await _column_value(conn, org_id, cfg, cfg["plan_field"], row, allowed, period)
-            fact, _, _ = await _column_value(conn, org_id, cfg, cfg["fact_field"], row, allowed, period)
+            fact, how_fact, _ = await _column_value(conn, org_id, cfg, cfg["fact_field"], row, allowed, period)
             unit = cfg.get("unit")
         else:
             raise DashboardError("План-факт: укажите plan_metric+fact_metric или dataset_code+plan_field+fact_field")
         pct = (fact / plan * 100.0) if plan else None
         res = {"type": "plan_fact", "plan": plan, "fact": fact, "delta": fact - plan, "pct": pct, "unit": unit, "title": name}
+        if cfg.get("forecast") and cfg.get("dataset_code") and cfg.get("fact_field") and how_fact == "sum":
+            # «Успеем ли к сроку» — вопрос, ради которого на план-факт и смотрят;
+            # до сих пор его считали в уме. Прогноз строится ТОЛЬКО для
+            # суммируемых показателей: у долей и процентов «темп в день» смысла
+            # не имеет, а правдоподобная с виду дата хуже её отсутствия.
+            series = await _dataset_period_series(
+                conn, org_id, cfg["dataset_code"], cfg["fact_field"], None, period, row, allowed)
+            res["forecast"] = _plan_forecast(series, plan, fact)
         res["alert"] = evaluate_alert("plan_fact", cfg, res)
         return res
 

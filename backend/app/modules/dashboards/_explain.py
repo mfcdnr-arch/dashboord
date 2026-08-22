@@ -145,6 +145,17 @@ def _explain_one(w: dict, metrics: dict, fields: dict) -> str:
                     f"из формы «{pf.get('dataset_name') or ds}». Полоса показывает выполнение в процентах.")
         return ""
 
+    if t == "matrix":
+        # У матрицы строки формы НЕ сворачиваются — значение показано по
+        # каждой отдельно; общий текст про «сумму по строкам» соврал бы.
+        ds, field = cfg.get("dataset_code"), cfg.get("value_field")
+        info = fields.get((ds, field))
+        if info:
+            return (f"Графа «{info['name']}» из формы «{info.get('dataset_name') or ds}» "
+                    f"по каждой строке за каждый отчёт. Под значением — изменение к прошлому отчёту, "
+                    f"в колонке «За период» — от первого показанного отчёта к последнему.")
+        return ""
+
     if cfg.get("metric_code") and cfg["metric_code"] in metrics:
         return _metric_text(metrics[cfg["metric_code"]])
 

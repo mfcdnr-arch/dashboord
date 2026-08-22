@@ -24,6 +24,7 @@ from ._alerts import (  # noqa: F401
     _cfg,
     evaluate_alert,
 )
+from ._attention import page_attention  # noqa: F401
 from ._base import ANNOTATION_TYPES, LAYOUT_MODES, WIDGET_TYPES, DashboardError  # noqa: F401
 from ._comments import add_comment, delete_comment, list_comments  # noqa: F401
 from ._describe import describe_dashboard  # noqa: F401

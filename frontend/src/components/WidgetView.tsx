@@ -423,6 +423,39 @@ const stickyHead: React.CSSProperties = { zIndex: 3, background: 'var(--surface-
 // говорит, что это сортировка и что делает повторный клик.
 const SORT_HINT = 'Сортировать по этому столбцу: ▲ по возрастанию, ▼ по убыванию, третий клик — сброс'
 
+
+/** Прогноз даты достижения плана (plan_fact). Всегда честен: вместо
+ *  выдуманной даты говорит, почему её нет. */
+function PlanForecast({ f, unit }: { f: any; unit?: string }) {
+  const ru = (d?: string) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d.split('-').reverse().join('.') : d)
+  const base: React.CSSProperties = { fontSize: 12, marginTop: 8, paddingTop: 6, borderTop: '1px dashed var(--border-faint)' }
+  if (f.reason === 'done') return <div style={{ ...base, color: 'var(--success)' }}>✓ План уже выполнен</div>
+  if (f.reason === 'no_growth') return (
+    <div style={{ ...base, color: 'var(--danger)' }} title={`Средний темп с ${ru(f.from_period)} по ${ru(f.to_period)} — не выше нуля`}>
+      ⚠ При нынешней динамике план не будет достигнут: роста между отчётами нет
+    </div>
+  )
+  if (f.reason === 'too_far') return (
+    <div style={{ ...base, color: 'var(--danger)' }}>⚠ При нынешнем темпе до плана более 10 лет — темп нужно менять, а не ждать</div>
+  )
+  if (f.reason !== 'ok') return (
+    <div style={{ ...base, color: 'var(--text-faint)' }}>
+      Прогноз не строится: {f.reason === 'few_points' ? 'нужно минимум два отчёта с разными датами' : 'нет данных'}
+    </div>
+  )
+  const rate = f.rate >= 1 ? fmt(Math.round(f.rate)) : fmt(Number(f.rate.toFixed(2)))
+  return (
+    <div style={base}>
+      <span style={{ color: 'var(--text-2)' }}>При нынешнем темпе план будет достигнут </span>
+      <b>≈ {ru(f.date)}</b>
+      <span style={{ color: 'var(--text-2)' }}> (через {f.days} дн.)</span>
+      <div style={{ color: 'var(--text-faint)', fontSize: 11, marginTop: 2 }}>
+        средний темп +{rate}{unit ? ` ${unit}` : ''} в день по {f.points} отчётам с {ru(f.from_period)} по {ru(f.to_period)}; осталось {fmt(f.remain)}
+      </div>
+    </div>
+  )
+}
+
 function Body({ data, onPick, print = false }: { data: any; onPick?: (name: string) => void; print?: boolean }) {
   useThemeVersion() // перерисовка при смене темы: цвета серий берутся из токенов
   const C = chartColors()
@@ -430,6 +463,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   const [tableSort, setTableSort] = useState<SortState>(null)
   const [pivotSearch, setPivotSearch] = useState('')
   const [pivotSort, setPivotSort] = useState<SortState>(null)
+  const [matrixSort, setMatrixSort] = useState<SortState>(null)
   // Хук объявлен до ветвления по типу виджета: тип может смениться при правке
   // виджета, а порядок хуков между рендерами меняться не должен.
   // В отчёте высоту не подгоняем под карточку: там места столько, сколько
@@ -586,6 +620,11 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 2 }}>Выполнение: <b>{fmt(pct)}%</b></div>
           </div>
         )}
+        {/* Прогноз даты достижения плана: линейная экстраполяция по среднему
+            темпу между первым и последним отчётом. Метод назван прямо в
+            подписи — цифра «когда» без объяснения «откуда» доверия не
+            заслуживает, а руководитель по ней принимает решение. */}
+        {data.forecast && <PlanForecast f={data.forecast} unit={data.unit} />}
       </div>
     )
   }
@@ -676,14 +715,24 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   if (data.type === 'dynamics') {
     const periods: string[] = data.periods || []
     if (periods.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных за период</div>
-    const series: any[] = [{ type: 'line', name: 'Значение', data: data.values, smooth: true,
+    // Индекс роста: бэкенд отдаёт готовый ряд (первая точка = 100 %), график
+    // рисует его вместо абсолютных значений. Сами значения никуда не деваются —
+    // они остаются в подсказке, иначе «сколько» ответить было бы негде.
+    const idxVals: (number | null)[] | null = data.index_values || null
+    const plotted: (number | null)[] = idxVals || data.values
+    // Тренд и аномалии считаются в абсолютных величинах; индексирование —
+    // умножение на постоянную, поэтому их достаточно масштабировать тем же
+    // коэффициентом, а не пересчитывать (иначе линия тренда легла бы мимо ряда).
+    const idxBase: number | null = idxVals ? ((data.values || []).find((v: number) => v) ?? null) : null
+    const k = idxBase ? 100 / idxBase : 1
+    const series: any[] = [{ type: 'line', name: idxVals ? 'Индекс роста, %' : 'Значение', data: plotted, smooth: true,
       color: C.c1, itemStyle: { color: C.c1 },
       lineStyle: { color: C.c1, width: 2 }, areaStyle: { opacity: 0.08 } }]
     // Линейный тренд (наложение): прямая по концам от бэкенда, интерполируем по периодам.
     if (data.trend && periods.length >= 2) {
       const [s, e] = data.trend
       const n = periods.length
-      const line = periods.map((_, i) => s + (e - s) * i / (n - 1))
+      const line = periods.map((_, i) => (s + (e - s) * i / (n - 1)) * k)
       // 🔴 Цвет задаётся ряду ЦЕЛИКОМ, а не только линии. Раньше стоял один
       // lineStyle.color, а сам ряд оставался без цвета — и ECharts брал для
       // маркера в подсказке второй цвет своей палитры (синий), хотя линию
@@ -704,7 +753,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         type: 'scatter', name: 'Аномалии', symbol: 'diamond', symbolSize: 14,
         color: C.signal,
         itemStyle: { color: C.signal, borderColor: '#fff', borderWidth: 2 },
-        data: anomalies.map((a) => [a.index, a.value]),
+        data: anomalies.map((a) => [a.index, a.value * k]),
       })
     }
     const vals: number[] = data.values || []
@@ -729,8 +778,11 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             // Само число красим в цвет ряда: на карточке легенды нет, и подсказка
             // остаётся единственным местом, где видно, «где что». Маленькой точки
             // рядом с названием для этого мало.
-            if (v != null) lines.push(`${p.marker} ${p.seriesName}: <b style="color:${p.color}">${fmt(v)}</b>`)
+            if (v != null) lines.push(`${p.marker} ${p.seriesName}: <b style="color:${p.color}">${fmt(v)}${idxVals ? ' %' : ''}</b>`)
           })
+          // При индексе на графике проценты, а «сколько на самом деле» спрашивают
+          // тут же — абсолютное значение остаётся в подсказке.
+          if (idxVals && vals[i] != null) lines.push(`<span style="color:#888">значение:</span> ${fmt(vals[i])}`)
           if (i > 0 && vals[i] != null && vals[i - 1] != null) {
             const d = vals[i] - vals[i - 1]
             const pct = vals[i - 1] ? (d / vals[i - 1]) * 100 : null
@@ -743,7 +795,8 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
       xAxis: { type: 'category', data: periods.map(fmtPeriod), axisLabel: { rotate: 30, fontSize: 11 } },
       // На ужатом по высоте графике деления оси налезают друг на друга — при
       // малой высоте оставляем меньше делений.
-      yAxis: { type: 'value', splitNumber: fit.h < 130 ? 3 : 5 },
+      yAxis: { type: 'value', splitNumber: fit.h < 130 ? 3 : 5,
+        ...(idxVals ? { axisLabel: { formatter: '{value} %' } } : {}) },
       series,
     }
     const ch = data.change
@@ -755,6 +808,11 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
       <div ref={fit.box} style={{ height: '100%' }}>
         <EChart option={P(opt)} height={fit.h} />
         <div ref={fit.labels}>
+        {idxVals && data.index_base_period && (
+          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 3 }}>
+            индекс роста: {fmtPeriod(data.index_base_period)} = 100 %
+          </div>
+        )}
         {ch != null && (
           <div style={{ fontSize: 12.5, marginTop: 3, lineHeight: 1.35 }}>
             К пред.
@@ -927,6 +985,13 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         {/* Высота растёт на высоту легенды: сам график от этого не ужимается. */}
         <EChart option={P(opt)} height={fit.h + printLegendH} onPick={onPick} />
         <div ref={fit.labels}>
+          {/* Индекс роста: на оси проценты, а не величины — без подписи график
+              выглядел бы как «все ряды около сотни» без объяснения почему. */}
+          {data.growth_index && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+              Индекс роста: у каждого источника первая точка = 100 %, дальше — рост в процентах к ней.
+            </div>
+          )}
           {useLog && (
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
               {logHelps
@@ -958,6 +1023,89 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     }
     const h = Math.min(380, Math.max(200, rows.length * 26 + (longX ? 96 : 82)))
     return <EChart option={P(opt)} height={h} />
+  }
+
+  if (data.type === 'matrix') {
+    // Матрица «строка × отчётная дата». Значение крупно, прирост к прошлому
+    // отчёту — мелким шрифтом ПОД ним: в одной ячейке помещаются оба ответа
+    // («сколько» и «лучше или хуже»), и глазами не приходится вычитать
+    // соседние столбцы. Первая колонка закреплена — иначе при прокрутке
+    // вправо непонятно, чья это строка (тот же приём, что в таблице).
+    const periods: string[] = data.periods || []
+    let rows: any[] = data.rows || []
+    if (rows.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных за период</div>
+    const mVal = (r: any, col: string) => (col === '__row' ? r.row : col === '__chg' ? r.total_change : r.values[Number(col)])
+    rows = sortRows(rows, matrixSort, mVal)
+    const totCell: React.CSSProperties = { ...td, fontWeight: 700, background: 'var(--surface-accent)' }
+    return (
+      <div>
+        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 4 }}>
+          {data.field_title}
+          {data.total_periods > data.shown_periods
+            ? ` · показаны последние ${data.shown_periods} отчётов из ${data.total_periods}`
+            : ` · отчётов: ${data.shown_periods}`}
+        </div>
+        <div style={{ overflowX: print ? 'visible' : 'auto', width: '100%', maxWidth: '100%' }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
+          <thead><tr>
+            <th style={{ ...th, ...sortableTh, ...stickyCol, ...stickyHead }} title={SORT_HINT}
+              onClick={() => toggleSort(setMatrixSort, '__row')}>Строка{sortArrow(matrixSort, '__row')}</th>
+            {periods.map((p, i) => (
+              <th key={p + i} style={{ ...th, ...sortableTh, textAlign: 'right' }} title={SORT_HINT}
+                onClick={() => toggleSort(setMatrixSort, String(i))}>{fmtPeriod(p)}{sortArrow(matrixSort, String(i))}</th>
+            ))}
+            <th style={{ ...th, ...sortableTh, textAlign: 'right', color: 'var(--accent)' }} title={SORT_HINT}
+              onClick={() => toggleSort(setMatrixSort, '__chg')}>За период{sortArrow(matrixSort, '__chg')}</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r: any, i: number) => (
+              <tr key={i} onClick={onPick && !print ? () => onPick(String(r.row)) : undefined}
+                style={onPick && !print ? { cursor: 'pointer' } : undefined}
+                title={onPick && !print ? `Показать всю страницу по строке «${r.row}»` : undefined}>
+                <td style={{ ...td, fontWeight: 600, ...stickyCol,
+                  ...(onPick && !print ? { color: 'var(--accent)' } : {}) }}>{r.row}</td>
+                {periods.map((_p, ci) => {
+                  const v = r.values[ci]
+                  const d = r.deltas?.[ci]
+                  const dp = r.delta_pcts?.[ci]
+                  return (
+                    <td key={ci} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <div>{typeof v === 'number' ? fmt(v) : '—'}</div>
+                      {typeof d === 'number' && d !== 0 && (
+                        <div style={{ fontSize: 10.5, color: d > 0 ? 'var(--success)' : 'var(--danger)' }}
+                          title={`Изменение к прошлому отчёту: ${d > 0 ? '+' : ''}${fmt(d)}`}>
+                          {d > 0 ? '▲ +' : '▼ '}{fmt(d)}{typeof dp === 'number' ? ` (${dp > 0 ? '+' : ''}${fmt(dp)} %)` : ''}
+                        </div>
+                      )}
+                    </td>
+                  )
+                })}
+                <td style={{ ...totCell, textAlign: 'right', whiteSpace: 'nowrap',
+                  color: typeof r.total_change === 'number' ? (r.total_change >= 0 ? 'var(--success)' : 'var(--danger)') : undefined }}
+                  title="Изменение от первого показанного отчёта к последнему">
+                  {typeof r.total_change === 'number' ? `${r.total_change > 0 ? '+' : ''}${fmt(r.total_change)}` : '—'}
+                  {typeof r.total_change_pct === 'number' && (
+                    <div style={{ fontSize: 10.5 }}>{r.total_change_pct > 0 ? '+' : ''}{fmt(r.total_change_pct)} %</div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          {/* Итог по столбцу показываем, только когда строк больше одной:
+              у формы с единственной строкой он дословно повторял бы её. */}
+          {rows.length > 1 && (
+            <tfoot><tr>
+              <td style={{ ...totCell, ...stickyCol, background: 'var(--surface-2)' }}>Итого</td>
+              {(data.col_totals || []).map((v: number | null, i: number) => (
+                <td key={i} style={{ ...totCell, textAlign: 'right' }}>{typeof v === 'number' ? fmt(v) : '—'}</td>
+              ))}
+              <td style={totCell} />
+            </tr></tfoot>
+          )}
+        </table>
+        </div>
+      </div>
+    )
   }
 
   if (data.type === 'pivot') {
