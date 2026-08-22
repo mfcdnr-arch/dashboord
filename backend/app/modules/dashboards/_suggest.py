@@ -287,7 +287,14 @@ def form_title(name: str) -> str:
     Дату убираем ТОЛЬКО из хвоста: «Отчёт за 2026 год» — это часть имени
     формы, а не отчётная дата.
     """
-    cleaned = _TRAILING_DATE.sub("", (name or "").strip()).strip(" ,·—-")
+    raw = (name or "").strip()
+    # Имя выпуска у заказчика — это имя файла: «Приложение_к_Протоколу_новая_
+    # форма 19.08.2026.xlsx». В заголовке виджета расширение и подчёркивания
+    # выглядят машинным следом, а руководителю нужно название формы.
+    raw = re.sub(r"\.(xlsx|xls|csv|pdf|docx)$", "", raw, flags=re.IGNORECASE)
+    raw = raw.replace("_", " ")
+    raw = re.sub(r"\s{2,}", " ", raw).strip()
+    cleaned = _TRAILING_DATE.sub("", raw).strip(" ,·—-")
     return cleaned or (name or "").strip()
 
 
@@ -562,10 +569,14 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
                             "value_fields": [f["code"] for f in shown[:MATRIX_FIELDS]],
                             "max_periods": MATRIX_PERIODS}
                 spec_name = f"{dsname}: показатели по датам"
+            # Высота по числу строк, которые матрица реально покажет: у формы
+            # заказчика их тринадцать, и в стандартные 8 рядов помещаются две.
+            m_rows = len(spec_cfg.get("value_fields") or []) or 6
+            m_h = max(8, min(24, 4 + m_rows))
             specs.append({"page": PAGE_DYNAMICS, "name": spec_name, "widget_type": "matrix",
                           "config": spec_cfg,
-                          "position_x": 0, "position_y": dyn_y, "width": 12, "height": 8})
-            dyn_y += 8
+                          "position_x": 0, "position_y": dyn_y, "width": 12, "height": m_h})
+            dyn_y += m_h
 
         # ── Динамика: тренд по каждому показателю, которому он назначен ──
         trends = ([f for f in shown if view_of(f) in ("dynamics", "both")][:MAX_AUTO_DYNAMICS]

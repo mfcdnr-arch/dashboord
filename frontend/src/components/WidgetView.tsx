@@ -187,7 +187,11 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
       {alert && (
         <div style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, color: alert.color,
           background: '#fff', border: `1px solid ${alert.color}`, borderRadius: 10, padding: '1px 8px', marginBottom: 6 }}
-          title="Сработал порог KPI-алерта">⚠ {alert.label}</div>
+          title="Сработал порог подсветки">
+          {/* Значок по УРОВНЮ, а не один на все случаи: «⚠ план выполнен» при
+              656 % читалось как тревога — знак опасности стоял на успехе. */}
+          {alert.level === 'good' ? '✓' : '⚠'} {alert.label}
+        </div>
       )}
       {data && <div className="w-appear">
         <Body data={data} onPick={onPick} print={print} />
