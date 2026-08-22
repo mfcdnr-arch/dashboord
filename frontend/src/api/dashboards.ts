@@ -68,6 +68,24 @@ export async function listDashboards(
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+/** Плитка «Недавно смотрели»: отчёт + когда его открывали в последний раз. */
+export interface RecentDashboard {
+  id: string
+  name: string
+  description: string | null
+  publication_status: string
+  folder_name: string | null
+  object_name: string | null
+  is_favorite: boolean
+  viewed_at: string
+}
+// «Недавно смотрел» — последние отчёты, открытые ЭТИМ человеком (просмотры
+// берутся из журнала, своего счётчика у полосы нет).
+export async function listRecentDashboards(limit = 6): Promise<{ items: RecentDashboard[] }> {
+  const res = await fetch(`/dashboards/recent?limit=${limit}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
 // Переместить дашборд в папку («банк отделов», волна D); null — убрать из папки.
 export async function moveDashboardToFolder(id: string, folderId: string | null): Promise<{ folder_id: string | null }> {
   const res = await fetch(`/dashboards/${id}/folder`, {

@@ -235,6 +235,60 @@ async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
     return {"total": total, "limit": limit, "offset": offset, "items": [dict(r) for r in rows]}
 
 
+# Сколько отчётов помним в «Недавно смотрели» и как далеко назад смотрим.
+# Полоса над списком — способ вернуться туда, где человек был вчера, а не
+# второй список отчётов: пять-шесть плиток читаются с одного взгляда, два
+# десятка снова требуют искать глазами. Окно в 30 дней: «недавно» дальше
+# этого срока уже не «недавно», а история — она живёт в разделе «Отчёты».
+RECENT_LIMIT = 6
+RECENT_DAYS = 30
+
+
+async def list_recent(conn, org_id, user: dict, limit: int = RECENT_LIMIT) -> dict:
+    """«Недавно смотрел» — последние открытые ЭТИМ человеком отчёты.
+
+    Своей таблицы для этого не заводим: просмотры уже пишутся в журнал
+    (`audit_log`, action=view) — тот же источник, по которому считается отчёт
+    популярности. Второй счётчик рядом с ним однажды разошёлся бы с первым,
+    и на вопрос «сколько раз открывали» появилось бы два разных ответа.
+
+    Видимость — та же `visible_dashboard_ids`, что и в общем списке: отчёт, к
+    которому доступ отозвали, из «недавних» пропадает. Удалённые отчёты
+    отсеиваются самим join'ом: в журнале их просмотры остаются (он отвечает
+    на вопрос «что было»), но открывать уже нечего. Архивные тоже не
+    показываем — для них отдельный раздел.
+
+    Отметка времени берётся из журнала, а он пишется с окном в
+    `VIEW_THROTTLE_MINUTES`: повторное открытие того же отчёта в пределах
+    этого окна отдельной записи не создаёт, поэтому «смотрели» может отставать
+    на эти минуты. Для полосы «куда вернуться» это несущественно, а вот
+    второй, точный журнал ради неё заводить незачем.
+    """
+    limit = max(1, min(limit, 20))
+    visible = await visible_dashboard_ids(conn, org_id, user)
+    if not visible:
+        return {"items": []}
+    rows = await conn.fetch(
+        "select d.id, d.name, d.description, d.publication_status, "
+        "  fo.name as folder_name, ob.name as object_name, "
+        "  (f.dashboard_id is not null) as is_favorite, "
+        "  max(a.created_at) as viewed_at "
+        "from audit_log a "
+        "join dashboards d on d.id=a.entity_id and d.organization_id=$1 "
+        "  and d.publication_status <> 'archived' "
+        "left join folders fo on fo.id=d.folder_id "
+        "left join objects ob on ob.id=fo.object_id "
+        "left join dashboard_favorites f on f.dashboard_id=d.id and f.user_id=$3 "
+        "where a.organization_id=$1 and a.action='view' and a.entity_type='dashboard' "
+        "  and a.actor_user_id=$3 and a.entity_id = any($2::uuid[]) "
+        "  and a.created_at > now() - ($4 || ' days')::interval "
+        "group by d.id, d.name, d.description, d.publication_status, "
+        "  fo.name, ob.name, f.dashboard_id "
+        "order by viewed_at desc limit $5",
+        org_id, list(visible), user["id"], str(RECENT_DAYS), limit)
+    return {"items": [dict(r) for r in rows]}
+
+
 async def list_featured(conn, org_id, user: dict) -> dict:
     """Подборка «Руководителю»: отмеченные дашборды, которые видит этот человек.
 

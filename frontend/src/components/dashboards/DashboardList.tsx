@@ -4,9 +4,10 @@
 import { useState } from 'react'
 import { groupByObject } from '../../lib/dashboardGroups'
 import type { FormEvent } from 'react'
-import type { Dashboard, DashTemplate, Doc, Folder, Obj } from '../../api'
+import type { Dashboard, DashTemplate, Doc, Folder, Obj, RecentDashboard } from '../../api'
 import { folderLabel, folderTree } from '../../lib/folderTree'
 import { PubBadge, btn, btnAuto, input, muted, rowForm, rowItem, tab, tabActive } from './shared'
+import RecentStrip from './RecentStrip'
 import RequestAccessDialog from './RequestAccessDialog'
 import PlanFactDialog from './PlanFactDialog'
 
@@ -29,7 +30,7 @@ export function DashboardList({
   filterDocs, docFilter, setDocFilter,
   selectedIds, setSelectedIds, onBulkMove, toggleSelect,
   dashboards, dashTotal, openDashboard, toggleFav, loadMoreDash, onToggleFeatured,
-  onOpenAppeals, onPlanFactBuilt,
+  onOpenAppeals, onPlanFactBuilt, recent = [],
 }: {
   canManage: boolean; objects: Obj[]; templates: DashTemplate[]
   newDash: string; setNewDash: (v: string) => void; addDashboard: (e: FormEvent) => void; busy: boolean
@@ -54,6 +55,8 @@ export function DashboardList({
   onOpenAppeals?: () => void
   /** Открыть собранный сводный дашборд «План/факт». */
   onPlanFactBuilt?: (dashboardId: string) => void
+  /** «Недавно смотрели» — последние открытые этим человеком отчёты. */
+  recent?: RecentDashboard[]
 }) {
   // Запрос доступа к отчёту, которого зритель не видит. Состояние локальное:
   // окно нужно только этому списку и никому больше.
@@ -192,6 +195,12 @@ export function DashboardList({
             <button style={btnAuto} onClick={onBulkMove}>📁 Переместить в папку</button>
             <button style={{ ...tab, marginLeft: 'auto' }} onClick={() => setSelectedIds(new Set())}>Снять выделение</button>
           </div>
+        )}
+        {/* «Недавно смотрели» показываем только на полном списке: при поиске
+            или фильтре человек ищет ЧТО-ТО КОНКРЕТНОЕ, и полоса сверху
+            отодвигала бы найденное вниз, отвечая на другой вопрос. */}
+        {!query.trim() && !favOnly && !dashFrom && !dashTo && !folderFilter && !docFilter && (
+          <RecentStrip items={recent} onOpen={openDashboard} />
         )}
         {dashboards.length === 0 ? (
           <div style={muted}>{query.trim() || favOnly || dashFrom || dashTo || folderFilter ? 'Ничего не найдено.' : 'Пока нет дашбордов.'}</div>

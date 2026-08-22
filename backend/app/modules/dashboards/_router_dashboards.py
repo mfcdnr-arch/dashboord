@@ -208,6 +208,16 @@ class FeaturedIn(BaseModel):
     order: Optional[int] = None
 
 
+# Статический путь — ДО параметризованного `/dashboards/{id}`: Starlette
+# матчит по порядку регистрации, иначе «recent» уедет в id.
+@router.get("/dashboards/recent")
+async def recent_dashboards(user: dict = Depends(get_current_user),
+                            limit: int = Query(service.RECENT_LIMIT, ge=1, le=20)):
+    """«Недавно смотрел»: последние отчёты, открытые этим человеком."""
+    async with db.acquire(user["id"]) as conn:
+        return await service.list_recent(conn, user["organization_id"], user, limit=limit)
+
+
 # ВАЖНО: статический путь объявлен ДО параметризованного `/dashboards/{id}` —
 # Starlette матчит по порядку регистрации, иначе «featured» уедет в id.
 @router.get("/dashboards/featured")

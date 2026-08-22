@@ -8,8 +8,8 @@ import {
   createDashboard, createPage, createPreset, createWidget, deleteDashboard, deletePage, deletePreset, deleteWidget,
   DuplicateError, getDashboard,
   exportPageXlsx, fitPageLayout, getDataSources, getDescriptionDraft, setFeatured, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listFolders, listObjects, listPageWidgets, listPresets,
-  listDocuments, listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, updateDashboard, updatePage, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
-  type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Doc, type Folder, type Obj, type PageWidgetData, type Widget, type WidgetSpec,
+  listDocuments, listRecentDashboards, listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, updateDashboard, updatePage, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
+  type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Doc, type Folder, type Obj, type PageWidgetData, type RecentDashboard, type Widget, type WidgetSpec,
 } from '../api'
 import { useContainerWidth } from '../lib/useWidth'
 import { GAP as FLOW_GAP, flowItems } from '../lib/flowLayout'
@@ -155,6 +155,9 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   const { ask, node: confirmNode } = useConfirm()
   const [dashboards, setDashboards] = useState<Dashboard[]>([])
   const [dashTotal, setDashTotal] = useState(0)
+  // «Недавно смотрели» — своя выборка, а не срез списка: список отсортирован
+  // по избранному и названию, а здесь порядок задают собственные просмотры.
+  const [recent, setRecent] = useState<RecentDashboard[]>([])
   const [query, setQuery] = useState('')
   const [favOnly, setFavOnly] = useState(false)
   const [dashFrom, setDashFrom] = useState('')
@@ -285,6 +288,8 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       .then((p) => { if (seq === dashSeq.current) { setDashboards(p.items); setDashTotal(p.total) } }).catch(fail)
   }
   const refresh = () => loadDashboards(query, favOnly)
+  // Полоса «недавних» — подсказка: её сбой не должен мешать работе со списком.
+  const loadRecent = () => listRecentDashboards().then((r) => setRecent(r.items)).catch(() => {})
   async function loadMoreDash() {
     const seq = ++dashSeq.current
     try { const p = await listDashboards(query, favOnly, DASH_PAGE, dashboards.length, dashFrom, dashTo, folderFilter, docFilter); if (seq === dashSeq.current) { setDashboards((prev) => [...prev, ...p.items]); setDashTotal(p.total) } } catch (e) { fail(e) }
@@ -339,6 +344,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
     // открытии раздела — лишний отказ в логах и в консоли браузера.
     // Список объектов оставляем всем: по нему работает фильтр «Папка».
     listObjects().then(setObjects).catch(() => {})
+    loadRecent()
     if (canManage) {
       getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] }))
       listTemplates().then(setTemplates).catch(() => {})
@@ -615,6 +621,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       await deleteDashboard(sel.dashboard.id)
       setSel(null)                       // вернуться к списку — дашборда больше нет
       await refresh()
+      loadRecent()                       // из «недавних» он тоже должен уйти
     } catch (e) {
       fail(e)
     }
@@ -679,6 +686,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       setArchiveOpen(false)
       setSel(null)          // дашборд ушёл из основного списка — в раздел «Архив»
       await refresh()
+      loadRecent()          // и из «недавних»: архивные там не показываем
     } catch (e) { fail(e) }
   }
   async function loadVersions() {
@@ -968,7 +976,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
           selectedIds={selectedIds} setSelectedIds={setSelectedIds} toggleSelect={toggleSelect}
           onBulkMove={() => setFolderTarget({ ids: [...selectedIds], label: `дашбордов: ${selectedIds.size}` })}
           dashboards={dashboards} dashTotal={dashTotal} openDashboard={openDashboard}
-          toggleFav={toggleFav} loadMoreDash={loadMoreDash}
+          toggleFav={toggleFav} loadMoreDash={loadMoreDash} recent={recent}
         />
       )}
 
@@ -976,7 +984,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
         <div>
           <DashboardHeader
             dashboard={sel.dashboard} pages={sel.pages} page={page} onOpenPage={openPage}
-            onBack={() => { setSel(null); setPage(null) }}
+            onBack={() => { setSel(null); setPage(null); loadRecent() }}
             canManage={canManage} isAdmin={isAdmin} isSuperadmin={isSuperadmin}
             editMode={editMode} setEditMode={setEditMode} flowMode={flowMode}
             asOf={shownAsOf} quickPeriods={QUICK_PERIODS}
