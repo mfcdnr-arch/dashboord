@@ -310,6 +310,10 @@ export function DashboardHeader({
               <button type="button" style={hbtn} onClick={a.unpublish}>Снять с публикации</button>
             )}
 
+            {/* У зрителя в этом меню нет НИ ОДНОГО пункта (все под canManage /
+                isSuperadmin), и кнопка открывала бы пустую рамку — кнопка,
+                которая ничего не делает, читается как поломка. */}
+            {(canManage || isSuperadmin) && (
             <Dropdown label="⋯" title="Остальные действия с дашбордом" open={moreOpen} setOpen={setMoreOpen}>
               {canManage && (
                 <button type="button" style={{ ...menuItem, color: editMode ? 'var(--accent)' : 'var(--text-2)' }}
@@ -345,6 +349,7 @@ export function DashboardHeader({
                   title="Удалить дашборд со страницами и виджетами (слепки в архиве сохранятся)">🗑 Удалить дашборд</button>
               )}
             </Dropdown>
+            )}
           </div>
         </div>
 
