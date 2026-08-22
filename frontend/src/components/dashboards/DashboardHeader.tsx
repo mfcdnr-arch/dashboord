@@ -28,19 +28,21 @@ import { PubBadge, input, linkDanger, presetChip } from './shared'
  *    не как ещё один ряд действий.
  */
 
-/** Страница-срез, созданная мастером: «Отчёт за ДД.ММ.ГГГГ» (config.period). */
-const PERIOD_PAGE = /^Отчёт за (\d{2}\.\d{2}\.\d{4})$/
-
-function periodDate(name: string): string | null {
-  const m = name.match(PERIOD_PAGE)
-  return m ? m[1] : null
+/**
+ * Страница-СРЕЗ: закреплена за конкретным отчётом (у её виджетов задан
+ * `config.period`), приход новой недели её не меняет.
+ *
+ * Признак приходит с сервера полем `period`, а НЕ выводится из имени. Раньше
+ * срез опознавался по шаблону «Отчёт за ДД.ММ.ГГГГ» — стоило человеку
+ * переименовать страницу, и она выпадала из группы срезов, оставаясь срезом по
+ * сути. Старые страницы перенесены миграцией 047 (дата взята из самих виджетов).
+ */
+function periodDate(p: DashPage): string | null {
+  return p.period ? p.period.split('-').reverse().join('.') : null
 }
 
-/** ДД.ММ.ГГГГ → сортируемое число (свежие срезы показываем первыми). */
-function dateKey(ru: string): number {
-  const m = ru.match(/(\d{2})\.(\d{2})\.(\d{4})/)
-  return m ? Number(m[3]) * 10000 + Number(m[2]) * 100 + Number(m[1]) : 0
-}
+/** ISO-дата → сортируемое число (свежие срезы показываем первыми). */
+const dateKey = (iso: string): number => Number(iso.replace(/-/g, ''))
 
 const ru = (iso: string | null | undefined): string =>
   (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').reverse().join('.') : iso || '')
@@ -202,25 +204,72 @@ export function DashboardHeader({
 }) {
   const [moreOpen, setMoreOpen] = useState(false)
   const [expOpen, setExpOpen] = useState(false)
-  const [quickOpen, setQuickOpen] = useState(false)
+  // Какой именно список быстрых периодов открыт: верхний или в липкой строке.
+  const [quickOpen, setQuickOpen] = useState<'top' | 'sticky' | null>(null)
   const [sliceOpen, setSliceOpen] = useState(false)
   const [sliceRight, setSliceRight] = useState(false)
   const sliceBox = useDismiss(sliceOpen, setSliceOpen)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const filtersBox = useDismiss(filtersOpen, setFiltersOpen)
+
 
   // Страницы-срезы («Отчёт за ДД.ММ.ГГГГ») уводим в отдельный выпадающий
   // список: у дашборда заказчика их восемь из одиннадцати, и ряд вкладок
   // превращался в стену дат, в которой не найти «Обзор». Одну такую страницу
   // не прячем — выпадающий список из одного пункта бессмыслен.
   const { plainPages, slicePages } = useMemo(() => {
-    const slices = pages.filter((p) => periodDate(p.name))
+    const slices = pages.filter((p) => p.period)
     if (slices.length < 2) return { plainPages: pages, slicePages: [] as DashPage[] }
     return {
-      plainPages: pages.filter((p) => !periodDate(p.name)),
-      slicePages: [...slices].sort((x, y) => dateKey(periodDate(y.name)!) - dateKey(periodDate(x.name)!)),
+      plainPages: pages.filter((p) => !p.period),
+      slicePages: [...slices].sort((x, y) => dateKey(y.period!) - dateKey(x.period!)),
     }
   }, [pages])
 
-  const sliceActive = page ? Boolean(periodDate(page.name)) : false
+  const sliceActive = Boolean(page?.period)
+  /**
+   * Фильтры, меняющие цифры. Рисуются ДВАЖДЫ одним кодом: наверху страницы и —
+   * когда верх ушёл за экран — в липкой строке под вкладками. Иначе на длинной
+   * странице период нельзя было сменить, не вернувшись к началу; а держать их
+   * прилипшими постоянно дорого (замер: вся шапка — 178px против 65px).
+   */
+  const filterControls = (quickId: 'top' | 'sticky') => (
+    <>
+              {/* Фильтры, меняющие цифры, остаются на виду. */}
+              <input type="date" style={{ ...input, height: 30, width: 138, fontSize: 12.5 }} value={pFrom}
+                title="Период: с" onChange={(e) => setPFrom(e.target.value)} />
+              <input type="date" style={{ ...input, height: 30, width: 138, fontSize: 12.5 }} value={pTo}
+                title="Период: по" onChange={(e) => setPTo(e.target.value)} />
+              <Dropdown label="быстро" title="Готовые периоды" open={quickOpen === quickId} setOpen={(v) => setQuickOpen(v ? quickId : null)} width={270}>
+                {quickPeriods.map((q) => (
+                  <button key={q.label} type="button" style={menuItem} title={q.hint}
+                    onClick={() => { const [f, t] = q.range(); setPFrom(f); setPTo(t); setQuickOpen(null) }}>{q.label}</button>
+                ))}
+                <hr style={menuSep} />
+                {/* Фильтр периода выбирает ОТЧЁТ: иначе человек ждёт, что цифры
+                    «просуммируются за период». */}
+                <div style={{ fontSize: 11, color: 'var(--text-faint)', padding: '2px 9px 4px', lineHeight: 1.4 }}>
+                  показывается последний отчёт, попавший в период; «Динамика» — все точки диапазона
+                </div>
+              </Dropdown>
+              {catOptions.length > 0 ? (
+                <select style={{ ...input, height: 30, width: 150, fontSize: 12.5 }} value={crossRow || ''}
+                  title="Строка данных: фильтрует все виджеты страницы. Клик по столбцу или сектору на графике задаёт её же"
+                  onChange={(e) => setCrossRow(e.target.value || null)}>
+                  <option value="">Строка: все</option>
+                  {catOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              ) : (
+                <input style={{ ...input, height: 30, width: 140, fontSize: 12.5 }} placeholder="Строка"
+                  value={crossRow || ''} onChange={(e) => setCrossRow(e.target.value || null)} />
+              )}
+              {(pFrom || pTo || crossRow) && (
+                <button type="button" style={{ ...linkDanger, fontSize: 12 }}
+                  onClick={() => { setPFrom(''); setPTo(''); setCrossRow(null) }}>сброс</button>
+              )}
+    </>
+  )
+
   const status = dashboard.publication_status
 
   return (
@@ -256,38 +305,7 @@ export function DashboardHeader({
           </div>
 
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            {/* Фильтры, меняющие цифры, остаются на виду. */}
-            <input type="date" style={{ ...input, height: 30, width: 138, fontSize: 12.5 }} value={pFrom}
-              title="Период: с" onChange={(e) => setPFrom(e.target.value)} />
-            <input type="date" style={{ ...input, height: 30, width: 138, fontSize: 12.5 }} value={pTo}
-              title="Период: по" onChange={(e) => setPTo(e.target.value)} />
-            <Dropdown label="быстро" title="Готовые периоды" open={quickOpen} setOpen={setQuickOpen} width={270}>
-              {quickPeriods.map((q) => (
-                <button key={q.label} type="button" style={menuItem} title={q.hint}
-                  onClick={() => { const [f, t] = q.range(); setPFrom(f); setPTo(t); setQuickOpen(false) }}>{q.label}</button>
-              ))}
-              <hr style={menuSep} />
-              {/* Фильтр периода выбирает ОТЧЁТ: иначе человек ждёт, что цифры
-                  «просуммируются за период». */}
-              <div style={{ fontSize: 11, color: 'var(--text-faint)', padding: '2px 9px 4px', lineHeight: 1.4 }}>
-                показывается последний отчёт, попавший в период; «Динамика» — все точки диапазона
-              </div>
-            </Dropdown>
-            {catOptions.length > 0 ? (
-              <select style={{ ...input, height: 30, width: 150, fontSize: 12.5 }} value={crossRow || ''}
-                title="Строка данных: фильтрует все виджеты страницы. Клик по столбцу или сектору на графике задаёт её же"
-                onChange={(e) => setCrossRow(e.target.value || null)}>
-                <option value="">Строка: все</option>
-                {catOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            ) : (
-              <input style={{ ...input, height: 30, width: 140, fontSize: 12.5 }} placeholder="Строка"
-                value={crossRow || ''} onChange={(e) => setCrossRow(e.target.value || null)} />
-            )}
-            {(pFrom || pTo || crossRow) && (
-              <button type="button" style={{ ...linkDanger, fontSize: 12 }}
-                onClick={() => { setPFrom(''); setPTo(''); setCrossRow(null) }}>сброс</button>
-            )}
+            {filterControls('top')}
 
             {page && (
               <Dropdown label={exporting ? 'Экспорт…' : '⤓ Выгрузить'} title="Выгрузка страницы" open={expOpen} setOpen={setExpOpen} width={230}>
@@ -379,7 +397,7 @@ export function DashboardHeader({
                   setSliceRight(r.left > window.innerWidth * 0.55)
                   setSliceOpen(!sliceOpen)
                 }}>
-                📌 {sliceActive && page ? page.name.replace('Отчёт за ', '') : 'Срезы'} ({slicePages.length}) ▾
+                📌 {sliceActive && page ? periodDate(page) : 'Срезы'} ({slicePages.length}) ▾
               </button>
               {sliceOpen && (
                 <div style={{
@@ -391,7 +409,8 @@ export function DashboardHeader({
                   {slicePages.map((p) => (
                     <button key={p.id} type="button"
                       style={{ ...menuItem, ...(page?.id === p.id ? { color: 'var(--accent)', fontWeight: 600 } : {}) }}
-                      onClick={() => { onOpenPage(p); setSliceOpen(false) }}>📌 {periodDate(p.name)}</button>
+                      onClick={() => { onOpenPage(p); setSliceOpen(false) }}
+                      title={p.name}>📌 {periodDate(p)}</button>
                   ))}
                 </div>
               )}
@@ -429,8 +448,34 @@ export function DashboardHeader({
         {/* Строка контекста: ответ на вопрос «что я сейчас смотрю». */}
         <div style={ctxRow}>
         {asOf && <span>🕓 данные на <b style={{ color: 'var(--text-2)' }}>{ru(asOf)}</b></span>}
-        <span>{pFrom || pTo ? `период ${ru(pFrom) || '…'} → ${ru(pTo) || '…'}` : 'период: весь'}</span>
-        <span>строка: {crossRow || 'все'}</span>
+        {/* Период и строка в липкой строке — не подпись, а КНОПКА: она уже
+            говорит, что сейчас применено, и по клику даёт это изменить. Так
+            фильтры доступны при прокрутке длинной страницы, не возвращаясь к
+            началу, и при этом в шапке не появляется второй такой же набор
+            полей. Раньше здесь была задумана кнопка «фильтры», всплывающая
+            при уходе шапки за экран, — от неё отказались: она держится на
+            событии прокрутки, а его часть встроенных браузеров не отдаёт. */}
+        <div ref={filtersBox} style={{ position: 'relative' }}>
+          <button type="button"
+            title="Период и строка: нажмите, чтобы изменить — не возвращаясь к началу страницы"
+            style={{
+              border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit',
+              display: 'inline-flex', gap: 14, alignItems: 'center',
+              color: pFrom || pTo || crossRow ? 'var(--accent)' : 'var(--text-muted)',
+              textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3,
+            }}
+            onClick={() => setFiltersOpen(!filtersOpen)}>
+            <span>{pFrom || pTo ? `период ${ru(pFrom) || '…'} → ${ru(pTo) || '…'}` : 'период: весь'}</span>
+            <span>строка: {crossRow || 'все'}</span>
+          </button>
+          {filtersOpen && (
+            <div style={{ ...menuBox, top: 24, left: 0, right: 'auto', width: 'auto', minWidth: 330, padding: 10 }}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                {filterControls('sticky')}
+              </div>
+            </div>
+          )}
+        </div>
         {dashboard.object_name && <span>объект: {dashboard.object_name}</span>}
         {presets.length > 0 && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>

@@ -99,6 +99,8 @@ class PageIn(BaseModel):
     description: Optional[str] = None
     # grid — свободная сетка (умолчание, как было), flow — «поток» по типам.
     layout_mode: str = "grid"
+    # Отчётная дата страницы-среза (ISO); null — обычная сводная страница.
+    period: Optional[str] = None
 
 
 class PagePatch(BaseModel):
@@ -535,7 +537,8 @@ async def create_page(dashboard_id: str, body: PageIn, user: dict = Depends(mana
     async with db.acquire(user["id"]) as conn:
         try:
             return await service.create_page(conn, user["organization_id"], user["id"],
-                                             dashboard_id, body.name, body.description, body.layout_mode)
+                                             dashboard_id, body.name, body.description,
+                                             body.layout_mode, body.period)
         except DashboardError as e:
             raise _bad(e)
 

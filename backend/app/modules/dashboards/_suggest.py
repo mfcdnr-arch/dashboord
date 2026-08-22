@@ -811,10 +811,22 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
     # пустая вкладка «Динамика» у формы с одним периодом сбивала бы с толку.
     pages: dict = {}
     first_pid = None
+    # Дата, за которую закреплена страница-срез: у всех её виджетов один period.
+    page_periods: dict = {}
+    for spec in specs:
+        title = spec.get("page") or PAGE_OVERVIEW
+        per = spec.get("config", {}).get("period")
+        if title not in page_periods:
+            page_periods[title] = per
+        elif page_periods[title] != per:
+            page_periods[title] = None
     for spec in specs:
         title = spec.get("page") or PAGE_OVERVIEW
         if title not in pages:
-            page = await svc.create_page(conn, org_id, user_id, did, title, None, AUTO_LAYOUT_MODE)
+            # Дата среза — на самой странице, а не только в имени: имя человек
+            # может переименовать, и страница перестала бы опознаваться срезом.
+            page = await svc.create_page(conn, org_id, user_id, did, title, None, AUTO_LAYOUT_MODE,
+                                         page_periods.get(title))
             pages[title] = str(page["id"])
             if first_pid is None:
                 first_pid = pages[title]

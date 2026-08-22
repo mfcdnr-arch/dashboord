@@ -35,6 +35,8 @@ export interface DashPage {
   position: number
   /** Раскладка страницы: 'grid' — свободная сетка, 'flow' — «поток» по типам. */
   layout_mode?: string
+  /** Отчётная дата страницы-среза (ISO); null — обычная сводная страница. */
+  period?: string | null
 }
 export interface Widget {
   id: string

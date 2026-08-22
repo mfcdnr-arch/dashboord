@@ -129,7 +129,7 @@ async def create_from_template(conn, org_id, user_id, template_id: str, name: st
     did = str(dash["id"])
     for page in spec.get("pages", []):
         p = await svc.create_page(conn, org_id, user_id, did, page["name"], page.get("description"),
-                                  page.get("layout_mode") or "grid")
+                                  page.get("layout_mode") or "grid", page.get("period"))
         for w in page.get("widgets", []):
             cfg = _remap_config(w.get("config", {}), dmap, mmap, fmap)
             await svc.create_widget(conn, org_id, user_id, str(p["id"]), w["name"], w["widget_type"], cfg,

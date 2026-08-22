@@ -590,7 +590,7 @@ async def get_dashboard(conn, org_id, user: dict, dashboard_id: str) -> dict:
     if d is None:
         raise DashboardError("Дашборд не найден")
     pages = await conn.fetch(
-        "select id, name, description, position, layout_mode from dashboard_pages "
+        "select id, name, description, position, layout_mode, period from dashboard_pages "
         "where dashboard_id=$1::uuid order by position, created_at", dashboard_id,
     )
     return {"dashboard": dict(d), "pages": [dict(p) for p in pages]}
@@ -799,7 +799,9 @@ async def delete_dashboard(conn, org_id, user: dict, dashboard_id: str) -> None:
 # Страницы
 # --------------------------------------------------------------------------- #
 async def create_page(conn, org_id, user_id, dashboard_id: str, name: str,
-                      description: Optional[str], layout_mode: str = "grid") -> dict:
+                      description: Optional[str], layout_mode: str = "grid",
+                      period: Optional[str] = None) -> dict:
+    """`period` — отчётная дата страницы-среза (виджеты закреплены за ней)."""
     if not await _owns_dashboard(conn, org_id, dashboard_id):
         raise DashboardError("Дашборд не найден")
     await _assert_editable(conn, dashboard_id)
@@ -808,9 +810,10 @@ async def create_page(conn, org_id, user_id, dashboard_id: str, name: str,
     pos = await conn.fetchval(
         "select coalesce(max(position),-1)+1 from dashboard_pages where dashboard_id=$1::uuid", dashboard_id)
     row = await conn.fetchrow(
-        "insert into dashboard_pages(dashboard_id, name, description, position, created_by, layout_mode) "
-        "values($1::uuid,$2,$3,$4,$5,$6) returning id, name, description, position, layout_mode",
-        dashboard_id, name, description, pos, user_id, layout_mode,
+        "insert into dashboard_pages(dashboard_id, name, description, position, created_by, layout_mode, period) "
+        "values($1::uuid,$2,$3,$4,$5,$6,$7::text::date) "
+        "returning id, name, description, position, layout_mode, period",
+        dashboard_id, name, description, pos, user_id, layout_mode, period,
     )
     return dict(row)
 
@@ -826,7 +829,7 @@ async def update_page(conn, org_id, page_id: str, name: Optional[str], descripti
     row = await conn.fetchrow(
         "update dashboard_pages set name=coalesce($2,name), description=coalesce($3,description), "
         "layout_mode=coalesce($4,layout_mode), "
-        "updated_at=now() where id=$1::uuid returning id, name, description, position, layout_mode",
+        "updated_at=now() where id=$1::uuid returning id, name, description, position, layout_mode, period",
         page_id, name, description, layout_mode,
     )
     return dict(row)
@@ -1126,7 +1129,7 @@ async def delete_preset(conn, org_id, dashboard_id: str, preset_id: str) -> None
 # --------------------------------------------------------------------------- #
 async def _snapshot(conn, dashboard_id: str) -> dict:
     pages = await conn.fetch(
-        "select id, name, description, position, layout_mode from dashboard_pages "
+        "select id, name, description, position, layout_mode, period from dashboard_pages "
         "where dashboard_id=$1::uuid order by position", dashboard_id)
     out = []
     for p in pages:
@@ -1135,6 +1138,7 @@ async def _snapshot(conn, dashboard_id: str) -> dict:
             "from widgets where page_id=$1 order by position_y, position_x", p["id"])
         out.append({"name": p["name"], "description": p["description"], "position": p["position"],
                     "layout_mode": p["layout_mode"],
+                    "period": p["period"].isoformat() if p["period"] else None,
                     "widgets": [{"name": w["name"], "widget_type": w["widget_type"],
                                  "position_x": w["position_x"], "position_y": w["position_y"],
                                  "width": w["width"], "height": w["height"], "config": _cfg(w)} for w in ws]})
@@ -1199,7 +1203,7 @@ async def restore_version(conn, org_id, user_id, dashboard_id: str, version_no: 
     await conn.execute("delete from dashboard_pages where dashboard_id=$1::uuid", dashboard_id)
     for page in snap.get("pages", []):
         p = await create_page(conn, org_id, user_id, dashboard_id, page["name"], page.get("description"),
-                              page.get("layout_mode") or "grid")
+                              page.get("layout_mode") or "grid", page.get("period"))
         for w in page.get("widgets", []):
             await create_widget(conn, org_id, user_id, str(p["id"]), w["name"], w["widget_type"], w.get("config", {}),
                                 {"position_x": w.get("position_x", 0), "position_y": w.get("position_y", 0),
