@@ -6,6 +6,9 @@ export const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
   bar: { w: 5, h: 6 }, line: { w: 5, h: 6 }, pie: { w: 4, h: 6 },
   dynamics: { w: 6, h: 6 }, yoy: { w: 6, h: 6 }, compare: { w: 6, h: 7 }, heatmap: { w: 6, h: 7 }, pivot: { w: 6, h: 6 }, waterfall: { w: 6, h: 6 },
   objects_compare: { w: 6, h: 6 }, cross_dataset_compare: { w: 6, h: 7 }, text: { w: 6, h: 2 }, image: { w: 3, h: 3 },
+  // Матрица шире таблицы: столбец на каждый отчёт плюс прирост под значением —
+  // в половине ряда она сразу уходит в горизонтальную прокрутку.
+  matrix: { w: 12, h: 8 },
 }
 
 export const WT = [
