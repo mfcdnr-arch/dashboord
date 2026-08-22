@@ -252,6 +252,34 @@ export async function unpublishDashboard(id: string): Promise<void> {
   if (!res.ok) throw new Error(await errText(res))
 }
 /** Переименование страницы дашборда (вкладки). */
+/** Место строки среди остальных: содержимое drill-down по строке. */
+export interface RowRankMetric {
+  field: string
+  name: string
+  value: number
+  rank: number
+  rows: number
+  share: number | null
+  total: number
+  leader: string
+  leader_value: number
+}
+export interface RowRank {
+  row: string
+  dataset_code: string | null
+  period?: string | null
+  rows_total: number
+  metrics: RowRankMetric[]
+}
+export async function pageRowRank(pageId: string, row: string, from = '', to = ''): Promise<RowRank> {
+  const p = new URLSearchParams({ row })
+  if (from) p.set('from', from)
+  if (to) p.set('to', to)
+  const res = await fetch(`/dashboard-pages/${pageId}/row-rank?${p}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 export async function updatePage(pageId: string, patch: { name?: string; description?: string; layout_mode?: string }): Promise<DashPage> {
   const res = await fetch(`/dashboard-pages/${pageId}`, {
     method: 'PATCH',

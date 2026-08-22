@@ -654,8 +654,16 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
           </tr></thead>
           <tbody>
             {rows.length === 0 && <tr><td style={td} colSpan={cols.length + 1}>Ничего не найдено</td></tr>}
+            {/* Клик по строке проваливает ВСЮ страницу в эту строку — тем же
+                фильтром, что и клик по столбцу графика. Без этого таблица
+                оставалась единственным местом, где строку видно, но нельзя
+                выбрать: самый естественный жест не работал. */}
             {rows.map((r: any, i: number) => (
-              <tr key={i}><td style={{ ...td, fontWeight: 600, ...stickyCol }}>{r.row}</td>
+              <tr key={i} onClick={onPick && !print ? () => onPick(String(r.row)) : undefined}
+                style={onPick && !print ? { cursor: 'pointer' } : undefined}
+                title={onPick && !print ? `Показать всю страницу по строке «${r.row}»` : undefined}>
+                <td style={{ ...td, fontWeight: 600, ...stickyCol,
+                  ...(onPick && !print ? { color: 'var(--accent)' } : {}) }}>{r.row}</td>
                 {cols.map((c: string) => <td key={c} style={td}>{typeof r[c] === 'number' ? fmt(r[c]) : (r[c] ?? '—')}</td>)}
               </tr>
             ))}
@@ -975,8 +983,13 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
           </tr></thead>
           <tbody>
             {rows.length === 0 && <tr><td style={td} colSpan={cols.length + 2}>Ничего не найдено</td></tr>}
+            {/* Строка сводной кликается так же, как строка обычной таблицы. */}
             {rows.map((r, i) => (
-              <tr key={i}><td style={{ ...td, fontWeight: 600, ...stickyCol }}>{r.row}</td>
+              <tr key={i} onClick={onPick && !print ? () => onPick(String(r.row)) : undefined}
+                style={onPick && !print ? { cursor: 'pointer' } : undefined}
+                title={onPick && !print ? `Показать всю страницу по строке «${r.row}»` : undefined}>
+                <td style={{ ...td, fontWeight: 600, ...stickyCol,
+                  ...(onPick && !print ? { color: 'var(--accent)' } : {}) }}>{r.row}</td>
                 {cols.map((_, ci) => <td key={ci} style={{ ...td, textAlign: 'right' }}>{typeof r.values[ci] === 'number' ? fmt(r.values[ci]) : '—'}</td>)}
                 <td style={{ ...totCell, textAlign: 'right' }}>{fmt(r.total)}</td>
               </tr>

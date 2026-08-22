@@ -43,6 +43,7 @@ from ._rls import (  # noqa: F401
     visible_dashboard_ids,
     visible_widget_ids,
 )
+from ._rowrank import page_row_rank  # noqa: F401
 from ._rowrls import get_row_acl, set_row_acl  # noqa: F401
 from ._suggest import (  # noqa: F401
     _dataset_numeric_fields,

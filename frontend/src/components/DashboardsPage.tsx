@@ -30,6 +30,7 @@ import { useConfirm } from './dashboards/ConfirmDialog'
 import { dashboardFreshness, dashboardMissingFields } from '../api/dashboards'
 import { FreshnessBar } from './dashboards/FreshnessBar'
 import { DashboardHeader } from './dashboards/DashboardHeader'
+import { RowDrillBar } from './dashboards/RowDrillBar'
 import { MissingFieldsDialog } from './dashboards/MissingFieldsDialog'
 import { TemplateCloneDialog } from './dashboards/TemplateCloneDialog'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
@@ -966,6 +967,10 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
               renamePage: () => { if (page) setRenamePageTarget(page) },
             }}
           />
+          {/* Провалились в строку данных: куда именно и как она на фоне других. */}
+          <RowDrillBar pageId={page?.id ?? null} row={crossRow} from={pFrom} to={pTo}
+            onClear={() => setCrossRow(null)} />
+
           {/* Появился более свежий выпуск — предложение обновиться (сама дата
               данных живёт в строке контекста шапки). */}
           <FreshnessBar
