@@ -10,6 +10,7 @@ import RelatedMenu from './dashboards/RelatedMenu'
 import ReportProblemDialog from './dashboards/ReportProblemDialog'
 import { alertLook, levelLook } from '../lib/alertColors'
 import { exportWidgetXlsx } from '../api'
+import PassportDialog from './dashboards/PassportDialog'
 import { fmtNumber as fmt, logScaleAdvice } from '../lib/format'
 import { distinctLabels, elideMiddle } from '../lib/text'
 
@@ -153,6 +154,8 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
   const [related, setRelated] = useState(false)
   const [problem, setProblem] = useState(false)
   const [menu, setMenu] = useState(false)
+  // «Паспорт цифры» (п. 17): открывается из меню «↗ куда дальше».
+  const [passport, setPassport] = useState(false)
   const [footRef, footWidth] = useContainerWidth<HTMLDivElement>()
 
   useEffect(() => {
@@ -298,7 +301,13 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
       {drill && <DrillModal drill={drill} onClose={() => setDrill(null)} />}
       {related && (
         <RelatedMenu widgetId={widgetId} onClose={() => setRelated(false)}
-          onOpenDrill={openDrill} onNavigate={onNavigate} onAddField={onAddField} />
+          onOpenDrill={openDrill} onOpenPassport={() => setPassport(true)}
+          onNavigate={onNavigate} onAddField={onAddField} />
+      )}
+      {passport && (
+        // Строка фильтра уезжает вместе с запросом: если человек провалился в
+        // район, паспорт должен рассказывать про ЕГО цифру, а не про итог.
+        <PassportDialog widgetId={widgetId} row={row} onClose={() => setPassport(false)} />
       )}
       {problem && (
         <ReportProblemDialog widgetId={widgetId} widgetName={widgetName}

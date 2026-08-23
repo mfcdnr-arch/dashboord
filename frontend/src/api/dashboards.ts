@@ -784,3 +784,29 @@ export async function exportWidgetXlsx(widgetId: string, from?: string, to?: str
   if (!res.ok) throw new Error(await errText(res))
   return res.blob()
 }
+
+/** Строка «паспорта цифры»: один выпуск графы — значение и его происхождение. */
+export interface PassportRow {
+  period: string | null
+  value: number | null
+  aggregate: string
+  rows_used: number
+  document: string | null
+  document_id: string | null
+  released_at: string | null
+  released_by: string | null
+  auto_released: boolean
+  superseded: boolean
+  delta?: number
+  delta_pct?: number | null
+}
+// «Паспорт цифры» (п. 17): как графа менялась по неделям, из какого файла
+// пришло значение и кто его выпустил.
+export async function widgetPassport(widgetId: string, row?: string): Promise<{
+  widget_name: string; field: string; field_name: string; row: string | null; history: PassportRow[]
+}> {
+  const res = await fetch(`/widgets/${widgetId}/passport${row ? `?row=${encodeURIComponent(row)}` : ''}`,
+    { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

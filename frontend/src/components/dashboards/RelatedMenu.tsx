@@ -23,11 +23,13 @@ const TYPE_RU: Record<string, string> = {
 // (overflow: hidden), и меню внутри неё было бы срезано — ровно тот дефект,
 // который уже ловили у подсказки ⓘ и у окна «подробнее».
 export default function RelatedMenu(
-  { widgetId, onClose, onOpenDrill, onNavigate, onAddField }:
+  { widgetId, onClose, onOpenDrill, onOpenPassport, onNavigate, onAddField }:
   {
     widgetId: string
     onClose: () => void
     onOpenDrill: () => void
+    /** Паспорт цифры (п. 17). Не передан — пункта нет. */
+    onOpenPassport?: () => void
     /** Переход к другому виджету: открыть его дашборд/страницу и показать
      *  сам виджет. Без widgetId переход к соседу на ТОЙ ЖЕ странице выглядел
      *  бы как «нажал — ничего не произошло». */
@@ -82,6 +84,15 @@ export default function RelatedMenu(
               <button style={itemBtn} onClick={() => { onClose(); onOpenDrill() }}>
                 🔍 Формула, источник и первичные строки
               </button>
+              {/* «Из чего складывается» отвечает про СЕЙЧАС, паспорт — про
+                  происхождение: как графа менялась по неделям, из какого файла
+                  пришло значение и кто его выпустил. Вопросы соседние, поэтому
+                  и пункты рядом. */}
+              {onOpenPassport && (
+                <button style={itemBtn} onClick={() => { onClose(); onOpenPassport() }}>
+                  📇 Паспорт цифры: история графы, файлы и кто выпустил
+                </button>
+              )}
             </Group>
 
             <Group title="Где ещё показан этот показатель"

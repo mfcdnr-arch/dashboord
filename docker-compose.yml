@@ -87,6 +87,16 @@ services:
       APP_ENV: dev
       BACKUPS_DIR: /app/backups
       OPS_TRIGGER_DIR: /app/ops-triggers
+      # 🔴 DEV-перезагрузка по правке файла. И uvicorn --reload, и arq --watch
+      # работают через watchfiles, а тот ждёт СОБЫТИЙ файловой системы (inotify).
+      # На bind-монтировании из macOS такие события до контейнера доходят не
+      # всегда: код в репозитории новый, а внутри выполняется старый — правка
+      # «не применяется», и это выглядит как ошибка в самом коде (ловили 12.08,
+      # 15.08 и 23.08, каждый раз лечили `docker restart`). Опрос вместо событий
+      # надёжен независимо от драйвера монтирования; цена — лёгкое фоновое
+      # чтение каталога. В прод-стеке этого нет: там нет ни монтирования, ни
+      # --reload.
+      WATCHFILES_FORCE_POLLING: "true"
     depends_on: &backend_deps
       postgres:
         condition: service_healthy

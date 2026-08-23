@@ -6,7 +6,7 @@
 за закреплённую дату, и приход новой недели её не меняет. Здесь проверяется
 именно это, а не только наличие страниц.
 """
-import json
+
 
 import pytest
 import pytest_asyncio
@@ -16,6 +16,27 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 from app import db
 from app.modules.dashboards import _suggest
 from tests.conftest import purge_dashboard
+
+
+def _numbers(obj) -> set:
+    """Все числа ответа — рекурсивно, без строк.
+
+    Нужен, чтобы проверять ЗНАЧЕНИЯ, а не текст JSON: в ответе есть
+    идентификаторы, даты и имена, и поиск подстрокой в них случайно находит
+    что угодно (см. комментарий в тесте закрепления отчёта).
+    """
+    out: set = set()
+    if isinstance(obj, bool):
+        return out
+    if isinstance(obj, (int, float)):
+        out.add(float(obj))
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            out |= _numbers(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            out |= _numbers(v)
+    return out
 
 
 @pytest_asyncio.fixture
@@ -207,9 +228,15 @@ async def test_build_by_document_pins_its_report(client, admin_headers, ids, see
         pages = (await client.get(f"/dashboards/{did}", headers=admin_headers)).json()["pages"]
         data = (await client.get(f"/dashboard-pages/{pages[0]['id']}/data",
                                  headers=admin_headers)).json()
-        blob = json.dumps(data, ensure_ascii=False)
-        assert str(int(old_value)) in blob, "показаны цифры ВЫБРАННОГО отчёта"
-        assert str(int(new_value)) not in blob, "свежий отчёт сюда попадать не должен"
+        # 🔴 Сравниваем ЧИСЛА, а не подстроки JSON. Прежняя проверка искала
+        # «900» в тексте всего ответа, а там лежат и идентификаторы виджетов:
+        # uuid состоит из тех же 0-9a-f, и тройка цифр попадает в них случайно.
+        # Замер: у страницы из десятка виджетов это происходит примерно в 7 %
+        # прогонов — тест падал «сам по себе» раз в десяток запусков и выглядел
+        # как чужая регрессия.
+        values = _numbers(data)
+        assert float(old_value) in values, "показаны цифры ВЫБРАННОГО отчёта"
+        assert float(new_value) not in values, "свежий отчёт сюда попадать не должен"
 
         # Снятая галочка «закрепить» — осознанный выбор: состав тот же, данные
         # обновляемые.

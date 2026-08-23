@@ -71,6 +71,20 @@ def _attachment(filename: str) -> str:
 # Выгрузка ОДНОГО виджета (п. 7): человеку, которому нужна одна таблица для
 # доклада, не должен приезжать файл на семнадцать листов. Фильтры страницы
 # передаются сюда же — файл обязан совпадать с тем, что человек видел.
+# «Паспорт цифры» (п. 17): как графа менялась по неделям, из какого файла
+# пришло значение и кто его выпустил. Ответ собирается из происхождения
+# данных, а не из отдельного журнала — второй источник правды разошёлся бы.
+@router.get("/widgets/{widget_id}/passport")
+async def widget_passport(widget_id: str, user: dict = Depends(get_current_user),
+                          field: Optional[str] = None, row: Optional[str] = None):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.widget_passport(conn, user["organization_id"], widget_id,
+                                                 user, field=field, row=row)
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.get("/widgets/{widget_id}/export.xlsx")
 async def export_widget_xlsx(widget_id: str, user: dict = Depends(get_current_user),
                              from_date: Optional[str] = None, to_date: Optional[str] = None,

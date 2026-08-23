@@ -29,6 +29,7 @@ from ._base import ANNOTATION_TYPES, LAYOUT_MODES, WIDGET_TYPES, DashboardError 
 from ._comments import add_comment, delete_comment, list_comments  # noqa: F401
 from ._describe import describe_dashboard  # noqa: F401
 from ._explain import explain_widgets, widget_configs  # noqa: F401
+from ._passport import widget_passport  # noqa: F401
 from ._planfact import (  # noqa: F401
     PLAN_FACT_SCALE,
     build_plan_fact_dashboard,
