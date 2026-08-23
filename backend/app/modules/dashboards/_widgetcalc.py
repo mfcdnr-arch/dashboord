@@ -10,7 +10,7 @@ import statistics
 from typing import Dict, List, Optional
 
 from ._aggregate import aggregate_series
-from ._alerts import evaluate_alert
+from ._alerts import alert_styles, cell_alert_levels, evaluate_alert
 from ._base import DashboardError
 from ._rowrls import allowed_rows_for_dataset
 from ._widgetsources import (
@@ -853,7 +853,17 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         if not cfg.get("dataset_code"):
             raise DashboardError("Таблица: укажите dataset_code")
         table = await _dataset_table(conn, org_id, cfg["dataset_code"], row, allowed, period)
-        return {"type": "table", "title": name, **table}
+        res = {"type": "table", "title": name, **table}
+        # Условное форматирование ячеек: цвет по порогам считаем ТЕМ ЖЕ кодом,
+        # что красит карточку показателя, а «полоску по величине» отдаём
+        # клиенту — в ней нет правила, только соотношение уже пришедших чисел.
+        fmt = cfg.get("cell_format") or {}
+        if fmt:
+            res["cell_format"] = fmt
+            cell_alert_levels(cfg, res.get("rows") or [])
+            if any(m == "alert" for m in fmt.values()):
+                res["alert_styles"] = alert_styles()
+        return res
 
     # bar | line | pie
     if not cfg.get("dataset_code") or not cfg.get("value_field"):

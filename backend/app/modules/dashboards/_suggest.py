@@ -92,7 +92,12 @@ WIDGET_SIZE = {
     "kpi_group": (4, 8),
     "gauge": (4, 7),
     "plan_fact": (6, 6),
-    "dynamics": (4, 6),
+    # Высота 7, а не 6: ЗАМЕР показал, что в шести рядах виджет стоит впритык —
+    # график уже прижат к своему минимуму (118px), а под двумя строками итогов
+    # («к пред. периоду» и «за весь период») остаётся 1px запаса при окне 1150.
+    # Любая мелочь — компактный режим, третья строка в имени — и содержимое
+    # уезжает во внутреннюю прокрутку карточки.
+    "dynamics": (4, 7),
     "bar": (12, 6), "line": (12, 6), "pie": (6, 6), "waterfall": (6, 6),
     "compare": (12, 8), "cross_dataset_compare": (12, 8), "yoy": (12, 6),
     "heatmap": (6, 7), "pivot": (12, 6), "table": (12, 6), "matrix": (12, 7),
@@ -108,6 +113,45 @@ WIDGET_SIZE = {
 KPI_W, KPI_H = WIDGET_SIZE["kpi"]
 
 
+def matrix_height(field_count: int) -> int:
+    """Высота матрицы «показатель × дата» — по числу строк, которые она покажет.
+
+    У формы заказчика показателей тринадцать, и в стандартные ряды помещаются
+    две строки: остальное уезжает во внутреннюю прокрутку карточки, ради
+    которой матрицу и не берут.
+
+    Запас в пять рядов, а не в четыре: замер в свободной сетке показал, что при
+    `4 + N` матрице на 13 показателей не хватает ровно 21px (шапка таблицы,
+    строка итога и подпись источника). В «потоке» этого не видно — там высота
+    считается по содержимому.
+    """
+    return max(8, min(24, 5 + (field_count or 6)))
+
+
+def _content_height(widget: dict, default_h: int) -> int:
+    """Высота, зависящая от СОДЕРЖИМОГО виджета, а не только от его типа.
+
+    Пока такой виджет один — матрица, у которой строк столько, сколько
+    показателей выбрано. Правило вынесено сюда, чтобы кнопка «↕ Подогнать
+    размеры» и авто-сборка считали её ОДИНАКОВО: раньше сборка растягивала
+    матрицу по числу показателей, а подгонка тут же ужимала её обратно до
+    табличного размера из `WIDGET_SIZE` — то есть кнопка молча ломала то, что
+    собрал мастер.
+    """
+    if widget.get("widget_type") != "matrix":
+        return default_h
+    cfg = widget.get("config") or {}
+    if isinstance(cfg, str):
+        try:
+            cfg = json.loads(cfg)
+        except (TypeError, ValueError):
+            cfg = {}
+    # Разрез по строкам формы: сколько их будет, заранее неизвестно — берём ту
+    # же оценку в шесть строк, что и авто-сборка, чтобы обе стороны считали
+    # одинаково.
+    return matrix_height(len(cfg.get("value_fields") or []))
+
+
 def fit_layout(widgets: list) -> list:
     """Пересчёт раскладки страницы: каждому виджету — размер по его типу,
     порядок сохраняется, ряд заполняется слева направо.
@@ -121,6 +165,7 @@ def fit_layout(widgets: list) -> list:
     x = y = row_h = 0
     for w in widgets:
         width, height = WIDGET_SIZE.get(w["widget_type"], (4, 5))
+        height = _content_height(w, height)
         if x + width > 12:            # в ряду не осталось места — новая строка
             x, y, row_h = 0, y + row_h, 0
         out.append({"id": str(w["id"]), "position_x": x, "position_y": y,
@@ -612,8 +657,7 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
                 spec_name = f"{dsname}: показатели по датам"
             # Высота по числу строк, которые матрица реально покажет: у формы
             # заказчика их тринадцать, и в стандартные 8 рядов помещаются две.
-            m_rows = len(spec_cfg.get("value_fields") or []) or 6
-            m_h = max(8, min(24, 4 + m_rows))
+            m_h = matrix_height(len(spec_cfg.get("value_fields") or []))
             specs.append({"page": PAGE_DYNAMICS, "name": spec_name, "widget_type": "matrix",
                           "config": spec_cfg,
                           "position_x": 0, "position_y": dyn_y, "width": 12, "height": m_h})

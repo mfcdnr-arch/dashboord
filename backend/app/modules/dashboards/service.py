@@ -984,8 +984,11 @@ async def fit_page_layout(conn, org_id, page_id: str) -> dict:
     if p is None:
         raise DashboardError("Страница не найдена")
     await _assert_editable(conn, p["dashboard_id"])
+    # config нужен, потому что у матрицы высота зависит от СОДЕРЖИМОГО (числа
+    # показателей), а не только от типа: без него подгонка ужимала бы её
+    # обратно до табличного размера и ломала то, что собрал мастер.
     rows = await conn.fetch(
-        "select id, widget_type, position_x, position_y, width, height from widgets "
+        "select id, widget_type, config, position_x, position_y, width, height from widgets "
         "where page_id=$1::uuid order by position_y, position_x", page_id)
     if not rows:
         raise DashboardError("На странице нет виджетов")

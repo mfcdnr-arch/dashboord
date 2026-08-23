@@ -666,6 +666,43 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   if (data.type === 'table') {
     const cols: string[] = data.columns || []
     let rows: any[] = data.rows || []
+    // Условное форматирование ячеек (п. 2 списка предложений).
+    // «Цвет по порогам» посчитан на сервере ТЕМ ЖЕ кодом, что красит карточку
+    // показателя, и приезжает уровнем внутри строки (`__fmt`) — при сортировке
+    // и поиске разметка едет вместе со своей строкой.
+    // «Полоска по величине» считается здесь: правила в ней нет, только
+    // соотношение уже пришедших чисел. Максимум берём по ВСЕМ строкам, а не по
+    // видимым, иначе при поиске полоски перерисовывались бы от другой базы и
+    // одно и то же число выглядело бы то большим, то маленьким.
+    const cellFmt: Record<string, string> = data.cell_format || {}
+    const fmtStyles: Record<string, { color: string; bg: string }> = data.alert_styles || {}
+    const barMax: Record<string, number> = {}
+    Object.keys(cellFmt).forEach((c) => {
+      if (cellFmt[c] !== 'bar') return
+      const nums = (data.rows || []).map((r: any) => r[c]).filter((v: any) => typeof v === 'number' && isFinite(v))
+      const max = Math.max(0, ...nums.map((v: number) => Math.abs(v)))
+      if (max > 0) barMax[c] = max
+    })
+    /** Ячейка с оформлением: цвет по порогу либо полоска по величине. */
+    const cellStyle = (r: any, c: string): React.CSSProperties => {
+      const lvl = r.__fmt?.[c]
+      if (cellFmt[c] === 'alert' && lvl && fmtStyles[lvl]) {
+        return { background: fmtStyles[lvl].bg, color: fmtStyles[lvl].color, fontWeight: 600 }
+      }
+      const max = barMax[c]
+      if (cellFmt[c] === 'bar' && typeof r[c] === 'number' && max) {
+        // Полоска рисуется фоном самой ячейки: отдельный элемент внутри <td>
+        // ломал бы выравнивание чисел и высоту строки.
+        const share = Math.min(100, Math.round((Math.abs(r[c]) / max) * 100))
+        // Полоска красится НЕ акцентом и не сигнальным цветом: в соседнем
+        // столбце могут стоять пороги, и розовая заливка читалась бы как
+        // «плохо». Минус — единственное исключение: отрицательная величина
+        // это и есть сигнал.
+        const tint = r[c] < 0 ? 'var(--danger-bg)' : 'var(--bar-fill)'
+        return { background: `linear-gradient(to right, ${tint} ${share}%, transparent ${share}%)` }
+      }
+      return {}
+    }
     if (tableSearch.trim()) {
       const s = tableSearch.trim().toLowerCase()
       rows = rows.filter((r) => String(r.row ?? '').toLowerCase().includes(s) || cols.some((c) => String(r[c] ?? '').toLowerCase().includes(s)))
@@ -689,7 +726,9 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
               <tr key={c}>
                 <td style={{ ...td, fontWeight: 600 }}>{(data.column_titles?.[c] as string) || c}</td>
                 {rows.map((r: any, i: number) => (
-                  <td key={i} style={{ ...td, textAlign: 'right' }}>
+                  /* В отчёте таблица развёрнута вертикально, но цвет порога —
+                     это данные, а не украшение экрана: он остаётся. */
+                  <td key={i} style={{ ...td, textAlign: 'right', ...cellStyle(r, c) }}>
                     {typeof r[c] === 'number' ? fmt(r[c]) : (r[c] ?? '—')}
                   </td>
                 ))}
@@ -738,7 +777,14 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                 title={onPick && !print ? `Показать всю страницу по строке «${r.row}»` : undefined}>
                 <td style={{ ...td, fontWeight: 600, ...stickyCol,
                   ...(onPick && !print ? { color: 'var(--accent)' } : {}) }}>{r.row}</td>
-                {cols.map((c: string) => <td key={c} style={td}>{typeof r[c] === 'number' ? fmt(r[c]) : (r[c] ?? '—')}</td>)}
+                {cols.map((c: string) => (
+                  <td key={c} style={{ ...td, ...cellStyle(r, c) }}
+                    title={cellFmt[c] === 'bar' && typeof r[c] === 'number' && barMax[c]
+                      ? `${fmt(r[c])} — ${Math.round((Math.abs(r[c]) / barMax[c]) * 100)} % от наибольшего в столбце`
+                      : undefined}>
+                    {typeof r[c] === 'number' ? fmt(r[c]) : (r[c] ?? '—')}
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>

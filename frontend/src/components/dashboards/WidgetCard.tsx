@@ -137,9 +137,12 @@ export function WidgetCard({
                 <InfoTip text={tip} />
                 <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
                   {canManage && hasSources && <button style={editBtn} onClick={() => onEdit(w)} title="Изменить данные/тип виджета">✎</button>}
-                  {canManage && ['kpi', 'gauge', 'plan_fact', 'dynamics'].includes(w.widget_type) && (
+                  {/* Таблица здесь же: её столбцы можно красить по ТЕМ ЖЕ
+                      порогам (режим «цвет по порогам» в форме виджета), и без
+                      этой кнопки задать их было бы негде. */}
+                  {canManage && ['kpi', 'gauge', 'plan_fact', 'dynamics', 'table'].includes(w.widget_type) && (
                     <button style={alertBtn} onClick={() => onAlerts(w)}
-                      title="Пороги KPI-алерта (условное форматирование)">⚠</button>
+                      title="Пороги подсветки (условное форматирование)">⚠</button>
                   )}
                   {canManage && <button style={rmBtn} onClick={() => onDelete(w)} title="Удалить">✕</button>}
                 </span>

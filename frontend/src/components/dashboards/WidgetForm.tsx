@@ -356,6 +356,17 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const [anomalies, setAnomalies] = useState<boolean>(!!cfg0.anomalies)
   const [anomalyThreshold, setAnomalyThreshold] = useState<string>(cfg0.anomaly_threshold != null ? String(cfg0.anomaly_threshold) : '2')
 
+  // Условное форматирование ячеек таблицы (п. 2): {код столбца: 'bar'|'alert'}.
+  // Хранится в config виджета; пороги для 'alert' — те же, что у карточек
+  // (кнопка ⚠ у виджета), поэтому своей копии правил здесь нет.
+  const [cellFmt, setCellFmt] = useState<Record<string, string>>(
+    (cfg0.cell_format as Record<string, string>) || {})
+  const setColFmt = (code: string, mode: string) => setCellFmt((s) => {
+    const next = { ...s }
+    if (mode) next[code] = mode; else delete next[code]
+    return next
+  })
+
   // Свой фильтр виджета (переопределение глобального фильтра страницы).
   const [ownFilter, setOwnFilter] = useState<boolean>(cfg0.filter_scope === 'own')
   const [ownFrom, setOwnFrom] = useState<string>(cfg0.own_from || '')
@@ -383,7 +394,9 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       : ((dataset && planField && factField)
         ? { dataset_code: dataset, plan_field: planField, fact_field: factField, ...(forecast ? { forecast: true } : {}) }
         : null)
-    if (type === 'table') return dataset ? { dataset_code: dataset } : null
+    if (type === 'table') return dataset
+      ? { dataset_code: dataset, ...(Object.keys(cellFmt).length ? { cell_format: cellFmt } : {}) }
+      : null
     if (type === 'objects_compare') return objField ? { value_field: objField } : null
     if (type === 'cross_dataset_compare') {
       const valid = crossSeries.filter((s) => s.dataset_code && s.value_field)
@@ -674,6 +687,34 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4, maxWidth: 320 }}>
             Строки формы × отчётные даты: в ячейке значение и прирост к прошлому отчёту.
           </div>
+        </F>
+      )}
+      {/* Условное форматирование таблицы: у каждого числового столбца свой
+          режим. Полоска отвечает на «много это или мало на фоне остальных»,
+          цвет — на «в норме или нет»; смешивать их в одном столбце нельзя,
+          иначе непонятно, что означает заливка. */}
+      {type === 'table' && dataset && numFields(dataset).length > 0 && (
+        <F t="Оформление ячеек (необязательно)">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 150, overflowY: 'auto',
+            width: 'min(520px, 100%)', boxSizing: 'border-box',
+            padding: '4px 6px', border: '1px solid var(--border-faint)', borderRadius: 8 }}>
+            {numFields(dataset).map((f) => (
+              <label key={f.code} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, lineHeight: 1.3 }}>
+                <select style={{ ...sel, height: 26, fontSize: 12, flexShrink: 0, width: 150 }}
+                  value={cellFmt[f.code] || ''} onChange={(e) => setColFmt(f.code, e.target.value)}>
+                  <option value="">без оформления</option>
+                  <option value="bar">полоска по величине</option>
+                  <option value="alert">цвет по порогам</option>
+                </select>
+                <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{f.name}</span>
+              </label>
+            ))}
+          </div>
+          <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+            Полоска показывает долю от наибольшего значения в столбце и настройки не требует.
+            Цвет берётся из порогов виджета — их задаёт кнопка ⚠ у таблицы на дашборде;
+            пока порогов нет, столбец останется без заливки.
+          </span>
         </F>
       )}
       {usesMulti && (

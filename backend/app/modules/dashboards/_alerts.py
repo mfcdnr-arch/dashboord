@@ -87,3 +87,49 @@ def evaluate_alert(widget_type: str, cfg: dict, data: dict) -> Optional[dict]:
             return {"level": lvl, "color": st["color"], "bg": st["bg"],
                     "label": label, "measure": measure}
     return None
+
+
+# --- Условное форматирование ЯЧЕЕК таблицы (п. 2 списка предложений) ---------
+#
+# Правила ТЕ ЖЕ, что у карточки: та же `config["alerts"]`, тот же `_alert_match`
+# и та же палитра `_ALERT_STYLES`. Своей логики у таблицы нет и быть не должно —
+# иначе одно и то же число красилось бы в карточке одним цветом, а в таблице
+# другим, и спорить пришлось бы уже о цветах, а не о данных.
+#
+# Что размечать, говорит `config["cell_format"]` — {код столбца: 'alert'|'bar'}:
+#   'alert' — цвет по порогам (считается ЗДЕСЬ, на сервере);
+#   'bar'   — полоска по величине; она считается на клиенте от максимума
+#             столбца, потому что никакого правила в ней нет — только
+#             соотношение чисел, которые и так уже пришли.
+
+
+def cell_alert_levels(cfg: dict, rows: list) -> None:
+    """Проставляет строкам таблицы уровень порога по нужным столбцам.
+
+    Уровень кладётся В САМУ СТРОКУ (`row["__fmt"] = {код: уровень}`), а не
+    отдельным массивом по индексам: таблицу на экране сортируют и фильтруют,
+    и разметка, привязанная к номеру строки, разъехалась бы с данными после
+    первого же клика по заголовку.
+
+    Цвета отдаются один раз на виджет (`alert_styles`), а не в каждой ячейке:
+    на таблице районов это тысячи повторов одного и того же.
+    """
+    fmt = cfg.get("cell_format") or {}
+    fields = [f for f, mode in fmt.items() if mode == "alert"]
+    rules = cfg.get("alerts") or []
+    if not fields or not rules:
+        return
+    for row in rows:
+        marks = {}
+        for f in fields:
+            for rule in rules:
+                if _alert_match(row.get(f), rule):
+                    marks[f] = rule.get("level", "danger")
+                    break
+        if marks:
+            row["__fmt"] = marks
+
+
+def alert_styles() -> Dict[str, Any]:
+    """Палитра уровней — чтобы клиент не держал свою копию цветов."""
+    return {lvl: dict(st) for lvl, st in _ALERT_STYLES.items()}
