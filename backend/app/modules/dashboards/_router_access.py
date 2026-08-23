@@ -117,15 +117,28 @@ async def set_row_acl(object_id: str, department_id: str, body: RowAclIn, user: 
 # --- Обсуждение дашборда (комментарии) ---
 class CommentIn(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
+    # Привязка к конкретной цифре (п. 8). Пусто — замечание ко всему отчёту,
+    # как было раньше; этот способ никуда не девается.
+    widget_id: Optional[str] = None
+    # Отчётная дата, которую человек ВИДЕЛ в момент написания: сервер не может
+    # восстановить её постфактум (виджет мог быть отфильтрован периодом
+    # страницы или закреплён за срезом), а без неё замечание через неделю
+    # относилось бы к другому числу.
+    period: Optional[str] = None
+    row_label: Optional[str] = None
 
 
 @router.get("/dashboards/{dashboard_id}/comments")
 async def list_comments(dashboard_id: str, user: dict = Depends(get_current_user),
-                        limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
+                        limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0),
+                        widget_id: Optional[str] = None):
+    """Обсуждение отчёта. `widget_id` — лента ОДНОЙ цифры; без него отдаётся
+    всё, включая замечания к цифрам, чтобы часть разговора не оказалась видна
+    только тому, кто открыл нужный виджет."""
     async with db.acquire(user["id"]) as conn:
         try:
             return await service.list_comments(conn, user["organization_id"], user, dashboard_id,
-                                               limit=limit, offset=offset)
+                                               limit=limit, offset=offset, widget_id=widget_id)
         except DashboardError as e:
             raise _bad(e)
 
@@ -135,7 +148,9 @@ async def add_comment(dashboard_id: str, body: CommentIn, user: dict = Depends(g
     async with db.acquire(user["id"]) as conn:
         try:
             async with conn.transaction():
-                return await service.add_comment(conn, user["organization_id"], user, dashboard_id, body.body)
+                return await service.add_comment(
+                    conn, user["organization_id"], user, dashboard_id, body.body,
+                    widget_id=body.widget_id, period=body.period, row_label=body.row_label)
         except DashboardError as e:
             raise _bad(e)
 

@@ -64,6 +64,18 @@ export function Comments({ dashboard, onClose }: { dashboard: Dashboard; onClose
                         style={{ marginLeft: 'auto', border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 13, padding: 0 }}>✕</button>
                     )}
                   </div>
+                  {/* К какой цифре относится замечание (п. 8). В общем
+                      обсуждении такие замечания видны наравне с остальными —
+                      иначе часть разговора была бы доступна только тому, кто
+                      открыл нужный виджет, — но подписаны, иначе непонятно, о
+                      чём речь. */}
+                  {c.widget_id && (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-2)', marginBottom: 3 }}>
+                      💬 к цифре: <b>{c.widget_name || 'виджет'}</b>
+                      {c.row_label && <> · строка «{c.row_label}»</>}
+                      {c.period && <> · данные на {c.period.split('-').reverse().join('.')}</>}
+                    </div>
+                  )}
                   <div style={{ fontSize: 14, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{c.body}</div>
                 </div>
               ))}

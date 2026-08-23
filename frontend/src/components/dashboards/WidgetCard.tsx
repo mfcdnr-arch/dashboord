@@ -18,7 +18,7 @@ export function WidgetCard({
   w, data, error, alert, isCollapsed, onToggleCollapse, highlighted, editMode, canManage,
   hasSources, onEdit, onAlerts, onDelete, tip,
   reloadKey, from, to, row, asOf, onPick, batched, onNavigate, onAddField, onOpenAppeals, shortName,
-  density = DENSITY.comfortable,
+  density = DENSITY.comfortable, dashboardId, onCommentsChanged,
 }: {
   w: Widget
   data?: Record<string, unknown>
@@ -54,6 +54,10 @@ export function WidgetCard({
    */
   shortName?: string
   onOpenAppeals?: () => void
+  /** Дашборд — чтобы замечание к цифре (п. 8) привязалось к его обсуждению. */
+  dashboardId?: string
+  /** Перечитать счётчики 💬 после отправки или удаления замечания. */
+  onCommentsChanged?: () => void
   /**
    * Плотность (`lib/density`): поля карточки и размер заголовка.
    *
@@ -161,6 +165,9 @@ export function WidgetCard({
                 widgetName={w.name}
                 onAddField={onAddField}
                 onOpenAppeals={onOpenAppeals}
+                dashboardId={dashboardId}
+                nComments={w.comments_count}
+                onCommentsChanged={onCommentsChanged}
                 stripe={false} />
             </div>
           )}

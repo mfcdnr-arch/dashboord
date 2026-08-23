@@ -944,6 +944,11 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       onAddField: canManage ? addSiblingField : undefined,
       onOpenAppeals,
       shortName: shortNames[w.id],
+      // Замечание к цифре (п. 8) привязывается к обсуждению ЭТОГО дашборда.
+      dashboardId: sel?.dashboard.id,
+      // После отправки/удаления перечитываем список виджетов — счётчик 💬
+      // приходит вместе с ним, отдельного запроса на карточку нет.
+      onCommentsChanged: reloadPage,
     }
   }
 

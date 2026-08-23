@@ -26,7 +26,12 @@ from ._alerts import (  # noqa: F401
 )
 from ._attention import page_attention  # noqa: F401
 from ._base import ANNOTATION_TYPES, LAYOUT_MODES, WIDGET_TYPES, DashboardError  # noqa: F401
-from ._comments import add_comment, delete_comment, list_comments  # noqa: F401
+from ._comments import (  # noqa: F401
+    add_comment,
+    delete_comment,
+    list_comments,
+    widget_comment_counts,
+)
 from ._describe import describe_dashboard  # noqa: F401
 from ._explain import explain_widgets, widget_configs  # noqa: F401
 from ._passport import widget_passport  # noqa: F401
@@ -919,9 +924,14 @@ async def list_page_widgets(conn, org_id, page_id: str, user: dict) -> dict:
     # значок ⓘ должен отвечать сразу при наведении, а догрузка по одному
     # значку показала бы пустоту ровно в тот момент, когда на неё смотрят.
     explain = await explain_widgets(conn, org_id, widget_configs(rows))
+    # Число замечаний к цифре (п. 8) — тоже пачкой: значок 💬 в подвале виджета
+    # должен быть виден сразу, а запрос на каждый виджет показал бы пустоту
+    # ровно тогда, когда на неё смотрят.
+    comments = await widget_comment_counts(conn, org_id, page_id)
     return {"page_id": page_id, "widgets": [
         {**{k: w[k] for k in ("id", "name", "widget_type", "position_x", "position_y", "width", "height")},
-         "config": _cfg(w), "explain": explain.get(str(w["id"]))} for w in rows]}
+         "config": _cfg(w), "explain": explain.get(str(w["id"])),
+         "comments_count": comments.get(str(w["id"]), 0)} for w in rows]}
 
 
 # --------------------------------------------------------------------------- #

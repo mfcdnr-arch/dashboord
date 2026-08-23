@@ -50,6 +50,9 @@ export interface Widget {
   /** «Что это за цифра»: показатель, формула, состояние согласования — для ⓘ.
    *  Считается на сервере пачкой на всю страницу. */
   explain?: string | null
+  /** Сколько замечаний оставлено к ЭТОЙ цифре (п. 8). Приходит вместе со
+   *  списком виджетов: значок 💬 должен быть виден сразу. */
+  comments_count?: number
 }
 
 export async function listDashboards(
@@ -405,16 +408,33 @@ export async function removeDashboardGrant(dashboardId: string, grantId: string)
 }
 
 // --- Обсуждение дашборда (комментарии) ---
-export interface DashComment { id: string; body: string; created_at: string; author_id: string | null; author: string; can_delete: boolean }
-export async function listComments(dashboardId: string, limit = 50, offset = 0): Promise<Page<DashComment>> {
+export interface DashComment {
+  id: string; body: string; created_at: string
+  author_id: string | null; author: string; can_delete: boolean
+  /** Привязка к конкретной цифре (п. 8). Пусто — замечание ко всему отчёту.
+   *  `period` — отчётная дата, которую автор ВИДЕЛ: без неё замечание об
+   *  августовском числе через неделю относилось бы к сентябрьскому. */
+  widget_id: string | null
+  widget_name: string | null
+  period: string | null
+  row_label: string | null
+}
+export async function listComments(
+  dashboardId: string, limit = 50, offset = 0, widgetId?: string,
+): Promise<Page<DashComment>> {
   const p = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  if (widgetId) p.set('widget_id', widgetId)
   const res = await fetch(`/dashboards/${dashboardId}/comments?${p}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
-export async function addComment(dashboardId: string, body: string): Promise<{ id: string }> {
+export async function addComment(
+  dashboardId: string, body: string,
+  bind?: { widget_id?: string; period?: string | null; row_label?: string | null },
+): Promise<{ id: string }> {
   const res = await fetch(`/dashboards/${dashboardId}/comments`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ body }),
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ body, ...(bind || {}) }),
   })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import WidgetComments from './dashboards/WidgetComments'
 import type { EChartsOption } from 'echarts'
 import { getWidgetData, getWidgetDrill } from '../api'
 import { chartColors, useThemeVersion } from '../theme'
@@ -166,7 +167,7 @@ function ghostOpt(ghost: any, isLine: boolean, C: ReturnType<typeof chartColors>
 
 const ru = (iso?: string | null) => (iso ? iso.split('-').reverse().join('.') : '')
 
-export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf, stripe = true, onNavigate, widgetName, onOpenAppeals, onAddField, print = false }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string;
+export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf, stripe = true, onNavigate, widgetName, onOpenAppeals, onAddField, print = false, dashboardId, nComments = 0, onCommentsChanged }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string;
   /** Рисовать ли цветную ленту состояния вокруг тела. На дашборде её рисует
    *  САМА карточка (по всей высоте, включая имя) — там лента здесь была бы
    *  второй полосой внутри первой. */
@@ -182,6 +183,14 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
   /** Завести карточку соседней графы формы прямо из меню «куда дальше».
    *  Не передан — у смотрящего нет права менять дашборд. */
   onAddField?: (field: string, name: string, datasetCode: string) => Promise<void>
+  /** Дашборд, к обсуждению которого привяжется замечание к цифре (п. 8).
+   *  Не передан — кнопки «💬» нет: привязать замечание не к чему. */
+  dashboardId?: string
+  /** Сколько замечаний уже оставлено к этой цифре. Приходит пачкой со списком
+   *  виджетов страницы — значок должен быть виден сразу, а не догружаться. */
+  nComments?: number
+  /** Перечитать счётчики после отправки/удаления замечания. */
+  onCommentsChanged?: () => void
   /** Режим отчёта (выгрузка PDF): показываем ВСЁ, а не то, что влезло в карточку —
    *  легенда целиком, таблица со всеми столбцами, график крупнее. На экране эти
    *  ограничения осмысленны (место), в отчёте они превращаются в потерю данных. */
@@ -192,6 +201,8 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
   const [related, setRelated] = useState(false)
   const [problem, setProblem] = useState(false)
   const [menu, setMenu] = useState(false)
+  // Замечания к КОНКРЕТНОЙ ЦИФРЕ (п. 8).
+  const [comments, setComments] = useState(false)
   // «Паспорт цифры» (п. 17): открывается из меню «↗ куда дальше».
   const [passport, setPassport] = useState(false)
   const [footRef, footWidth] = useContainerWidth<HTMLDivElement>()
@@ -218,6 +229,10 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
   // нечего, и кнопки у них нет: кнопка, которая всегда отвечает отказом,
   // выглядит поломкой.
   const canExport = !!data && showDrill && !isAnnotation && !print
+  // Замечание к цифре (п. 8). Нужен дашборд, к обсуждению которого оно
+  // привяжется; у аннотаций (текст, картинка) цифры нет, обсуждать нечего.
+  // В отчёте (print) кнопки нет — в PDF её не нажать.
+  const canComment = !!dashboardId && !!data && showDrill && !isAnnotation && !print
   const [saving, setSaving] = useState(false)
   async function saveXlsx() {
     setSaving(true)
@@ -304,10 +319,35 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
                 {saving ? '⤓ выгрузка…' : '⤓ Excel'}
               </button>
             )}
+            {/* Замечание к ЭТОЙ цифре (п. 8): «занижено, отделение переезжало».
+                Отличается от «⚑ проблема» тем, кому адресовано: проблема идёт
+                администратору обращением, а замечание остаётся на дашборде и
+                видно всем, кому доступен отчёт. Счётчик подсвечивается, только
+                когда замечания есть, — иначе кнопка выглядела бы тревожной. */}
+            {canComment && (
+              <button style={{ ...drillBtn, color: nComments ? 'var(--accent)' : 'var(--text-faint)' }}
+                onClick={() => setComments(true)}
+                title={nComments
+                  ? `Замечания к этой цифре: ${nComments}`
+                  : 'Оставить замечание к этой цифре — его увидят все, кому доступен отчёт'}>
+                💬 {nComments || 'замечание'}
+              </button>
+            )}
           </>
-        ) : (canDrill || canReport || canExport) && (
-          <button style={drillBtn} onClick={() => setMenu(true)}
-            title="Действия: из чего собран показатель, куда посмотреть дальше, сообщить о проблеме">⋯ действия</button>
+        ) : (canDrill || canReport || canExport || canComment) && (
+          <>
+            <button style={drillBtn} onClick={() => setMenu(true)}
+              title="Действия: из чего собран показатель, куда посмотреть дальше, сообщить о проблеме">⋯ действия</button>
+            {/* Счётчик замечаний виден и на узкой карточке, где остальные
+                действия свёрнуты в «⋯». Это не действие, а ИНФОРМАЦИЯ: он
+                существует, чтобы заметить замечание с одного взгляда, и
+                спрятанный в меню терял бы весь смысл. Когда замечаний нет,
+                значка тоже нет — лишний элемент на узкой карточке дороже. */}
+            {canComment && nComments > 0 && (
+              <button style={{ ...drillBtn, color: 'var(--accent)' }} onClick={() => setComments(true)}
+                title={`Замечания к этой цифре: ${nComments}`}>💬 {nComments}</button>
+            )}
+          </>
         )}
         {data?.as_of && (data.period_locked || !sameDay(data.as_of, pageAsOf)) && (
           // У виджета с закреплённым периодом это СРЕЗ: он не обновится, когда
@@ -351,6 +391,14 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
         <ReportProblemDialog widgetId={widgetId} widgetName={widgetName}
           onClose={() => setProblem(false)} onOpenAppeals={onOpenAppeals} />
       )}
+      {comments && dashboardId && (
+        // Отчётная дата и строка уезжают вместе с замечанием: через неделю
+        // будет видно, о какой цифре шла речь.
+        <WidgetComments dashboardId={dashboardId} widgetId={widgetId}
+          widgetName={widgetName || data?.title || 'показатель'}
+          period={data?.as_of || pageAsOf} rowLabel={row}
+          onClose={() => setComments(false)} onChanged={onCommentsChanged} />
+      )}
       {menu && (
         <ActionsMenu
           onClose={() => setMenu(false)}
@@ -358,6 +406,8 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
             ...(canDrill ? [{ label: '↗ Куда посмотреть дальше', run: () => setRelated(true) }] : []),
             ...(canReport ? [{ label: '⚑ Сообщить о проблеме', run: () => setProblem(true) }] : []),
             ...(canExport ? [{ label: '⤓ Выгрузить в Excel', run: saveXlsx }] : []),
+            ...(canComment ? [{ label: `💬 Замечания к цифре${nComments ? ` (${nComments})` : ''}`,
+                                run: () => setComments(true) }] : []),
           ]}
         />
       )}
