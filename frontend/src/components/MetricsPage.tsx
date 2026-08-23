@@ -5,6 +5,7 @@ import {
   type DataSources, type Dependencies, type Metric, type MetricVersion,
   metricValues, type MetricValue,
   metricsPending, metricsBulkStatus, type PendingVersion,
+  listUsers, type AppUser,
 } from '../api'
 import FormulaBuilder from './FormulaBuilder'
 import { ConfirmDialog } from './dashboards/ConfirmDialog'
@@ -259,6 +260,28 @@ function MetricDetail({ data, canManage, isSuperadmin, onError, onChanged, onDel
   const [info, setInfo] = useState(metric.info_text || '')
   const [infoBusy, setInfoBusy] = useState(false)
   const [infoSaved, setInfoSaved] = useState(false)
+  // Ответственный за показатель (п. 11). Поле есть в БД с самого начала, но в
+  // интерфейсе не показывалось нигде — а по ТЗ у каждого KPI должен быть
+  // человек, с которого спрашивают. Список сотрудников грузим только тем, кто
+  // вправе менять показатель: зрителю он не нужен и права на него нет.
+  const [staff, setStaff] = useState<AppUser[]>([])
+  const [owner, setOwner] = useState<string>(metric.owner_id || '')
+  const [ownerBusy, setOwnerBusy] = useState(false)
+  useEffect(() => { setOwner(metric.owner_id || '') }, [metric.id, metric.owner_id])
+  useEffect(() => {
+    if (!canManage) return
+    listUsers('', 200, 0).then((p) => setStaff(p.items)).catch(() => setStaff([]))
+  }, [canManage])
+
+  async function saveOwner(next: string) {
+    setOwner(next); setOwnerBusy(true)
+    try {
+      // Пустая строка — осознанное «снять ответственного» (человек уволился,
+      // показатель передают), поэтому шлём именно null, а не пропускаем поле.
+      await updateMetric(metric.id, { owner_id: next || null })
+      onChanged()
+    } catch (e) { onError(e) } finally { setOwnerBusy(false) }
+  }
 
   useEffect(() => { getDataSources().then(setSources).catch(() => setSources({ datasets: [], metrics: [] })) }, [])
 
@@ -329,7 +352,30 @@ function MetricDetail({ data, canManage, isSuperadmin, onError, onChanged, onDel
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <h2 style={{ fontSize: 17, margin: '0 0 2px' }}>{metric.name}</h2>
-          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>{metric.code}{metric.description ? ' · ' + metric.description : ''}</div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>{metric.code}{metric.description ? ' · ' + metric.description : ''}</div>
+          {/* Ответственный — рядом с именем показателя, а не в глубине карточки:
+              это первое, что спрашивают, когда с цифрой что-то не так. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>👤 Ответственный:</span>
+            {canManage ? (
+              <select style={{ ...input, height: 30, fontSize: 13, minWidth: 220 }} value={owner} disabled={ownerBusy}
+                onChange={(e) => saveOwner(e.target.value)}
+                title="Кому адресуются жалобы на эту цифру («⚑ проблема» на виджете)">
+                <option value="">не назначен</option>
+                {staff.map((u) => (
+                  <option key={u.id} value={u.id}>{u.full_name || u.login}</option>
+                ))}
+              </select>
+            ) : (
+              <span style={{ fontSize: 13 }}>{metric.owner_name || 'не назначен'}</span>
+            )}
+            {canManage && !owner && (
+              <span style={{ fontSize: 11.5, color: 'var(--warn)' }}
+                title="Пока ответственного нет, жалобы на эту цифру уходят в общую очередь">
+                ⚠ жалобы уйдут в общую очередь
+              </span>
+            )}
+          </div>
         </div>
         {isSuperadmin && (
           <button style={btnDanger} disabled={busy} onClick={() => setAskDelete(true)}

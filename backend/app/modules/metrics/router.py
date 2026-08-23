@@ -106,6 +106,11 @@ async def list_metrics(user: dict = Depends(get_current_user), q: Optional[str] 
         total = await conn.fetchval(f"select count(*) from metrics m where {where}", *params)
         rows = await conn.fetch(
             "select m.id, m.code, m.name, m.description, m.created_at, "
+            # Ответственный за показатель (п. 11): по ТЗ он должен быть у
+            # каждого KPI, а в интерфейсе поле не показывалось нигде — теперь
+            # видно и кто это, и у каких показателей владельца нет.
+            "m.owner_id, (select coalesce(nullif(u.full_name,''), u.login) from users u "
+            " where u.id=m.owner_id) as owner_name, "
             "(select count(*) from metric_versions v where v.metric_id=m.id) as versions, "
             "(select mv.unit from metric_versions mv where mv.metric_id=m.id and mv.status='approved' "
             " order by mv.version_no desc limit 1) as unit, "
@@ -271,8 +276,9 @@ async def metric_info_draft(metric_id: str, user: dict = Depends(manage)):
 async def get_metric(metric_id: str, user: dict = Depends(get_current_user)):
     async with db.get_pool().acquire() as conn:
         m = await conn.fetchrow(
-            "select id, code, name, description, info_text, created_at from metrics "
-            "where id=$1::uuid and organization_id=$2", metric_id, user["organization_id"]
+            "select m.id, m.code, m.name, m.description, m.info_text, m.created_at, m.owner_id, "
+            "  (select coalesce(nullif(u.full_name,''), u.login) from users u where u.id=m.owner_id) as owner_name "
+            "from metrics m where m.id=$1::uuid and m.organization_id=$2", metric_id, user["organization_id"]
         )
         if m is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Метрика не найдена")
@@ -288,8 +294,11 @@ async def get_metric(metric_id: str, user: dict = Depends(get_current_user)):
 async def patch_metric(metric_id: str, body: MetricPatch, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         try:
+            # «owner_id» в теле запроса, даже равный null, — это НАМЕРЕНИЕ
+            # снять ответственного; отсутствие ключа — «не трогаем».
             return await update_metric(conn, user["organization_id"], metric_id,
-                                       body.name, body.description, body.info_text, body.owner_id)
+                                       body.name, body.description, body.info_text, body.owner_id,
+                                       owner_set="owner_id" in body.model_fields_set)
         except MetricError as e:
             raise _bad(e)
 

@@ -153,6 +153,9 @@ export default function AppealsPanel(
               📊 «{detail.context.dashboard_name}»
               {detail.context.page_title ? ` · страница «${detail.context.page_title}»` : ''}
               {detail.context.widget_name ? ` · виджет «${detail.context.widget_name}»` : ''}
+              {/* Ответственный за показатель (п. 11): жалоба адресна по своей
+                  природе, и первым делом сотрудник ищет, кого спросить. */}
+              {detail.context.owner_name ? ` · 👤 отвечает ${detail.context.owner_name}` : ''}
             </span>
             {onOpenDashboard && (
               <button

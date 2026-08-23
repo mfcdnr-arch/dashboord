@@ -29,7 +29,11 @@ async def _page_org(conn, org_id, page_id: str):
 async def _best_metric_version(conn, org_id, code: str):
     # приоритет версии: одобренная → проверенная → любая (черновик не берётся вперёд проверенной)
     return await conn.fetchrow(
-        "select m.name, m.info_text, m.description, mv.formula_expression, mv.formula_ast, mv.unit, mv.version_no, mv.status "
+        "select m.name, m.info_text, m.description, "
+        # Ответственный за показатель (п. 11) — его показывает разбор «из чего
+        # складывается»; в самом расчёте он не участвует.
+        "  (select coalesce(nullif(u.full_name,''), u.login) from users u where u.id=m.owner_id) as owner_name, "
+        "  mv.formula_expression, mv.formula_ast, mv.unit, mv.version_no, mv.status "
         "from metrics m join metric_versions mv on mv.metric_id=m.id "
         "where m.organization_id=$1 and m.code=$2 "
         "order by (case mv.status when 'approved' then 0 when 'validated' then 1 else 2 end), "

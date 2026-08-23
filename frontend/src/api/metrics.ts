@@ -8,6 +8,9 @@ export interface Metric {
   name: string
   description: string | null
   info_text?: string | null
+  /** Ответственный за показатель (п. 11): кому адресуются жалобы на эту цифру. */
+  owner_id?: string | null
+  owner_name?: string | null
   created_at: string
   versions?: number
   unit?: string | null

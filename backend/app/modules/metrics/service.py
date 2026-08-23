@@ -75,18 +75,32 @@ async def create_metric(conn, org_id, user_id, code: str, name: str,
 
 async def update_metric(conn, org_id, metric_id: str, name: Optional[str],
                         description: Optional[str], info_text: Optional[str],
-                        owner_id: Optional[str]) -> dict:
+                        owner_id: Optional[str], owner_set: bool = False) -> dict:
     """Правка карточки показателя (admin/moderator): имя, краткое описание,
-    расширенная информация (FR-5.9), владелец. Передавай только меняемые поля."""
+    расширенная информация (FR-5.9), владелец. Передавай только меняемые поля.
+
+    `owner_set` отличает «владельца не трогаем» от «владельца СНИМАЕМ»: у
+    остальных полей пустое значение означает «не менять», а у ответственного
+    пустое — это осмысленный выбор (человек уволился, показатель передают), и
+    без явного признака снять его было бы нечем.
+    """
     m = await conn.fetchrow(
         "select id from metrics where id=$1::uuid and organization_id=$2", metric_id, org_id)
     if m is None:
         raise MetricError("Метрика не найдена")
+    if owner_set and owner_id:
+        # Владелец обязан быть сотрудником ЭТОЙ организации: чужой id в поле
+        # ответственного означал бы жалобы, уходящие в никуда.
+        ok = await conn.fetchval(
+            "select 1 from users where id=$1::uuid and organization_id=$2", owner_id, org_id)
+        if not ok:
+            raise MetricError("Такого сотрудника нет в организации")
     row = await conn.fetchrow(
         "update metrics set name=coalesce($2,name), description=coalesce($3,description), "
-        "info_text=coalesce($4,info_text), owner_id=coalesce($5::uuid,owner_id) "
-        "where id=$1::uuid returning id, code, name, description, info_text",
-        metric_id, name, description, info_text, owner_id)
+        "info_text=coalesce($4,info_text), "
+        "owner_id = case when $6 then $5::uuid else owner_id end "
+        "where id=$1::uuid returning id, code, name, description, info_text, owner_id",
+        metric_id, name, description, info_text, owner_id, owner_set)
     return dict(row)
 
 

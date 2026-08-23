@@ -66,6 +66,9 @@ async def _metrics_info(conn, org_id, codes: set) -> dict:
         return {}
     rows = await conn.fetch(
         "select m.code, m.name, m.description, m.info_text, "
+        # Ответственный за показатель (п. 11): «к кому идти с вопросом» —
+        # часть ответа на «что это за цифра», а не отдельная справка.
+        "  (select coalesce(nullif(u.full_name,''), u.login) from users u where u.id=m.owner_id) as owner_name, "
         "  (select mv.formula_expression from metric_versions mv where mv.metric_id=m.id "
         "   order by case mv.status when 'approved' then 0 when 'validated' then 1 "
         "                           when 'draft' then 2 else 3 end, mv.version_no desc limit 1) as formula, "
@@ -110,6 +113,9 @@ def _metric_text(info: dict) -> str:
         # Про черновик молчать нельзя: на карточке предварительное значение
         # выглядит ровно так же, как утверждённое.
         parts.append(status[0].upper() + status[1:] + ".")
+    if info.get("owner_name"):
+        # Ответственный — последним: сначала что за цифра, потом к кому с ней идти.
+        parts.append(f"Ответственный: {info['owner_name']}.")
     return " ".join(parts)
 
 

@@ -35,7 +35,7 @@ export default function ReportProblemDialog(
   const [comment, setComment] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const [done, setDone] = useState<{ appended: boolean } | null>(null)
+  const [done, setDone] = useState<{ appended: boolean; owner_name?: string | null } | null>(null)
 
   useEffect(() => { widgetProblemKinds().then((r) => setKinds(r.kinds)).catch(() => setKinds([])) }, [])
 
@@ -49,7 +49,7 @@ export default function ReportProblemDialog(
     setBusy(true); setErr(null)
     try {
       const r = await reportWidgetProblem(widgetId, kind, comment)
-      setDone({ appended: r.appended })
+      setDone({ appended: r.appended, owner_name: r.owner_name })
     } catch (e) {
       setErr((e as Error).message)
     } finally {
@@ -75,7 +75,9 @@ export default function ReportProblemDialog(
             <div style={okBox}>
               {done.appended
                 ? '✓ Дописано в ваше открытое обращение по этому виджету — второе заводить не стали.'
-                : '✓ Обращение отправлено администратору.'}
+                : done.owner_name
+                  ? `✓ Обращение отправлено. За этот показатель отвечает ${done.owner_name} — уведомление ушло и ему.`
+                  : '✓ Обращение отправлено администратору.'}
             </div>
             <div style={muted}>
               Что именно вы видели на экране — дашборд, страницу, показатель и его значение —

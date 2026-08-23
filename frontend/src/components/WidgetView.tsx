@@ -1500,6 +1500,11 @@ function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
             {drill.metrics.map((m: any) => (
               <div key={m.code} style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>{m.name} <span style={{ color: '#9aa4b2', fontWeight: 400 }}>({m.code} · v{m.version_no} · {m.status})</span></div>
+                {/* Ответственный за показатель (п. 11): разбор отвечает «из чего
+                    это собрано», и «с кого спросить» — часть того же ответа. */}
+                {m.owner_name && (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>👤 Ответственный: {m.owner_name}</div>
+                )}
                 <div style={mono}>{m.formula}</div>
                 {/* Расширенная информация по показателю (FR-5.9): текст модератора или заглушка */}
                 {'info_text' in m && (

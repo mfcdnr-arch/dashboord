@@ -38,6 +38,10 @@ export interface AppealContext {
   dashboard_name?: string
   page_id?: string | null
   page_title?: string | null
+  /** Ответственный за показатель (п. 11): кому адресована жалоба. */
+  owner_id?: string | null
+  owner_name?: string | null
+  metric_name?: string | null
 }
 
 export interface AppealDetail {

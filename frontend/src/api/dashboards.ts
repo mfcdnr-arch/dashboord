@@ -704,7 +704,9 @@ export async function widgetProblemKinds(): Promise<{ kinds: ProblemKind[] }> {
 }
 export async function reportWidgetProblem(
   widgetId: string, kind: string, comment: string,
-): Promise<{ appeal_id: string; appended: boolean; subject: string | null; widget_name: string }> {
+): Promise<{ appeal_id: string; appended: boolean; subject: string | null; widget_name: string;
+  /** Ответственный за показатель (п. 11), если он назначен. */
+  owner_name?: string | null }> {
   const res = await fetch(`/widgets/${widgetId}/report-problem`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
     body: JSON.stringify({ kind, comment: comment || null }),

@@ -174,6 +174,9 @@ async def widget_drill(conn, org_id, widget_id: str, user: dict) -> dict:
             "code": code, "name": row["name"], "formula": row["formula_expression"],
             "status": row["status"], "version_no": row["version_no"], "datasets": deps["datasets"],
             "info_text": row["info_text"], "description": row["description"],
+            # Ответственный за показатель (п. 11): разбор отвечает «из чего это
+            # собрано», и «с кого спросить» — часть того же ответа.
+            "owner_name": row["owner_name"],
         })
         dataset_codes += deps["datasets"]
 

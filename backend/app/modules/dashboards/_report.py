@@ -144,7 +144,8 @@ async def _value_text(conn, org_id, user: dict, widget_id: str) -> str:
     return _snapshot(res) if isinstance(res, dict) else ""
 
 
-def _compose(kind: str, comment: str, w: dict, figure: str, value: str) -> str:
+def _compose(kind: str, comment: str, w: dict, figure: str, value: str,
+             owner: Optional[dict] = None) -> str:
     lines = [comment.strip() or f"{KINDS[kind]} (без описания)", "", "—— где это ——",
              f"Дашборд: «{w['dashboard_name']}»"
              + (f", страница «{w['page_title']}»" if w.get("page_title") else ""),
@@ -154,7 +155,38 @@ def _compose(kind: str, comment: str, w: dict, figure: str, value: str) -> str:
         lines.append(f"Показатель: {figure}")
     if value:
         lines.append(f"Значение: {value}")
+    if owner:
+        # Кто отвечает за показатель — прямо в теле обращения: администратор не
+        # должен искать это отдельно, а разговор быстрее начать с адресата.
+        lines.append(f"Ответственный за показатель: {owner['owner_name']}")
     return "\n".join(lines)
+
+
+async def _owner(conn, org_id, w: dict) -> Optional[dict]:
+    """Ответственный за показатель, о котором жалоба (п. 11).
+
+    Жалоба «цифра не та» адресна по своей природе: у показателя есть человек,
+    который за него отвечает. До сих пор она уходила в общую очередь, и первым
+    делом администратор искал, кого спросить.
+
+    Ответственного берём у ПЕРВОГО показателя виджета (metric_code, план, факт).
+    У виджета по графе формы владельца нет: там ответственный — тот, кто ведёт
+    саму форму, и придумывать его здесь мы не будем.
+    """
+    cfg = w["config"]
+    if isinstance(cfg, str):
+        cfg = json.loads(cfg)
+    codes = [cfg.get(k) for k in ("metric_code", "plan_metric", "fact_metric") if cfg.get(k)]
+    if not codes:
+        return None
+    row = await conn.fetchrow(
+        "select m.code, m.name, m.owner_id, "
+        "  coalesce(nullif(u.full_name,''), u.login) as owner_name "
+        "from metrics m join users u on u.id = m.owner_id "
+        "where m.organization_id=$1 and m.code = any($2::text[]) and m.owner_id is not null "
+        "order by array_position($2::text[], m.code) limit 1",
+        org_id, codes)
+    return dict(row) if row else None
 
 
 async def report_widget_problem(conn, org_id, user: dict, widget_id: str,
@@ -166,7 +198,8 @@ async def report_widget_problem(conn, org_id, user: dict, widget_id: str,
     w = await _context(conn, org_id, user, widget_id)
     figure = await _figure_text(conn, org_id, w)
     value = await _value_text(conn, org_id, user, widget_id)
-    body = _compose(kind, comment, w, figure, value)
+    owner = await _owner(conn, org_id, w)
+    body = _compose(kind, comment, w, figure, value, owner)
 
     from ..appeals import service as appeals_svc
 
@@ -192,6 +225,29 @@ async def report_widget_problem(conn, org_id, user: dict, widget_id: str,
             "dashboard_id": str(w["dashboard_id"]), "dashboard_name": w["dashboard_name"],
             "page_id": str(w["page_id"]) if w.get("page_id") else None,
             "page_title": w.get("page_title"),
+            "owner_id": str(owner["owner_id"]) if owner else None,
+            "owner_name": owner["owner_name"] if owner else None,
+            "metric_name": owner["name"] if owner else None,
         }, ensure_ascii=False))
+    if owner and str(owner["owner_id"]) != str(user["id"]):
+        # Ответственному сообщаем ОТДЕЛЬНО, но общую очередь не отменяем:
+        # владелец может быть в отпуске, и жалоба, ушедшая только ему, повисла
+        # бы незамеченной. Уведомление того же типа, что и обычное обращение, —
+        # второй вид ради одного случая интерфейсу не нужен.
+        from ..notifications import service as notif_svc
+        try:
+            # Если ответственный и так управляющий, `create_appeal` уже написал
+            # ему — второе уведомление о том же обращении выглядит сбоем
+            # системы (поймано живой проверкой: модератор-владелец получал два).
+            mgmt = {str(u) for u in await notif_svc.management_user_ids(conn, org_id)}
+            if str(owner["owner_id"]) not in mgmt:
+                await notif_svc.notify(
+                    conn, org_id, "appeal.created", "appeal", created["id"],
+                    {"author": user.get("full_name") or user.get("login"), "subject": subject,
+                     "snippet": f"по вашему показателю «{owner['name']}»"},
+                    [owner["owner_id"]])
+        except Exception:  # noqa: BLE001 — уведомление не важнее самой жалобы
+            pass
     return {"appeal_id": created["id"], "appended": False,
-            "subject": subject, "widget_name": w["name"]}
+            "subject": subject, "widget_name": w["name"],
+            "owner_name": owner["owner_name"] if owner else None}
