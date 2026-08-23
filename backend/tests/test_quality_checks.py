@@ -60,17 +60,28 @@ def test_weekly_slice_not_flagged_when_it_drops():
 
 
 def test_weekly_cannot_exceed_cumulative():
-    """За неделю больше, чем накопленным итогом — графы перепутаны местами."""
-    prev = {("ДНР", "obr_total"): 100.0}
+    """За неделю больше, чем накопленным итогом — графы перепутаны местами.
+
+    Правило ПЕРЕЕХАЛО из сверки с прошлой неделей во внутренние проверки: ему
+    прошлый выпуск не нужен, а живя в сверке оно молчало на первом файле формы
+    — то есть ровно там, где ошибку ещё никто не мог заметить. Тест проверяет
+    обе стороны: правило работает БЕЗ прошлого выпуска и доезжает до общей
+    `check_release`.
+    """
     cur = {("ДНР", "obr_total"): 1000.0, ("ДНР", "obr_week"): 5000.0}
-    w = quality.compare_with_previous(cur, prev, NAMES, "29.07.2026")
-    over = [x for x in w if x["code"] == "weekly_over_total"]
-    assert over, w
+    over = [x for x in quality.check_internal(cur, NAMES) if x["code"] == "weekly_over_total"]
+    assert over, "первый файл формы тоже должен проверяться"
     assert "5 000" in over[0]["message"]
+    assert any(x["code"] == "weekly_over_total"
+               for x in quality.check_release(cur, NAMES, {("ДНР", "obr_total"): 100.0}, "29.07.2026"))
 
 
 def test_first_release_has_nothing_to_compare_with():
+    """Сверке с прошлым сравнивать не с чем — но молчит ТОЛЬКО она."""
     assert quality.compare_with_previous({("ДНР", "obr_total"): 1.0}, {}, NAMES, None) == []
+    # А внутренняя арифметика на первом файле обязана работать.
+    cur = {("ДНР", "obr_total"): 10.0, ("ДНР", "obr_week"): 99.0}
+    assert quality.check_release(cur, NAMES) , "на первом файле проверки не должны молчать"
 
 
 def test_slice_classification():

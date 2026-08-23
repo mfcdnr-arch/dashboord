@@ -1,4 +1,5 @@
-"""Проверки качества данных перед выпуском: сверка с прошлой неделей.
+"""Проверки качества данных перед выпуском: сверка с прошлой неделей и
+арифметика ВНУТРИ файла.
 
 Форму заполняет человек, и самые дорогие ошибки — не опечатки, а перенос
 прошлых цифр. Реальный случай заказчика (05.08.2026): строка «Донецкая Народная
@@ -13,9 +14,25 @@
 Правила опираются на устройство имён госформ («Показатель · Роль · Разрез»),
 разбор которых уже живёт в metrics/data_suggestions — переиспользуем его, чтобы
 система не противоречила сама себе.
+
+Проверок ДВА рода, и это разделение существенное:
+
+* `compare_with_previous` — сверка с прошлым выпуском. Без прошлого отчёта
+  бессмысленна и возвращает пусто.
+* `check_internal` — арифметика внутри ОДНОГО файла: сумма по строкам против
+  строки «Итого», значение за неделю против накопительного итога, факт против
+  плана. Ей прошлый отчёт не нужен — и именно поэтому она вынесена отдельно:
+  раньше правило «за неделю больше итога» жило внутри сверки с прошлым и
+  вместе с ней МОЛЧАЛО на первом файле формы, то есть ровно там, где
+  ошибку ещё никто не мог заметить.
+
+Оба рода запускаются одной `check_release` — чтобы три места, где эти
+замечания показываются (предпросмотр выпуска, результат выпуска и блок «На что
+посмотреть» на дашборде), не могли разойтись между собой.
 """
 from __future__ import annotations
 
+import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..metrics.data_suggestions import _clean, _is_main_slice, _split_name, _subject_key
@@ -42,6 +59,160 @@ def classify_slice(field_name: str) -> str:
 
 def _fmt(v: float) -> str:
     return f"{v:,.0f}".replace(",", " ") if float(v).is_integer() else f"{v:,.2f}".replace(",", " ")
+
+
+# Строка-итог госформы: «Итого», «Всего», «ИТОГО по региону». Ищем ЯВНУЮ
+# подпись — строку вроде «Донецкая Народная Республика», которая по смыслу тоже
+# свод, распознать нельзя, и гадать система не должна.
+_TOTAL_ROW_RE = re.compile(r"итог|всего", re.IGNORECASE)
+
+# Допуск при сверке суммы с итогом. Ноль тут не годится: в формах округляют, и
+# расхождение в единицу — не ошибка заполнения, а следствие округления. Зато
+# пропущенный район или опечатка дают расхождение на порядки.
+TOTAL_TOLERANCE_ABS = 1.0
+TOTAL_TOLERANCE_REL = 0.005
+
+
+def check_internal(current: Dict[Key, float], names: Dict[str, str]) -> List[dict]:
+    """Арифметика ВНУТРИ одного файла. Прошлый выпуск не нужен.
+
+    Работает и на ПЕРВОМ файле формы — в этом и смысл: сверка с прошлой неделей
+    там молчит, а сумма, не сходящаяся с итогом, видна сразу.
+    """
+    return [w for w in (_check_total_row(current, names),
+                        _check_weekly_over_total(current, names),
+                        _check_fact_over_plan(current, names)) if w]
+
+
+def _check_total_row(current: Dict[Key, float], names: Dict[str, str]) -> Optional[dict]:
+    """Сумма по строкам против строки «Итого».
+
+    Считаем только там, где сумма вообще имеет смысл: доли и проценты
+    складывать нельзя (правило одно на систему — `dashboards._aggregate`).
+    Итоговая строка должна быть РОВНО одна: две «итоговых» подписи означают,
+    что мы не понимаем структуру формы, и молчать честнее, чем гадать.
+    """
+    from ..dashboards._aggregate import is_share  # локально: иначе цикл импорта
+
+    rows = {k[0] for k in current}
+    totals = [r for r in rows if _TOTAL_ROW_RE.search(r or "")]
+    if len(totals) != 1:
+        return None
+    total_row = totals[0]
+
+    bad: List[str] = []
+    for code in sorted({k[1] for k in current}):
+        name = names.get(code, code)
+        if is_share(name):
+            continue
+        total = current.get((total_row, code))
+        if total is None:
+            continue
+        parts = [v for k, v in current.items() if k[1] == code and k[0] != total_row]
+        # Одна строка плюс итог — сверять нечего: «сумма» совпадёт с ней самой
+        # и правило превратилось бы в проверку «строка равна итогу».
+        if len(parts) < 2:
+            continue
+        diff = sum(parts) - total
+        if abs(diff) > max(TOTAL_TOLERANCE_ABS, abs(total) * TOTAL_TOLERANCE_REL):
+            bad.append(f"«{name}»: сумма по строкам {_fmt(sum(parts))}, "
+                       f"в строке «{total_row}» {_fmt(total)} (расхождение {_fmt(abs(diff))})")
+    if not bad:
+        return None
+    return {"code": "total_row_mismatch", "count": len(bad),
+            "message": ("Сумма по строкам не сходится с итоговой строкой — проверьте, все ли "
+                        "строки на месте и нет ли опечатки: " + "; ".join(bad[:5]))}
+
+
+def _check_weekly_over_total(current: Dict[Key, float], names: Dict[str, str]) -> Optional[dict]:
+    """Значение за неделю не больше накопительного итога.
+
+    Пары ищем по показателю: у графы «за отчётную неделю» есть графа
+    «нарастающим итогом» того же показателя. Неделя — часть накопленного, и
+    превышение означает, что графы перепутаны местами.
+    """
+    cum_by_subject: Dict[str, str] = {}
+    for code, name in names.items():
+        if classify_slice(name) == "cumulative":
+            cum_by_subject.setdefault(_subject_key(_split_name(name)["subject"]), code)
+
+    over: List[str] = []
+    for key, cur in current.items():
+        name = names.get(key[1], "")
+        if classify_slice(name) != "weekly":
+            continue
+        cum_code = cum_by_subject.get(_subject_key(_split_name(name)["subject"]))
+        if cum_code is None:
+            continue
+        total = current.get((key[0], cum_code))
+        if total is not None and cur > total:
+            over.append(f"«{name}» в строке «{key[0]}»: за неделю {_fmt(cur)} при итоге {_fmt(total)}")
+    if not over:
+        return None
+    return {"code": "weekly_over_total", "count": len(over),
+            "message": ("Значение за неделю больше накопительного итога — похоже, графы перепутаны "
+                        "местами: " + "; ".join(over[:5]))}
+
+
+def _check_fact_over_plan(current: Dict[Key, float], names: Dict[str, str]) -> Optional[dict]:
+    """Факт превышает план — но только когда план и факт СОПОСТАВИМЫ.
+
+    🔴 Главное здесь — чего правило НЕ делает. Перевыполнение само по себе не
+    ошибка, а у заказчика оно штатное: план задан «до 1 сентября», факт идёт
+    нарастающим итогом, и выполнение доходит до 656 %. Правило «факт > план» в
+    лоб срабатывало бы каждую неделю по всем показателям и приучило бы
+    пропускать замечания вообще — это хуже, чем не иметь правила совсем.
+
+    Поэтому пара берётся, только если у плана и факта ОДИН разрез
+    (`classify_slice`): «за неделю» с «за неделю». План на срок («до 1
+    сентября») попадает в разрез «other» и с накопительным фактом не
+    сопоставляется — проверено на именах граф заказчика. Когда же план задан
+    на ту же неделю, что и факт, превышение стоит посмотреть: обычно это
+    перепутанные местами графы плана и факта.
+    """
+    plans: Dict[tuple, str] = {}
+    facts: Dict[tuple, str] = {}
+    for code, name in names.items():
+        parsed = _split_name(name)
+        bucket = plans if parsed.get("role") == "plan" else facts if parsed.get("role") == "fact" else None
+        if bucket is None:
+            continue
+        bucket.setdefault((_subject_key(parsed["subject"]), classify_slice(name)), code)
+
+    over: List[str] = []
+    for pair, plan_code in plans.items():
+        fact_code = facts.get(pair)
+        if fact_code is None:
+            continue
+        for row in sorted({k[0] for k in current}):
+            plan_v = current.get((row, plan_code))
+            fact_v = current.get((row, fact_code))
+            # План 0 — это не «перевыполнение», а незаполненная графа: о ней
+            # говорит другое правило, а здесь она дала бы бессмысленное «∞ %».
+            if plan_v is None or fact_v is None or plan_v <= 0 or fact_v <= plan_v:
+                continue
+            over.append(f"«{names.get(fact_code, fact_code)}» в строке «{row}»: "
+                        f"факт {_fmt(fact_v)} при плане {_fmt(plan_v)}")
+    if not over:
+        return None
+    return {"code": "fact_over_plan", "count": len(over),
+            "message": ("Факт превышает план в том же разрезе — проверьте, не перепутаны ли графы "
+                        "плана и факта местами: " + "; ".join(over[:5]))}
+
+
+def check_release(current: Dict[Key, float], names: Dict[str, str],
+                  previous: Optional[Dict[Key, float]] = None,
+                  previous_period: Optional[str] = None,
+                  partial: bool = False) -> List[dict]:
+    """ВСЕ замечания к готовящемуся выпуску: арифметика внутри + сверка с прошлым.
+
+    Единственная точка входа для всех трёх мест, где замечания показываются
+    (предпросмотр выпуска, результат выпуска, блок «На что посмотреть»):
+    иначе «перед выпуском замечаний не было, а после появились» стало бы
+    неизбежным.
+    """
+    return (check_internal(current, names)
+            + compare_with_previous(current, previous or {}, names, previous_period, partial))
 
 
 def compare_with_previous(
@@ -77,32 +248,6 @@ def compare_with_previous(
             "code": "cumulative_drop", "count": len(drops),
             "message": ("Накопительный итог уменьшился — так не бывает, если это тот же показатель: "
                         + "; ".join(drops[:5])),
-        })
-
-    # ── 2. Значение за неделю не больше накопительного итога ──────────────────
-    # Пары ищем по показателю: у одной графы «за отчётную неделю» есть графа
-    # «нарастающим итогом» того же показателя.
-    cum_by_subject: Dict[str, str] = {}
-    for code, name in names.items():
-        if classify_slice(name) == "cumulative":
-            cum_by_subject.setdefault(_subject_key(_split_name(name)["subject"]), code)
-
-    over: List[str] = []
-    for key, cur in current.items():
-        name = names.get(key[1], "")
-        if classify_slice(name) != "weekly":
-            continue
-        cum_code = cum_by_subject.get(_subject_key(_split_name(name)["subject"]))
-        if cum_code is None:
-            continue
-        total = current.get((key[0], cum_code))
-        if total is not None and cur > total:
-            over.append(f"«{name}» в строке «{key[0]}»: за неделю {_fmt(cur)} при итоге {_fmt(total)}")
-    if over:
-        warnings.append({
-            "code": "weekly_over_total", "count": len(over),
-            "message": ("Значение за неделю больше накопительного итога — похоже, графы перепутаны местами: "
-                        + "; ".join(over[:5])),
         })
 
     # ── 3. Данные совпадают с прошлой неделей ────────────────────────────────

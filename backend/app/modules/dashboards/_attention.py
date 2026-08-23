@@ -6,9 +6,14 @@
 знает о том, что строка «Донецкая Народная Республика» совпала с прошлым
 отчётом посимвольно, то есть данные могли не обновить.
 
-Здесь те же правила применяются к УЖЕ ВЫПУЩЕННЫМ данным: последний активный
-выпуск сравнивается с предыдущим тем же `compare_with_previous`. Своих правил
-нет намеренно — иначе дашборд и модератор говорили бы разное об одних данных.
+Здесь те же правила применяются к УЖЕ ВЫПУЩЕННЫМ данным той же `check_release`:
+последний активный выпуск сверяется с предыдущим И проверяется на внутреннюю
+арифметику (сумма против итоговой строки, неделя против накопительного итога,
+факт против плана). Своих правил нет намеренно — иначе дашборд и модератор
+говорили бы разное об одних данных.
+
+Первый выпуск формы блок больше НЕ пропускает: сравнивать не с чем, но
+арифметику внутри файла это не отменяет.
 
 Что сравнивается, определяет сама страница: датасеты берутся из её виджетов.
 Row-level RLS соблюдается — замечание не должно называть строку, которую этому
@@ -18,7 +23,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from ..ingestion.quality import compare_with_previous, previous_release_values
+from ..ingestion.quality import check_release, previous_release_values
 from ._rowrls import allowed_rows_for_dataset
 
 # Больше трёх форм на странице — редкость; ограничение защищает от страницы,
@@ -70,12 +75,13 @@ async def page_attention(conn, org_id, page_id: str, user: dict) -> dict:
         # Видна ли человеку вся форма: от этого зависит формулировка «все
         # данные» — при RLS она означает «все доступные вам строки».
         partial = len({k[0] for k in current}) < len({k[0] for k in raw_current})
-        if not current or not previous:
-            # Первый выпуск формы: сравнивать не с чем — это не замечание.
+        if not current:
             continue
         names = {r["code"]: r["name"] for r in await conn.fetch(
             "select code, name from canonical_fields where object_id=$1", rel["object_id"])}
-        warnings = compare_with_previous(current, previous, names, prev_period, partial=partial)
+        # Прошлого выпуска может не быть (первый файл формы) — арифметику
+        # внутри файла это не отменяет, поэтому молчать здесь больше нельзя.
+        warnings = check_release(current, names, previous, prev_period, partial=partial)
         if warnings:
             period = rel["reporting_period_start"]
             items.append({

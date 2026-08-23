@@ -573,19 +573,24 @@ async def layout_template_for_tables(conn, object_id, table_ids: Sequence[str]) 
 
 async def quality_warnings(conn, org_id, *, code: str, period, rows: List[List[str]],
                            fields: List[dict], label_col: Optional[int]) -> List[dict]:
-    """Замечания по качеству: сверка готовящихся данных с предыдущим выпуском.
+    """Замечания по качеству готовящихся данных.
 
     Одна функция и для предпросмотра, и для выпуска — иначе «перед выпуском
     замечаний не было, а после выпуска появились» стало бы неизбежным.
+
+    Прошлого выпуска может не быть (первый файл формы) — это НЕ повод молчать:
+    арифметику внутри файла (сумма против итога, неделя против накопительного,
+    факт против плана) проверять всё равно есть чем, и раньше именно на первом
+    файле не срабатывало ничего.
     """
     from . import quality
 
     previous, prev_period = await quality.previous_release_values(conn, org_id, code, period)
-    if not previous:
-        return []
     current = quality.values_from_rows(rows, fields, label_col)
+    if not current:
+        return []
     names = {f["field_code"]: f["field_name"] for f in fields}
-    return quality.compare_with_previous(current, previous, names, prev_period)
+    return quality.check_release(current, names, previous, prev_period)
 
 
 def _cast(value: str, data_type: str) -> dict:
