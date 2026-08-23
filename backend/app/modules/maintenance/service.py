@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Optional
 
 from ...config import settings
@@ -166,6 +166,46 @@ def infer_cadence(periods: list) -> Optional[int]:
     tolerance = max(1, round(median * 0.25))
     steady = sum(1 for g in gaps if abs(g - median) <= tolerance)
     return median if steady * 3 >= len(gaps) * 2 else None
+
+
+def missing_periods(periods: list, cadence: int, until=None) -> list:
+    """Отчётные даты, которых не хватает: дыры ВНУТРИ ряда и просрочка после
+    последнего отчёта.
+
+    Правило одно на систему и живёт рядом с `infer_cadence`, потому что им
+    пользуются двое: аналитика папки (текстом «не хватает отчётов за …») и
+    календарь поступлений (красной плиткой). Разойдись они — и один экран
+    называл бы пропуском то, о чём другой молчит.
+
+    Ряд обходится ПО ФАКТИЧЕСКИМ датам, а не отсчётом от первой: недельные
+    формы кладут то в пятницу, то в понедельник, и отсчёт от начала копил бы
+    сдвиг, отмечая пропуски там, где отчёт просто сместился на день.
+
+    `until` (обычно сегодня) добавляет хвост после последнего отчёта. Дата
+    считается пропущенной, только когда срок вышел больше чем на полритма, —
+    тот же порог, по которому `check_cadence` шлёт уведомление: форму почти
+    никогда не кладут день в день.
+    """
+    days = sorted({p for p in periods if p is not None})
+    if not days or cadence <= 0:
+        return []
+    out: list = []
+    for a, b in zip(days, days[1:], strict=False):
+        if (b - a).days > cadence * 1.5:
+            step = a
+            while True:
+                step = date.fromordinal(step.toordinal() + cadence)
+                if (b - step).days < cadence * 0.5:
+                    break
+                out.append(step)
+    if until is not None:
+        step = days[-1]
+        while True:
+            step = date.fromordinal(step.toordinal() + cadence)
+            if (until - step).days <= cadence * 0.5:
+                break
+            out.append(step)
+    return out
 
 
 async def check_cadence(conn, org_id) -> dict:

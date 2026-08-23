@@ -211,3 +211,42 @@ export async function getFolderAnalytics(objectId: string, folderId: string): Pr
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// Календарь поступлений формы (п. 16): год плитками по неделям — пришёл /
+// выпущен / пропущен. Ритм и пропуски считает сервер теми же функциями, что
+// шлют уведомления и печатают текст в аналитике папки: красная плитка не
+// может означать пропуск, о котором соседний экран молчит.
+export type CalendarState = 'empty' | 'missing' | 'failed' | 'arrived' | 'released'
+export interface CalendarWeek {
+  week: number
+  month: number
+  start: string
+  end: string
+  state: CalendarState
+  problem: boolean
+  reports: {
+    id: string; filename: string; period: string
+    released: boolean; status: string | null; state: CalendarState
+  }[]
+  missing: string[]
+}
+export interface FolderCalendar {
+  folder: { id: string; name: string; object_id: string | null; object_name: string | null }
+  year: number
+  years: number[]
+  today: string
+  cadence_days: number | null
+  weeks: CalendarWeek[]
+  totals: {
+    released: number; arrived: number; failed: number; missing: number
+    undated: number; reports: number
+  }
+}
+export async function getFolderCalendar(
+  objectId: string, folderId: string, year?: number,
+): Promise<FolderCalendar> {
+  const q = year ? `?year=${year}` : ''
+  const res = await fetch(`/objects/${objectId}/folders/${folderId}/calendar${q}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

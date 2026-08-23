@@ -14,6 +14,7 @@ from ... import db
 from ..audit.service import write_event
 from ..auth.deps import get_current_user, require_roles
 from . import analytics
+from . import calendar as calendar_svc
 
 router = APIRouter(prefix="/objects", tags=["objects"])
 
@@ -247,6 +248,22 @@ async def folder_analytics(object_id: str, folder_id: str, user: dict = Depends(
         try:
             data = await analytics.folder_analytics(conn, user["organization_id"], folder_id)
         except analytics.AnalyticsError as e:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+    if data["folder"]["object_id"] != object_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Папка не найдена в этом объекте")
+    return data
+
+
+@router.get("/{object_id}/folders/{folder_id}/calendar")
+async def folder_calendar(object_id: str, folder_id: str, year: Optional[int] = None,
+                          user: dict = Depends(manage)):
+    """Календарь поступлений (п. 16): год плитками по неделям — пришёл /
+    выпущен / пропущен. Ритм и пропуски берутся теми же функциями, что шлют
+    уведомления и печатают текст в аналитике папки."""
+    async with db.get_pool().acquire() as conn:
+        try:
+            data = await calendar_svc.folder_calendar(conn, user["organization_id"], folder_id, year)
+        except calendar_svc.CalendarError as e:
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
     if data["folder"]["object_id"] != object_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Папка не найдена в этом объекте")

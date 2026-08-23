@@ -4,6 +4,7 @@ import {
   type DashPage, type FolderAnalytics as Data,
 } from '../../api'
 import { fmtNumber } from '../../lib/format'
+import ArrivalCalendar from './ArrivalCalendar'
 
 const ru = (iso?: string | null) => (iso ? iso.split('-').reverse().join('.') : '—')
 
@@ -70,6 +71,13 @@ export default function FolderAnalytics(
             ))}
           </div>
         )}
+      </Block>
+
+      {/* Календарь поступлений (п. 16). Стоит сразу после состояния данных и
+          отвечает на тот же вопрос, что строка «не хватает отчётов за …»
+          выше, — но глазами: за год пропуски видно полосой, а не списком дат. */}
+      <Block title="Календарь поступлений">
+        <ArrivalCalendar objectId={objectId} folderId={folderId} />
       </Block>
 
       {/* ① Свод показателей */}

@@ -30,7 +30,7 @@ from __future__ import annotations
 from datetime import date
 from typing import List
 
-from ..maintenance.service import infer_cadence
+from ..maintenance.service import infer_cadence, missing_periods
 from ..metrics import resolver as mr
 
 # Показателей в своде может быть много (у госформы их полтора десятка), но
@@ -111,15 +111,11 @@ async def _releases(conn, org_id, folder_id: str) -> dict:
         # Пропуски внутри ряда: форма приходила каждые N дней, но какой-то
         # отчёт не появился. Без этого списка дыру в данных замечают только
         # тогда, когда на графике появляется провал.
-        for a, b in zip(periods, periods[1:], strict=False):
-            gap = (b - a).days
-            if gap > cadence * 1.5:
-                step = a
-                while True:
-                    step = date.fromordinal(step.toordinal() + cadence)
-                    if (b - step).days < cadence * 0.5:
-                        break
-                    missing.append(step.isoformat())
+        #
+        # Правило вынесено к `infer_cadence` и общее с календарём поступлений
+        # (п. 16): пропуск, отмеченный красной плиткой, обязан совпадать с тем,
+        # который назван здесь текстом.
+        missing = [d.isoformat() for d in missing_periods(periods, cadence)]
         last = periods[-1]
         expected = date.fromordinal(last.toordinal() + cadence)
         overdue = (today - expected).days
