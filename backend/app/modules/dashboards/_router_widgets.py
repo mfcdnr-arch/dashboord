@@ -3,6 +3,7 @@
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -44,7 +45,51 @@ class WidgetPreviewIn(BaseModel):
     config: Dict[str, Any] = {}
 
 
+def _attachment(filename: str) -> str:
+    """Заголовок вложения с ИМЕНЕМ ВИДЖЕТА, а не «widget.xlsx».
+
+    Имена у нас русские, а в `filename=` можно только ASCII, поэтому по RFC 5987
+    отдаём оба варианта: ASCII-запасной для старых программ и `filename*` с
+    процентным кодированием для остальных. Из имени убираем то, что файловые
+    системы не примут (слеши, двоеточия, кавычки), — иначе браузер сохранит
+    файл со сломанным именем или откажется вовсе.
+    """
+    from urllib.parse import quote
+
+    clean = re.sub(r'[\\/:*?"<>|\r\n]+', " ", filename).strip() or "widget.xlsx"
+    clean = clean[:120]
+    # Русское имя целиком выпадает из ASCII, и запасной вариант превращался в
+    # «.xlsx» — то есть в скрытый файл без имени. Пусто — берём осмысленное
+    # общее имя; современные браузеры всё равно возьмут filename* с кириллицей.
+    stem, dot, ext = clean.rpartition(".")
+    ascii_stem = (stem or clean).encode("ascii", "ignore").decode().strip()
+    ascii_name = f"{ascii_stem}.{ext}" if ascii_stem and dot else "widget.xlsx"
+    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(clean)}'
+
+
 # --- Виджеты страницы ---
+# Выгрузка ОДНОГО виджета (п. 7): человеку, которому нужна одна таблица для
+# доклада, не должен приезжать файл на семнадцать листов. Фильтры страницы
+# передаются сюда же — файл обязан совпадать с тем, что человек видел.
+@router.get("/widgets/{widget_id}/export.xlsx")
+async def export_widget_xlsx(widget_id: str, user: dict = Depends(get_current_user),
+                             from_date: Optional[str] = None, to_date: Optional[str] = None,
+                             row: Optional[str] = None):
+    async with db.acquire(user["id"]) as conn:
+        try:
+            data, name = await service.export_widget_xlsx(
+                conn, user["organization_id"], user, widget_id, from_date, to_date, row)
+        except DashboardError as e:
+            raise _bad(e)
+        await audit_svc.write_event(conn, user["organization_id"], user["id"], "export",
+                                    "widget", widget_id, new_data={"format": "xlsx"})
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": _attachment(f"{name}.xlsx")},
+    )
+
+
 @router.get("/dashboard-pages/{page_id}/export.xlsx")
 async def export_page_xlsx(page_id: str, user: dict = Depends(get_current_user)):
     async with db.acquire(user["id"]) as conn:

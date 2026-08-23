@@ -8,6 +8,8 @@ import EChart from './EChartLazy'
 import FitText from './dashboards/FitText'
 import RelatedMenu from './dashboards/RelatedMenu'
 import ReportProblemDialog from './dashboards/ReportProblemDialog'
+import { alertLook, levelLook } from '../lib/alertColors'
+import { exportWidgetXlsx } from '../api'
 import { fmtNumber as fmt, logScaleAdvice } from '../lib/format'
 import { distinctLabels, elideMiddle } from '../lib/text'
 
@@ -171,12 +173,39 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
   const canDrill = !!data && showDrill && !isAnnotation
   // Жаловаться можно и на сломанный виджет: именно тогда это и нужно.
   const canReport = (!!data || !!error) && showDrill && !isAnnotation
+  // Выгрузка ОДНОГО виджета (п. 7). Аннотациям (текст/картинка) выгружать
+  // нечего, и кнопки у них нет: кнопка, которая всегда отвечает отказом,
+  // выглядит поломкой.
+  const canExport = !!data && showDrill && !isAnnotation && !print
+  const [saving, setSaving] = useState(false)
+  async function saveXlsx() {
+    setSaving(true)
+    try {
+      // Фильтры страницы уезжают на сервер вместе с запросом: файл обязан
+      // совпадать с тем, что человек видел на экране.
+      const blob = await exportWidgetXlsx(widgetId, from, to, row)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${(widgetName || 'Виджет').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80)}.xlsx`
+      document.body.appendChild(a); a.click(); a.remove()
+      // Ссылку отзываем: без этого blob висит в памяти вкладки до перезагрузки.
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
   // Три подписи + отступы занимают ~300px. До первого замера footWidth не
   // определена — показываем полный набор: свернуть потом дешевле, чем моргнуть
   // «⋯» на широкой карточке.
   const actionsFit = footWidth === undefined || footWidth >= 300
+  // Цвет сработавшего порога берём из ТЕМЫ по уровню (см. lib/alertColors):
+  // серверные hex — одна палитра на все темы, и на тёмной они светились.
+  const look = alertLook(alert)
   return (
-    <div style={alert && stripe ? { borderLeft: `4px solid ${alert.color}`, background: alert.bg, borderRadius: 6, padding: '6px 8px', margin: '-2px 0' } : undefined}>
+    <div style={alert && stripe && look ? { borderLeft: `4px solid ${look.color}`, background: look.bg, borderRadius: 6, padding: '6px 8px', margin: '-2px 0' } : undefined}>
       {error && <div style={errBox}>{error}</div>}
       {/* Пока данных нет — бледный контур на месте будущего числа, а не слово
           «Загрузка…». На странице в два десятка карточек текст, сменяющийся
@@ -185,8 +214,11 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
           выглядит проявлением, а не подстановкой. */}
       {!data && !error && <WidgetSkeleton />}
       {alert && (
-        <div style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, color: alert.color,
-          background: '#fff', border: `1px solid ${alert.color}`, borderRadius: 10, padding: '1px 8px', marginBottom: 6 }}
+        // Бейдж порога: фон — поверхность темы, а не белый лист. На тёмной
+        // теме белая плашка светилась вырезкой из светлой.
+        <div style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, color: look?.color,
+          background: 'var(--surface)', border: `1px solid ${look?.color}`, borderRadius: 10,
+          padding: '1px 8px', marginBottom: 6 }}
           title="Сработал порог подсветки">
           {/* Значок по УРОВНЮ, а не один на все случаи: «⚠ план выполнен» при
               656 % читалось как тревога — знак опасности стоял на успехе. */}
@@ -225,8 +257,14 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
                 ⚑ проблема
               </button>
             )}
+            {canExport && (
+              <button style={{ ...drillBtn, color: 'var(--text-faint)' }} onClick={saveXlsx} disabled={saving}
+                title="Выгрузить данные этого виджета в Excel — с теми же фильтрами, что стоят на странице">
+                {saving ? '⤓ выгрузка…' : '⤓ Excel'}
+              </button>
+            )}
           </>
-        ) : (canDrill || canReport) && (
+        ) : (canDrill || canReport || canExport) && (
           <button style={drillBtn} onClick={() => setMenu(true)}
             title="Действия: из чего собран показатель, куда посмотреть дальше, сообщить о проблеме">⋯ действия</button>
         )}
@@ -272,6 +310,7 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
           items={[
             ...(canDrill ? [{ label: '↗ Куда посмотреть дальше', run: () => setRelated(true) }] : []),
             ...(canReport ? [{ label: '⚑ Сообщить о проблеме', run: () => setProblem(true) }] : []),
+            ...(canExport ? [{ label: '⤓ Выгрузить в Excel', run: saveXlsx }] : []),
           ]}
         />
       )}
@@ -547,7 +586,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         {/* При наличии прироста число чуть мельче: иначе карточка не вмещает
             обе строки и появляется полоса прокрутки. */}
         <FitText size={data.prev_value != null ? 26 : 30} title={kpiText}
-          style={{ fontWeight: 700, color: data.alert?.color || 'var(--accent)' }}>{fmt(data.value)}
+          style={{ fontWeight: 700, color: levelLook(data.alert?.level)?.color || 'var(--accent)' }}>{fmt(data.value)}
           {data.unit && <span style={{ fontSize: '0.5em', color: 'var(--text-muted)', marginLeft: 6 }}>{data.unit}</span>}
         </FitText>
         {/* Прирост к прошлому отчёту: голое число не отвечает на вопрос «это
@@ -567,7 +606,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         {/* Мини-график: форма движения важнее отдельных значений, поэтому без
             осей и подписей — они на такой высоте всё равно нечитаемы. */}
         {Array.isArray(data.spark) && data.spark.length > 1 && (
-          <Sparkline values={data.spark as number[]} color={data.alert?.color || 'var(--accent)'} />
+          <Sparkline values={data.spark as number[]} color={levelLook(data.alert?.level)?.color || 'var(--accent)'} />
         )}
         <AggregateNote data={data} />
         <TargetLine data={data} />
@@ -576,7 +615,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   }
   if (data.type === 'gauge') {
     const max = data.max || 100
-    const color = data.alert?.color || C.c1
+    const color = levelLook(data.alert?.level)?.color || C.c1
     // Высота шкалы была константой 190px — и как только над ней встал бейдж
     // порога («⚠ план выполнен»), содержимое перестало помещаться и карточка
     // включила прокрутку. Тот же приём, что у динамики: ужимаем сам график.
@@ -642,7 +681,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         {pct != null && (
           <div style={{ marginTop: 8 }}>
             <div style={{ height: 10, background: 'var(--border-faint)', borderRadius: 6, overflow: 'hidden' }}>
-              <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: data.alert?.color || (pct >= 100 ? 'var(--success)' : 'var(--accent)') }} />
+              <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: levelLook(data.alert?.level)?.color || (pct >= 100 ? 'var(--success)' : 'var(--accent)') }} />
             </div>
             <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 2 }}>Выполнение: <b>{fmt(pct)}%</b></div>
           </div>
@@ -686,8 +725,11 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     /** Ячейка с оформлением: цвет по порогу либо полоска по величине. */
     const cellStyle = (r: any, c: string): React.CSSProperties => {
       const lvl = r.__fmt?.[c]
-      if (cellFmt[c] === 'alert' && lvl && fmtStyles[lvl]) {
-        return { background: fmtStyles[lvl].bg, color: fmtStyles[lvl].color, fontWeight: 600 }
+      if (cellFmt[c] === 'alert' && lvl) {
+        // Цвет — из темы по уровню; палитра сервера остаётся запасной на
+        // случай уровня, которого фронт ещё не знает.
+        const look = levelLook(lvl) || fmtStyles[lvl]
+        if (look) return { background: look.bg, color: look.color, fontWeight: 600 }
       }
       const max = barMax[c]
       if (cellFmt[c] === 'bar' && typeof r[c] === 'number' && max) {
@@ -1133,7 +1175,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             </span>
             <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
               <b style={{ fontSize: 17, lineHeight: 1.1, whiteSpace: 'nowrap',
-                color: l.alert?.color || 'var(--text)' }}>
+                color: levelLook(l.alert?.level)?.color || 'var(--text)' }}>
                 {fmt(l.value)}{data.unit ? ` ${data.unit}` : ''}
               </b>
               {typeof l.delta === 'number' && l.delta !== 0 && (

@@ -78,7 +78,7 @@ from ._widgetdata import (  # noqa: F401
     preview_widget,
     widget_drill,
 )
-from ._widgetexport import export_page_xlsx  # noqa: F401
+from ._widgetexport import export_page_xlsx, export_widget_xlsx  # noqa: F401
 from ._widgetsources import (  # noqa: F401
     _best_metric_version,
     _dataset_multi_series,

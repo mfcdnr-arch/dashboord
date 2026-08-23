@@ -1,4 +1,5 @@
 import type { Widget } from '../../api'
+import { alertLook } from '../../lib/alertColors'
 import { DENSITY, type DensityMetrics } from '../../lib/density'
 import { elideMiddle } from '../../lib/text'
 import InfoTip from '../InfoTip'
@@ -22,7 +23,8 @@ export function WidgetCard({
   w: Widget
   data?: Record<string, unknown>
   error?: string
-  alert?: { color: string; bg: string } | null
+  /** Сработавший порог: цвет берём по УРОВНЮ из темы (lib/alertColors). */
+  alert?: { level?: string; color: string; bg: string } | null
   isCollapsed: boolean
   onToggleCollapse: (id: string) => void
   highlighted: boolean
@@ -73,9 +75,9 @@ export function WidgetCard({
           // именем: раньше красилось только тело под шапкой, и на
           // странице из полутора десятков карточек «где плохо»
           // приходилось искать глазами по цифрам.
-          ...(alert
-            ? { borderLeft: `4px solid ${alert.color}`,
-                background: alert.bg }
+          ...(alertLook(alert)
+            ? { borderLeft: `4px solid ${alertLook(alert)!.color}`,
+                background: alertLook(alert)!.bg }
             : {}),
           outline: editMode ? '1px dashed var(--text-faint)' : 'none' }}>
           {/* Шапка в два ряда: сверху ИМЯ (оно главное — виджет без

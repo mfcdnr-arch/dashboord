@@ -8,7 +8,7 @@ from ._base import DashboardError
 from ._rls import _can_view, visible_widget_ids
 from ._sheetnames import LIMIT, clean_title, short_cores
 from ._widgetdata import compute_widget_data
-from ._widgetsources import _page_org
+from ._widgetsources import _page_org, _widget_org
 
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -82,6 +82,133 @@ def _pct(v: float | None) -> str:
     return "" if v is None else f"{v:+.2f} %".replace(".", ",")
 
 
+def _dump_widget(wb, summary, sheet_name, wid: str, t: str, name: str, data: dict) -> bool:
+    """Раскладывает ОДИН виджет по листам книги; True — писали в «Сводку».
+
+    Вынесено из `export_page_xlsx`, потому что теперь тем же кодом выгружается
+    и один виджет (п. 7 списка предложений). Копия здесь была бы худшим из
+    решений: она разошлась бы с оригиналом при первой же правке, и один и тот
+    же виджет лёг бы в файл по-разному в зависимости от того, какой кнопкой
+    его выгрузили.
+    """
+    wrote_summary = False
+    if t == "kpi":
+        summary.append([name, "KPI", "значение", data.get("value")]); wrote_summary = True
+    elif t == "gauge":
+        summary.append([name, "Спидометр", "значение", data.get("value")]); wrote_summary = True
+    elif t == "plan_fact":
+        summary.append([name, "План-факт", "план", data.get("plan")])
+        summary.append([name, "План-факт", "факт", data.get("fact")])
+        summary.append([name, "План-факт", "выполнение, %", data.get("pct")]); wrote_summary = True
+        f = data.get("forecast") or {}
+        if f.get("reason") == "ok":
+            # Прогноз попадает в файл ровно тем же, чем он подписан на
+            # экране: датой и темпом, по которому она получена.
+            summary.append([name, "План-факт", "прогноз достижения плана", _as_date(f.get("date"))])
+            summary.append([name, "План-факт", "средний темп в день", f.get("rate")])
+    elif t == "table":
+        ws = wb.create_sheet(sheet_name(wid, name))
+        cols = list(data.get("columns", []))
+        # Заголовки — ИМЕНА показателей, а не коды полей: на экране таблица
+        # подписана именами (column_titles, 2026-08-08), и файл обязан
+        # совпадать с тем, что человек видел. Код остаётся ключом строки.
+        titles = data.get("column_titles") or {}
+        ws.append(["Строка"] + [titles.get(c, c) for c in cols])
+        for r in data.get("rows", []):
+            ws.append([r.get("row")] + [r.get(c) for c in cols])
+    elif t in ("bar", "line", "pie"):
+        ws = wb.create_sheet(sheet_name(wid, name))
+        ws.append(["Категория", "Значение"])
+        for c, v in zip(data.get("categories", []), data.get("values", []), strict=False):
+            ws.append([c, v])
+    elif t == "dynamics":
+        ws = wb.create_sheet(sheet_name(wid, name))
+        anomaly_idx = {a["index"] for a in data.get("anomalies", [])}
+        idx = data.get("index_values") or []
+        head = ["Период", "Значение"] + (["Индекс роста, %"] if idx else []) + ["Аномалия"]
+        ws.append(head)
+        for i, (pr, v) in enumerate(zip(data.get("periods", []), data.get("values", []), strict=False)):
+            _row(ws, [pr, v] + ([idx[i] if i < len(idx) else None] if idx else [])
+                 + ["⚠" if i in anomaly_idx else ""])
+        # Те же итоги, что видны под графиком — иначе в выгрузке пришлось бы
+        # считать их заново вручную, и цифры разошлись бы с экраном.
+        if data.get("total_change") is not None:
+            ws.append([])
+            ws.append([f"За весь период ({_ru_date(data.get('first_period'))} → "
+                       f"{_ru_date(data.get('last_period'))})",
+                       data.get("total_change"), _pct(data.get("total_change_pct"))])
+        if data.get("change") is not None:
+            ws.append([f"К пред. периоду ({_ru_date(data.get('change_from_period'))} → "
+                       f"{_ru_date(data.get('change_to_period'))})",
+                       data.get("change"), _pct(data.get("change_pct"))])
+    elif t == "matrix":
+        ws = wb.create_sheet(sheet_name(wid, name))
+        periods = list(data.get("periods", []))
+        ws.append([data.get("field_title") or name])
+        first_col = "Показатель" if data.get("by") == "fields" else "Строка"
+        ws.append([first_col] + [_as_date(p) for p in periods] + ["За период"])
+        for r in data.get("rows", []):
+            _row(ws, [r.get("row")] + list(r.get("values", [])) + [r.get("total_change")])
+        # Прирост отдельным блоком, а не второй колонкой на каждую дату: в
+        # файле с ним работают формулами и сводными, и «дата | Δ | дата | Δ»
+        # такую работу ломает. На экране прирост стоит под значением — там
+        # его читают глазами, здесь считают.
+        ws.append([])
+        ws.append(["Изменение к прошлому отчёту"])
+        ws.append([first_col] + [_as_date(p) for p in periods])
+        for r in data.get("rows", []):
+            _row(ws, [r.get("row")] + list(r.get("deltas", [])))
+        # У матрицы по ПОКАЗАТЕЛЯМ итога по столбцу нет и быть не может:
+        # он сложил бы обращения с процентами.
+        totals = data.get("col_totals") or []
+        if totals and len(data.get("rows", [])) > 1:
+            ws.append([])
+            _row(ws, ["Итого по отчёту"] + list(totals))
+    elif t == "yoy":
+        ws = wb.create_sheet(sheet_name(wid, name))
+        py, cy = data.get("previous_year"), data.get("current_year")
+        ws.append(["Месяц", str(py) if py else "пред. год", str(cy)])
+        for mn, pv, cv in zip(data.get("months", []), data.get("previous", []), data.get("current", []), strict=False):
+            ws.append([mn, pv, cv])
+    elif t in ("compare", "cross_dataset_compare"):
+        ws = wb.create_sheet(sheet_name(wid, name))
+        series = data.get("series", [])
+        cats = data.get("categories", [])
+        ws.append(["Категория"] + [s.get("name") for s in series])
+        for i, c in enumerate(cats):
+            _row(ws, [c] + [(s.get("data") or [])[i] if i < len(s.get("data", [])) else None for s in series])
+    elif t == "heatmap":
+        ws = wb.create_sheet(sheet_name(wid, name))
+        cols = list(data.get("columns", []))
+        rws = list(data.get("rows", []))
+        grid = [[None] * len(cols) for _ in rws]
+        for ci, ri, v in data.get("cells", []):
+            if ri < len(rws) and ci < len(cols):
+                grid[ri][ci] = v
+        ws.append(["Строка"] + cols)
+        for i, rname in enumerate(rws):
+            ws.append([rname] + grid[i])
+    elif t == "pivot":
+        ws = wb.create_sheet(sheet_name(wid, name))
+        cols = list(data.get("columns", []))
+        ws.append(["Строка"] + cols + ["Итого"])
+        for r in data.get("rows", []):
+            ws.append([r.get("row")] + list(r.get("values", [])) + [r.get("total")])
+        ws.append(["Итого"] + list(data.get("col_totals", [])) + [data.get("grand_total")])
+    elif t == "waterfall":
+        ws = wb.create_sheet(sheet_name(wid, name))
+        ws.append(["Категория", "Значение"])
+        for c, v in zip(data.get("categories", []), data.get("values", []), strict=False):
+            ws.append([c, v])
+        ws.append([data.get("total_label", "Итого"), sum(v for v in data.get("values", []) if v is not None)])
+    elif t == "objects_compare":
+        ws = wb.create_sheet(sheet_name(wid, name))
+        ws.append(["Подразделение", "Значение"])
+        for c, v in zip(data.get("categories", []), data.get("values", []), strict=False):
+            ws.append([c, v])
+    return wrote_summary
+
+
 async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
     """Экспорт данных всех виджетов страницы в .xlsx (openpyxl).
     KPI/план-факт — на лист «Сводка», датасетные виджеты — по листу на виджет.
@@ -138,120 +265,8 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
             data = await compute_widget_data(conn, org_id, wid, skip_acl=True)
         except DashboardError:
             continue
-        if t == "kpi":
-            summary.append([name, "KPI", "значение", data.get("value")]); has_summary = True
-        elif t == "gauge":
-            summary.append([name, "Спидометр", "значение", data.get("value")]); has_summary = True
-        elif t == "plan_fact":
-            summary.append([name, "План-факт", "план", data.get("plan")])
-            summary.append([name, "План-факт", "факт", data.get("fact")])
-            summary.append([name, "План-факт", "выполнение, %", data.get("pct")]); has_summary = True
-            f = data.get("forecast") or {}
-            if f.get("reason") == "ok":
-                # Прогноз попадает в файл ровно тем же, чем он подписан на
-                # экране: датой и темпом, по которому она получена.
-                summary.append([name, "План-факт", "прогноз достижения плана", _as_date(f.get("date"))])
-                summary.append([name, "План-факт", "средний темп в день", f.get("rate")])
-        elif t == "table":
-            ws = wb.create_sheet(sheet_name(wid, name))
-            cols = list(data.get("columns", []))
-            # Заголовки — ИМЕНА показателей, а не коды полей: на экране таблица
-            # подписана именами (column_titles, 2026-08-08), и файл обязан
-            # совпадать с тем, что человек видел. Код остаётся ключом строки.
-            titles = data.get("column_titles") or {}
-            ws.append(["Строка"] + [titles.get(c, c) for c in cols])
-            for r in data.get("rows", []):
-                ws.append([r.get("row")] + [r.get(c) for c in cols])
-        elif t in ("bar", "line", "pie"):
-            ws = wb.create_sheet(sheet_name(wid, name))
-            ws.append(["Категория", "Значение"])
-            for c, v in zip(data.get("categories", []), data.get("values", []), strict=False):
-                ws.append([c, v])
-        elif t == "dynamics":
-            ws = wb.create_sheet(sheet_name(wid, name))
-            anomaly_idx = {a["index"] for a in data.get("anomalies", [])}
-            idx = data.get("index_values") or []
-            head = ["Период", "Значение"] + (["Индекс роста, %"] if idx else []) + ["Аномалия"]
-            ws.append(head)
-            for i, (pr, v) in enumerate(zip(data.get("periods", []), data.get("values", []), strict=False)):
-                _row(ws, [pr, v] + ([idx[i] if i < len(idx) else None] if idx else [])
-                     + ["⚠" if i in anomaly_idx else ""])
-            # Те же итоги, что видны под графиком — иначе в выгрузке пришлось бы
-            # считать их заново вручную, и цифры разошлись бы с экраном.
-            if data.get("total_change") is not None:
-                ws.append([])
-                ws.append([f"За весь период ({_ru_date(data.get('first_period'))} → "
-                           f"{_ru_date(data.get('last_period'))})",
-                           data.get("total_change"), _pct(data.get("total_change_pct"))])
-            if data.get("change") is not None:
-                ws.append([f"К пред. периоду ({_ru_date(data.get('change_from_period'))} → "
-                           f"{_ru_date(data.get('change_to_period'))})",
-                           data.get("change"), _pct(data.get("change_pct"))])
-        elif t == "matrix":
-            ws = wb.create_sheet(sheet_name(wid, name))
-            periods = list(data.get("periods", []))
-            ws.append([data.get("field_title") or name])
-            first_col = "Показатель" if data.get("by") == "fields" else "Строка"
-            ws.append([first_col] + [_as_date(p) for p in periods] + ["За период"])
-            for r in data.get("rows", []):
-                _row(ws, [r.get("row")] + list(r.get("values", [])) + [r.get("total_change")])
-            # Прирост отдельным блоком, а не второй колонкой на каждую дату: в
-            # файле с ним работают формулами и сводными, и «дата | Δ | дата | Δ»
-            # такую работу ломает. На экране прирост стоит под значением — там
-            # его читают глазами, здесь считают.
-            ws.append([])
-            ws.append(["Изменение к прошлому отчёту"])
-            ws.append([first_col] + [_as_date(p) for p in periods])
-            for r in data.get("rows", []):
-                _row(ws, [r.get("row")] + list(r.get("deltas", [])))
-            # У матрицы по ПОКАЗАТЕЛЯМ итога по столбцу нет и быть не может:
-            # он сложил бы обращения с процентами.
-            totals = data.get("col_totals") or []
-            if totals and len(data.get("rows", [])) > 1:
-                ws.append([])
-                _row(ws, ["Итого по отчёту"] + list(totals))
-        elif t == "yoy":
-            ws = wb.create_sheet(sheet_name(wid, name))
-            py, cy = data.get("previous_year"), data.get("current_year")
-            ws.append(["Месяц", str(py) if py else "пред. год", str(cy)])
-            for mn, pv, cv in zip(data.get("months", []), data.get("previous", []), data.get("current", []), strict=False):
-                ws.append([mn, pv, cv])
-        elif t in ("compare", "cross_dataset_compare"):
-            ws = wb.create_sheet(sheet_name(wid, name))
-            series = data.get("series", [])
-            cats = data.get("categories", [])
-            ws.append(["Категория"] + [s.get("name") for s in series])
-            for i, c in enumerate(cats):
-                _row(ws, [c] + [(s.get("data") or [])[i] if i < len(s.get("data", [])) else None for s in series])
-        elif t == "heatmap":
-            ws = wb.create_sheet(sheet_name(wid, name))
-            cols = list(data.get("columns", []))
-            rws = list(data.get("rows", []))
-            grid = [[None] * len(cols) for _ in rws]
-            for ci, ri, v in data.get("cells", []):
-                if ri < len(rws) and ci < len(cols):
-                    grid[ri][ci] = v
-            ws.append(["Строка"] + cols)
-            for i, rname in enumerate(rws):
-                ws.append([rname] + grid[i])
-        elif t == "pivot":
-            ws = wb.create_sheet(sheet_name(wid, name))
-            cols = list(data.get("columns", []))
-            ws.append(["Строка"] + cols + ["Итого"])
-            for r in data.get("rows", []):
-                ws.append([r.get("row")] + list(r.get("values", [])) + [r.get("total")])
-            ws.append(["Итого"] + list(data.get("col_totals", [])) + [data.get("grand_total")])
-        elif t == "waterfall":
-            ws = wb.create_sheet(sheet_name(wid, name))
-            ws.append(["Категория", "Значение"])
-            for c, v in zip(data.get("categories", []), data.get("values", []), strict=False):
-                ws.append([c, v])
-            ws.append([data.get("total_label", "Итого"), sum(v for v in data.get("values", []) if v is not None)])
-        elif t == "objects_compare":
-            ws = wb.create_sheet(sheet_name(wid, name))
-            ws.append(["Подразделение", "Значение"])
-            for c, v in zip(data.get("categories", []), data.get("values", []), strict=False):
-                ws.append([c, v])
+        if _dump_widget(wb, summary, sheet_name, wid, t, name, data):
+            has_summary = True
 
     if not has_summary and len(wb.sheetnames) > 1:
         wb.remove(summary)  # нет KPI/план-факта, но есть датасетные листы — убираем пустую сводку
@@ -273,3 +288,72 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+async def export_widget_xlsx(conn, org_id, user: dict, widget_id: str,
+                             from_date=None, to_date=None, row=None) -> tuple[bytes, str]:
+    """Выгрузка ОДНОГО виджета (п. 7 списка предложений): (файл, имя виджета).
+
+    Раньше выгружалась только страница целиком, и человеку, которому нужна одна
+    таблица для доклада, приезжал файл на семнадцать листов.
+
+    Данные считаются С ТЕМИ ЖЕ фильтрами, что стоят на странице (период,
+    строка): файл не может расходиться с тем, что человек видел на экране —
+    правило, ради которого выгрузки и переписывались 19.08. Листы собирает
+    ТА ЖЕ `_dump_widget`, что и выгрузка страницы, поэтому один и тот же виджет
+    ложится в файл одинаково, какой кнопкой его ни выгружай.
+
+    RLS: доступ к дашборду и widget-level whitelist проверяются до расчёта.
+    """
+    import io
+
+    from openpyxl import Workbook
+
+    w = await _widget_org(conn, org_id, widget_id)
+    if w is None:
+        raise DashboardError("Виджет не найден")
+    if not await _can_view(conn, org_id, user, str(w["dashboard_id"])):
+        raise DashboardError("Виджет не найден")
+    allowed = await visible_widget_ids(conn, org_id, user, str(w["dashboard_id"]))
+    if allowed is not None and widget_id not in allowed:
+        raise DashboardError("Виджет не найден")
+    t, name = w["widget_type"], w["name"]
+    if t in ("text", "image"):
+        # Заголовок и картинка — оформление страницы, выгружать в таблицу нечего.
+        raise DashboardError("У этого виджета нет данных для выгрузки")
+
+    data = await compute_widget_data(conn, org_id, widget_id, from_date, to_date, row, skip_acl=True)
+
+    wb = Workbook()
+    summary = wb.active
+    summary.title = "Сводка"
+    summary.append(["Виджет", "Тип", "Показатель", "Значение"])
+    # Имя листа — из ПОЛНОГО имени виджета, обрезанного до предела Excel;
+    # полное имя не теряется, оно стоит на листе «Содержание» ниже.
+    sheet = clean_title(name)[:LIMIT] or "Данные"
+
+    has_summary = _dump_widget(wb, summary, lambda _wid, _base: sheet, widget_id, t, name, data)
+    if not has_summary and len(wb.sheetnames) > 1:
+        wb.remove(summary)
+
+    # «Содержание» отвечает на вопрос «что это за файл»: имя виджета целиком,
+    # дата данных и какие фильтры при выгрузке действовали. Без последнего файл
+    # с отфильтрованными цифрами не отличить от файла со всеми.
+    toc = wb.create_sheet("Содержание", 0)
+    toc.append(["Виджет", name])
+    if data.get("as_of"):
+        # Через _row, а не append: дата должна лечь датой и подписаться
+        # форматом ДД.ММ.ГГГГ, как во всех остальных листах.
+        _row(toc, ["Данные на", data["as_of"]])
+    if from_date or to_date:
+        toc.append(["Период", f"{_ru_date(from_date) or '…'} — {_ru_date(to_date) or '…'}"])
+    if row:
+        toc.append(["Строка", row])
+    toc.column_dimensions["A"].width = 22
+    toc.column_dimensions["B"].width = 90
+
+    for ws in wb.worksheets:
+        _autofit(ws)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue(), name

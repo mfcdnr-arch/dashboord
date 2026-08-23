@@ -771,3 +771,16 @@ export async function grantFeaturedAccess(
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// Выгрузка ОДНОГО виджета (п. 7): фильтры страницы уезжают вместе с запросом,
+// иначе файл разошёлся бы с тем, что человек видел на экране.
+export async function exportWidgetXlsx(widgetId: string, from?: string, to?: string, row?: string): Promise<Blob> {
+  const p = new URLSearchParams()
+  if (from) p.set('from_date', from)
+  if (to) p.set('to_date', to)
+  if (row) p.set('row', row)
+  const q = p.toString()
+  const res = await fetch(`/widgets/${widgetId}/export.xlsx${q ? `?${q}` : ''}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.blob()
+}
