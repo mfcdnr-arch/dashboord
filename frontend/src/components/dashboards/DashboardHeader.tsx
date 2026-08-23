@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { pageReportDates, type Dashboard, type DashPage, type DashPreset } from '../../api'
+import type { Density } from '../../lib/density'
 import { PubBadge, input, linkDanger, presetChip } from './shared'
 
 /**
@@ -167,6 +168,7 @@ export function DashboardHeader({
   asOf, quickPeriods, pFrom, pTo, setPFrom, setPTo, crossRow, setCrossRow, catOptions,
   missingCount, onOpenMissing, presets, applyPreset, removePreset, savePreset,
   newPage, setNewPage, addPage, busy, exporting, a,
+  density, setDensity,
 }: {
   dashboard: Dashboard
   pages: DashPage[]
@@ -195,6 +197,9 @@ export function DashboardHeader({
   applyPreset: (p: DashPreset) => void
   removePreset: (p: DashPreset) => void
   savePreset: () => void
+  /** Плотность страницы — настройка читателя, не автора (см. lib/density). */
+  density: Density
+  setDensity: (d: Density) => void
   newPage: string
   setNewPage: (v: string) => void
   addPage: (e: React.FormEvent) => void
@@ -339,6 +344,19 @@ export function DashboardHeader({
                 <button type="button" style={menuItem} disabled={exporting}
                   onClick={() => { setExpOpen(false); a.exportPng() }}>PNG — картинка отчёта</button>
               </Dropdown>
+            )}
+            {/* Плотность видна ВСЕМ, включая зрителя: это про то, как человек
+                смотрит, а не про то, что он вправе менять на странице.
+                Подпись называет ДЕЙСТВИЕ, а не состояние: значок-состояние в
+                проекте уже подводил (кнопку темы не находили, 11.08). */}
+            {page && (
+              <button type="button" style={hbtn}
+                title={density === 'compact'
+                  ? 'Вернуть просторный вид: крупнее поля и промежутки'
+                  : 'Компактный вид: те же виджеты, меньше полей и промежутков — на экран помещается больше'}
+                onClick={() => setDensity(density === 'compact' ? 'comfortable' : 'compact')}>
+                {density === 'compact' ? '⇕ Просторнее' : '⇕ Компактнее'}
+              </button>
             )}
             {pages.length > 0 && (
               <button type="button" style={hbtn} title="Полноэкранный показ с автопрокруткой (для ТВ)" onClick={a.kiosk}>📺 Витрина</button>

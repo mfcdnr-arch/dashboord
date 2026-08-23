@@ -12,7 +12,8 @@ import {
   type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Doc, type Folder, type Obj, type PageWidgetData, type RecentDashboard, type Widget, type WidgetSpec,
 } from '../api'
 import { useContainerWidth } from '../lib/useWidth'
-import { GAP as FLOW_GAP, flowItems } from '../lib/flowLayout'
+import { flowItems } from '../lib/flowLayout'
+import { DENSITY, type Density, loadDensity, saveDensity } from '../lib/density'
 import { WidgetCard } from './dashboards/WidgetCard'
 import { WIDGET_META } from './dashboards/WidgetPicker'
 import KioskView from './KioskView'
@@ -278,6 +279,11 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   const [presets, setPresets] = useState<DashPreset[]>([])
   const [kiosk, setKiosk] = useState(false)
   const [gridRef, gridWidth] = useContainerWidth<HTMLDivElement>()
+  // Плотность — настройка ЧИТАТЕЛЯ (см. lib/density): живёт у человека, а не
+  // у страницы, и потому доступна в том числе зрителю, который править
+  // дашборд не вправе.
+  const [density, setDensity] = useState<Density>(loadDensity)
+  const dm = DENSITY[density]
 
   const fail = (e: unknown) => setError((e as Error).message)
   // Защита от гонки ответов: применяем только результат последнего запроса.
@@ -933,6 +939,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
       asOf: asOf || undefined,
       onPick: (name: string) => setCrossRow((cur) => (cur === name ? null : name)),
       batched: !batchFailed,
+      density: dm,
       onNavigate: navigateToWidget,
       onAddField: canManage ? addSiblingField : undefined,
       onOpenAppeals,
@@ -993,6 +1000,7 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
             missingCount={page ? (missingFields?.length || 0) : 0} onOpenMissing={() => setMissingOpen(true)}
             presets={presets} applyPreset={applyPreset} removePreset={removePreset} savePreset={() => setPresetName('')}
             newPage={newPage} setNewPage={setNewPage} addPage={addPage} busy={busy} exporting={exporting}
+            density={density} setDensity={(d) => { setDensity(d); saveDensity(d) }}
             a={{
               submitReview: doSubmitReview, cancelReview: doCancelReview, publish: doPublish, unpublish: doUnpublish,
               versions: loadVersions, access: () => setAccessOpen(true),
@@ -1107,22 +1115,22 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
                 /* «Поток»: место и размер считаются по типу виджета при
                    отрисовке (lib/flowLayout), двигать нечего — страница не
                    может поехать и не оставляет дыр. */
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: FLOW_GAP }}>
-                  {flowItems(widgets, gridWidth ?? 0, (id) => collapsed.has(id)).map((it) => {
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: dm.gap }}>
+                  {flowItems(widgets, gridWidth ?? 0, (id) => collapsed.has(id), dm).map((it) => {
                     const w = widgets.find((x) => x.id === it.id)!
                     return (
                       /* Карточка с авто-высотой не задаёт height: в ряду её
                          растянет соседний виджет (сетка выравнивает по высоте
                          ряда), а одна в ряду — обожмёт содержимое. */
                       <div key={it.id} style={{ gridColumn: `span ${it.span}`, minWidth: 0,
-                        ...(it.auto ? { minHeight: 120 } : { height: it.height }) }}>
+                        ...(it.auto ? { minHeight: dm.rowH * 3 } : { height: it.height }) }}>
                         <WidgetCard {...cardProps(w)} />
                       </div>
                     )
                   })}
                 </div>
               ) : gridWidth !== undefined && (
-                <GridLayout className="layout" width={gridWidth} cols={12} rowHeight={40} margin={[12, 12]}
+                <GridLayout className="layout" width={gridWidth} cols={12} rowHeight={dm.rowH} margin={[dm.gap, dm.gap]}
                   isDraggable={canManage && editMode} isResizable={canManage && editMode}
                   draggableHandle=".wdrag" draggableCancel=".wnodrag" compactType="vertical"
                   onDragStop={(_l, _o, n) => persistItem(n)} onResizeStop={(_l, _o, n) => persistItem(n)}

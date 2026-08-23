@@ -1,4 +1,5 @@
 import type { Widget } from '../../api'
+import { DENSITY, type DensityMetrics } from '../../lib/density'
 import { elideMiddle } from '../../lib/text'
 import InfoTip from '../InfoTip'
 import WidgetView from '../WidgetView'
@@ -16,6 +17,7 @@ export function WidgetCard({
   w, data, error, alert, isCollapsed, onToggleCollapse, highlighted, editMode, canManage,
   hasSources, onEdit, onAlerts, onDelete, tip,
   reloadKey, from, to, row, asOf, onPick, batched, onNavigate, onAddField, onOpenAppeals, shortName,
+  density = DENSITY.comfortable,
 }: {
   w: Widget
   data?: Record<string, unknown>
@@ -50,9 +52,17 @@ export function WidgetCard({
    */
   shortName?: string
   onOpenAppeals?: () => void
+  /**
+   * Плотность (`lib/density`): поля карточки и размер заголовка.
+   *
+   * Меняются ТОЛЬКО отступы и шрифт заголовка — три строки имени остаются
+   * тремя: ужимать имя до двух уже пробовали (09.08), от него оставалось
+   * «Колич обращ…», и карточка переставала отвечать, что за число показывает.
+   */
+  density?: DensityMetrics
 }) {
   return (
-        <div data-widget-id={w.id} style={{ ...widgetCard, height: '100%', overflow: 'hidden',
+        <div data-widget-id={w.id} style={{ ...widgetCard, padding: density.pad, height: '100%', overflow: 'hidden',
           display: 'flex', flexDirection: 'column',
           // Подсветка цели перехода из меню «↗ куда дальше»: гаснет
           // сама через пару секунд, чтобы не остаться навсегда.
@@ -96,7 +106,7 @@ export function WidgetCard({
                   с именем именно к этому и приводил. Значок живёт
                   отдельной строкой ниже. */}
               <div style={{
-                fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden',
+                fontSize: density.title, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden',
                 ...(isCollapsed
                   ? { textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
                   : { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', lineHeight: 1.2 }),

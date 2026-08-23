@@ -101,7 +101,7 @@ const MIN_CARD = 250
 /** Ряд из «двух с половиной» карточек выглядит сломанным — только делители 12. */
 const DIVISORS = [1, 2, 3, 4, 6, 12]
 
-const cardWidth = (colW: number, span: number): number => colW * span + GAP * (span - 1)
+const cardWidth = (colW: number, span: number, gap: number = GAP): number => colW * span + gap * (span - 1)
 
 /**
  * Место и размер каждого виджета.
@@ -115,25 +115,32 @@ export function flowItems(
   widgets: { id: string; widget_type: string }[],
   width: number,
   collapsed?: (id: string) => boolean,
+  // Плотность (`lib/density`): ряд и промежуток задаёт читатель. Значения по
+  // умолчанию — прежние, поэтому вызов без них ничего не меняет. Параметрами,
+  // а не импортом из density: тот берёт «просторные» числа ОТСЮДА, и импорт в
+  // обратную сторону замкнул бы модули друг на друга.
+  metrics?: { rowH: number; gap: number },
 ): FlowItem[] {
+  const rowH = metrics?.rowH ?? ROW_H
+  const gap = metrics?.gap ?? GAP
   const cols = 12
-  const colW = width > 0 ? (width - GAP * (cols - 1)) / cols : 0
+  const colW = width > 0 ? (width - gap * (cols - 1)) / cols : 0
   return widgets.map((w) => {
     const size = FLOW_SIZE[w.widget_type] || FLOW_FALLBACK
     let span = Math.min(cols, size.w)
     if (colW > 0) {
       // тесно — расширяем
-      while (span < cols && cardWidth(colW, span) < MIN_CARD) span += 1
+      while (span < cols && cardWidth(colW, span, gap) < MIN_CARD) span += 1
       // просторно — уплотняем до предела для этого типа
       const dense = DENSE_MIN[w.widget_type]
-      while (dense !== undefined && span > dense && cardWidth(colW, span - 1) >= COMFORT) span -= 1
+      while (dense !== undefined && span > dense && cardWidth(colW, span - 1, gap) >= COMFORT) span -= 1
       if (cols % span !== 0 && span < cols) span = DIVISORS.find((c) => c >= span) ?? cols
     }
     const isCollapsed = collapsed?.(w.id) ?? false
     const h = isCollapsed ? 1 : size.h
     return {
       id: w.id, span,
-      height: h * ROW_H + (h - 1) * GAP,
+      height: h * rowH + (h - 1) * gap,
       auto: !isCollapsed && AUTO_HEIGHT.has(w.widget_type),
     }
   })
