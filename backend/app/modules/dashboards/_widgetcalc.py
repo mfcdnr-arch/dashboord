@@ -11,9 +11,10 @@ from typing import Dict, List, Optional
 
 from ._aggregate import aggregate_series
 from ._alerts import alert_styles, cell_alert_levels, evaluate_alert
-from ._base import DashboardError
+from ._base import DashboardError, ru_date
 from ._rowrls import allowed_rows_for_dataset
 from ._widgetsources import (
+    _align,
     _dataset_as_of,
     _dataset_field_period_matrix,
     _dataset_multi_series,
@@ -24,7 +25,57 @@ from ._widgetsources import (
     _field_title,
     _formula_value,
     _metric_value,
+    _prev_period,
 )
+
+
+async def _add_ghost(conn, org_id, cfg: dict, res: dict, row, allowed, period) -> None:
+    """«Призрачная» линия прошлого отчёта поверх графика по строкам (п. 3).
+
+    График по строкам показывает СРЕЗ одного отчёта: сколько у каждого района
+    сейчас. Вопрос «а было сколько?» он не закрывает — за ответом человек шёл
+    в «Динамику» или открывал прошлую неделю фильтром и сравнивал по памяти.
+    Бледная серия позади текущей отвечает на него на месте.
+
+    Три решения, важных для правильности:
+
+    **Призрак читается ТЕМ ЖЕ кодом, что и сам виджет** (`_dataset_series` /
+    `_dataset_multi_series` с другой датой) и с тем же набором разрешённых
+    строк: иначе прошлый период считался бы по своим правилам и мог показать
+    строки, которых человеку видеть нельзя.
+
+    **Сопоставление по названию строки**, а не по номеру — см. `_align`.
+
+    **Молчать нельзя.** Если прошлого отчёта нет вовсе или ни одна строка не
+    сошлась, галочка включена, а на графике ничего не появляется — это выглядит
+    поломкой. Поэтому вместо призрака возвращается причина словами.
+
+    🔴 **У «Сравнения» призрака НЕТ — и это решение, а не пропуск.** Сначала он
+    там был, но замер отрисовки показал, чем это кончается: у виджета заказчика
+    13 показателей в ОДНОЙ категории, призрак удваивает число столбиков до 26, а
+    `barGap` в ECharts действует на всю группу серий сразу и совместить их
+    попарно не может — бледные столбики встали отдельной кучей СЛЕВА от текущих
+    (замерено: призраки на x 85…270, текущие на 278…470), то есть получился
+    частокол из 26 полосок по 11px вместо ответа «как было». На вопрос «как
+    изменились все показатели разом» уже отвечают матрица «показатель × дата» и
+    карточки-группы с приростом на каждый разрез — они делают это лучше.
+    """
+    if not cfg.get("ghost_prev") or not cfg.get("dataset_code"):
+        return
+    prev = await _prev_period(conn, org_id, cfg["dataset_code"], period)
+    if prev is None:
+        res["ghost_note"] = "Это первый отчёт по этим данным — сравнивать не с чем."
+        return
+
+    cats = res.get("categories") or []
+    prev_rows = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"],
+                                      row, allowed, prev)
+    values, matched = _align(cats, prev_rows)
+    if not matched:
+        res["ghost_note"] = (f"Отчёт за {ru_date(prev)} не сопоставился с текущим "
+                             "ни по одной строке — показывать нечего.")
+        return
+    res["ghost"] = {"period": prev, "values": values}
 
 
 async def _column_value(conn, org_id, cfg: dict, field: str, row, allowed, period):
@@ -869,6 +920,11 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
     if not cfg.get("dataset_code") or not cfg.get("value_field"):
         raise DashboardError("График: укажите dataset_code и value_field")
     series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed, period)
-    return {"type": t, "title": name,
-            "categories": [s["category"] for s in series],
-            "values": [s["value"] for s in series]}
+    res = {"type": t, "title": name,
+           "categories": [s["category"] for s in series],
+           "values": [s["value"] for s in series]}
+    # Круговой диаграмме призрак не положен: две доли одна за другой не
+    # накладываются и сравнить их нельзя — вышла бы каша вместо ответа.
+    if t != "pie":
+        await _add_ghost(conn, org_id, cfg, res, row, allowed, period)
+    return res

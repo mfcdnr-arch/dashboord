@@ -346,6 +346,12 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   // Цель/бенчмарк (kpi/gauge) и линейный тренд (dynamics).
   const [target, setTarget] = useState<string>(cfg0.target != null ? String(cfg0.target) : '')
   const [trend, setTrend] = useState<boolean>(!!cfg0.trend)
+  // «Призрак» прошлого отчёта (п. 3): бледная серия позади текущей у графиков
+  // ПО СТРОКАМ (столбцы/линия). Где его сознательно нет: у «Динамики» — она и
+  // так показывает весь ряд периодов; у круговой две доли не наложить; у
+  // «Сравнения» призрак удваивает число столбиков и превращает график в
+  // частокол (замерено), а на тот же вопрос отвечает матрица «показатель × дата».
+  const [ghostPrev, setGhostPrev] = useState<boolean>(!!cfg0.ghost_prev)
   // Индекс роста (dynamics / сравнение источников): первая точка = 100 %.
   const [growthIndex, setGrowthIndex] = useState<boolean>(!!cfg0.growth_index)
   // Прогноз даты достижения плана (plan_fact по датасету).
@@ -430,7 +436,10 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       ...(growthIndex && indexBase ? { index_base_period: indexBase } : {}),
       ...(anomalies ? { anomalies: true, anomaly_threshold: Number(anomalyThreshold) || 2 } : {}),
     } : null
-    return (dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null // bar/line/pie/yoy
+    return (dataset && valueField)
+      ? { dataset_code: dataset, value_field: valueField,
+          ...(ghostPrev && (type === 'bar' || type === 'line') ? { ghost_prev: true } : {}) }
+      : null // bar/line/pie/yoy
   }
 
   // Итоговый config = базовый + (опционально) свой фильтр (кроме text/image).
@@ -639,6 +648,12 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
             Мини-график динамики
           </label>
         </>
+      )}
+      {(type === 'bar' || type === 'line') && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }}
+          title="Позади текущих значений бледной серией показывается предыдущий отчёт. Строки сопоставляются по названию, а не по порядку.">
+          <input type="checkbox" checked={ghostPrev} onChange={(e) => setGhostPrev(e.target.checked)} />Показать прошлый отчёт
+        </label>
       )}
       {type === 'dynamics' && (
         <>

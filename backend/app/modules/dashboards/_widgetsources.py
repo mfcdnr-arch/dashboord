@@ -106,6 +106,53 @@ async def _dataset_series(conn, org_id, dataset_code: str, value_field: str, row
     return [{"category": r["row_label"], "value": float(r["value_number"])} for r in rows]
 
 
+async def _prev_period(conn, org_id, dataset_code: str, period=None) -> Optional[str]:
+    """Отчётная дата выпуска, ПРЕДШЕСТВУЮЩЕГО показанному.
+
+    Нужна «призрачной» линии прошлого периода (п. 3): график по строкам
+    показывает срез одного отчёта и сам по себе не отвечает на вопрос «а было
+    как?». Дата берётся из тех же выпусков, что читает сам виджет, поэтому
+    призрак не может оказаться из другого ряда.
+
+    `period` — дата, которую виджет показывает СЕЙЧАС (закреплённый срез или
+    результат фильтра страницы). Пусто — показан последний выпуск, и
+    предыдущий ищется от него.
+    """
+    if period is not None:
+        prev = await conn.fetchval(
+            "select reporting_period_start from dataset_releases "
+            "where organization_id=$1 and code=$2 and status <> 'superseded' "
+            "  and reporting_period_start < $3::text::date "
+            "order by reporting_period_start desc limit 1", org_id, dataset_code, period)
+    else:
+        prev = await conn.fetchval(
+            "select reporting_period_start from dataset_releases "
+            "where organization_id=$1 and code=$2 and status <> 'superseded' "
+            "  and reporting_period_start < ("
+            "    select reporting_period_start from dataset_releases "
+            "    where organization_id=$1 and code=$2 and status <> 'superseded' "
+            "    order by reporting_period_start desc nulls last, created_at desc limit 1) "
+            "order by reporting_period_start desc limit 1", org_id, dataset_code)
+    return prev.isoformat() if prev else None
+
+
+def _align(categories: List[str], prev_rows: List[dict]) -> tuple:
+    """Значения прошлого отчёта, разложенные ПО ПОДПИСЯМ текущих категорий.
+
+    Сопоставление идёт по названию строки, а не по её номеру: между отчётами
+    строки добавляют, убирают и переставляют, и позиционное совпадение однажды
+    подставило бы Горловке цифру Макеевки — молча и правдоподобно.
+
+    Строки, которых в текущем отчёте нет, в призрак не попадают: рисовать их
+    не на чем, у них нет своего столбика. Сколько строк сошлось — возвращаем
+    отдельно: если не сошлась ни одна, призрак пуст, и об этом надо сказать,
+    а не показывать пустой график при включённой галочке.
+    """
+    by_label = {r["category"]: r["value"] for r in prev_rows}
+    values = [by_label.get(c) for c in categories]
+    return values, sum(1 for v in values if v is not None)
+
+
 async def _field_title(conn, org_id, dataset_code: str, field_code: str, period=None) -> Optional[str]:
     """Человеческое имя столбца («… · Доля, %»): по нему видно, можно ли его
     складывать. Код поля для этого не годится — он транслит и обрезан."""

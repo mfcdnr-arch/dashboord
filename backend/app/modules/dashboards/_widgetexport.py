@@ -118,9 +118,14 @@ def _dump_widget(wb, summary, sheet_name, wid: str, t: str, name: str, data: dic
             ws.append([r.get("row")] + [r.get(c) for c in cols])
     elif t in ("bar", "line", "pie"):
         ws = wb.create_sheet(sheet_name(wid, name))
-        ws.append(["Категория", "Значение"])
-        for c, v in zip(data.get("categories", []), data.get("values", []), strict=False):
-            ws.append([c, v])
+        # Призрак прошлого отчёта — отдельной колонкой: он есть на экране,
+        # значит обязан быть и в файле, иначе выгрузка расходится с тем, что
+        # человек видел. Колонка подписана датой того отчёта.
+        ghost = data.get("ghost") or {}
+        gvals = ghost.get("values") or []
+        ws.append(["Категория", "Значение"] + ([f"Было {_ru_date(ghost['period'])}"] if gvals else []))
+        for i, (c, v) in enumerate(zip(data.get("categories", []), data.get("values", []), strict=False)):
+            ws.append([c, v] + ([gvals[i] if i < len(gvals) else None] if gvals else []))
     elif t == "dynamics":
         ws = wb.create_sheet(sheet_name(wid, name))
         anomaly_idx = {a["index"] for a in data.get("anomalies", [])}

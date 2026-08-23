@@ -117,16 +117,54 @@ function chartOption(data: any): EChartsOption {
     }
   }
   const isLine = data.type === 'line'
+  // «Призрак» прошлого отчёта (п. 3): бледная серия ПОЗАДИ текущей. Цвет и
+  // пунктир — те же, что у прошлого года в виджете «Год к году» (`C.prev`):
+  // роль одна и та же — «как было раньше», и язык графиков должен совпадать.
+  const ghost = data.ghost
+  const ghostSeries = ghost ? [ghostOpt(ghost, isLine, C)] : []
+  // Под легенду резервируем место в сетке, иначе она ложится на подписи
+  // категорий — те же грабли, что уже ловили на «Сравнении» 09.08.
+  const catsRoom = cats.some((c) => c.length > 6) ? 46 : 24
   return {
-    grid: { left: gridLeft(vals), right: 12, top: 12, bottom: cats.some((c) => c.length > 6) ? 46 : 24 },
+    grid: { left: gridLeft([...vals, ...(ghost?.values || [])]), right: 12, top: 12,
+      bottom: catsRoom + (ghost ? 22 : 0) },
     tooltip: { trigger: 'axis' },
+    legend: ghost ? { bottom: 0, itemHeight: 8, itemWidth: 14, textStyle: { fontSize: 10 } } : undefined,
     xAxis: { type: 'category', data: cats, axisLabel: { interval: 0, rotate: cats.some((c) => c.length > 6) ? 30 : 0, fontSize: 11 } },
     yAxis: { type: 'value' },
-    series: [{ type: isLine ? 'line' : 'bar', data: vals, smooth: isLine,
+    // Призрак идёт ПЕРВЫМ в списке: у столбиков с barGap:'-100%' вторая серия
+    // рисуется поверх первой, поэтому «раньше» должно быть до «сейчас».
+    series: [{ type: isLine ? 'line' : 'bar', name: 'Сейчас', data: vals, smooth: isLine,
       color: C.c1, itemStyle: { color: C.c1 }, lineStyle: { color: C.c1, width: 2 }, areaStyle: isLine ? { opacity: 0.08 } : undefined,
-      barMaxWidth: 40 }],
+      barMaxWidth: 40 }, ...ghostSeries],
   }
 }
+
+/** Серия «призрака» прошлого отчёта — ВСЕГДА линия, даже поверх столбиков.
+ *
+ *  🔴 Сначала призрак был бледным столбиком позади текущего, и на кадре он
+ *  оказался НЕВИДИМЫМ: при полном наложении (`barGap: '-100%'`) обе серии
+ *  получают одинаковую ширину слота, поэтому призрак виден, только когда он
+ *  ВЫШЕ текущего столбика. То есть ровно там, где показатель просел — а это
+ *  и есть случай, ради которого сравнение включают, — «было» пропадало.
+ *  Сделать призрак шире не выходит: `barMaxWidth` только ограничивает, а
+ *  ширину задаёт слот категории.
+ *
+ *  Пунктирная линия с точками решает это разом: она рисуется ПОВЕРХ (z выше),
+ *  не зависит от высоты столбика и читается как «уровень прошлой недели» —
+ *  сразу видно, что выше него, а что ниже. Для линейного графика это и так
+ *  естественная форма. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ghostOpt(ghost: any, isLine: boolean, C: ReturnType<typeof chartColors>): any {
+  return {
+    type: 'line', name: `Было ${ru(ghost.period)}`, data: ghost.values,
+    smooth: isLine, symbol: 'circle', symbolSize: 5, z: 5,
+    color: C.prev, itemStyle: { color: C.prev },
+    lineStyle: { color: C.prev, width: 2, type: 'dashed', opacity: 0.85 },
+  }
+}
+
+const ru = (iso?: string | null) => (iso ? iso.split('-').reverse().join('.') : '')
 
 export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf, stripe = true, onNavigate, widgetName, onOpenAppeals, onAddField, print = false }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string;
   /** Рисовать ли цветную ленту состояния вокруг тела. На дашборде её рисует
@@ -1101,7 +1139,8 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             min: logBound(allValues, 'min'), max: logBound(allValues, 'max'),
           }
         : { type: 'value', splitNumber: fit.h < 140 ? 2 : fit.h < 200 ? 3 : 5 },
-      series: (data.series || []).map((s: any, i: number) => ({
+      series: [
+        ...(data.series || []).map((s: any, i: number) => ({
         name: s.name, type: data.viz === 'line' ? 'line' : 'bar', data: s.data,
         smooth: data.viz === 'line', itemStyle: { color: C.palette[i % C.palette.length] },
         // Ширина и зазоры зависят от числа категорий. При ОДНОЙ строке (частый
@@ -1116,6 +1155,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
           ? { show: true, position: 'top', fontSize: 10, formatter: (p: any) => fmt(p.value) }
           : undefined,
       })),
+      ],
     }
     return (
       <div ref={fit.box} style={{ height: '100%' }}>
@@ -1124,6 +1164,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         <div ref={fit.labels}>
           {/* Индекс роста: на оси проценты, а не величины — без подписи график
               выглядел бы как «все ряды около сотни» без объяснения почему. */}
+          <GhostNote note={data.ghost_note} />
           {data.growth_index && (
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
               Индекс роста: у каждого источника первая точка = 100 %, дальше — рост в процентах к ней.
@@ -1477,7 +1518,19 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
 
   // bar | line | pie
   if ((data.categories || []).length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
-  return <EChart option={P(chartOption(data))} height={200} onPick={onPick} />
+  return (
+    <div style={{ height: '100%' }}>
+      <EChart option={P(chartOption(data))} height={data.ghost_note ? 182 : 200} onPick={onPick} />
+      <GhostNote note={data.ghost_note} />
+    </div>
+  )
+}
+
+/** Почему призрака нет, хотя галочка включена. Молчание здесь читалось бы как
+ *  поломка: человек включил сравнение с прошлым отчётом и не увидел ничего. */
+function GhostNote({ note }: { note?: string }) {
+  if (!note) return null
+  return <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>⌛ {note}</div>
 }
 
 function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
