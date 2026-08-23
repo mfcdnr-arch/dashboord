@@ -206,6 +206,52 @@ export async function qualityCheck(
   return res.json()
 }
 
+/** Что изменится на дашбордах, если выпустить эти данные (п. 15).
+ *  Свёртка строк — та же, что у карточки показателя, поэтому обещанное здесь
+ *  число совпадёт с тем, что появится на дашборде. */
+export interface ImpactField {
+  field: string; name: string; how: 'sum' | 'avg'
+  current: number | null; next: number | null
+  delta: number | null; delta_pct: number | null
+  gone: boolean; is_new: boolean
+}
+export interface ImpactWidget {
+  widget_id: string; name: string; type: string
+  dashboard_id: string; dashboard: string; page: string | null; page_id: string | null
+  published: boolean
+  changes: boolean; note: string | null
+  at_risk: boolean; lost_fields: string[]
+  current: number | null; next: number | null; delta: number | null
+}
+export interface ReleaseImpact {
+  dataset_code: string
+  period: string | null
+  replaces: { period: string; created_at: string } | null
+  latest_period: string | null
+  becomes_current: boolean
+  first_release: boolean
+  fields: ImpactField[]
+  lost_fields: string[]
+  rows: { current: number; next: number; added: string[]; removed: string[] }
+  widgets: ImpactWidget[]
+  widgets_at_risk: number
+}
+export async function releaseImpact(
+  jobId: string,
+  body: {
+    table_id: string; code: string; name: string; reporting_period_start: string | null
+    fields: FieldMap[]; layout?: Layout
+  },
+): Promise<ReleaseImpact> {
+  const res = await fetch(`/extraction-jobs/${jobId}/release-impact`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ ...body, supersede: false }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 export type VersionRelease = {
   id: string
   code: string

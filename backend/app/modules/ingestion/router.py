@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from ... import db
 from ..audit import service as audit_svc
 from ..auth.deps import get_current_user, require_roles
-from . import analyze, mapping, queue, service
+from . import analyze, impact, mapping, queue, service
 
 router = APIRouter(tags=["ingestion"])
 manage = require_roles("superadmin", "admin", "moderator")
@@ -280,6 +280,47 @@ async def layout_preview(job_id: str, body: LayoutPreviewIn, user: dict = Depend
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err))
 
 
+async def _rows_for_release(conn, job_id: str, body: "ReleaseIn", org_id):
+    """Строки и поля так, как их увидит выпуск. Общий разбор для проверки
+    качества и предпросмотра последствий — иначе два экрана перед одной
+    кнопкой читали бы файл по-разному."""
+    ctx = await mapping.resolve_context(conn, job_id)
+    if ctx is None or ctx["organization_id"] != org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание извлечения не найдено")
+    table = await conn.fetchrow(
+        "select header_rows, data, merges, data_rect from extracted_tables "
+        "where id=$1::uuid and extraction_job_id=$2::uuid", body.table_id, job_id)
+    if table is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Таблица не найдена в задании")
+
+    grid = json.loads(table["data"]) if table["data"] else []
+    merges = [tuple(m) for m in (json.loads(table["merges"]) if table["merges"] else [])]
+    lay = {**mapping.DEFAULT_LAYOUT, **(body.layout.model_dump() if body.layout else {})}
+    rect = lay["data_rect"] or (json.loads(table["data_rect"]) if table["data_rect"] else None)
+    hdr = int((table["header_rows"] if lay["header_rows"] is None else lay["header_rows"]) or 0)
+    area = mapping.analysis_grid(grid, merges, rect, lay["orientation"])
+    rows = mapping.data_rows(area, hdr, lay["skip_rows"] or [])
+    fields = [f.model_dump() for f in body.fields]
+    label = next((f["column_index"] for f in fields if f.get("is_row_label")), None)
+    return rows, fields, label
+
+
+@router.post("/extraction-jobs/{job_id}/release-impact")
+async def release_impact(job_id: str, body: ReleaseIn, user: dict = Depends(manage)):
+    """Что изменится на дашбордах, если выпустить эти данные (п. 15).
+
+    Отвечает на три вопроса разом: что станет с цифрами, где это увидят и что
+    может сломаться (графа или строка исчезла, а виджеты на неё ссылаются).
+    Свёртка строк — та же, что у карточки показателя, поэтому обещанное здесь
+    число совпадёт с тем, что появится на дашборде.
+    """
+    async with db.get_pool().acquire() as conn:
+        rows, fields, label = await _rows_for_release(conn, job_id, body, user["organization_id"])
+        return await impact.release_impact(
+            conn, user["organization_id"], code=body.code,
+            period=body.reporting_period_start, rows=rows, fields=fields, label_col=label)
+
+
 @router.post("/extraction-jobs/{job_id}/quality-check")
 async def quality_check(job_id: str, body: ReleaseIn, user: dict = Depends(manage)):
     """Замечания по качеству ДО выпуска: сверка с предыдущей неделей.
@@ -290,25 +331,7 @@ async def quality_check(job_id: str, body: ReleaseIn, user: dict = Depends(manag
     здесь нужен ещё и код датасета, который человек задаёт в форме выпуска.
     """
     async with db.get_pool().acquire() as conn:
-        ctx = await mapping.resolve_context(conn, job_id)
-        if ctx is None or ctx["organization_id"] != user["organization_id"]:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание извлечения не найдено")
-        table = await conn.fetchrow(
-            "select header_rows, data, merges, data_rect from extracted_tables "
-            "where id=$1::uuid and extraction_job_id=$2::uuid", body.table_id, job_id)
-        if table is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Таблица не найдена в задании")
-
-        grid = json.loads(table["data"]) if table["data"] else []
-        merges = [tuple(m) for m in (json.loads(table["merges"]) if table["merges"] else [])]
-        lay = {**mapping.DEFAULT_LAYOUT, **(body.layout.model_dump() if body.layout else {})}
-        rect = lay["data_rect"] or (json.loads(table["data_rect"]) if table["data_rect"] else None)
-        hdr = int((table["header_rows"] if lay["header_rows"] is None else lay["header_rows"]) or 0)
-        area = mapping.analysis_grid(grid, merges, rect, lay["orientation"])
-        rows = mapping.data_rows(area, hdr, lay["skip_rows"] or [])
-
-        fields = [f.model_dump() for f in body.fields]
-        label = next((f["column_index"] for f in fields if f.get("is_row_label")), None)
+        rows, fields, label = await _rows_for_release(conn, job_id, body, user["organization_id"])
         warnings = await mapping.quality_warnings(
             conn, user["organization_id"], code=body.code, period=body.reporting_period_start,
             rows=rows, fields=fields, label_col=label)

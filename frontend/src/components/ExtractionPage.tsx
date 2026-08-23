@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  createRelease, getExtractionForVersion, getJob, layoutPreview, qualityCheck, startExtraction,
+  createRelease, getExtractionForVersion, getJob, layoutPreview, qualityCheck, releaseImpact, startExtraction,
   type CellPick, type Doc, type ExtractionJob, type FieldMap, type LayoutPreview,
   type LayoutTemplate, type ReleaseResult, type ValidationWarning,
 } from '../api'
@@ -10,7 +10,8 @@ import InfoTip from './InfoTip'
 import SheetGrid, { colName, fillMerges, type PickedCell, type Rect } from './SheetGrid'
 import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
 import { buildReleaseFields } from '../lib/releaseFields'
-import { cancelRelease, deleteRelease, listVersionReleases, restoreRelease, type VersionRelease } from '../api/ingestion'
+import { cancelRelease, deleteRelease, listVersionReleases, restoreRelease, type ReleaseImpact, type VersionRelease } from '../api/ingestion'
+import ImpactPanel from './ingestion/ImpactPanel'
 
 const TYPES = [
   { v: 'number', t: 'Число' },
@@ -66,6 +67,7 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
   // Замечания по качеству: сверка с прошлой неделей ДО выпуска. Считает тот же
   // код, что и выпуск, поэтому «до было чисто, после появились» невозможно.
   const [quality, setQuality] = useState<ValidationWarning[] | null>(null)
+  const [impact, setImpact] = useState<ReleaseImpact | null>(null)
   const [checking, setChecking] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [conflict, setConflict] = useState<{ id: string; name: string; created_at: string } | null>(null)
@@ -315,7 +317,7 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
   const qualityKey = JSON.stringify([code.trim(), period, tableFields, rect, headerRows, orientation, skipRows])
   useEffect(() => {
     if (!job?.job_id || !tableId || mode !== 'table' || !code.trim() || !tableFields.length) {
-      setQuality(null); return
+      setQuality(null); setImpact(null); return
     }
     const id = setTimeout(() => {
       setChecking(true)
@@ -327,6 +329,15 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
         .then((r) => setQuality(r.warnings))
         .catch(() => setQuality(null))   // проверка — подсказка, её сбой не мешает работе
         .finally(() => setChecking(false))
+      // Последствия выпуска считаются по ТЕМ ЖЕ входным данным и тем же
+      // дебаунсом: иначе два блока перед одной кнопкой говорили бы о разном.
+      releaseImpact(job.job_id!, {
+        table_id: tableId, code: code.trim(), name: name.trim() || doc.original_filename,
+        reporting_period_start: period || null, fields: tableFields,
+        layout: { data_rect: rect, header_rows: headerRows, orientation, skip_rows: skipRows },
+      })
+        .then(setImpact)
+        .catch(() => setImpact(null))
     }, 600)
     return () => clearTimeout(id)
   }, [qualityKey, job?.job_id, tableId, mode]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -552,6 +563,9 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
             <div style={{ marginTop: 20 }}>
               <h3 style={h3}>Выпуск датасета</h3>
               <QualityPanel warnings={quality} checking={checking} />
+              {/* Что изменится на дашбордах (п. 15): замечания выше — про сами
+                  данные, этот блок — про последствия выпуска. */}
+              <ImpactPanel impact={impact} loading={checking} />
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <Field label="Код"><input style={input} value={code} onChange={(e) => setCode(e.target.value)} /></Field>
                 <Field label="Название"><input style={{ ...input, width: 240 }} value={name} onChange={(e) => setName(e.target.value)} /></Field>
