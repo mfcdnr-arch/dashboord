@@ -29,6 +29,7 @@ import AutoBuildWizard from './dashboards/AutoBuildWizard'
 import { AboutDashboard, EditDashboardDialog } from './dashboards/AboutDashboard'
 import { RenameDialog } from './dashboards/RenameDialog'
 import { useConfirm } from './dashboards/ConfirmDialog'
+import type { LinkState } from '../lib/deeplink'
 import { dashboardFreshness, dashboardMissingFields } from '../api/dashboards'
 import { FreshnessBar } from './dashboards/FreshnessBar'
 import { DashboardHeader } from './dashboards/DashboardHeader'
@@ -148,9 +149,27 @@ const QUICK_PERIODS: { label: string; hint: string; range: () => [string, string
   { label: 'год', hint: 'Последние 365 дней', range: () => daysBack(365) },
 ]
 
-export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initialDashboardId, initialPageId, onOpenAppeals }: { canManage: boolean; isAdmin?: boolean; isSuperadmin?: boolean; initialDashboardId?: string | null; initialPageId?: string | null;
+export default function DashboardsPage({
+  canManage, isAdmin, isSuperadmin, initialDashboardId, initialPageId, onOpenAppeals,
+  link, navSeq, onLocationChange,
+}: {
+  canManage: boolean; isAdmin?: boolean; isSuperadmin?: boolean
+  initialDashboardId?: string | null; initialPageId?: string | null
   /** Перейти в свои обращения после жалобы с виджета (п. 15). */
-  onOpenAppeals?: () => void }) {
+  onOpenAppeals?: () => void
+  /**
+   * Ссылка на конкретное место (п. 6): отчёт, страница, период, строка.
+   *
+   * `link` — состояние из адреса на момент открытия ИЛИ после нажатия
+   * «назад»/«вперёд» в браузере; применяется, когда меняется `navSeq`, а не
+   * при каждом рендере — иначе своя же правка фильтра откатывалась бы назад.
+   * `onLocationChange` — обратная связь: страница сообщает наверх, что сейчас
+   * открыто, чтобы адрес совпадал с тем, что видно на экране.
+   */
+  link?: LinkState
+  navSeq?: number
+  onLocationChange?: (s: LinkState) => void
+}) {
   // Подтверждения — своим окном: системное браузер вправе подавить, и кнопка
   // необратимого действия выглядит нерабочей (см. ConfirmDialog).
   const { ask, node: confirmNode } = useConfirm()
@@ -358,7 +377,17 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
     // Страница передаётся вместе с дашбордом: из каталога «Главной» человек
     // нажимает на КОНКРЕТНУЮ страницу («Динамика»), и открывать вместо неё
     // первую — значит не выполнить то, что он попросил.
-    if (initialDashboardId) openDashboard(initialDashboardId, initialPageId || undefined)
+    if (initialDashboardId) {
+      // Открытие по присланной ссылке (п. 6): период и строка приезжают
+      // вместе с дашбордом и страницей. openDashboard сбрасывает фильтры на
+      // время загрузки (список виджетов ещё не тот), поэтому подставляем их
+      // ПОСЛЕ, когда страница уже открыта.
+      openDashboard(initialDashboardId, initialPageId || undefined).then(() => {
+        if (link?.from || link?.to || link?.row) {
+          setPFrom(link.from || ''); setPTo(link.to || ''); setCrossRow(link.row || null)
+        }
+      })
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Тихая проверка свежести раз в минуту. Данные не перезагружаем — только
@@ -463,6 +492,44 @@ export default function DashboardsPage({ canManage, isAdmin, isSuperadmin, initi
   async function reloadPage() {
     if (page) { try { setWidgets((await listPageWidgets(page.id)).widgets) } catch (e) { fail(e) } }
   }
+
+  // ── Ссылка на конкретное место (п. 6) ──────────────────────────────────
+  // Сообщаем наверх, что сейчас открыто: App пишет это в адрес браузера.
+  // Читаем ЖИВЫЕ значения через ref не нужно — эффект зависит ровно от того,
+  // что должно попасть в ссылку, и срабатывает только при реальной смене.
+  useEffect(() => {
+    onLocationChange?.({
+      dashboard: sel?.dashboard.id,
+      page: page?.id,
+      from: pFrom || undefined,
+      to: pTo || undefined,
+      row: crossRow || undefined,
+    })
+  }, [sel?.dashboard.id, page?.id, pFrom, pTo, crossRow]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Внешняя смена места: человек нажал «назад»/«вперёд» в браузере (или
+  // открыл присланную ссылку в новой вкладке — тогда сработает при монтировании
+  // через initialDashboardId, а этот эффект применит только фильтры).
+  //
+  // Триггер — именно СМЕНА navSeq, а не сам объект `link`: `link` совпадает с
+  // тем, что мы только что сами сообщили наверх (эффект отчёта — строкой
+  // выше), и реагировать на каждое его обновление значило бы откатывать
+  // собственную правку фильтра сразу после того, как её ввели.
+  const lastNavSeq = useRef(navSeq)
+  useEffect(() => {
+    if (navSeq === undefined || navSeq === lastNavSeq.current) return
+    lastNavSeq.current = navSeq
+    const s = link || {}
+    setPFrom(s.from || ''); setPTo(s.to || ''); setCrossRow(s.row || null)
+    if (!s.dashboard) {
+      setSel(null); setPage(null); setWidgets([])
+    } else if (s.dashboard !== sel?.dashboard.id) {
+      openDashboard(s.dashboard, s.page)
+    } else if (s.page && s.page !== page?.id) {
+      const target = sel.pages.find((p) => p.id === s.page)
+      if (target) openPage(target)
+    }
+  }, [navSeq]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Создание из шаблона с переспросом об одноимённом.
    *

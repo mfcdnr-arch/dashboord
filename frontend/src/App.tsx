@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { clearToken, getAppealsStats, getHealth, getMe, getSetupStatus, getToken, type Health, type Me } from './api'
 import Login from './components/Login'
 import ChangePassword from './components/ChangePassword'
 import ObjectsPage from './components/ObjectsPage'
 import MetricsPage from './components/MetricsPage'
+import type { LinkState } from './lib/deeplink'
+import { initialLink, useDeepLink } from './lib/useDeepLink'
 import DashboardsPage from './components/DashboardsPage'
 import HomePage from './components/HomePage'
 import InstructionsPage from './components/InstructionsPage'
@@ -134,11 +136,22 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [health, setHealth] = useState<Health | null>(null)
   // Обычный пользователь начинает сразу со списка дашбордов: «Главной» у него нет.
   const staff = me.roles.some((r) => ['admin', 'moderator', 'superadmin'].includes(r))
-  const [section, setSection] = useState(staff ? 'home' : 'dashboards')
-  const [openDash, setOpenDash] = useState<string | null>(null)
+  // Пришли по ссылке (п. 6) — начинаем с того места, которое в ней указано.
+  const [link0] = useState(initialLink)
+  const [section, setSection] = useState(link0.section || (staff ? 'home' : 'dashboards'))
+  const [openDash, setOpenDash] = useState<string | null>(link0.dashboard || null)
   // Страница, на которую нужно попасть при открытии дашборда (из каталога
   // «Главной»): без неё клик по «Динамике» приводил на «Обзор».
-  const [openPage, setOpenPage] = useState<string | null>(null)
+  const [openPage, setOpenPage] = useState<string | null>(link0.page || null)
+  // Фильтры живут внутри DashboardsPage; сюда она их только СООБЩАЕТ, чтобы
+  // адрес показывал то, что человек видит. Поднимать их в App значило бы
+  // переписать половину страницы ради одной ссылки.
+  const [dashLink, setDashLink] = useState<LinkState>(link0)
+  // Счётчик нажатий «назад»/«вперёд». Нужен, чтобы отличить ВНЕШНЮЮ смену
+  // места (человек в истории браузера) от того, что страница сама сообщила о
+  // себе: применять ссылку надо только в первом случае, иначе экран сбрасывал
+  // бы фильтры себе под руку.
+  const [navSeq, setNavSeq] = useState(0)
   // Куда ведёт клик по уведомлению: раздел + сущность внутри него. Без этого
   // уведомление было тупиком — человек читал «не работает выгрузка» и должен
   // был сам вспомнить, где искать это обращение.
@@ -150,6 +163,20 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null))
   }, [])
+
+  // Адрес отражает место в системе: раздел, отчёт, страницу и фильтры (п. 6).
+  // Внутри раздела «Дашборды» подробности приходят от самой страницы.
+  const linkState: LinkState = section === 'dashboards'
+    ? { ...dashLink, section: 'dashboards' }
+    : { section }
+  const onBack = useCallback((s: LinkState) => {
+    setSection(s.section || (staff ? 'home' : 'dashboards'))
+    setOpenDash(s.dashboard || null)
+    setOpenPage(s.page || null)
+    setDashLink(s)
+    setNavSeq((n) => n + 1)
+  }, [staff])
+  useDeepLink(linkState, onBack)
   const ok = health?.status === 'ok'
   const canManage = me.roles.includes('admin') || me.roles.includes('moderator') || me.roles.includes('superadmin')
   const isAdmin = me.roles.includes('admin') || me.roles.includes('superadmin')
@@ -294,6 +321,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
               onOpen={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'dashboards' ? (
             <DashboardsPage canManage={canManage} isAdmin={isAdmin} isSuperadmin={isSuperadmin} initialDashboardId={openDash} initialPageId={openPage}
+              link={dashLink} navSeq={navSeq} onLocationChange={setDashLink}
               // Отправив жалобу с виджета, человек хочет прочитать ответ. Своя
               // переписка у обычного пользователя живёт в «Кабинете» (раздела
               // «Обращения» у него нет) — то же правило, что у уведомлений.
