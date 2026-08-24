@@ -24,7 +24,14 @@ const FORMULA_HELP = [
 
 const METRICS_PAGE = 50
 
-export default function MetricsPage({ canManage, isSuperadmin }: { canManage: boolean; isSuperadmin?: boolean }) {
+export default function MetricsPage({ canManage, isSuperadmin, initialMetricId }: {
+  canManage: boolean; isSuperadmin?: boolean
+  /** Переход из быстрого поиска (п. 9): открыть КОНКРЕТНЫЙ показатель, а не
+   *  просто раздел. Раздел размонтируется при уходе с него (переключатель
+   *  секций в App.tsx — тернарная цепочка), поэтому обычного initial-значения
+   *  достаточно — навSeq, как у дашбордов, здесь не нужен. */
+  initialMetricId?: string | null
+}) {
   const [metrics, setMetrics] = useState<Metric[]>([])
   // Что каждый показатель считает прямо сейчас. Раньше это можно было узнать,
   // только открыв показатель и нажав предпросмотр: при полутора десятках
@@ -100,6 +107,7 @@ export default function MetricsPage({ canManage, isSuperadmin }: { canManage: bo
     .then((r) => setValues(Object.fromEntries(r.items.map((v) => [v.code, v]))))
     .catch(() => setValues({}))
   useEffect(() => { loadValues() }, [])
+  useEffect(() => { if (initialMetricId) openMetric(initialMetricId) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openMetric(id: string) {
     setError(null)

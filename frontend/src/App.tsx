@@ -6,6 +6,7 @@ import ObjectsPage from './components/ObjectsPage'
 import MetricsPage from './components/MetricsPage'
 import type { LinkState } from './lib/deeplink'
 import { initialLink, useDeepLink } from './lib/useDeepLink'
+import CommandPalette, { type SearchTarget } from './components/CommandPalette'
 import DashboardsPage from './components/DashboardsPage'
 import HomePage from './components/HomePage'
 import InstructionsPage from './components/InstructionsPage'
@@ -159,6 +160,10 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   // С какой вкладки открыть «Кабинет»: с главной ведёт кнопка «Написать администратору».
   const [profileTab, setProfileTab] = useState<'profile' | 'appeals' | undefined>(undefined)
   const [openObject, setOpenObject] = useState<string | null>(null)
+  // Показатель, к которому ведёт быстрый поиск (п. 9): раздел «Метрики»
+  // remount'ится при каждом переходе в него (см. `nav`-переключатель ниже),
+  // поэтому простого initial-пропа достаточно — навSeq для него не нужен.
+  const [openMetric, setOpenMetric] = useState<string | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null))
@@ -169,14 +174,22 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const linkState: LinkState = section === 'dashboards'
     ? { ...dashLink, section: 'dashboards' }
     : { section }
-  const onBack = useCallback((s: LinkState) => {
+  // Переход к отчёту/странице/виджету — общая точка для ДВУХ вызывающих:
+  // нажатия «назад»/«вперёд» в браузере (см. useDeepLink) и выбора результата
+  // в быстром поиске (п. 9, Ctrl+K). Оба случая — «где-то там, снаружи,
+  // решили открыть другое место», и должны применяться одинаково: раздел
+  // «Дашборды» может быть уже открыт (тогда нужен navSeq, чтобы страница
+  // среагировала без размонтирования) или ещё не открыт (тогда достаточно
+  // initialDashboardId при монтировании — navSeq в этом случае просто не
+  // успевает ничего сломать, см. докстроку useDeepLink).
+  const goTo = useCallback((s: LinkState) => {
     setSection(s.section || (staff ? 'home' : 'dashboards'))
     setOpenDash(s.dashboard || null)
     setOpenPage(s.page || null)
     setDashLink(s)
     setNavSeq((n) => n + 1)
   }, [staff])
-  useDeepLink(linkState, onBack)
+  useDeepLink(linkState, goTo)
   const ok = health?.status === 'ok'
   const canManage = me.roles.includes('admin') || me.roles.includes('moderator') || me.roles.includes('superadmin')
   const isAdmin = me.roles.includes('admin') || me.roles.includes('superadmin')
@@ -239,8 +252,28 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     // (одного лишь наличия доступа к отчёту из подборки теперь мало).
     && (!(n as { featuredGate?: boolean }).featuredGate || canManage || (me.show_featured && featuredOk)))
 
+  // Быстрый поиск (п. 9, Ctrl+K): выбор результата ведёт либо через ОБЩИЙ
+  // механизм навигации (раздел/отчёт/страница/виджет — тот же `goTo`, что и
+  // у кнопок «назад»/«вперёд» браузера), либо через собственный initial-проп
+  // раздела (объект, показатель) — второй проще там, где раздел и так
+  // размонтируется при уходе с него.
+  const onSearchNavigate = useCallback((t: SearchTarget) => {
+    switch (t.kind) {
+      case 'section': goTo({ section: t.section }); break
+      case 'dashboard': goTo({ section: 'dashboards', dashboard: t.dashboard }); break
+      case 'page': goTo({ section: 'dashboards', dashboard: t.dashboard, page: t.page }); break
+      case 'widget': goTo({ section: 'dashboards', dashboard: t.dashboard,
+        page: t.page || undefined, widget: t.widget }); break
+      case 'object': setSection('objects'); setOpenObject(t.object); break
+      case 'metric': setSection('metrics'); setOpenMetric(t.metric); break
+    }
+  }, [goTo])
+
   return (
     <div style={{ fontFamily: 'var(--font-body)', minHeight: '100vh' }}>
+      {/* Смонтирован всегда, независимо от раздела — Ctrl+K обязан работать
+          из любого места, в этом весь смысл «быстрого» поиска. */}
+      <CommandPalette nav={nav} onNavigate={onSearchNavigate} />
       <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
         <Logo size={34} />
         <div>
@@ -315,7 +348,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ) : section === 'objects' ? (
             <ObjectsPage canManage={canManage} isSuperadmin={isSuperadmin} initialObjectId={openObject} />
           ) : section === 'metrics' ? (
-            <MetricsPage canManage={canManage} isSuperadmin={isSuperadmin} />
+            <MetricsPage canManage={canManage} isSuperadmin={isSuperadmin} initialMetricId={openMetric} />
           ) : section === 'leadership' ? (
             <LeadershipPage canManage={canManage}
               onOpen={(id) => { setOpenDash(id); setSection('dashboards') }} />

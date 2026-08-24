@@ -80,6 +80,7 @@ export default defineConfig({
       '/archive-access': 'http://localhost:8080',
       '/appeals': 'http://localhost:8080',
       '/showcases': 'http://localhost:8080',
+      '/search': 'http://localhost:8080',
     },
   },
 })

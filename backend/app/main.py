@@ -30,6 +30,7 @@ from .modules.notifications.router import router as notifications_router
 from .modules.objects.router import router as objects_router
 from .modules.portal.router import router as portal_router
 from .modules.reports.router import router as reports_router
+from .modules.search.router import router as search_router
 from .modules.showcases.router import router as showcases_router
 from .modules.system.router import router as system_router
 from .modules.uploads.router import router as uploads_router
@@ -118,6 +119,7 @@ app.include_router(notifications_router)
 app.include_router(maintenance_router)
 app.include_router(appeals_router)
 app.include_router(showcases_router)
+app.include_router(search_router)
 app.include_router(portal_router)
 
 

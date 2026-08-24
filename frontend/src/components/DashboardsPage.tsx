@@ -386,6 +386,9 @@ export default function DashboardsPage({
         if (link?.from || link?.to || link?.row) {
           setPFrom(link.from || ''); setPTo(link.to || ''); setCrossRow(link.row || null)
         }
+        // Пришли из быстрого поиска (п. 9) с конкретным виджетом — прокрутить
+        // и подсветить, как при переходе из меню «↗ куда дальше».
+        if (link?.widget) revealWidget(link.widget)
       })
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -523,6 +526,14 @@ export default function DashboardsPage({
     setPFrom(s.from || ''); setPTo(s.to || ''); setCrossRow(s.row || null)
     if (!s.dashboard) {
       setSel(null); setPage(null); setWidgets([])
+      return
+    }
+    // Виджет — из быстрого поиска (п. 9): открыть дашборд/страницу и
+    // прокрутить к нему, той же функцией, что и переход из меню «↗ куда
+    // дальше» (`navigateToWidget`) — второго способа «показать виджет» в
+    // системе нет и не должно быть.
+    if (s.widget) {
+      navigateToWidget(s.dashboard, s.page || null, s.widget)
     } else if (s.dashboard !== sel?.dashboard.id) {
       openDashboard(s.dashboard, s.page)
     } else if (s.page && s.page !== page?.id) {
