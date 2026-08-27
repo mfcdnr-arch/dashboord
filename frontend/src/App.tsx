@@ -110,8 +110,10 @@ const NAV = [
   { key: 'instructions', label: 'Инструкции', ready: true },
   { key: 'showcases', label: 'Витрины', ready: true, showcaseGate: true },
   // Пилотный раздел (не дашборд): отделения МФЦ с раскрытием по ведомству и
-  // услуге — такого разреза обычный конструктор виджетов не строит.
-  { key: 'dnrstats', label: 'Статистика услуг', ready: true, staffOnly: true },
+  // услуге — такого разреза обычный конструктор виджетов не строит. Сводный
+  // «Обзор» наверху этого раздела нужен и руководству, поэтому видимость —
+  // как у «Руководителю» (staff всегда, остальным — по той же галочке).
+  { key: 'dnrstats', label: 'Статистика услуг', ready: true, dnrStatsGate: true },
   { key: 'archive', label: 'Архив', ready: true, archiveGate: true },
   { key: 'moderation', label: 'Модерация', ready: true, modOnly: true },
   { key: 'appeals', label: 'Обращения', ready: true, modOnly: true },
@@ -254,7 +256,10 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     && (!(n as { showcaseGate?: boolean }).showcaseGate || canManage || showcasesOk)
     // Подборка «Руководителю»: управляющим всегда, остальным — по галочке
     // (одного лишь наличия доступа к отчёту из подборки теперь мало).
-    && (!(n as { featuredGate?: boolean }).featuredGate || canManage || (me.show_featured && featuredOk)))
+    && (!(n as { featuredGate?: boolean }).featuredGate || canManage || (me.show_featured && featuredOk))
+    // «Статистика услуг»: та же галочка, без доп. проверки «есть ли что
+    // показать» — раздел не пуст, пока размечено хоть одно ведомство.
+    && (!(n as { dnrStatsGate?: boolean }).dnrStatsGate || canManage || me.show_featured))
 
   // Быстрый поиск (п. 9, Ctrl+K): выбор результата ведёт либо через ОБЩИЙ
   // механизм навигации (раздел/отчёт/страница/виджет — тот же `goTo`, что и

@@ -29,7 +29,7 @@ async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)
         # должен действовать немедленно, а не через TTL.
         row = await conn.fetchrow(
             "select u.id, u.login, u.full_name, u.is_active, u.must_change_password, "
-            "u.organization_id, u.password_changed_at, "
+            "u.organization_id, u.password_changed_at, u.show_featured, "
             "coalesce((select array_agg(r.code) from user_roles ur join roles r on r.id = ur.role_id "
             "          where ur.user_id = u.id), '{}') as role_codes "
             "from users u where u.id = $1::uuid",
