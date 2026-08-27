@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, List, Optional, Sequence
 
 from . import analyze, parsers
@@ -47,13 +48,28 @@ async def assert_code_free(conn, org_id, code: str, object_id) -> None:
         )
 
 
-def _norm_name(name: str) -> str:
-    """Ключ сопоставления показателя с уже заведённым полем объекта.
+_EMBEDDED_DATE_RE = re.compile(r"\d{1,2}\.\d{1,2}\.\d{2,4}")
 
-    Только регистр и пробелы: имя показателя — единственное, что устойчиво
-    повторяется в одной и той же форме за разные периоды.
+
+def _norm_name(name: str) -> str:
+    """Ключ сопоставления показателя с уже заведённым полем объекта — и ключ
+    отпечатка структуры формы (`structure_fingerprint`).
+
+    Регистр и пробелы — ожидаемо. А ДАТЫ ВНУТРИ ЗАГОЛОВКА — реальная находка,
+    не гипотеза: у заказчика («ДНР_статистика») графа называется «Количество
+    принятых заявлений с 01.01.2026 по 19.08.2026», и через неделю то же самое
+    поле называется «…по 26.08.2026» — при точном сравнении строк это ДВЕ
+    РАЗНЫЕ графы. Без вырезания даты показатель «переезжал» бы на новый код
+    каждую неделю (тот же класс бага, что и «код уплывает» из-за обрезки
+    заголовка, зафиксированный в истории проекта), а отпечаток структуры формы
+    ни разу не совпал бы с прошлым выпуском — «Загрузка» просила бы ручную
+    разметку КАЖДУЮ неделю вместо одного раза, что делает автораспознавание
+    бесполезным именно там, где оно нужнее всего (форма с ролящейся датой).
+    Пустая строка на месте даты — это нормально: то, что вокруг нее, всё равно
+    достаточно уникально в пределах формы (проверено на реальном файле).
     """
-    return " ".join((name or "").split()).lower()
+    text = _EMBEDDED_DATE_RE.sub("", name or "")
+    return " ".join(text.split()).lower()
 
 
 async def resolve_context(conn, job_id: str) -> Optional[dict]:
@@ -613,7 +629,7 @@ def _validate_grid(rows, value_fields, label_col, field_type) -> list:
     negative: list = []
     missing = 0
     for row in rows:
-        row_label = row[label_col] if label_col is not None and label_col < len(row) else None
+        row_label = analyze.clean_row_label(row[label_col] if label_col is not None and label_col < len(row) else None)
         if row_label is None or not str(row_label).strip():
             empty_rows += 1
         else:
@@ -816,7 +832,7 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         # значения уехал бы текст письма над таблицей.
         rows_used = data_rows(area, header_rows, lay["skip_rows"] or [])
         for row_index, row in enumerate(rows_used):
-            row_label = row[label_col] if label_col is not None and label_col < len(row) else None
+            row_label = analyze.clean_row_label(row[label_col] if label_col is not None and label_col < len(row) else None)
             for f in value_fields:
                 ci = f["column_index"]
                 raw = row[ci] if ci < len(row) else ""

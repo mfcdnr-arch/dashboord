@@ -8,7 +8,6 @@
 // дашборды ведомства/услуги — второго источника правды здесь нет.
 import { useEffect, useMemo, useState } from 'react'
 import { authH } from '../api/http'
-import { listObjects, type Obj } from '../api/objects'
 import { alertLook } from '../lib/alertColors'
 import { fmtNumber } from '../lib/format'
 import EChart from './EChart'
@@ -55,46 +54,25 @@ type OfficesResp = {
 }
 
 export default function DnrStatsPage() {
-  const [objects, setObjects] = useState<Obj[] | null>(null)
-  const [objectId, setObjectId] = useState<string>('')
   const [view, setView] = useState<'overview' | 'list'>('overview')
   const [deptView, setDeptView] = useState<{ office: string; dept: string } | null>(null)
   const [serviceView, setServiceView] = useState<{ office: string; dept: string; idx: number } | null>(null)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    listObjects().then((list) => {
-      setObjects(list)
-      const preferred = list.find((o) => o.name.toLowerCase().includes('статистика услуг'))
-      setObjectId((preferred || list[0])?.id || '')
-    }).catch((e) => setError(String(e.message || e)))
-  }, [])
-
-  if (error) return <div style={{ color: 'var(--danger)' }}>{error}</div>
-  if (!objectId) return <div style={{ color: 'var(--text-muted)' }}>Загрузка…</div>
 
   if (serviceView) {
-    return <ServiceDashboard objectId={objectId} office={serviceView.office} dept={serviceView.dept} idx={serviceView.idx}
+    return <ServiceDashboard office={serviceView.office} dept={serviceView.dept} idx={serviceView.idx}
       onBack={() => setServiceView(null)} />
   }
   if (deptView) {
-    return <DeptDashboard objectId={objectId} office={deptView.office} dept={deptView.dept}
+    return <DeptDashboard office={deptView.office} dept={deptView.dept}
       onOpenService={(idx) => setServiceView({ office: deptView.office, dept: deptView.dept, idx })}
       onBack={() => setDeptView(null)} />
   }
 
-  const objectPicker = objects && objects.length > 1 && (
-    <select value={objectId} onChange={(e) => { setObjectId(e.target.value) }}
-      style={{ padding: '4px 8px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)' }}>
-      {objects.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-    </select>
-  )
-
   if (view === 'overview') {
-    return <OverviewView objectId={objectId} objectPicker={objectPicker} onOpenList={() => setView('list')} />
+    return <OverviewView onOpenList={() => setView('list')} />
   }
 
-  return <OfficesList objectId={objectId} objectPicker={objectPicker} onBackToOverview={() => setView('overview')}
+  return <OfficesList onBackToOverview={() => setView('overview')}
     onOpenDept={(office, dept) => setDeptView({ office, dept })} />
 }
 
@@ -130,20 +108,18 @@ function alertColor(kind: string): string {
   return alertLook({ level })?.color || 'var(--text)'
 }
 
-function OverviewView({ objectId, objectPicker, onOpenList }: {
-  objectId: string; objectPicker: React.ReactNode; onOpenList: () => void
-}) {
+function OverviewView({ onOpenList }: { onOpenList: () => void }) {
   const [d, setD] = useState<Overview | null>(null)
   const [error, setError] = useState('')
   useThemeVersion()
 
   useEffect(() => {
     setD(null); setError('')
-    fetch(`/dnr-stats/${objectId}/overview`, { headers: authH() })
+    fetch('/dnr-stats/overview', { headers: authH() })
       .then((r) => { if (!r.ok) throw new Error('Не удалось загрузить свод'); return r.json() })
       .then((x) => setD(x))
       .catch((e) => setError(String(e.message || e)))
-  }, [objectId])
+  }, [])
 
   const growthOption = useMemo(() => {
     if (!d || d.departments.length === 0) return null
@@ -195,10 +171,7 @@ function OverviewView({ objectId, objectPicker, onOpenList }: {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 12, marginBottom: 4 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-          <h2 style={{ margin: 0 }}>Статистика услуг ДНР</h2>
-          {objectPicker}
-        </div>
+        <h2 style={{ margin: 0 }}>Статистика услуг ДНР</h2>
         <button onClick={onOpenList} style={linkBtn}>Список отделений →</button>
       </div>
 
@@ -296,8 +269,8 @@ const linkBtn: React.CSSProperties = {
 // Список отделений (прежний уровень 1).
 // ---------------------------------------------------------------------------
 
-function OfficesList({ objectId, objectPicker, onBackToOverview, onOpenDept }: {
-  objectId: string; objectPicker: React.ReactNode; onBackToOverview: () => void
+function OfficesList({ onBackToOverview, onOpenDept }: {
+  onBackToOverview: () => void
   onOpenDept: (office: string, dept: string) => void
 }) {
   const [data, setData] = useState<OfficesResp | null>(null)
@@ -308,17 +281,16 @@ function OfficesList({ objectId, objectPicker, onBackToOverview, onOpenDept }: {
   useThemeVersion()
 
   useEffect(() => {
-    if (!objectId) return
     const t = setTimeout(() => {
       const p = new URLSearchParams({ sort })
       if (q.trim()) p.set('q', q.trim())
-      fetch(`/dnr-stats/${objectId}/offices?${p}`, { headers: authH() })
+      fetch(`/dnr-stats/offices?${p}`, { headers: authH() })
         .then((r) => { if (!r.ok) throw new Error('Не удалось загрузить'); return r.json() })
         .then((d) => { setData(d); setError('') })
         .catch((e) => setError(String(e.message || e)))
     }, 200)
     return () => clearTimeout(t)
-  }, [objectId, q, sort])
+  }, [q, sort])
 
   const cityOption = useMemo(() => {
     if (!data) return null
@@ -342,7 +314,6 @@ function OfficesList({ objectId, objectPicker, onBackToOverview, onOpenDept }: {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4, flexWrap: 'wrap' }}>
         <button onClick={onBackToOverview} style={backBtn}>← Обзор</button>
         <h2 style={{ margin: 0 }}>Статистика услуг ДНР</h2>
-        {objectPicker}
       </div>
       <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>
         Отделения МФЦ, ведомства и услуги — свод по последнему выпуску данных
@@ -508,8 +479,8 @@ type DeptDetail = {
   rank: { place: number | null; total: number; top10: { office: string; value: number }[] }
 }
 
-function DeptDashboard({ objectId, office, dept, onBack, onOpenService }: {
-  objectId: string; office: string; dept: string; onBack: () => void; onOpenService: (idx: number) => void
+function DeptDashboard({ office, dept, onBack, onOpenService }: {
+  office: string; dept: string; onBack: () => void; onOpenService: (idx: number) => void
 }) {
   const [d, setD] = useState<DeptDetail | null>(null)
   const [error, setError] = useState('')
@@ -517,11 +488,11 @@ function DeptDashboard({ objectId, office, dept, onBack, onOpenService }: {
 
   useEffect(() => {
     const p = new URLSearchParams({ office, dept })
-    fetch(`/dnr-stats/${objectId}/office-department?${p}`, { headers: authH() })
+    fetch(`/dnr-stats/office-department?${p}`, { headers: authH() })
       .then((r) => { if (!r.ok) throw new Error('Не удалось загрузить'); return r.json() })
       .then((x) => { setD(x); setError('') })
       .catch((e) => setError(String(e.message || e)))
-  }, [objectId, office, dept])
+  }, [office, dept])
 
   const trendOption = useMemo(() => {
     if (!d) return null
@@ -683,8 +654,8 @@ type ServiceDetail = {
   rank: { place: number | null; total: number; top10: { office: string; value: number }[] }
 }
 
-function ServiceDashboard({ objectId, office, dept, idx, onBack }: {
-  objectId: string; office: string; dept: string; idx: number; onBack: () => void
+function ServiceDashboard({ office, dept, idx, onBack }: {
+  office: string; dept: string; idx: number; onBack: () => void
 }) {
   const [d, setD] = useState<ServiceDetail | null>(null)
   const [error, setError] = useState('')
@@ -692,11 +663,11 @@ function ServiceDashboard({ objectId, office, dept, idx, onBack }: {
 
   useEffect(() => {
     const p = new URLSearchParams({ office, dept, idx: String(idx) })
-    fetch(`/dnr-stats/${objectId}/office-service?${p}`, { headers: authH() })
+    fetch(`/dnr-stats/office-service?${p}`, { headers: authH() })
       .then((r) => { if (!r.ok) throw new Error('Не удалось загрузить'); return r.json() })
       .then((x) => { setD(x); setError('') })
       .catch((e) => setError(String(e.message || e)))
-  }, [objectId, office, dept, idx])
+  }, [office, dept, idx])
 
   const trendOption = useMemo(() => {
     if (!d) return null

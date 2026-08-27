@@ -3,6 +3,11 @@
 Отдельный раздел меню, а не дашборд: список отделений с раскрытием по
 ведомству и услуге внутри строки — такого разреза обычный конструктор
 виджетов не строит (см. docstring service.py).
+
+Маршруты БЕЗ object_id: у каждого ведомства свой объект (своя папка, свой
+шаблон разметки), а раздел ищет данные по коду датасета внутри организации —
+второй системы допуска/области видимости заводить незачем, `view_access`
+и так не завязан на конкретный объект.
 """
 from __future__ import annotations
 
@@ -32,46 +37,38 @@ async def view_access(user: dict = Depends(get_current_user)) -> dict:
     raise HTTPException(status.HTTP_403_FORBIDDEN, "Недостаточно прав")
 
 
-@router.get("/{object_id}/overview")
-async def overview(object_id: str, user: dict = Depends(view_access)):
+@router.get("/overview")
+async def overview(user: dict = Depends(view_access)):
     async with db.get_pool().acquire() as conn:
-        try:
-            return await service.overview(conn, user["organization_id"], object_id)
-        except service.DnrStatsError as e:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+        return await service.overview(conn, user["organization_id"])
 
 
-@router.get("/{object_id}/offices")
-async def offices(object_id: str, q: Optional[str] = None,
-                  sort: str = Query("total_desc"), dept: Optional[str] = None,
-                  user: dict = Depends(view_access)):
+@router.get("/offices")
+async def offices(q: Optional[str] = None, sort: str = Query("total_desc"),
+                  dept: Optional[str] = None, user: dict = Depends(view_access)):
     async with db.get_pool().acquire() as conn:
-        try:
-            return await service.list_offices(conn, user["organization_id"], object_id,
-                                              q=q, sort=sort, dept_filter=dept)
-        except service.DnrStatsError as e:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+        return await service.list_offices(conn, user["organization_id"], q=q, sort=sort, dept_filter=dept)
 
 
-@router.get("/{object_id}/office-department")
-async def office_department(object_id: str, office: str = Query(...), dept: str = Query(...),
+@router.get("/office-department")
+async def office_department(office: str = Query(...), dept: str = Query(...),
                             user: dict = Depends(view_access)):
-    """Дашборд одного ведомства для одного отделения (скрин 3). Отделение —
-    ПАРАМЕТРОМ запроса, а не куском пути: адрес отделения длинный и содержит
-    символы («», запятые), которым в пути делать нечего."""
+    """Дашборд одного ведомства для одного отделения. Отделение — ПАРАМЕТРОМ
+    запроса, а не куском пути: адрес отделения длинный и содержит символы
+    («», запятые), которым в пути делать нечего."""
     async with db.get_pool().acquire() as conn:
         try:
-            return await service.office_department(conn, user["organization_id"], object_id, office, dept)
+            return await service.office_department(conn, user["organization_id"], office, dept)
         except service.DnrStatsError as e:
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
 
 
-@router.get("/{object_id}/office-service")
-async def office_service(object_id: str, office: str = Query(...), dept: str = Query(...),
+@router.get("/office-service")
+async def office_service(office: str = Query(...), dept: str = Query(...),
                          idx: int = Query(..., ge=1), user: dict = Depends(view_access)):
-    """Дашборд одной услуги для одного отделения (скрин 2)."""
+    """Дашборд одной услуги для одного отделения."""
     async with db.get_pool().acquire() as conn:
         try:
-            return await service.office_service(conn, user["organization_id"], object_id, office, dept, idx)
+            return await service.office_service(conn, user["organization_id"], office, dept, idx)
         except service.DnrStatsError as e:
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))

@@ -15,6 +15,14 @@
 конкретного ведомства — у разных ведомств разметка идёт не одновременно,
 поэтому «последние две» для МВД и для, скажем, ФНС — не обязательно одна и
 та же пара календарных дат.
+
+Раздел ORG-WIDE, без привязки к одному object_id: у каждого ведомства СВОЙ
+объект (своя папка, свой шаблон разметки — «один объект = одна форма», как и
+у остальной платформы), а данные ищутся по КОДУ датасета внутри организации
+(тот же приём, что уже применяется к паспорту КПЭ, `_kpi_snapshot`). Иначе
+12 разных форм пришлось бы втискивать в один общий объект, у которого может
+быть только ОДИН отпечаток структуры — тогда автораспознавание файла второго
+ведомства сломало бы распознавание первого.
 """
 from __future__ import annotations
 
@@ -34,22 +42,18 @@ class DnrStatsError(Exception):
     pass
 
 
-async def _object_org(conn, org_id, object_id: str) -> bool:
-    return bool(await conn.fetchval(
-        "select 1 from objects where id=$1::uuid and organization_id=$2", object_id, org_id))
-
-
-async def _active_releases(conn, org_id, object_id: str, dataset_code: str) -> list:
-    """Все НЕ отменённые выпуски датасета этого объекта, старые→новые.
+async def _active_releases(conn, org_id, dataset_code: str) -> list:
+    """Все НЕ отменённые выпуски датасета этого кода, старые→новые, где бы
+    (в каком объекте) их ни выпустили.
 
     Точки истории задаёт САМА жизнь данных (`dataset_releases`), а не список
     ожидаемых дат — так раздел не нужно трогать при каждом новом файле."""
     return await conn.fetch(
         "select id, reporting_period_start from dataset_releases "
-        "where organization_id=$1 and object_id=$2::uuid and code=$3 and status <> 'superseded' "
+        "where organization_id=$1 and code=$2 and status <> 'superseded' "
         "and reporting_period_start is not null "
         "order by reporting_period_start asc, created_at asc",
-        org_id, object_id, dataset_code,
+        org_id, dataset_code,
     )
 
 
@@ -105,9 +109,9 @@ async def _dept_snapshot(conn, release, dept_code: str, dept: dict) -> dict:
     return out
 
 
-async def _dept_series(conn, org_id, object_id: str, dept_code: str, dept: dict) -> list:
+async def _dept_series(conn, org_id, dept_code: str, dept: dict) -> list:
     """Вся история ведомства по офисам: список (период, {офис: снимок}), старые→новые."""
-    releases = await _active_releases(conn, org_id, object_id, dept["dataset_code"])
+    releases = await _active_releases(conn, org_id, dept["dataset_code"])
     points = []
     for rel in releases:
         snap = await _dept_snapshot(conn, rel, dept_code, dept)
@@ -127,11 +131,11 @@ def _last_two(points: list):
     return pp, ps, np_, ns
 
 
-async def _dept_rows(conn, org_id, object_id: str, dept_code: str, dept: dict) -> dict:
+async def _dept_rows(conn, org_id, dept_code: str, dept: dict) -> dict:
     """Свод одного ведомства по отделениям на последние два выпуска (для
     списка отделений и дашбордов ведомства/услуги — там сравнение «было/стало»,
     а не вся история)."""
-    points = await _dept_series(conn, org_id, object_id, dept_code, dept)
+    points = await _dept_series(conn, org_id, dept_code, dept)
     period_prev, snap_prev, period_now, snap_now = _last_two(points)
     if not snap_now:
         return {}
@@ -166,13 +170,10 @@ async def _dept_rows(conn, org_id, object_id: str, dept_code: str, dept: dict) -
     return out
 
 
-async def list_offices(conn, org_id, object_id: str, q: Optional[str] = None,
+async def list_offices(conn, org_id, q: Optional[str] = None,
                        sort: str = "total_desc", dept_filter: Optional[str] = None) -> dict:
-    if not await _object_org(conn, org_id, object_id):
-        raise DnrStatsError("Объект не найден")
-
     depts = {c: d for c, d in DEPARTMENTS.items() if not dept_filter or c == dept_filter}
-    per_dept = {c: await _dept_rows(conn, org_id, object_id, c, d) for c, d in depts.items()}
+    per_dept = {c: await _dept_rows(conn, org_id, c, d) for c, d in depts.items()}
 
     offices: dict[str, dict] = {}
     period_prev = period_now = None
@@ -221,7 +222,7 @@ async def list_offices(conn, org_id, object_id: str, q: Optional[str] = None,
     }
 
 
-async def office_department(conn, org_id, object_id: str, office: str, dept_code: str) -> dict:
+async def office_department(conn, org_id, office: str, dept_code: str) -> dict:
     """Дашборд одного ведомства для ОДНОГО отделения: карточки, ряд по
     последним двум отчётным точкам этого ведомства и место среди отделений.
 
@@ -229,13 +230,11 @@ async def office_department(conn, org_id, object_id: str, office: str, dept_code
     экран сказал бы «3-е место», а список отделений показывал бы другую
     цифру для той же пары «отделение · ведомство».
     """
-    if not await _object_org(conn, org_id, object_id):
-        raise DnrStatsError("Объект не найден")
     dept = DEPARTMENTS.get(dept_code)
     if dept is None:
         raise DnrStatsError("Ведомство не найдено")
 
-    rows_by_office = await _dept_rows(conn, org_id, object_id, dept_code, dept)
+    rows_by_office = await _dept_rows(conn, org_id, dept_code, dept)
     row = rows_by_office.get(office)
     if row is None:
         raise DnrStatsError("Отделение не найдено в данных этого ведомства")
@@ -261,7 +260,7 @@ async def office_department(conn, org_id, object_id: str, office: str, dept_code
     }
 
 
-async def office_service(conn, org_id, object_id: str, office: str, dept_code: str, idx: int) -> dict:
+async def office_service(conn, org_id, office: str, dept_code: str, idx: int) -> dict:
     """Дашборд ОДНОЙ услуги для одного отделения: та же карточка-логика, что
     и у дашборда ведомства, но числа и место — только по этой услуге.
 
@@ -269,15 +268,13 @@ async def office_service(conn, org_id, object_id: str, office: str, dept_code: s
     длинные официальные формулировки со скобками и кавычками (см. «Криптобио-
     кабина»), гонять их в query-параметре надёжности не добавляет.
     """
-    if not await _object_org(conn, org_id, object_id):
-        raise DnrStatsError("Объект не найден")
     dept = DEPARTMENTS.get(dept_code)
     if dept is None:
         raise DnrStatsError("Ведомство не найдено")
     if not (1 <= idx <= len(dept["services"])):
         raise DnrStatsError("Услуга не найдена")
 
-    rows_by_office = await _dept_rows(conn, org_id, object_id, dept_code, dept)
+    rows_by_office = await _dept_rows(conn, org_id, dept_code, dept)
     row = rows_by_office.get(office)
     if row is None:
         raise DnrStatsError("Отделение не найдено в данных этого ведомства")
@@ -332,7 +329,7 @@ def _service_label(text: str, limit: int = 90) -> str:
     return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
-async def overview(conn, org_id, object_id: str) -> dict:
+async def overview(conn, org_id) -> dict:
     """Сводный «Обзор» — верхний уровень над списком отделений: главные
     KPI-карточки, тренд по ВСЕМ накопленным датам срезов, разбивка по
     ведомствам и лента алертов.
@@ -342,12 +339,9 @@ async def overview(conn, org_id, object_id: str) -> dict:
     Масштабируется сам: ведомств может быть 1 или 12, дат-срезов 2 или 50 —
     код одинаково проходит по тому, что реально накопилось в `dataset_releases`.
     """
-    if not await _object_org(conn, org_id, object_id):
-        raise DnrStatsError("Объект не найден")
-
     dept_points: dict[str, list] = {}
     for code, dept in DEPARTMENTS.items():
-        points = await _dept_series(conn, org_id, object_id, code, dept)
+        points = await _dept_series(conn, org_id, code, dept)
         if points:
             dept_points[code] = points
 
