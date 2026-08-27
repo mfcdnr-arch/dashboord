@@ -1502,7 +1502,9 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
       <div style={{ display: 'grid', gap: 6, gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))' }}>
         {cells.map((c, i) => (
           <div key={c.label || i}
-            title={c.plan != null ? `План: ${fmt(c.plan)} · факт: ${fmt(c.value)}` : String(c.label)}
+            title={c.plan != null
+              ? `План: ${fmt(c.plan)} · факт: ${fmt(c.value)}` + (c.delta != null ? ` · ${c.delta < 0 ? `−${fmt(Math.abs(c.delta))} до плана` : `+${fmt(c.delta)} сверх плана`}` : '')
+              : String(c.label)}
             style={{
               border: `1px solid ${c.color || 'var(--border)'}`,
               // Заливку даём только сработавшему порогу: если раскрасить всё,
@@ -1518,6 +1520,11 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             {data.compared_to_plan && c.pct != null && (
               <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
                 {fmt(c.value)} из {fmt(c.plan)}
+              </div>
+            )}
+            {data.compared_to_plan && c.delta != null && (
+              <div style={{ fontSize: 10.5, color: c.delta < 0 ? 'var(--danger)' : 'var(--good, #0f6e56)' }}>
+                {c.delta < 0 ? `−${fmt(Math.abs(c.delta))} до плана` : `+${fmt(c.delta)} сверх плана`}
               </div>
             )}
           </div>

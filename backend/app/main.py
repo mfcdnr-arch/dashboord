@@ -18,6 +18,7 @@ from .modules.auth.bootstrap import ensure_seed
 from .modules.auth.router import router as auth_router
 from .modules.catalog.router import router as catalog_router
 from .modules.dashboards.router import router as dashboards_router
+from .modules.dnr_stats.router import router as dnr_stats_router
 from .modules.documents.router import router as documents_router
 from .modules.documents.storage import ensure_bucket
 from .modules.home.router import router as home_router
@@ -121,6 +122,7 @@ app.include_router(appeals_router)
 app.include_router(showcases_router)
 app.include_router(search_router)
 app.include_router(portal_router)
+app.include_router(dnr_stats_router)
 
 
 @app.get("/health", tags=["system"])

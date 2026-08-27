@@ -483,13 +483,17 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         for s in series:
             plan = plan_by_row.get(s["category"])
             pct = (s["value"] / plan * 100.0) if plan else None
+            # Отставание/превышение — в единицах показателя, а не только в %:
+            # «88,51 %» не говорит, это 40 штук не хватает или 4000. Знак
+            # хранит смысл сам: минус — отставание, плюс — перевыполнение.
+            delta = (s["value"] - plan) if plan is not None else None
             # Цвет берут ТЕ ЖЕ пороги, что и остальные виджеты: своя шкала
             # цветов рядом с общей означала бы, что красный на соседних
             # виджетах значит разное.
             measure = pct if pct is not None else s["value"]
             alert = evaluate_alert("kpi", cfg, {"value": measure})
             tiles.append({"label": s["category"], "value": s["value"], "plan": plan,
-                          "pct": pct, "level": (alert or {}).get("level"),
+                          "pct": pct, "delta": delta, "level": (alert or {}).get("level"),
                           "color": (alert or {}).get("color")})
         return {"type": "status_grid", "title": name, "cells": tiles,
                 "unit": cfg.get("unit"), "compared_to_plan": bool(plan_by_row)}

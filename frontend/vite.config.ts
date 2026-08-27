@@ -81,6 +81,7 @@ export default defineConfig({
       '/appeals': 'http://localhost:8080',
       '/showcases': 'http://localhost:8080',
       '/search': 'http://localhost:8080',
+      '/dnr-stats': 'http://localhost:8080',
     },
   },
 })

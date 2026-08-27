@@ -19,6 +19,7 @@ import CatalogPage from './components/CatalogPage'
 import SettingsPage from './components/SettingsPage'
 import ProfilePage from './components/ProfilePage'
 import ShowcasesPage from './components/ShowcasesPage'
+import DnrStatsPage from './components/DnrStatsPage'
 import AppealsPage from './components/AppealsPage'
 import NotificationBell from './components/NotificationBell'
 import OnboardingHint from './components/OnboardingHint'
@@ -79,7 +80,7 @@ export default function App() {
 // а дашборд смотрят именно на большом экране (в том числе на ТВ в холле).
 // Остальные разделы (формы, списки) остаются в узкой колонке — длинные строки
 // текста через весь монитор читать неудобно.
-const WIDE_SECTIONS = new Set(['dashboards', 'showcases', 'archive', 'objects'])
+const WIDE_SECTIONS = new Set(['dashboards', 'showcases', 'archive', 'objects', 'dnrstats'])
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (
@@ -108,6 +109,9 @@ const NAV = [
   { key: 'dashboards', label: 'Дашборды', ready: true },
   { key: 'instructions', label: 'Инструкции', ready: true },
   { key: 'showcases', label: 'Витрины', ready: true, showcaseGate: true },
+  // Пилотный раздел (не дашборд): отделения МФЦ с раскрытием по ведомству и
+  // услуге — такого разреза обычный конструктор виджетов не строит.
+  { key: 'dnrstats', label: 'Статистика услуг', ready: true, staffOnly: true },
   { key: 'archive', label: 'Архив', ready: true, archiveGate: true },
   { key: 'moderation', label: 'Модерация', ready: true, modOnly: true },
   { key: 'appeals', label: 'Обращения', ready: true, modOnly: true },
@@ -371,6 +375,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <InstructionsPage canManage={canManage} />
           ) : section === 'showcases' ? (
             <ShowcasesPage canManage={canManage} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
+          ) : section === 'dnrstats' ? (
+            <DnrStatsPage />
           ) : section === 'users' ? (
             <UsersPage me={me} />
           ) : section === 'reports' ? (
