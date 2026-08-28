@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  listFolders, listObjects, routeUpload, uploadJournal, uploadToInbox,
-  type Folder, type JournalItem, type Obj,
+  knownForms, listFolders, listObjects, routeUpload, uploadJournal, uploadToInbox,
+  type Folder, type JournalItem, type KnownForm, type Obj,
 } from '../api'
 
 /**
@@ -29,11 +29,16 @@ export default function UploadsPage() {
   const [objects, setObjects] = useState<Obj[]>([])
   const [folders, setFolders] = useState<Record<string, Folder[]>>({})
   const [routing, setRouting] = useState<string | null>(null)
+  const [known, setKnown] = useState<KnownForm[]>([])
+  const [knownOpen, setKnownOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const timer = useRef<number | null>(null)
 
   const load = useCallback(async () => {
     try { setItems((await uploadJournal()).items) } catch (e) { setErr((e as Error).message) }
+    // Тем же тиком: после выпуска (авто- или ручного) список известных форм
+    // мог пополниться — подсказка не должна отставать от журнала.
+    knownForms().then((r) => setKnown(r.items)).catch(() => {})
   }, [])
 
   useEffect(() => { load(); listObjects().then(setObjects).catch(() => {}) }, [load])
@@ -117,6 +122,48 @@ export default function UploadsPage() {
         </div>
         <input ref={fileRef} type="file" multiple accept=".xlsx,.xls,.csv,.pdf,.docx" style={{ display: 'none' }}
           onChange={(e) => { if (e.target.files?.length) send(e.target.files); e.target.value = '' }} />
+      </div>
+
+      <div style={{ ...box('var(--border)'), marginBottom: 14 }}>
+        <button type="button" style={{ ...linkBtn, fontWeight: 600, textDecoration: 'none' }}
+          onClick={() => setKnownOpen((v) => !v)}>
+          {knownOpen ? '▾' : '▸'} Уже узнаются сами: {known.length}
+          {known.length === 0 && ' — пока ни одна форма не размечена'}
+        </button>
+        {known.length > 0 && (
+          <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 4 }}>
+            Файл такой структуры разложится и выпустится автоматически. Форма не из этого
+            списка уйдёт во «Входящие» на ручную разметку — один раз, дальше сама.
+          </div>
+        )}
+        {knownOpen && (
+          <div style={{ overflowX: 'auto', marginTop: 8 }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12.5 }}>
+              <thead><tr>
+                {['Ведомство / объект', 'Пример файла', 'Куда попадёт', 'Отчётов загружено', 'Разметка от'].map((h) => (
+                  <th key={h} style={th}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {known.length === 0 && (
+                  <tr><td style={td} colSpan={5}>
+                    Ещё ни одна форма не размечена — первый файл каждого нового бланка требует
+                    ручного выбора папки один раз, дальше система запомнит его структуру.
+                  </td></tr>
+                )}
+                {known.map((k) => (
+                  <tr key={k.object_id}>
+                    <td style={{ ...td, fontWeight: 600 }}>{k.object_name}</td>
+                    <td style={{ ...td, color: 'var(--text-2)' }}>{k.example_filename || '—'}</td>
+                    <td style={td}>{k.folder_name ? `${k.object_name} / ${k.folder_name}` : '—'}</td>
+                    <td style={td}>{k.periods_loaded}</td>
+                    <td style={{ ...td, color: 'var(--text-muted)' }}>{when(k.updated_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 13 }}>

@@ -57,6 +57,13 @@ async def journal(limit: int = Query(service.JOURNAL_LIMIT, ge=1, le=200),
         return {"items": await service.journal(conn, user["organization_id"], limit)}
 
 
+@router.get("/uploads/known-forms")
+async def known_forms(user: dict = Depends(manage)):
+    """Подсказка: какие формы уже узнаются сами, а что уйдёт на ручную разметку."""
+    async with db.get_pool().acquire() as conn:
+        return {"items": await service.known_forms(conn, user["organization_id"])}
+
+
 @router.post("/uploads/{document_id}/route")
 async def route(document_id: str, folder_id: str = Form(...), user: dict = Depends(manage)):
     """Указать папку вручную — когда система форму не узнала."""

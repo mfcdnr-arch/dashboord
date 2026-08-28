@@ -51,3 +51,21 @@ export async function routeUpload(documentId: string, folderId: string): Promise
   const res = await fetch(`/uploads/${documentId}/route`, { method: 'POST', headers: authH(), body: fd })
   if (!res.ok) throw new Error(await errText(res))
 }
+
+export interface KnownForm {
+  object_id: string
+  object_name: string
+  dataset_code: string | null
+  folder_name: string | null
+  example_filename: string | null
+  row_count: number | null
+  periods_loaded: number
+  updated_at: string | null
+}
+
+/** Формы, которые «📥 Загрузка» уже узнаёт сама по структуре — подсказка перед перетаскиванием файла. */
+export async function knownForms(): Promise<{ items: KnownForm[] }> {
+  const res = await fetch('/uploads/known-forms', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

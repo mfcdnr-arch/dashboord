@@ -216,6 +216,50 @@ def _state(r) -> str:
     return "нужна разметка"
 
 
+async def known_forms(conn, org_id) -> list:
+    """Список форм, которые «📥 Загрузка» уже узнаёт сама — подсказка человеку,
+    что можно просто перетащить, а что уйдёт на ручную разметку.
+
+    Источник — тот же `object_layout_templates`, что использует
+    `route_after_extraction` для сопоставления по отпечатку: подсказка не
+    может разойтись с реальным поведением загрузки, потому что читает ровно
+    то же самое место. Один шаблон = одна распознаваемая форма (объект).
+    """
+    # Папка считается ТЕМ ЖЕ правилом, что реальная маршрутизация
+    # (`_target_folder`): сперва папка документа-источника шаблона, а если он
+    # уже удалён (например, был тестовым и его почистили) — любая обычная
+    # папка объекта. Иначе подсказка сказала бы «некуда» там, где загрузка на
+    # самом деле сработает.
+    rows = await conn.fetch(
+        "select t.object_id, o.name as object_name, t.dataset_code, t.updated_at, "
+        "  t.row_count, doc.original_filename as example_filename, "
+        "  coalesce(fr.name, ff.name) as folder_name, "
+        "  (select count(*) from dataset_releases r2 "
+        "   where r2.code = t.dataset_code and r2.status <> 'superseded') as periods_loaded "
+        "from object_layout_templates t "
+        "join objects o on o.id = t.object_id "
+        "left join dataset_releases rel on rel.id = t.source_release_id "
+        "left join document_versions v on v.id = rel.source_document_version_id "
+        "left join documents doc on doc.id = v.document_id "
+        "left join folders fr on fr.id = doc.folder_id "
+        "left join lateral ("
+        "  select f.name from folders f where f.object_id = t.object_id and not f.is_inbox "
+        "  order by f.auto_prepare desc, f.created_at limit 1"
+        ") ff on fr.id is null "
+        "where o.organization_id = $1 "
+        "order by o.name", org_id)
+    return [{
+        "object_id": str(r["object_id"]),
+        "object_name": r["object_name"],
+        "dataset_code": r["dataset_code"],
+        "folder_name": r["folder_name"],
+        "example_filename": r["example_filename"],
+        "row_count": r["row_count"],
+        "periods_loaded": r["periods_loaded"],
+        "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+    } for r in rows]
+
+
 async def route_manually(conn, org_id, document_id: str, folder_id: str, user_id) -> dict:
     """Человек указал папку сам — файл уезжает туда, а решение попадает в журнал."""
     doc = await conn.fetchrow(
