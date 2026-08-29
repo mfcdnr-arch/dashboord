@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
+import { fmtNumber as fmt } from '../lib/format'
 import { getPortalHome, type PortalHome } from '../api'
 
 /**
  * Главная обычного пользователя.
  *
- * До сих пор сотрудник попадал сразу в список отчётов и не знал ни что это за
- * система, ни что в ней нового, ни где прочитать, как ею пользоваться. Здесь
- * четыре ответа по порядку важности: что мне сообщили (объявления), какие
- * отчёты доступны и от какого объекта, что нового в данных, и справка о самой
- * системе. Часы и дата — сверху: это первое, на что смотрят на рабочем экране.
+ * Пять ответов по порядку важности: что мне сообщили (объявления), какие у
+ * центра сейчас главные цифры (ключевые показатели — тот же curated-набор,
+ * что администратор выносит на свою «Главную»: значения org-wide, а не по
+ * доступным человеку дашбордам, — это осознанно опубликованная сводка, а не
+ * обход прав), какие отчёты доступны и от какого объекта, что нового в
+ * данных, и справка о самой системе. Часы и дата — сверху.
  */
 export default function UserHomePage(
   { fullName, onOpenDashboard, onGoto }:
@@ -55,6 +57,26 @@ export default function UserHomePage(
       </div>
 
       {err && <div style={errBox}>{err}</div>}
+
+      {/* Ключевые показатели: то же самое, что видит руководство, первым
+          экраном — набор задаёт администратор, здесь только чтение. */}
+      {(data?.key_kpis?.length ?? 0) > 0 && (
+        <div style={card}>
+          <div style={h2}>Ключевые показатели</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, marginTop: 8 }}>
+            {data!.key_kpis.map((k) => (
+              <div key={k.code} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10 }}>
+                <div style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{k.name}</div>
+                {k.value != null
+                  ? <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--accent)', marginTop: 4 }}>
+                      {fmt(k.value)}{k.unit && <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 4 }}>{k.unit}</span>}
+                    </div>
+                  : <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 6 }}>{k.error || 'нет значения'}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Объявления администратора. Важные — акцентом: сообщение о работах на
           сервере не должно теряться среди обычных. */}

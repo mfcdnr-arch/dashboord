@@ -150,11 +150,16 @@ async def _note(conn, document_id, routed_by: Optional[str], note: str) -> None:
         document_id, routed_by, note)
 
 
-async def journal(conn, org_id, limit: int = JOURNAL_LIMIT) -> list:
+async def journal(conn, org_id, limit: int = JOURNAL_LIMIT, period: Optional[date] = None) -> list:
     """Журнал импорта: что загрузили, куда это уехало и на чём стоит сейчас.
 
     Собирается запросом по документам, а не отдельной таблицей событий: иначе
     журнал и реальное состояние файлов однажды разошлись бы.
+
+    `period` — необязательный фильтр по ОТЧЁТНОЙ дате (не по дате загрузки):
+    находит именно тот отчёт, а не всё, что грузили в этот день. Фильтрация в
+    самом запросе, а не на клиенте по уже показанным строкам — иначе старый
+    отчёт, вытесненный из последних `limit`, нашёлся бы не всегда.
     """
     rows = await conn.fetch(
         "select d.id, d.original_filename, d.reporting_period_start, d.created_at, "
@@ -171,7 +176,8 @@ async def journal(conn, org_id, limit: int = JOURNAL_LIMIT) -> list:
         "left join folders f on f.id=d.folder_id "
         "left join objects o on o.id=f.object_id "
         "left join users u on u.id=d.uploaded_by "
-        "where d.organization_id=$1 order by d.created_at desc limit $2", org_id, limit)
+        "where d.organization_id=$1 and ($3::date is null or d.reporting_period_start = $3) "
+        "order by d.created_at desc limit $2", org_id, limit, period)
     out = []
     for r in rows:
         out.append({

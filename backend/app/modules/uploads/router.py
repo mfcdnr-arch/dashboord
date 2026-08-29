@@ -51,10 +51,14 @@ async def upload(file: UploadFile = File(...),
 
 @router.get("/uploads")
 async def journal(limit: int = Query(service.JOURNAL_LIMIT, ge=1, le=200),
+                  period: Optional[date] = Query(None),
                   user: dict = Depends(manage)):
-    """Журнал импорта: что загрузили, куда это уехало и почему."""
+    """Журнал импорта: что загрузили, куда это уехало и почему.
+
+    `period` — фильтр по отчётной дате (не по дате загрузки), необязательный.
+    """
     async with db.get_pool().acquire() as conn:
-        return {"items": await service.journal(conn, user["organization_id"], limit)}
+        return {"items": await service.journal(conn, user["organization_id"], limit, period)}
 
 
 @router.get("/uploads/known-forms")

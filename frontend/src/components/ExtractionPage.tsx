@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  createRelease, getExtractionForVersion, getJob, layoutPreview, qualityCheck, releaseImpact, startExtraction,
+  addHomeKpisFromFields, createRelease, getExtractionForVersion, getJob, layoutPreview, qualityCheck,
+  releaseImpact, startExtraction,
   type CellPick, type Doc, type ExtractionJob, type FieldMap, type LayoutPreview,
   type LayoutTemplate, type ReleaseResult, type ValidationWarning,
 } from '../api'
@@ -886,9 +887,82 @@ function ResultPanel({ result, onBack }: { result: ReleaseResult; onBack: () => 
       {result.validation && result.validation.ok && (
         <div style={{ marginTop: 10, fontSize: 13, color: 'var(--success)' }}>✓ Проверка данных пройдена без замечаний.</div>
       )}
+      {result.new_form && (result.numeric_fields?.length ?? 0) > 0 && (
+        <KeyKpiPrompt datasetCode={result.dataset_code!} fields={result.numeric_fields!} />
+      )}
       <button style={{ ...btn, marginTop: 14 }} onClick={onBack}>К документам</button>
     </div>
   )
+}
+
+/**
+ * «Какие показатели важны?» — ровно один раз, при ПЕРВОМ выпуске новой формы
+ * (`result.new_form`; до этого момента полей формы ещё не существовало, а
+ * после — повторный вопрос был бы навязчив). Отмеченные графы становятся
+ * метриками-черновиками (сумма или среднее — по имени поля, доли не
+ * складываются) и сразу выносятся на «Главную» — и админскую, и портал
+ * обычного пользователя: curated-набор один на организацию.
+ */
+function KeyKpiPrompt({ datasetCode, fields }: { datasetCode: string; fields: { field_code: string; field_name: string }[] }) {
+  const [checked, setChecked] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState<string[] | null>(null)
+  const [err, setErr] = useState('')
+  const [skipped, setSkipped] = useState(false)
+
+  if (skipped) return null
+  if (done) {
+    return done.length > 0 ? (
+      <div style={{ marginTop: 14, ...kpiBox }}>
+        ✓ На «Главную» добавлено: {done.join(', ')}. Это черновики — уточнить формулу и единицу
+        измерения можно в разделе «Метрики».
+      </div>
+    ) : null
+  }
+
+  function toggle(code: string) {
+    setChecked((s) => { const n = new Set(s); if (n.has(code)) n.delete(code); else n.add(code); return n })
+  }
+
+  async function submit() {
+    if (!checked.size) return
+    setBusy(true); setErr('')
+    try {
+      const picked = fields.filter((f) => checked.has(f.field_code))
+      const r = await addHomeKpisFromFields(datasetCode, picked)
+      setDone(r.created.map((c) => c.name))
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{ marginTop: 14, ...kpiBox }}>
+      <div style={{ fontSize: 13.5, fontWeight: 600 }}>✨ Это новая форма — какие показатели важны?</div>
+      <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 4, marginBottom: 8 }}>
+        Отмеченные графы появятся карточками на «Главной» у всех пользователей — увидят и обычные
+        сотрудники, не только руководство. Спрашиваем один раз, при первом выпуске этой формы;
+        следующие недельные отчёты уже ничего спрашивать не будут.
+      </div>
+      {err && <div style={{ color: 'var(--danger)', fontSize: 12.5, marginBottom: 8 }}>{err}</div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflowY: 'auto' }}>
+        {fields.map((f) => (
+          <label key={f.field_code} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={checked.has(f.field_code)} onChange={() => toggle(f.field_code)} />
+            {f.field_name}
+          </label>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <button style={btn} disabled={busy || !checked.size} onClick={submit}>
+          {busy ? 'Добавляем…' : `На «Главную» (${checked.size})`}
+        </button>
+        <button style={btnGhost} onClick={() => setSkipped(true)}>Пропустить</button>
+      </div>
+    </div>
+  )
+}
+
+const kpiBox: React.CSSProperties = {
+  border: '1px solid var(--accent)', borderRadius: 10, padding: '12px 14px', background: 'var(--accent-weak-bg)',
 }
 
 /**

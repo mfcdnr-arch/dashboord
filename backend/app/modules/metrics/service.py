@@ -133,9 +133,16 @@ async def _metric_usage(conn, org_id, metric_id: str, code: str) -> dict:
             if label not in used_by_metrics:
                 used_by_metrics.append(label)
 
+    # Закреплён на «Главной» — тоже связь по коду без внешнего ключа, и без
+    # проверки удаление молча оставило бы там карточку «нет значения»: она
+    # видна и обычным пользователям (portal_home), не только модератору.
+    featured = await conn.fetchval(
+        "select 1 from home_kpis where organization_id=$1 and metric_code=$2", org_id, code)
+
     return {
         "widgets": [f"«{r['widget_name']}» на дашборде «{r['dashboard_name']}»" for r in widgets],
         "metrics": used_by_metrics,
+        "featured": bool(featured),
     }
 
 
@@ -153,12 +160,14 @@ async def delete_metric(conn, org_id, user_id, metric_id: str) -> dict:
         raise MetricError("Метрика не найдена")
 
     usage = await _metric_usage(conn, org_id, metric_id, m["code"])
-    if usage["widgets"] or usage["metrics"]:
+    if usage["widgets"] or usage["metrics"] or usage["featured"]:
         parts = []
         if usage["widgets"]:
             parts.append("используется виджетами: " + ", ".join(usage["widgets"][:5]))
         if usage["metrics"]:
             parts.append("на него ссылаются формулы показателей: " + ", ".join(usage["metrics"][:5]))
+        if usage["featured"]:
+            parts.append("закреплён на «Главной» — сначала уберите карточку кнопкой ✕")
         raise MetricError("Удаление отменено — показатель в работе (" + "; ".join(parts) + ")")
 
     versions = await conn.fetch(

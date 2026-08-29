@@ -32,6 +32,7 @@ import { archiveMe } from './api/archive'
 import { listShowcases } from './api/showcases'
 import { listFeatured } from './api'
 import LeadershipPage from './components/LeadershipPage'
+import QuickLinksPage from './components/QuickLinksPage'
 
 export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
@@ -98,6 +99,9 @@ const NAV = [
   // Своя главная для сотрудника: объявления, его отчёты по объектам, что нового
   // в данных и справка о системе. Админская «Главная» — про наполнение системы.
   { key: 'portal', label: 'Главная', ready: true, userOnly: true },
+  // Куратор-меню коротких названий отчётов («MAX», «КЭП»…) — доступно ВСЕМ,
+  // сервер сам отфильтровал пункты по видимости для смотрящего.
+  { key: 'quicklinks', label: 'Быстрый доступ', ready: true },
   // Общая зона загрузки: сдать форму, не зная устройства системы.
   { key: 'uploads', label: 'Загрузка', ready: true, staffOnly: true },
   { key: 'objects', label: 'Объекты', ready: true, staffOnly: true },
@@ -141,11 +145,12 @@ function useIsNarrow(maxWidth = 760): boolean {
 function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const narrow = useIsNarrow()
   const [health, setHealth] = useState<Health | null>(null)
-  // Обычный пользователь начинает сразу со списка дашбордов: «Главной» у него нет.
+  // Обычный пользователь начинает со своей «Главной» (объявления, ключевые
+  // показатели, отчёты по объектам) — не с рабочей кухни модератора.
   const staff = me.roles.some((r) => ['admin', 'moderator', 'superadmin'].includes(r))
   // Пришли по ссылке (п. 6) — начинаем с того места, которое в ней указано.
   const [link0] = useState(initialLink)
-  const [section, setSection] = useState(link0.section || (staff ? 'home' : 'dashboards'))
+  const [section, setSection] = useState(link0.section || (staff ? 'home' : 'portal'))
   const [openDash, setOpenDash] = useState<string | null>(link0.dashboard || null)
   // Страница, на которую нужно попасть при открытии дашборда (из каталога
   // «Главной»): без неё клик по «Динамике» приводил на «Обзор».
@@ -189,7 +194,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   // initialDashboardId при монтировании — navSeq в этом случае просто не
   // успевает ничего сломать, см. докстроку useDeepLink).
   const goTo = useCallback((s: LinkState) => {
-    setSection(s.section || (staff ? 'home' : 'dashboards'))
+    setSection(s.section || (staff ? 'home' : 'portal'))
     setOpenDash(s.dashboard || null)
     setOpenPage(s.page || null)
     setDashLink(s)
@@ -352,6 +357,10 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {section === 'home' ? (
             <HomePage me={me} canManage={canManage}
               onOpenDashboard={(id, pageId) => { setOpenDash(id); setOpenPage(pageId || null); setSection('dashboards') }} />
+          ) : section === 'quicklinks' ? (
+            <QuickLinksPage canManage={canManage}
+              onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }}
+              onGoto={(s) => setSection(s)} />
           ) : section === 'uploads' ? (
             <UploadsPage />
           ) : section === 'objects' ? (

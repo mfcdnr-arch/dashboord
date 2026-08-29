@@ -30,6 +30,7 @@ from .modules.moderation.router import router as moderation_router
 from .modules.notifications.router import router as notifications_router
 from .modules.objects.router import router as objects_router
 from .modules.portal.router import router as portal_router
+from .modules.quicklinks.router import router as quicklinks_router
 from .modules.reports.router import router as reports_router
 from .modules.search.router import router as search_router
 from .modules.showcases.router import router as showcases_router
@@ -123,6 +124,7 @@ app.include_router(showcases_router)
 app.include_router(search_router)
 app.include_router(portal_router)
 app.include_router(dnr_stats_router)
+app.include_router(quicklinks_router)
 
 
 @app.get("/health", tags=["system"])

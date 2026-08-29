@@ -447,9 +447,17 @@ def fit_rect(rect, grid: List[List[str]]) -> tuple[Optional[List[int]], bool]:
 async def save_layout_template(conn, *, object_id, fingerprint: str, mode: str, layout: dict,
                                fields: List[dict], cells: List[dict], row_count: int,
                                dataset_code: str, release_id, user_id,
-                               headers: Optional[List[str]] = None) -> None:
-    """Запоминает разметку последнего выпуска. Один шаблон на объект."""
-    await conn.execute(
+                               headers: Optional[List[str]] = None) -> bool:
+    """Запоминает разметку последнего выпуска. Один шаблон на объект.
+
+    Возвращает True, если строка была ЗАВЕДЕНА этим вызовом (а не обновлена) —
+    `xmax = 0` в системном столбце верно ровно для строки, вставленной в ЭТОЙ
+    же команде, включая ветку `on conflict do update`. По этому признаку
+    отличаем «форма распознаётся первый раз» от «пришёл очередной отчёт той же
+    формы» — от него зависит, стоит ли предлагать вынести показатели на
+    «Главную» (FR: спросить один раз, при первом выпуске новой формы).
+    """
+    row = await conn.fetchrow(
         "insert into object_layout_templates(object_id, fingerprint, mode, layout, fields, cells, "
         "row_count, dataset_code, source_release_id, updated_by, updated_at, headers) "
         "values($1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7,$8,$9,$10,now(),$11::jsonb) "
@@ -457,7 +465,8 @@ async def save_layout_template(conn, *, object_id, fingerprint: str, mode: str, 
         "layout=excluded.layout, fields=excluded.fields, cells=excluded.cells, "
         "row_count=excluded.row_count, dataset_code=excluded.dataset_code, "
         "source_release_id=excluded.source_release_id, updated_by=excluded.updated_by, "
-        "updated_at=now(), headers=excluded.headers",
+        "updated_at=now(), headers=excluded.headers "
+        "returning (xmax = 0) as inserted",
         object_id, fingerprint, mode,
         json.dumps(layout, ensure_ascii=False, default=str),
         json.dumps(fields, ensure_ascii=False, default=str),
@@ -465,6 +474,7 @@ async def save_layout_template(conn, *, object_id, fingerprint: str, mode: str, 
         int(row_count or 0), dataset_code, release_id, user_id,
         json.dumps(list(headers or []), ensure_ascii=False, default=str),
     )
+    return bool(row["inserted"])
 
 
 async def refresh_template_verdicts(conn, object_id, limit: int = 50) -> int:
@@ -855,7 +865,7 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
 
     # Запоминаем разметку: следующий файл этой же формы придёт размеченным, и
     # человеку останется проверить и подтвердить, а не размечать заново.
-    await save_layout_template(
+    is_first_template = await save_layout_template(
         conn, object_id=object_id,
         fingerprint=structure_fingerprint(area, header_rows, lay["orientation"]),
         mode="cells" if cells else "table",
@@ -891,6 +901,13 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         "values_count": n_values,
         "rows": n_rows,
         "superseded_release_id": superseded_id,
+        # Форма распознана первый раз — самое время спросить, какие показатели
+        # вынести на «Главную» ключевыми: до этого момента поля формы ещё не
+        # существовали, а после первого раза повторный вопрос был бы навязчив.
+        "new_form": is_first_template,
+        "dataset_code": code,
+        "numeric_fields": [{"field_code": f["field_code"], "field_name": f["field_name"]}
+                           for f in value_fields if field_type.get(f["field_code"]) == "number"],
         "validation": {"warnings": warnings, "ok": len(warnings) == 0},
     }
 

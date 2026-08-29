@@ -23,6 +23,7 @@ async def _metric_with_version(client, headers, code: str, formula: str = "1 + 1
 
 async def _purge(codes):
     async with db.acquire() as conn:
+        await conn.execute("delete from home_kpis where metric_code = any($1::text[])", codes)
         await conn.execute(
             "delete from metric_versions where metric_id in "
             "(select id from metrics where code = any($1::text[]))", codes)
@@ -90,6 +91,29 @@ async def test_delete_blocked_while_other_formula_references_it(client, admin_he
         assert dep in r.text, "отказ обязан назвать ссылающийся показатель"
     finally:
         await _purge([base, dep])
+
+
+async def test_delete_blocked_while_pinned_to_home(client, admin_headers, superadmin_headers):
+    """Показатель закреплён на «Главной» — удалять его молча нельзя: карточка
+
+    осталась бы «нет значения» и у админа, и у обычных пользователей на
+    portal_home (`metric_code` в `home_kpis` — связь по коду, без FK)."""
+    code = "ztest_del_featured"
+    try:
+        mid = await _metric_with_version(client, admin_headers, code)
+        r = await client.post("/home/kpis", headers=admin_headers, json={"metric_code": code})
+        assert r.status_code in (200, 201), r.text
+
+        r = await client.delete(f"/metrics/{mid}", headers=superadmin_headers)
+        assert r.status_code == 409, r.text
+        assert "Главной" in r.text
+
+        r = await client.delete(f"/home/kpis/{code}", headers=admin_headers)
+        assert r.status_code == 204, r.text
+        r = await client.delete(f"/metrics/{mid}", headers=superadmin_headers)
+        assert r.status_code == 200, r.text
+    finally:
+        await _purge([code])
 
 
 async def test_delete_only_for_superadmin(client, admin_headers, moderator_user, viewer, superadmin_headers):

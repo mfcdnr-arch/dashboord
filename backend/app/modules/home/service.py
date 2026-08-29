@@ -38,13 +38,29 @@ async def _metric_value(conn, org_id, code: str):
         return row["name"], None, str(e)
 
 
+async def _key_kpis(conn, org_id) -> List[dict]:
+    """Показатели, вынесенные администратором на «Главную» — ОДИН и тот же
+    curated-список для админской сводки и для стартовой страницы обычного
+    пользователя: значения org-wide (метрики не режутся по строкам, как
+    виджеты), а сам список — осознанный выбор человека, а не автоматика."""
+    kpi_rows = await conn.fetch(
+        "select metric_code from home_kpis where organization_id=$1 order by position, created_at", org_id)
+    key_kpis: List[dict] = []
+    for k in kpi_rows:
+        name, value, unit = await _metric_value(conn, org_id, k["metric_code"])
+        key_kpis.append({"code": k["metric_code"], "name": name or k["metric_code"],
+                         "value": value, "unit": unit if value is not None else None,
+                         "error": unit if value is None else None})
+    return key_kpis
+
+
 async def portal_home(conn, org_id, user: dict) -> dict:
     """Главная обычного пользователя.
 
     Отдельно от админской «Главной» намеренно: там счётчики объектов, метрик и
-    пользователей — работа модератора. Пользователю нужны четыре ответа:
-    что мне сообщили, какие отчёты мне доступны, что в них нового и где
-    прочитать, как этим пользоваться.
+    пользователей — работа модератора. Пользователю нужны пять ответов: что мне
+    сообщили, какие показатели у центра важные ПРЯМО СЕЙЧАС, какие отчёты мне
+    доступны, что в них нового и где прочитать, как этим пользоваться.
     """
     from ..portal import service as portal_svc
 
@@ -105,6 +121,7 @@ async def portal_home(conn, org_id, user: dict) -> dict:
         "instructions": {"total": len(instructions["items"]), "unread": instructions["unread"]},
         "show_featured": bool(me["show_featured"]) if me else False,
         "stale_password": stale_password,
+        "key_kpis": await _key_kpis(conn, org_id),
     }
 
 
@@ -194,14 +211,7 @@ async def get_home(conn, org_id, user: dict) -> dict:
         "where o.organization_id=$1 group by o.id, o.name order by o.name", org_id,
     )
 
-    kpi_rows = await conn.fetch(
-        "select metric_code from home_kpis where organization_id=$1 order by position, created_at", org_id)
-    key_kpis: List[dict] = []
-    for k in kpi_rows:
-        name, value, unit = await _metric_value(conn, org_id, k["metric_code"])
-        key_kpis.append({"code": k["metric_code"], "name": name or k["metric_code"],
-                         "value": value, "unit": unit if value is not None else None,
-                         "error": unit if value is None else None})
+    key_kpis = await _key_kpis(conn, org_id)
 
     return {
         "counters": dict(counters),
@@ -246,3 +256,41 @@ async def add_kpi(conn, org_id, user_id, metric_code: str) -> dict:
 async def remove_kpi(conn, org_id, metric_code: str) -> None:
     await conn.execute(
         "delete from home_kpis where organization_id=$1 and metric_code=$2", org_id, metric_code)
+
+
+async def add_kpis_from_fields(conn, org_id, user_id, dataset_code: str, fields: List[dict]) -> dict:
+    """Показатели формы → карточки на «Главной», без ручного письма формул.
+
+    Отвечает на вопрос мастера при первом выпуске новой формы («какие из этих
+    граф важны?») буквально: за каждую отмеченную графу заводится метрика по
+    готовому рецепту (сумма или среднее — доли и проценты усредняют, не
+    складывают, тем же правилом, что и агрегация строк на дашборде) и сразу
+    выносится на «Главную». Метрика остаётся ЧЕРНОВИКОМ — цикл «черновик →
+    проверена → одобрена» не отменяется, просто у неё уже есть формула и
+    значение, а не пустое место.
+    """
+    from ..dashboards._aggregate import is_share
+    from ..ingestion.analyze import slug
+    from ..metrics import service as metric_svc
+    from ..metrics import templates as metric_tpl
+
+    created = []
+    for f in fields:
+        field_code = f.get("field_code")
+        field_name = (f.get("field_name") or field_code or "").strip()
+        if not field_code or not field_name:
+            continue
+        base = slug(f"{dataset_code}_{field_code}") or slug(field_code) or "kpi"
+        code, i = base, 2
+        while await conn.fetchval(
+            "select 1 from metrics where organization_id=$1 and code=$2", org_id, code):
+            code = f"{base}_{i}"
+            i += 1
+        tpl_code = "average" if is_share(field_name) else "total_sum"
+        formula = metric_tpl.build_formula(
+            tpl_code, {"a": {"dataset_code": dataset_code, "field": field_code}})
+        m = await metric_svc.create_metric(conn, org_id, user_id, code, field_name, None, None)
+        await metric_svc.create_version(conn, org_id, user_id, m["id"], formula, None, None, "aggregate")
+        await add_kpi(conn, org_id, user_id, code)
+        created.append({"code": code, "name": field_name})
+    return {"created": created}

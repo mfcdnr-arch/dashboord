@@ -1,5 +1,7 @@
 import { authH, errText } from './http'
 
+export type KeyKpi = { code: string; name: string; value: number | null; unit: string | null; error: string | null }
+
 // --- Главная ---
 export interface HomeData {
   counters: {
@@ -21,7 +23,7 @@ export interface HomeData {
     values_count: number; fields_count: number
   }[]
   freshness: { name: string; last_update: string | null; last_period: string | null }[]
-  key_kpis: { code: string; name: string; value: number | null; unit: string | null; error: string | null }[]
+  key_kpis: KeyKpi[]
   alerts: {
     widget_id: string; widget_name: string; widget_type: string
     dashboard_id: string; dashboard_name: string; page_name: string | null; published: boolean
@@ -43,5 +45,17 @@ export async function addHomeKpi(metricCode: string): Promise<void> {
 export async function removeHomeKpi(metricCode: string): Promise<void> {
   const res = await fetch(`/home/kpis/${metricCode}`, { method: 'DELETE', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
+}
+
+/** Отмеченные графы новой формы → метрики (авто-формула) → сразу на «Главную». */
+export async function addHomeKpisFromFields(
+  datasetCode: string, fields: { field_code: string; field_name: string }[],
+): Promise<{ created: { code: string; name: string }[] }> {
+  const res = await fetch('/home/kpis/from-fields', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ dataset_code: datasetCode, fields }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
 }
 

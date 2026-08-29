@@ -26,6 +26,10 @@ export default function UploadsPage() {
   // Дата нужна редко — только когда её нет в имени файла; поэтому поле
   // необязательное и стоит рядом с зоной, а не спрашивается окном.
   const [period, setPeriod] = useState('')
+  // Отдельный фильтр ЖУРНАЛА — по отчётной дате уже загруженных файлов, а не
+  // по дате для следующей загрузки. Раньше оба смысла делило одно поле, и
+  // смена даты без загрузки файла честно ничего не меняла — путаница.
+  const [filterPeriod, setFilterPeriod] = useState('')
   const [objects, setObjects] = useState<Obj[]>([])
   const [folders, setFolders] = useState<Record<string, Folder[]>>({})
   const [routing, setRouting] = useState<string | null>(null)
@@ -35,11 +39,11 @@ export default function UploadsPage() {
   const timer = useRef<number | null>(null)
 
   const load = useCallback(async () => {
-    try { setItems((await uploadJournal()).items) } catch (e) { setErr((e as Error).message) }
+    try { setItems((await uploadJournal(50, filterPeriod || undefined)).items) } catch (e) { setErr((e as Error).message) }
     // Тем же тиком: после выпуска (авто- или ручного) список известных форм
     // мог пополниться — подсказка не должна отставать от журнала.
     knownForms().then((r) => setKnown(r.items)).catch(() => {})
-  }, [])
+  }, [filterPeriod])
 
   useEffect(() => { load(); listObjects().then(setObjects).catch(() => {}) }, [load])
 
@@ -183,8 +187,16 @@ export default function UploadsPage() {
       )}
 
       <h3 style={{ marginBottom: 8 }}>Журнал импорта</h3>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 13 }}>
+        <span style={{ color: 'var(--text-muted)' }}>Показать отчёт за дату:</span>
+        <input type="date" value={filterPeriod} onChange={(e) => setFilterPeriod(e.target.value)}
+          style={{ padding: '5px 8px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text)' }} />
+        {filterPeriod && <button type="button" style={linkBtn} onClick={() => setFilterPeriod('')}>сбросить</button>}
+      </div>
       <div style={{ fontSize: 12, color: 'var(--text-faint)', marginBottom: 8 }}>
-        Что загрузили, куда это попало и почему — по последним {items.length} файлам.
+        {filterPeriod
+          ? `Отчёты за ${ru(filterPeriod)}: найдено ${items.length}.`
+          : `Что загрузили, куда это попало и почему — по последним ${items.length} файлам.`}
       </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>

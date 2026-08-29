@@ -3,6 +3,7 @@
 // Раздел закрывает то, чего у сотрудника не было: где прочитать, как
 // пользоваться системой, и как узнать, что сегодня идут работы на сервере.
 import { authH, errText } from './http'
+import type { KeyKpi } from './home'
 
 export type Instruction = {
   id: string
@@ -38,6 +39,7 @@ export type PortalHome = {
   instructions: { total: number; unread: number }
   show_featured: boolean
   stale_password: boolean
+  key_kpis: KeyKpi[]
 }
 
 export async function getPortalHome(): Promise<PortalHome> {

@@ -39,8 +39,10 @@ export async function uploadToInbox(file: File, period?: string, force = false):
   return res.json()
 }
 
-export async function uploadJournal(limit = 50): Promise<{ items: JournalItem[] }> {
-  const res = await fetch(`/uploads?limit=${limit}`, { headers: authH() })
+export async function uploadJournal(limit = 50, period?: string): Promise<{ items: JournalItem[] }> {
+  const p = new URLSearchParams({ limit: String(limit) })
+  if (period) p.set('period', period)
+  const res = await fetch(`/uploads?${p}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }

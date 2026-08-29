@@ -89,6 +89,11 @@ export interface ReleaseResult {
   values_count: number
   rows: number
   superseded_release_id: string | null
+  /** Форма распознана впервые — самое время предложить вынести показатели
+   *  на «Главную» (до этого момента её полей ещё не существовало). */
+  new_form?: boolean
+  dataset_code?: string
+  numeric_fields?: { field_code: string; field_name: string }[]
   validation?: { warnings: ValidationWarning[]; ok: boolean }
 }
 export interface ReleaseConflict {

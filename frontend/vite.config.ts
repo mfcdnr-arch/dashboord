@@ -82,6 +82,7 @@ export default defineConfig({
       '/showcases': 'http://localhost:8080',
       '/search': 'http://localhost:8080',
       '/dnr-stats': 'http://localhost:8080',
+      '/quick-links': 'http://localhost:8080',
     },
   },
 })
