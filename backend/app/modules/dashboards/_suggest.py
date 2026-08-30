@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from typing import List, Optional
 
 from ..metrics import resolver as mr
@@ -293,7 +294,7 @@ async def suggest_widgets(conn, org_id, dataset_code: str) -> dict:
 # Общие блоки дашборда. «kpi» и «dynamics» остались для совместимости выбора,
 # но вид конкретного показателя задаётся отдельно (VIEWS) — так человек может
 # сказать «этот числом, этот трендом», а не только «все или никак».
-BLOCKS = ["plan_fact", "kpi", "compare", "dynamics", "matrix", "bar", "table"]
+BLOCKS = ["plan_fact", "kpi", "compare", "dynamics", "matrix", "bar", "table", "by_meaning"]
 
 
 async def document_release_info(conn, org_id, document_id: str) -> dict:
@@ -394,12 +395,24 @@ async def collect_object_datasets(conn, org_id, object_id: str,
             "  select id from dataset_releases where organization_id=$1 and code=$2 "
             "  and status<>'superseded' order by reporting_period_start desc nulls last, created_at desc limit 1)",
             org_id, d["code"])
+        # Суммы по показателям за последний выпуск. Нужны правилу воронки: без
+        # чисел она построилась бы по одному словарю и выдала бы за ступени
+        # несопоставимые сущности («уведомления → обращения»). Один запрос на
+        # набор данных, поэтому дешевле, чем считать каждый показатель отдельно.
+        sums = await conn.fetch(
+            "select v.canonical_field_code as code, sum(v.value_number) as total "
+            "from dataset_values v where v.dataset_release_id = ("
+            "  select id from dataset_releases where organization_id=$1 and code=$2 "
+            "  and status<>'superseded' "
+            "  order by reporting_period_start desc nulls last, created_at desc limit 1) "
+            "group by 1", org_id, d["code"])
         out.append({
             "code": d["code"], "name": await _dataset_display_name(conn, org_id, d["code"]),
             "periods": d["periods"] or 0, "releases": d["releases"] or 0,
             "rows": int(n_rows or 0),
             "fields": fields,
             "period_dates": [r["p"].isoformat() for r in dates],
+            "sums": {r["code"]: float(r["total"]) for r in sums if r["total"] is not None},
         })
     return out
 
@@ -449,6 +462,142 @@ def default_view(field_name: str, has_periods: bool) -> str:
     есть переключатель, и снятый тренд не вернётся сам.
     """
     return "both" if has_periods else "kpi"
+
+
+# --------------------------------------------------------------------------- #
+# Выбор вида виджета ПО СМЫСЛУ ДАННЫХ
+#
+# До этого авто-сборка ставила почти одно и то же: карточки, тренды, таблица —
+# восемь видов из двадцати одного. Дашборды выходили одинаковыми не потому, что
+# видов мало, а потому, что мастер не смотрел, ЧТО в данных.
+#
+# Общее правило для всех проверок ниже: правило либо уверенно срабатывает, либо
+# МОЛЧИТ. Виджет, поставленный «на всякий случай», показывает правдоподобную
+# неправду — это дороже, чем его отсутствие. Поэтому у каждого правила есть
+# порог, ниже которого оно не ставит ничего.
+# --------------------------------------------------------------------------- #
+
+# Ступени воронки: (слова целого, слова части). Тот же словарь, что у подбора
+# метрик (`metrics/data_suggestions._FUNNEL_PAIRS`) — система не должна
+# понимать «отправлено → доставлено» двумя разными способами.
+FUNNEL_STAGES = [
+    ("отправленн", "направленн", "выгруженн"),
+    ("доставленн", "врученн", "полученн"),
+    ("обращени", "обратилось", "заявлен"),
+    ("записавших", "записал", "зарегистрирова"),
+]
+# Меньше трёх ступеней воронка не строится: два этапа — это обычный процент,
+# и «Доля доставленных» отвечает на тот же вопрос точнее.
+MIN_FUNNEL_STAGES = 3
+# Светофору нужно столько строк, чтобы плитки читались как карта состояния.
+# На двух-трёх строках он хуже обычных карточек.
+MIN_ROWS_STATUS_GRID = 6
+# Круговая честна только на немногих долях: на два десятка секторов подписи
+# слипаются, и сравнить их глазами нельзя.
+PIE_ROWS = (3, 7)
+# Тепловая карта имеет смысл, когда есть и строки, и с чем их сравнивать.
+MIN_ROWS_HEATMAP = 4
+MIN_FIELDS_HEATMAP = 2
+# Водопад показывает вклад периодов — нужен ряд, а не пара точек.
+MIN_PERIODS_WATERFALL = 3
+
+
+# Куда какой вид попадает по смыслу страницы: «как сейчас» / «как менялось» /
+# «откуда цифры». Иначе воронка оказалась бы среди первичных данных, а водопад
+# на «Обзоре» — там, где его никто не ищет.
+BY_MEANING_PAGE = {
+    "funnel": PAGE_OVERVIEW, "status_grid": PAGE_OVERVIEW,
+    "waterfall": PAGE_DYNAMICS, "yoy": PAGE_DYNAMICS,
+    "pie": PAGE_RAW, "heatmap": PAGE_RAW,
+}
+BY_MEANING_TITLE = {
+    "funnel": "Воронка: где теряются",
+    "status_grid": "{name}: по отделениям",
+    "waterfall": "{name}: вклад периодов",
+    "yoy": "{name}: год к году",
+    "pie": "{name}: доли строк",
+    "heatmap": "Тепловая карта показателей",
+}
+
+
+def _is_cumulative(name: str) -> bool:
+    """Накопительный итог: у него вклад периодов и виден водопадом."""
+    return bool(re.search(r"нарастающ|накопительн|итог", name or "", re.I))
+
+
+def _funnel_chain(fields: list, values: Optional[dict] = None) -> list:
+    """Поля, образующие настоящую воронку: ступени по словарю, вложенные друг в
+    друга по величине.
+
+    Проверяем ОБА условия, и это принципиально. Только по словам получилась бы
+    воронка из несопоставимых сущностей; только по числам — «отправлено
+    уведомлений 2,5 млн → обращений 1 млн», где второе не является частью
+    первого, просто число меньше. У заказчика на форме МАХ ровно этот случай,
+    поэтому там воронка не строится — и это верное поведение.
+    """
+    stage_of: dict = {}
+    for f in fields:
+        subj = _split_name(f["name"]).get("subject", "").lower()
+        for i, words in enumerate(FUNNEL_STAGES):
+            if any(w in subj for w in words):
+                stage_of.setdefault(i, f)
+                break
+    chain = [stage_of[i] for i in sorted(stage_of)]
+    if len(chain) < MIN_FUNNEL_STAGES:
+        return []
+    # Без значений воронку НЕ строим вовсе. Проверка «закрыта по умолчанию»:
+    # одного словаря мало — на форме заказчика он даёт цепочку
+    # «отправлено → доставлено → обращения → записались», где обращения не
+    # являются частью уведомлений. Такая воронка выглядит убедительно и врёт.
+    if not values:
+        return []
+    seq = [values.get(f["code"]) for f in chain]
+    if any(v is None for v in seq):
+        return []
+    if any(seq[i] < seq[i + 1] for i in range(len(seq) - 1)):
+        return []              # не вкладываются — значит это не ступени
+    return chain
+
+
+def by_meaning_specs(fields: list, rows: int, periods: int, first_period: str = "",
+                     last_period: str = "", values: Optional[dict] = None) -> list:
+    """Дополнительные виды виджетов, подобранные под СМЫСЛ данных.
+
+    Возвращает список {kind, config-заготовка} — без места на сетке: раскладку
+    расставляет вызывающая сторона, как и для остальных блоков.
+    """
+    out: list = []
+    facts = [f for f in fields
+             if _split_name(f["name"]).get("role") != "plan" and not is_share(f["name"])]
+    main = [f for f in facts if _is_main_slice(_split_name(f["name"]).get("slice", ""))] or facts
+
+    chain = _funnel_chain(main, values)
+    if chain:
+        out.append({"kind": "funnel", "fields": chain})
+
+    if rows >= MIN_ROWS_STATUS_GRID and main:
+        # Один показатель по многим строкам: столбчатый график на 63 полоски
+        # нечитаем, а плитка на отделение отвечает «где хорошо, где плохо».
+        out.append({"kind": "status_grid", "fields": [main[0]]})
+
+    if PIE_ROWS[0] <= rows <= PIE_ROWS[1] and main:
+        out.append({"kind": "pie", "fields": [main[0]]})
+
+    if rows >= MIN_ROWS_HEATMAP and len(main) >= MIN_FIELDS_HEATMAP:
+        out.append({"kind": "heatmap", "fields": main[:6]})
+
+    cum = [f for f in main if _is_cumulative(f["name"])]
+    if cum and periods >= MIN_PERIODS_WATERFALL:
+        # Вклад каждой недели в накопительный итог: линия показывает уровень,
+        # водопад — за счёт чего он такой.
+        out.append({"kind": "waterfall", "fields": [cum[0]]})
+
+    # Год к году — только если данные ДЕЙСТВИТЕЛЬНО пересекают два календарных
+    # года: иначе виджет сравнивал бы год сам с собой.
+    if main and first_period[:4] and last_period[:4] and first_period[:4] != last_period[:4]:
+        out.append({"kind": "yoy", "fields": [main[0]]})
+
+    return out
 
 
 def _plan_fact_pairs(fields: list) -> list:
@@ -695,6 +844,43 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
                           "position_x": 0, "position_y": raw_y, "width": 12, "height": 6})
             raw_y += 6
 
+        # ── Виды, подобранные по СМЫСЛУ данных ───────────────────────────────
+        # Ставятся только там, где отвечают на вопрос, которого нет у карточек и
+        # трендов: воронка — «где теряются», светофор — «где плохо», тепловая
+        # карта — «где и когда просело», водопад — «за счёт чего вырос итог».
+        # Правило, которому не хватило данных, МОЛЧИТ (см. by_meaning_specs).
+        if "by_meaning" in blocks:
+            dates = sorted(d.get("period_dates") or [])
+            extra = by_meaning_specs(
+                fields, rows=d.get("rows") or 0, periods=d["periods"],
+                first_period=dates[0] if dates else "", last_period=dates[-1] if dates else "",
+                values=d.get("sums"))
+            for e in extra:
+                kind, fs = e["kind"], e["fields"]
+                w, h = WIDGET_SIZE.get(kind, (6, 6))
+                cfg: dict = {"dataset_code": code}
+                if kind in ("funnel", "heatmap"):
+                    cfg["value_fields"] = [f["code"] for f in fs]
+                else:
+                    cfg["value_field"] = fs[0]["code"]
+                if kind == "status_grid":
+                    # Светофор без порогов светит одним цветом — то же правило,
+                    # что у полосы «план-факт»: норма известна, ставим сразу.
+                    cfg = apply_default_alerts(kind, cfg)
+                # Каждая страница ведёт свой курсор по вертикали — виджет
+                # встаёт под уже разложенным, а не поверх него.
+                page = BY_MEANING_PAGE[kind]
+                if page == PAGE_OVERVIEW:
+                    y, ov_y = ov_y, ov_y + h
+                elif page == PAGE_DYNAMICS:
+                    y, dyn_y = dyn_y, dyn_y + h
+                else:
+                    y, raw_y = raw_y, raw_y + h
+                specs.append({"page": page, "name": BY_MEANING_TITLE[kind].format(
+                                  name=_clean(_split_name(fs[0]["name"])["subject"]) or fs[0]["name"]),
+                              "widget_type": kind, "config": cfg,
+                              "position_x": 0, "position_y": y, "width": w, "height": h})
+
         # ── Страницы по отчётным периодам ────────────────────────────────────
         # Сводные страницы обновляются сами: виджет читает последний выпуск.
         # Страница периода — наоборот, СРЕЗ: у её виджетов закреплена дата, и
@@ -796,7 +982,12 @@ async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict
             for t in page_names
             if any((s.get("page") or PAGE_OVERVIEW) == t for s in specs)
         ],
-        "by_type": {t: sum(1 for s in specs if s["widget_type"] == t) for t in BLOCKS},
+        # Считаем по ФАКТИЧЕСКОМУ типу виджета, а не по названиям блоков: раньше
+        # совпадали только те типы, чьё имя случайно совпало с именем блока, и в
+        # сводке не было видно ни `kpi_group`, ни спидометров, ни видов «по
+        # смыслу» — предпросмотр обещал меньше, чем создавал.
+        "by_type": dict(sorted(
+            Counter(s["widget_type"] for s in specs).items(), key=lambda kv: -kv[1])),
         # Как система предлагает показать каждый показатель — мастер выводит это
         # рядом с ним и даёт поменять.
         "views": {
