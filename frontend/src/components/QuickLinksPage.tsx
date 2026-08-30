@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { fmtNumber } from '../lib/format'
 import {
   allowedQuickLinkSections, createQuickLink, deleteQuickLink, listDashboards, listQuickLinks,
   reorderQuickLinks, type Dashboard, type QuickLink,
@@ -65,18 +66,50 @@ export default function QuickLinksPage(
         </div>
       )}
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: canManage ? 18 : 0 }}>
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(236px, 1fr))',
+        gap: 12, marginBottom: canManage ? 18 : 0,
+      }}>
         {items.map((l, i) => (
           <div key={l.id} style={tile}>
             <button type="button" style={tileBtn} onClick={() => open(l)}
-              title={l.kind === 'dashboard' ? (l.dashboard_name || l.label) : SECTION_LABEL[l.section] || l.section}>
-              {l.label}
+              title={l.kind === 'dashboard'
+                ? `Открыть отчёт «${l.dashboard_name || l.label}»`
+                : `Открыть раздел «${SECTION_LABEL[l.section] || l.section}»`}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)' }}>{l.label}</span>
+              {/* Откуда отчёт: по одному короткому названию не понять, что внутри. */}
+              <span style={sub}>
+                {l.kind === 'dashboard'
+                  ? [l.object_name, l.folder_name].filter(Boolean).join(' / ') || l.dashboard_name || 'отчёт'
+                  : l.hint || SECTION_LABEL[l.section] || 'раздел'}
+              </span>
+              {l.kind === 'dashboard' && l.highlight && (
+                <span style={{ display: 'block', marginTop: 8 }}>
+                  <span style={{ fontSize: 22, fontWeight: 700, color: look(l.highlight.alert) }}>
+                    {fmtNumber(l.highlight.value)}
+                    {l.highlight.unit && <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 3 }}>{l.highlight.unit}</span>}
+                  </span>
+                  {l.highlight.delta_pct != null && (
+                    <span style={{
+                      marginLeft: 8, fontSize: 12.5, fontWeight: 600,
+                      color: l.highlight.delta_pct >= 0 ? 'var(--success)' : 'var(--danger)',
+                    }}>
+                      {l.highlight.delta_pct >= 0 ? '▲' : '▼'} {Math.abs(l.highlight.delta_pct).toFixed(2)} %
+                    </span>
+                  )}
+                  <span style={{ ...sub, marginTop: 2 }}>{elide(l.highlight.name)}</span>
+                </span>
+              )}
+              {l.kind === 'dashboard' && !l.highlight && (
+                <span style={{ ...sub, marginTop: 8, fontStyle: 'italic' }}>открыть отчёт →</span>
+              )}
             </button>
             {canManage && editing && (
-              <div style={{ display: 'flex', gap: 2 }}>
+              <div style={{ display: 'flex', gap: 2, padding: '0 10px 8px' }}>
                 <button type="button" style={miniBtn} disabled={i === 0} onClick={() => move(i, -1)}>▲</button>
                 <button type="button" style={miniBtn} disabled={i === items.length - 1} onClick={() => move(i, 1)}>▼</button>
-                <button type="button" style={{ ...miniBtn, color: 'var(--danger)' }} onClick={() => remove(l.id)}>✕</button>
+                <button type="button" style={{ ...miniBtn, color: 'var(--danger)', marginLeft: 'auto' }}
+                  onClick={() => remove(l.id)}>✕ убрать</button>
               </div>
             )}
           </div>
@@ -158,15 +191,32 @@ function Editor({ onAdded }: { onAdded: () => void }) {
 }
 
 const tile: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 4, border: '1px solid var(--border)',
-  borderRadius: 10, background: 'var(--surface)',
+  display: 'flex', flexDirection: 'column', border: '1px solid var(--border)',
+  borderRadius: 12, background: 'var(--surface)', overflow: 'hidden',
 }
 const tileBtn: React.CSSProperties = {
-  padding: '10px 16px', border: 'none', background: 'none', cursor: 'pointer',
-  fontSize: 14, fontWeight: 600, color: 'var(--accent)',
+  display: 'block', width: '100%', textAlign: 'left', padding: '12px 14px',
+  border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text)',
+}
+const sub: React.CSSProperties = {
+  display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 3,
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 }
 const miniBtn: React.CSSProperties = {
   border: 'none', background: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text-muted)', padding: '0 4px',
+}
+
+/** Порог, сработавший на показателе, красит цифру — тем же смыслом, что на дашборде. */
+function look(alert: string | null | undefined): string {
+  if (alert === 'danger' || alert === 'poor') return 'var(--danger)'
+  if (alert === 'warn') return 'var(--warn)'
+  if (alert === 'good') return 'var(--success)'
+  return 'var(--text)'
+}
+
+/** Имена показателей госформ длинные, а плитка узкая: режем по краю. */
+function elide(s: string, n = 46): string {
+  return s.length <= n ? s : s.slice(0, n - 1) + '…'
 }
 const linkBtn: React.CSSProperties = {
   background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--accent)',

@@ -81,7 +81,10 @@ export default function App() {
 // а дашборд смотрят именно на большом экране (в том числе на ТВ в холле).
 // Остальные разделы (формы, списки) остаются в узкой колонке — длинные строки
 // текста через весь монитор читать неудобно.
-const WIDE_SECTIONS = new Set(['dashboards', 'showcases', 'archive', 'objects', 'dnrstats'])
+// Разделы, которым узкая колонка (900px) мала: плотная сетка виджетов либо
+// широкая таблица. У «Загрузки» журнал импорта из шести колонок — в 900px он
+// обрезался на 213px, и колонки «Состояние» и «Загрузил» не было видно вовсе.
+const WIDE_SECTIONS = new Set(['dashboards', 'showcases', 'archive', 'objects', 'dnrstats', 'uploads'])
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (

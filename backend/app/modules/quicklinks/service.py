@@ -32,10 +32,30 @@ def _is_staff(user: dict) -> bool:
     return any(r in ("admin", "moderator", "superadmin") for r in user.get("roles", []))
 
 
+# Что за раздел скрывается за коротким названием — иначе плитка «Статистика
+# отделов» не отличима от «MAX» ничем, кроме слова.
+SECTION_HINT = {
+    "dashboards": "все доступные вам отчёты",
+    "instructions": "как пользоваться системой",
+    "leadership": "подборка для руководства",
+    "showcases": "несколько отчётов на одном экране",
+    "dnrstats": "отделения МФЦ по ведомствам и услугам",
+    "archive": "снимки данных за прошлые периоды",
+}
+
+# Сколько цифр показываем на плитке. Одна: быстрый доступ — это навигация, а
+# не второй дашборд; три числа уже требуют чтения, а не взгляда.
+TILE_HIGHLIGHTS = 1
+
+
 async def list_links(conn, org_id, user: dict) -> List[dict]:
     rows = await conn.fetch(
-        "select ql.id, ql.label, ql.kind, ql.dashboard_id, ql.section, d.name as dashboard_name "
-        "from quick_links ql left join dashboards d on d.id = ql.dashboard_id "
+        "select ql.id, ql.label, ql.kind, ql.dashboard_id, ql.section, d.name as dashboard_name, "
+        "  d.publication_status, fo.name as folder_name, ob.name as object_name "
+        "from quick_links ql "
+        "left join dashboards d on d.id = ql.dashboard_id "
+        "left join folders fo on fo.id = d.folder_id "
+        "left join objects ob on ob.id = fo.object_id "
         "where ql.organization_id=$1 order by ql.position, ql.created_at", org_id)
     if not rows:
         return []
@@ -51,17 +71,33 @@ async def list_links(conn, org_id, user: dict) -> List[dict]:
     # пункт меню тому, кому раздел не откроется вовсе.
     section_ok = _is_staff(user) or bool(user.get("show_featured"))
 
+    # Ленивый импорт: `dashboards.service` тянет за собой половину модуля
+    # виджетов, а `quicklinks` — лист в дереве зависимостей.
+    from ..dashboards.service import _featured_highlights
+
     out = []
     for r in rows:
         if r["kind"] == "dashboard":
             if str(r["dashboard_id"]) not in visible_dash:
                 continue
-            out.append({"id": str(r["id"]), "label": r["label"], "kind": "dashboard",
-                       "dashboard_id": str(r["dashboard_id"]), "dashboard_name": r["dashboard_name"]})
+            item = {"id": str(r["id"]), "label": r["label"], "kind": "dashboard",
+                    "dashboard_id": str(r["dashboard_id"]), "dashboard_name": r["dashboard_name"],
+                    "folder_name": r["folder_name"], "object_name": r["object_name"],
+                    "published": r["publication_status"] == "published"}
+            # Главная цифра — ТЕМ ЖЕ кодом, что считает плитки «Руководителю» и
+            # сами виджеты: разойтись с дашбордом плитка не может. Сбой расчёта
+            # не должен ронять меню — плитка просто останется без числа.
+            try:
+                hl = await _featured_highlights(conn, org_id, user, str(r["dashboard_id"]))
+                item["highlight"] = hl[0] if hl else None
+            except Exception:  # noqa: BLE001 — навигация важнее цифры на кнопке
+                item["highlight"] = None
+            out.append(item)
         else:
             if r["section"] not in OPEN_SECTIONS and not section_ok:
                 continue
-            out.append({"id": str(r["id"]), "label": r["label"], "kind": "section", "section": r["section"]})
+            out.append({"id": str(r["id"]), "label": r["label"], "kind": "section",
+                        "section": r["section"], "hint": SECTION_HINT.get(r["section"])})
     return out
 
 
