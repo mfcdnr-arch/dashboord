@@ -196,6 +196,20 @@ async def evaluate_ast(conn, org_id, ast: Dict[str, Any], _visiting: Optional[se
     return evaluator.evaluate(ast, resolver)
 
 
+async def evaluate_series(conn, org_id, ast: Dict[str, Any]) -> List[Tuple[str, float]]:
+    """Значение формулы по КАЖДОМУ отчётному периоду: [(период, значение), …].
+
+    `evaluate_ast` считает только на последнем выпуске и отвечает на вопрос
+    «сколько сейчас». Здесь — «как менялось», ради прироста к прошлому отчёту
+    на карточке «Главной».
+
+    Своей логики не заводим: ровно тот же обход, которым уже считаются оконные
+    функции (PERIOD_COMPARE, RUNNING_TOTAL). Иначе прирост на карточке и
+    прирост внутри формулы однажды разошлись бы.
+    """
+    return await _compute_window_series(conn, org_id, {"arg": ast}, set())
+
+
 async def _compute_window_series(conn, org_id, wnode: Dict[str, Any], visiting: set) -> List[Tuple[str, float]]:
     """Ряд (период, значение_arg) — вычисляет arg оконной функции для каждого
     периода выпусков датасетов, на которые ссылается arg. metric()/cell() внутри

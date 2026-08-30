@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import json
-from typing import List
+from typing import List, Optional
 
 from ..dashboards import service as dash_svc
 from ..metrics import resolver as mr
@@ -18,6 +18,11 @@ class HomeError(Exception):
 
 
 async def _metric_value(conn, org_id, code: str):
+    """(имя, значение, единица|текст ошибки, разобранная формула).
+
+    Формула возвращается наружу, чтобы посчитать по ней прирост, не разбирая
+    её и не ходя в БД во второй раз.
+    """
     row = await conn.fetchrow(
         "select m.name, mv.formula_ast, mv.unit from metrics m "
         "join metric_versions mv on mv.metric_id=m.id "
@@ -27,15 +32,44 @@ async def _metric_value(conn, org_id, code: str):
         org_id, code,
     )
     if row is None:
-        return None, None, None
+        return None, None, None, None
     ast = row["formula_ast"]
     if isinstance(ast, str):
         ast = json.loads(ast)
     try:
         value = await mr.evaluate_ast(conn, org_id, ast)
-        return row["name"], value, row["unit"]
+        return row["name"], value, row["unit"], ast
     except FormulaError as e:
-        return row["name"], None, str(e)
+        return row["name"], None, str(e), None
+
+
+async def _metric_delta(conn, org_id, ast, unit: Optional[str]) -> dict:
+    """Изменение показателя к ПРОШЛОМУ отчёту.
+
+    Голое число не отвечает на вопрос, ради которого человек открыл «Главную»:
+    много это или мало. Ряд по периодам считает тот же обход, что и оконные
+    функции формул, — расходиться с ними нечему.
+
+    **Проценты меняются в ПУНКТАХ, а не в процентах.** «Доля доставленных
+    выросла на 3,28 %» читается двусмысленно: то ли доля стала 40,46 %, то ли
+    выросла на 3,28 пункта. Для показателя в «%» отдаём разность в п.п. —
+    она однозначна; для остальных обычный относительный прирост.
+    """
+    try:
+        series = await mr.evaluate_series(conn, org_id, ast)
+    except FormulaError:
+        return {}
+    points = [(p, v) for p, v in (series or []) if v is not None]
+    if len(points) < 2:
+        return {}
+    (prev_p, prev_v), (_cur_p, cur_v) = points[-2], points[-1]
+    is_pct = (unit or "").strip() == "%"
+    if is_pct:
+        return {"delta": round(cur_v - prev_v, 2), "delta_is_pp": True, "prev_period": prev_p}
+    if not prev_v:
+        return {}  # от нуля процент роста не считается и ничего не сообщает
+    return {"delta": round((cur_v - prev_v) / prev_v * 100, 2),
+            "delta_is_pp": False, "prev_period": prev_p}
 
 
 async def _key_kpis(conn, org_id) -> List[dict]:
@@ -47,10 +81,13 @@ async def _key_kpis(conn, org_id) -> List[dict]:
         "select metric_code from home_kpis where organization_id=$1 order by position, created_at", org_id)
     key_kpis: List[dict] = []
     for k in kpi_rows:
-        name, value, unit = await _metric_value(conn, org_id, k["metric_code"])
-        key_kpis.append({"code": k["metric_code"], "name": name or k["metric_code"],
-                         "value": value, "unit": unit if value is not None else None,
-                         "error": unit if value is None else None})
+        name, value, unit, ast = await _metric_value(conn, org_id, k["metric_code"])
+        item = {"code": k["metric_code"], "name": name or k["metric_code"],
+                "value": value, "unit": unit if value is not None else None,
+                "error": unit if value is None else None}
+        if value is not None and ast is not None:
+            item.update(await _metric_delta(conn, org_id, ast, unit))
+        key_kpis.append(item)
     return key_kpis
 
 

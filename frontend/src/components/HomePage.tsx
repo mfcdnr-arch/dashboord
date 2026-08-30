@@ -5,6 +5,7 @@ import {
 } from '../api'
 import { fmtNumber as fmt } from '../lib/format'
 import { EmptyKpiArt } from './Art'
+import KpiDelta from './KpiDelta'
 
 const KIND_ICON: Record<string, string> = { dataset: '📄', metric: '📐', dashboard: '📊' }
 
@@ -302,7 +303,14 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
                 {canManage && <button style={rmBtn} onClick={() => removeKpi(k.code)} title="Убрать с главной">✕</button>}
               </div>
               {k.value != null
-                ? <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--accent)', marginTop: 4 }}>{fmt(k.value)}{k.unit && <span style={{ fontSize: 13, color: 'var(--text-muted)', marginLeft: 4 }}>{k.unit}</span>}</div>
+                ? (
+                  <div style={{ marginTop: 4 }}>
+                    <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--accent)' }}>
+                      {fmt(k.value)}{k.unit && <span style={{ fontSize: 13, color: 'var(--text-muted)', marginLeft: 4 }}>{k.unit}</span>}
+                    </div>
+                    <KpiDelta kpi={k} />
+                  </div>
+                )
                 : <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 6 }}>{k.error || 'нет значения'}</div>}
             </div>
           ))}

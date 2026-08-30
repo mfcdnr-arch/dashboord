@@ -1,6 +1,13 @@
 import { authH, errText } from './http'
 
-export type KeyKpi = { code: string; name: string; value: number | null; unit: string | null; error: string | null }
+export type KeyKpi = {
+  code: string; name: string; value: number | null; unit: string | null; error: string | null
+  /** Изменение к прошлому отчёту. У процентных показателей — в ПУНКТАХ
+   *  (`delta_is_pp`), иначе «доля выросла на 3,28 %» читалось бы двусмысленно. */
+  delta?: number | null
+  delta_is_pp?: boolean
+  prev_period?: string | null
+}
 
 // --- Главная ---
 export interface HomeData {

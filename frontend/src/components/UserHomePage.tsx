@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fmtNumber as fmt } from '../lib/format'
 import { getPortalHome, type PortalHome } from '../api'
+import KpiDelta from './KpiDelta'
 
 /**
  * Главная обычного пользователя.
@@ -68,9 +69,14 @@ export default function UserHomePage(
               <div key={k.code} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10 }}>
                 <div style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{k.name}</div>
                 {k.value != null
-                  ? <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--accent)', marginTop: 4 }}>
-                      {fmt(k.value)}{k.unit && <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 4 }}>{k.unit}</span>}
+                  ? (
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--accent)' }}>
+                        {fmt(k.value)}{k.unit && <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 4 }}>{k.unit}</span>}
+                      </div>
+                      <KpiDelta kpi={k} size={12} />
                     </div>
+                  )
                   : <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 6 }}>{k.error || 'нет значения'}</div>}
               </div>
             ))}
