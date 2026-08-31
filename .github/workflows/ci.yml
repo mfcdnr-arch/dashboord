@@ -125,3 +125,24 @@ jobs:
       - name: pytest (auth / RLS / виджеты / модерация)
         working-directory: backend
         run: python -m pytest
+
+  test-image:
+    name: Образ для локального прогона тестов
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Локально тесты гоняются в контейнере (`docker compose -p dashbord run
+      # --rm tests`), потому что в прод-образе нет ни pytest, ни каталога tests.
+      # Сам CI этот образ НЕ использует — он ставит зависимости на раннер
+      # напрямую (job «Тесты»). Джоб нужен ровно затем, чтобы рецепт образа не
+      # протух: на машине разработчика может не быть сети до PyPI, и сломанный
+      # Dockerfile.test обнаружился бы ровно в тот момент, когда образ
+      # понадобится заново. Именно так и вышло 31.08.2026 — прогон держался на
+      # локальном образе трёхнедельной давности, не описанном в репозитории.
+      - name: Собрать backend/Dockerfile.test
+        run: docker build -t dashbord-test:py312 -f backend/Dockerfile.test backend
+      - name: Проверить, что pytest и линтеры на месте
+        run: |
+          docker run --rm dashbord-test:py312 python -m pytest --version
+          docker run --rm dashbord-test:py312 ruff --version
+          docker run --rm dashbord-test:py312 mypy --version

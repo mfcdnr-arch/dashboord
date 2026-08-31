@@ -147,12 +147,14 @@ services:
   # Без него они падают — это и есть те «девять известных упавших», из-за
   # которых красный прогон перестал что-либо значить.
   #
-  # Образ dashbord-test:py312 = прод-образ + requirements-dev.txt. Если его нет
-  # (`docker images | grep dashbord-test`), собрать так (нужна сеть до PyPI):
-  #     docker build -t dashbord-api ./backend
-  #     printf 'FROM dashbord-api\\nCOPY requirements-dev.txt .\\nRUN pip install --no-cache-dir -r requirements-dev.txt\\n' \\
-  #       | docker build -t dashbord-test:py312 -f - ./backend
+  # Образ описан в backend/Dockerfile.test и собирается отсюда САМ, если его нет
+  # на машине (для сборки нужна сеть до PyPI). Тег закреплён, поэтому уже
+  # собранный образ переиспользуется; пересобрать принудительно —
+  #     docker compose -p dashbord build tests
   tests:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
     image: dashbord-test:py312
     profiles: ["test"]
     environment: *backend_env
