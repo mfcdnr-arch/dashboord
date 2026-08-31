@@ -54,7 +54,8 @@ def apply_default_alerts(widget_type: str, cfg: dict) -> dict:
     снятые правила (человек убрал их в окне ⚠), и возвращать их значило бы
     спорить с ним при каждом сохранении.
     """
-    if widget_type == "status_grid" and cfg.get("plan_field") and "alerts" not in cfg:
+    has_plan = bool(cfg.get("plan_field")) or bool(cfg.get("pairs"))
+    if widget_type in ("status_grid", "bullet", "thermometer") and has_plan and "alerts" not in cfg:
         cfg = dict(cfg)
         cfg["alerts"] = [dict(r) for r in PLAN_PCT_ALERTS]
     return cfg
@@ -103,6 +104,12 @@ WIDGET_SIZE = {
     "compare": (12, 8), "cross_dataset_compare": (12, 8), "yoy": (12, 6),
     "heatmap": (6, 7), "pivot": (12, 6), "table": (12, 6), "matrix": (12, 7),
     "funnel": (6, 7), "status_grid": (6, 6), "objects_compare": (6, 7),
+    # Полосы: строка на пару «план + факт». Высота растёт с числом строк, её
+    # считает `bullet_height` — здесь запасное значение на 3 строки.
+    "bullet": (6, 7),
+    # Термометр: два столбика («выполнено» против «прошло срока»), под ними
+    # «нужно в день» и прогноз — в семи рядах прогноз уезжает в прокрутку.
+    "thermometer": (4, 9),
     "text": (12, 2), "image": (6, 5),
 }
 
@@ -112,6 +119,22 @@ WIDGET_SIZE = {
 # молча оставалось прежним — пересобранная страница выглядела не так, как
 # подогнанная кнопкой «↕ Подогнать размеры».
 KPI_W, KPI_H = WIDGET_SIZE["kpi"]
+
+# Сколько пар «план + факт» нужно, чтобы полосы имели смысл. На ОДНОЙ паре
+# полоса — это тот же «План-факт», только без прогноза: сравнивать не с чем,
+# а ради чего полосы и берут — сравнение показателей между собой.
+MIN_BULLET_ROWS = 2
+
+
+def bullet_height(rows: int) -> int:
+    """Высота карточки полос: шапка плюс ряд на каждую пару.
+
+    Тот же приём, что у матрицы (`matrix_height`): высота виджета, у которого
+    число строк известно заранее, не может быть константой — иначе часть строк
+    молча уезжает во внутреннюю прокрутку, то есть пропадает ровно то, ради чего
+    виджет и ставили.
+    """
+    return min(24, 3 + max(1, rows))
 
 
 def matrix_height(field_count: int) -> int:
@@ -132,14 +155,15 @@ def matrix_height(field_count: int) -> int:
 def _content_height(widget: dict, default_h: int) -> int:
     """Высота, зависящая от СОДЕРЖИМОГО виджета, а не только от его типа.
 
-    Пока такой виджет один — матрица, у которой строк столько, сколько
-    показателей выбрано. Правило вынесено сюда, чтобы кнопка «↕ Подогнать
-    размеры» и авто-сборка считали её ОДИНАКОВО: раньше сборка растягивала
-    матрицу по числу показателей, а подгонка тут же ужимала её обратно до
-    табличного размера из `WIDGET_SIZE` — то есть кнопка молча ломала то, что
-    собрал мастер.
+    Таких виджетов два: матрица (строк столько, сколько выбрано показателей) и
+    полосы «план и факт» (строка на каждую пару). Правило вынесено сюда, чтобы
+    кнопка «↕ Подогнать размеры» и авто-сборка считали высоту ОДИНАКОВО: раньше
+    сборка растягивала матрицу по числу показателей, а подгонка тут же ужимала
+    её обратно до табличного размера из `WIDGET_SIZE` — то есть кнопка молча
+    ломала то, что собрал мастер.
     """
-    if widget.get("widget_type") != "matrix":
+    kind = widget.get("widget_type")
+    if kind not in ("matrix", "bullet"):
         return default_h
     cfg = widget.get("config") or {}
     if isinstance(cfg, str):
@@ -147,6 +171,8 @@ def _content_height(widget: dict, default_h: int) -> int:
             cfg = json.loads(cfg)
         except (TypeError, ValueError):
             cfg = {}
+    if kind == "bullet":
+        return bullet_height(len(cfg.get("pairs") or []))
     # Разрез по строкам формы: сколько их будет, заранее неизвестно — берём ту
     # же оценку в шесть строк, что и авто-сборка, чтобы обе стороны считали
     # одинаково.
@@ -500,6 +526,9 @@ MIN_ROWS_HEATMAP = 4
 MIN_FIELDS_HEATMAP = 2
 # Водопад показывает вклад периодов — нужен ряд, а не пара точек.
 MIN_PERIODS_WATERFALL = 3
+# Термометров на форму: у каждого свой срок и свой показатель, но первый экран
+# не должен состоять из них одних.
+MAX_AUTO_THERMOMETERS = 2
 
 
 # Куда какой вид попадает по смыслу страницы: «как сейчас» / «как менялось» /
@@ -507,6 +536,7 @@ MIN_PERIODS_WATERFALL = 3
 # на «Обзоре» — там, где его никто не ищет.
 BY_MEANING_PAGE = {
     "funnel": PAGE_OVERVIEW, "status_grid": PAGE_OVERVIEW,
+    "bullet": PAGE_OVERVIEW, "thermometer": PAGE_OVERVIEW,
     "waterfall": PAGE_DYNAMICS, "yoy": PAGE_DYNAMICS,
     "pie": PAGE_RAW, "heatmap": PAGE_RAW,
 }
@@ -517,7 +547,53 @@ BY_MEANING_TITLE = {
     "yoy": "{name}: год к году",
     "pie": "{name}: доли строк",
     "heatmap": "Тепловая карта показателей",
+    "bullet": "План и факт: все показатели",
+    "thermometer": "{name}: успеваем ли к сроку",
 }
+
+
+# Месяцы в том виде, в каком они пишутся в госформах («до 1 сентября 2026 г.»).
+# Ключ — начало слова: падеж («сентября») и сокращение («сент.») дают одно и то
+# же начало, а вот «март» и «мая» различаются с первых букв, поэтому пересечения
+# между ключами нет.
+_RU_MONTHS = {"январ": 1, "феврал": 2, "март": 3, "апрел": 4, "ма": 5, "июн": 6,
+              "июл": 7, "август": 8, "сентябр": 9, "октябр": 10, "ноябр": 11, "декабр": 12}
+_DEADLINE_WORDS = re.compile(r"\bдо\s+(\d{1,2})\s+([а-яё]+)\s+(\d{4})", re.I)
+_DEADLINE_DIGITS = re.compile(r"\b(?:до|к)\s+(\d{1,2})\.(\d{1,2})\.(\d{4})", re.I)
+
+
+def deadline_from_name(name: str):
+    """Срок, если он назван прямо в имени графы плана. Иначе — None.
+
+    В госформе план почти всегда подписан сроком: «План (до 1 сентября
+    2026 г.)». Пока эта дата лежит только в тексте, «успеваем ли» приходится
+    считать в уме, сопоставляя проценты с календарём.
+
+    Правило то же, что у остальных видов «по смыслу»: разобрали дату уверенно —
+    ставим термометр, не разобрали — молчим. Выдуманный срок здесь хуже
+    отсутствующего: по нему считается «опережение/отставание», и ошибка в дате
+    превращается в ложную тревогу на первом экране руководителя.
+    """
+    from datetime import date
+
+    m = _DEADLINE_DIGITS.search(name or "")
+    if m:
+        try:
+            return date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+        except ValueError:
+            return None
+    m = _DEADLINE_WORDS.search(name or "")
+    if not m:
+        return None
+    word = m.group(2).lower()
+    # «март» проверяем раньше «ма»: иначе март стал бы маем.
+    for stem in sorted(_RU_MONTHS, key=len, reverse=True):
+        if word.startswith(stem):
+            try:
+                return date(int(m.group(3)), _RU_MONTHS[stem], int(m.group(1)))
+            except ValueError:
+                return None
+    return None
 
 
 def _is_cumulative(name: str) -> bool:
@@ -598,6 +674,28 @@ def by_meaning_specs(fields: list, rows: int, periods: int, first_period: str = 
     if main and first_period[:4] and last_period[:4] and first_period[:4] != last_period[:4]:
         out.append({"kind": "yoy", "fields": [main[0]]})
 
+    # Полосы «план и факт»: одна карточка вместо пары-тройки отдельных.
+    # Ставим ТОЛЬКО при нескольких парах — на одной паре полоса это тот же
+    # «План-факт», только без прогноза.
+    pairs = _plan_fact_pairs(fields)
+    if len(pairs) >= MIN_BULLET_ROWS:
+        out.append({"kind": "bullet", "fields": [f for _, f in pairs],
+                    "config": {"pairs": [{"plan_field": pl["code"], "fact_field": fa["code"]}
+                                         for pl, fa in pairs]},
+                    "height": bullet_height(len(pairs))})
+
+    # Термометр к сроку — только там, где срок НАЗВАН в имени графы плана.
+    # Спрашивать его у человека в мастере значило бы задавать вопрос, ответ на
+    # который уже написан в форме; выдумывать — ставить на первый экран
+    # «отставание», посчитанное от даты, которой никто не назначал.
+    for plan_f, fact_f in pairs[:MAX_AUTO_THERMOMETERS]:
+        due = deadline_from_name(plan_f["name"])
+        if due is None:
+            continue
+        out.append({"kind": "thermometer", "fields": [fact_f],
+                    "config": {"plan_field": plan_f["code"], "fact_field": fact_f["code"],
+                               "deadline": due.isoformat()}})
+
     return out
 
 
@@ -671,8 +769,14 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
             return v if v in VIEWS else "kpi"
 
         # ── Обзор: план-факт полосой, остальные — карточками, снизу сравнение ──
-        if "plan_fact" in blocks:
-            pairs = _plan_fact_pairs(shown)
+        # Пары «план + факт» нужны двум блокам сразу, поэтому считаем их до
+        # обоих: при нескольких парах их показывают ПОЛОСЫ одной карточкой, и
+        # плодить рядом столько же отдельных «План-фактов» значило бы дважды
+        # ответить на один вопрос и занять первый экран целиком.
+        pf_pairs = _plan_fact_pairs(shown)
+        bullet_instead = "by_meaning" in blocks and len(pf_pairs) >= MIN_BULLET_ROWS
+        if "plan_fact" in blocks and not bullet_instead:
+            pairs = pf_pairs
             # С порогами над полосой встаёт бейдж «план выполнен» и рамка — при
             # прежней высоте карточка включала прокрутку (замерено: не хватало
             # 18px). Ряд считается по номеру строки, поэтому высота у всей
@@ -859,15 +963,21 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
             for e in extra:
                 kind, fs = e["kind"], e["fields"]
                 w, h = WIDGET_SIZE.get(kind, (6, 6))
-                cfg: dict = {"dataset_code": code}
-                if kind in ("funnel", "heatmap"):
+                # Правило может задать высоту само — у полос она зависит от
+                # числа пар, и константа из таблицы прятала бы часть строк во
+                # внутреннюю прокрутку (та же беда, что была у матрицы).
+                h = e.get("height") or h
+                cfg = {"dataset_code": code}
+                if e.get("config"):
+                    cfg.update(e["config"])
+                elif kind in ("funnel", "heatmap"):
                     cfg["value_fields"] = [f["code"] for f in fs]
                 else:
                     cfg["value_field"] = fs[0]["code"]
-                if kind == "status_grid":
-                    # Светофор без порогов светит одним цветом — то же правило,
-                    # что у полосы «план-факт»: норма известна, ставим сразу.
-                    cfg = apply_default_alerts(kind, cfg)
+                # Светофор, полосы и термометр без порогов светят одним цветом —
+                # то же правило, что у полосы «план-факт»: норма известна (100 %
+                # это сам план), ставим сразу.
+                cfg = apply_default_alerts(kind, cfg)
                 # Каждая страница ведёт свой курсор по вертикали — виджет
                 # встаёт под уже разложенным, а не поверх него.
                 page = BY_MEANING_PAGE[kind]

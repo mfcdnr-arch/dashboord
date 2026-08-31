@@ -23,6 +23,7 @@ from ._widgetsources import (
     _dataset_series,
     _dataset_table,
     _field_title,
+    _field_titles,
     _formula_value,
     _metric_value,
     _prev_period,
@@ -158,6 +159,37 @@ def _detect_anomalies(periods: list, values: list, threshold: float = 2.0) -> li
     return out
 
 
+# «Полосы план-факт»: сколько пар показываем и как выбираем общую шкалу.
+# Потолок пар — чтобы карточка не превратилась в таблицу без заголовков;
+# шкала снизу не ниже 120 % (иначе выполненный план упирается в самый край и
+# «выполнено» неотличимо от «перевыполнено»), сверху не выше 300 % (при 656 %
+# у одной строки остальные схлопнулись бы в невидимые огрызки).
+BULLET_MAX_PAIRS = 12
+BULLET_SCALE_MIN = 120.0
+BULLET_SCALE_CAP = 300.0
+
+
+def _as_date(v):
+    """Дата из ISO-строки или объекта даты; мусор — None, а не исключение.
+
+    Срок термометра приходит из настройки виджета, то есть из того, что человек
+    когда-то ввёл руками. Падать на нём всем виджетом нельзя — расчёт скажет,
+    что срок не задан, и это чинится в форме.
+    """
+    from datetime import date, datetime
+
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    if isinstance(v, str) and len(v) >= 10:
+        try:
+            return date.fromisoformat(v[:10])
+        except ValueError:
+            return None
+    return None
+
+
 def _plan_forecast(series: list, plan, fact) -> dict:
     """Когда факт дорастёт до плана при нынешнем темпе (линейная экстраполяция).
 
@@ -288,10 +320,22 @@ async def _slice_mismatch(conn, org_id, code: str, plan_field: str, fact_field: 
     противоречила сама себе: то, что при выпуске названо «за неделю», не может
     на дашборде считаться накопительным.
     """
-    from ..ingestion.quality import classify_slice
-
     plan_name = await _field_title(conn, org_id, code, plan_field, period)
     fact_name = await _field_title(conn, org_id, code, fact_field, period)
+    return slice_note(plan_name, fact_name)
+
+
+def slice_note(plan_name: Optional[str], fact_name: Optional[str]) -> Optional[str]:
+    """Чистая половина правила выше — по ИМЕНАМ граф, без обращений к БД.
+
+    Вынесена затем, что «полосы план-факт» показывают до десятка пар сразу:
+    ходить в БД за именем каждой графы отдельно значило бы делать четыре
+    запроса на строку. Имена там уже прочитаны одним запросом, а правило
+    должно остаться ОДНО — иначе одна и та же пара получала бы предупреждение
+    на полосе и не получала на карточке «План-факт».
+    """
+    from ..ingestion.quality import classify_slice
+
     if not plan_name or not fact_name:
         return None
     ps, fs = classify_slice(plan_name), classify_slice(fact_name)
@@ -901,6 +945,102 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             series = await _dataset_period_series(
                 conn, org_id, cfg["dataset_code"], cfg["fact_field"], None, period, row, allowed)
             res["forecast"] = _plan_forecast(series, plan, fact)
+        res["alert"] = evaluate_alert("plan_fact", cfg, res)
+        return res
+
+    if t == "bullet":
+        # «Полосы»: несколько пар «план + факт» ОДНОЙ карточкой, строка на пару.
+        # Отличие от «План-факта» — не в оформлении: тот показывает одну пару, и
+        # три показателя занимали три карточки, где имя весит больше числа, а
+        # сравнить их между собой нельзя вовсе (у каждого своя шкала).
+        pairs = cfg.get("pairs") or []
+        if not cfg.get("dataset_code") or not pairs:
+            raise DashboardError("Полосы план-факт: укажите dataset_code и хотя бы одну пару «план + факт»")
+        code = cfg["dataset_code"]
+        # Имена граф читаем ОДНИМ запросом на весь виджет, а не по одному на
+        # строку: на десяти парах это была бы пара десятков лишних обращений.
+        titles = await _field_titles(conn, org_id, code, period)
+        out_rows: List[dict] = []
+        for pair in pairs[:BULLET_MAX_PAIRS]:
+            plan_f, fact_f = pair.get("plan_field"), pair.get("fact_field")
+            if not plan_f or not fact_f:
+                raise DashboardError("Полосы план-факт: у каждой строки нужны и план, и факт")
+            plan, _, _ = await _column_value(conn, org_id, cfg, plan_f, row, allowed, period)
+            fact, _, _ = await _column_value(conn, org_id, cfg, fact_f, row, allowed, period)
+            pct = (fact / plan * 100.0) if plan else None
+            # Цвет — ТЕ ЖЕ пороги, что у «План-факта» и спидометра: своя шкала
+            # у полос означала бы, что красный на соседних виджетах значит разное.
+            alert = evaluate_alert("plan_fact", cfg, {"pct": pct, "plan": plan, "fact": fact})
+            out_rows.append({
+                "label": pair.get("label") or titles.get(fact_f) or fact_f,
+                "plan": plan, "fact": fact, "delta": fact - plan, "pct": pct,
+                "level": (alert or {}).get("level"), "color": (alert or {}).get("color"),
+                # Предупреждение о несопоставимых разрезах — на КАЖДОЙ строке
+                # своё: в одной карточке легко оказаться паре «план на срок +
+                # накопительный факт» рядом с парой «неделя + неделя».
+                "slice_note": slice_note(titles.get(plan_f), titles.get(fact_f)),
+            })
+        # Шкала общая на все строки, и в этом весь смысл: 100 % — это план, и
+        # ровно поэтому показатели разного масштаба становятся сравнимыми.
+        # Потолок не даём задрать одному перевыполнившему: при 656 % остальные
+        # полосы схлопнулись бы в невидимые огрызки. Обрезанные помечаем, а
+        # само число печатается всегда — из виду ничего не пропадает.
+        top = max([r["pct"] for r in out_rows if r["pct"] is not None] or [0])
+        scale = min(BULLET_SCALE_CAP, max(BULLET_SCALE_MIN, _nice_ceiling(top)))
+        for r in out_rows:
+            r["clipped"] = r["pct"] is not None and r["pct"] > scale
+        return {"type": "bullet", "title": name, "rows": out_rows,
+                "scale_max": scale, "unit": cfg.get("unit")}
+
+    if t == "thermometer":
+        # «Термометр к сроку»: успеваем ли к дате. Вопрос не в том, сколько
+        # накоплено, — на это отвечает «План-факт», — а в том, обгоняет ли темп
+        # календарь. У заказчика планы заданы именно так («до 1 сентября»), и
+        # до сих пор ответ считали в уме, сопоставляя проценты с датой.
+        if not (cfg.get("dataset_code") and cfg.get("plan_field") and cfg.get("fact_field")):
+            raise DashboardError("Термометр: укажите dataset_code, поле плана и поле факта")
+        deadline = _as_date(cfg.get("deadline"))
+        if deadline is None:
+            raise DashboardError("Термометр: укажите срок (дату), к которому должен быть выполнен план")
+        code = cfg["dataset_code"]
+        plan, _, _ = await _column_value(conn, org_id, cfg, cfg["plan_field"], row, allowed, period)
+        fact, how_fact, _ = await _column_value(conn, org_id, cfg, cfg["fact_field"], row, allowed, period)
+        series = await _dataset_period_series(
+            conn, org_id, code, cfg["fact_field"], None, period, row, allowed)
+        # Начало отсчёта: либо задано человеком, либо ПЕРВЫЙ отчёт этой формы.
+        # Выдумывать «начало года» нельзя — форма могла начаться в мае, и тогда
+        # «прошло 66 % срока» было бы неправдой в пользу отставания.
+        start = _as_date(cfg.get("start")) or (_as_date(series[0][0]) if series else None)
+        as_of = (_as_date(series[-1][0]) if series else None) or start
+        done_pct = (fact / plan * 100.0) if plan else None
+        res = {"type": "thermometer", "title": name, "plan": plan, "fact": fact,
+               "delta": (fact - plan) if (plan is not None and fact is not None) else None,
+               "pct": done_pct, "unit": cfg.get("unit"),
+               "deadline": deadline.isoformat(),
+               "start": start.isoformat() if start else None,
+               "as_of": as_of.isoformat() if as_of else None}
+        if start and as_of and deadline > start:
+            total = (deadline - start).days
+            gone = max(0, min(total, (as_of - start).days))
+            res["days_total"], res["days_left"] = total, (deadline - as_of).days
+            res["elapsed_pct"] = gone / total * 100.0
+            if done_pct is not None:
+                # Опережение/отставание — в ПУНКТАХ: «выполнено 62 %, прошло
+                # 71 % срока» читается однозначно, а «отстаём на 13 %» — нет
+                # (13 % от чего?). Тот же довод, что у прироста долей на
+                # «Главной».
+                res["lead_pp"] = done_pct - res["elapsed_pct"]
+            # «Сколько нужно в день, чтобы успеть» — то, ради чего на срок и
+            # смотрят. Рядом с фактическим темпом из прогноза это прямой ответ
+            # «хватает ли нынешней скорости», а не повод считать в уме.
+            if plan is not None and fact is not None and res["days_left"] > 0 and fact < plan:
+                res["need_per_day"] = (plan - fact) / res["days_left"]
+        # Прогноз — ТОТ ЖЕ, что у «План-факта»: второй расчёт «когда успеем»
+        # рядом с первым однажды дал бы две разные даты на одном экране.
+        if how_fact == "sum":
+            res["forecast"] = _plan_forecast(series, plan, fact)
+        res["slice_note"] = await _slice_mismatch(
+            conn, org_id, code, cfg["plan_field"], cfg["fact_field"], period)
         res["alert"] = evaluate_alert("plan_fact", cfg, res)
         return res
 

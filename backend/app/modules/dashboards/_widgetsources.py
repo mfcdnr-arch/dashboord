@@ -165,6 +165,24 @@ async def _field_title(conn, org_id, dataset_code: str, field_code: str, period=
         rel, field_code)
 
 
+async def _field_titles(conn, org_id, dataset_code: str, period=None) -> dict:
+    """Имена ВСЕХ граф выпуска одним запросом: {код: человеческое имя}.
+
+    `_field_title` отвечает про одну графу, и там, где граф десяток («полосы
+    план-факт»), запрос на каждую превращается в два десятка обращений к БД за
+    одну отрисовку карточки.
+    """
+    rel = await mr._active_release(conn, org_id, dataset_code, period)
+    if rel is None:
+        return {}
+    return {r["code"]: r["name"] for r in await conn.fetch(
+        "select drf.canonical_field_code as code, coalesce(cf.name, drf.canonical_field_code) as name "
+        "from dataset_release_fields drf "
+        "left join canonical_fields cf on cf.code=drf.canonical_field_code "
+        "  and cf.object_id=(select object_id from dataset_releases where id=$1) "
+        "where drf.dataset_release_id=$1", rel)}
+
+
 async def _dataset_multi_series(conn, org_id, dataset_code: str, value_fields: List[str], row=None,
                                 allowed=None, period=None) -> dict:
     """Несколько серий по одному датасету: категории=строки, серия=каждое поле."""

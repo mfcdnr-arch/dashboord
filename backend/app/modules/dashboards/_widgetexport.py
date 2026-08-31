@@ -82,6 +82,12 @@ def _pct(v: float | None) -> str:
     return "" if v is None else f"{v:+.2f} %".replace(".", ",")
 
 
+# Уровень порога словами: в файле цвета нет, а «danger» ничего не сообщает
+# тому, кто открыл выгрузку в Excel.
+_LEVEL_RU = {"danger": "ниже 90 % плана", "poor": "заметное отставание",
+             "warn": "план не выполнен", "good": "план выполнен"}
+
+
 def _dump_widget(wb, summary, sheet_name, wid: str, t: str, name: str, data: dict) -> bool:
     """Раскладывает ОДИН виджет по листам книги; True — писали в «Сводку».
 
@@ -211,6 +217,32 @@ def _dump_widget(wb, summary, sheet_name, wid: str, t: str, name: str, data: dic
         ws.append(["Подразделение", "Значение"])
         for c, v in zip(data.get("categories", []), data.get("values", []), strict=False):
             ws.append([c, v])
+    elif t == "bullet":
+        # Полосы — своим листом, а не в «Сводку»: строк столько же, сколько пар,
+        # и в общей сводке они растворились бы среди чисел других виджетов.
+        ws = wb.create_sheet(sheet_name(wid, name))
+        ws.append(["Показатель", "План", "Факт", "Отклонение", "Выполнение, %", "Порог"])
+        for r in data.get("rows", []):
+            ws.append([r.get("label"), r.get("plan"), r.get("fact"),
+                       r.get("delta"), r.get("pct"), _LEVEL_RU.get(r.get("level"), "")])
+    elif t == "thermometer":
+        summary.append([name, "Термометр", "план", data.get("plan")])
+        summary.append([name, "Термометр", "факт", data.get("fact")])
+        summary.append([name, "Термометр", "выполнено, %", data.get("pct")])
+        summary.append([name, "Термометр", "срок", _as_date(data.get("deadline"))])
+        # Прошло срока и опережение — то, ради чего термометр и ставят: без них
+        # в файле остался бы обычный план-факт, а на экране человек видел
+        # ответ «успеваем или нет».
+        summary.append([name, "Термометр", "прошло срока, %", data.get("elapsed_pct")])
+        summary.append([name, "Термометр", "опережение, п.п.", data.get("lead_pp")])
+        summary.append([name, "Термометр", "осталось дней", data.get("days_left")])
+        if data.get("need_per_day") is not None:
+            summary.append([name, "Термометр", "нужно в день, чтобы успеть", data.get("need_per_day")])
+        wrote_summary = True
+        f = data.get("forecast") or {}
+        if f.get("reason") == "ok":
+            summary.append([name, "Термометр", "прогноз достижения плана", _as_date(f.get("date"))])
+            summary.append([name, "Термометр", "средний темп в день", f.get("rate")])
     return wrote_summary
 
 
@@ -245,7 +277,8 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
     # поль 2 / 3 / 4» — понять, какой лист про что, было нельзя. Теперь имя
     # собирается из НОМЕРА и различающей части (см. _sheetnames), а полные
     # имена лежат на листе «Содержание».
-    cand_rows = [w for w in rows if w["widget_type"] not in ("text", "image", "kpi", "gauge", "plan_fact")]
+    cand_rows = [w for w in rows if w["widget_type"] not in
+                 ("text", "image", "kpi", "gauge", "plan_fact", "thermometer")]
     cores = dict(zip([str(w["id"]) for w in cand_rows],
                      short_cores([w["name"] for w in cand_rows], LIMIT - 3), strict=True))
     made: list[tuple[str, str]] = []

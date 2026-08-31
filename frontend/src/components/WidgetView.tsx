@@ -799,6 +799,144 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
       </div>
     )
   }
+  if (data.type === 'bullet') {
+    // Полосы: строка на пару «план + факт». Шкала ОБЩАЯ (100 % = план у
+    // каждого), и в этом весь смысл виджета — показатели разного масштаба
+    // становятся сравнимыми, чего три отдельные карточки не дают.
+    const scale: number = data.scale_max || 120
+    const rows: any[] = data.rows || []
+    // Имена граф госформы различаются серединой, а начало и хвост у них общие
+    // («Количество … · Факт · нарастающим итогом»). Без отсечения обе строки
+    // читаются как одна и та же — тот же приём, что в легенде графиков и в
+    // первой колонке матрицы. Полное имя остаётся в подсказке.
+    const shortLabels = distinctLabels(rows.map((r) => String(r.label ?? '')))
+    const notes = rows.map((r) => r.slice_note).filter(Boolean)
+    // Отметку плана рисуем один раз на всю карточку: она у всех строк на
+    // одном месте (100 %), и повторять её в каждой строке значило бы
+    // притворяться, будто она у каждой своя.
+    const planAt = (100 / scale) * 100
+    return (
+      <div style={{ fontSize: 13 }}>
+        {rows.map((r, i) => {
+          const look = levelLook(r.level)
+          const w = r.pct == null ? 0 : Math.max(0, Math.min(100, (r.pct / scale) * 100))
+          return (
+            <div key={i} style={{ marginBottom: i === rows.length - 1 ? 0 : 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.label}>
+                  {shortLabels[i] || r.label}
+                </span>
+                <b style={{ flexShrink: 0, color: look?.color }}>
+                  {r.pct == null ? '—' : `${fmt(r.pct)}%`}
+                </b>
+              </div>
+              <div style={{ position: 'relative', height: 10, background: 'var(--border-faint)', borderRadius: 6, marginTop: 3 }}>
+                <div style={{
+                  width: `${w}%`, height: '100%', borderRadius: 6,
+                  background: look?.color || 'var(--accent)',
+                  // Полоса, упёршаяся в потолок шкалы, обрывается «зубцом»:
+                  // иначе 656 % и 300 % выглядели бы одинаково.
+                  clipPath: r.clipped ? 'polygon(0 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 0 100%)' : undefined,
+                }} />
+                <div style={{ position: 'absolute', left: `${planAt}%`, top: -2, bottom: -2, width: 2, background: 'var(--text-2)' }}
+                     title="План — 100 %" />
+              </div>
+              <div style={muted}>
+                план {fmt(r.plan)} · факт {fmt(r.fact)} · {r.delta >= 0 ? '+' : ''}{fmt(r.delta)}
+                {r.clipped ? ' · полоса обрезана шкалой' : ''}
+              </div>
+            </div>
+          )
+        })}
+        <div style={{ ...muted, marginTop: 6 }}>Вертикальная черта — план (100 %); шкала до {fmt(scale)} %</div>
+        {/* Предупреждение о несопоставимых разрезах — как у «План-факта»:
+            «выполнение 656 %» несут руководителю как достижение. */}
+        {notes.length > 0 && (
+          <div style={{ fontSize: 11, color: 'var(--warn)', marginTop: 4 }} title={notes.join(' ')}>
+            ⚠ {notes[0]}{notes.length > 1 ? ` (и ещё ${notes.length - 1})` : ''}
+          </div>
+        )}
+      </div>
+    )
+  }
+  if (data.type === 'thermometer') {
+    // Термометр: не «сколько накоплено» (на это отвечает «План-факт»), а
+    // «обгоняет ли темп календарь». Два столбика рядом — выполнено и прошло
+    // срока; всё остальное на карточке объясняет разницу между ними.
+    const ru = (d?: string) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d.split('-').reverse().join('.') : d)
+    const done = data.pct
+    const gone = data.elapsed_pct
+    const lead = data.lead_pp
+    const look = levelLook(data.alert?.level)
+    const bar = (val: number | null | undefined, color: string, label: string, sub: string) => {
+      // Столбик рисуем в пределах 100 % высоты: перевыполнение обозначаем
+      // подписью и стрелкой, а не столбиком выше карточки.
+      const h = val == null ? 0 : Math.max(0, Math.min(100, val))
+      return (
+        <div style={{ flex: 1, textAlign: 'center' }}>
+          <div style={{ position: 'relative', height: 96, background: 'var(--border-faint)', borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${h}%`, background: color }} />
+            {val != null && val > 100 && (
+              <div style={{ position: 'absolute', left: 0, right: 0, top: 2, fontSize: 11, color: '#fff' }}>▲</div>
+            )}
+          </div>
+          <div style={{ fontWeight: 700, marginTop: 4 }}>{val == null ? '—' : `${fmt(val)}%`}</div>
+          <div style={muted}>{label}</div>
+          <div style={muted}>{sub}</div>
+        </div>
+      )
+    }
+    return (
+      <div style={{ fontSize: 13 }}>
+        <div style={{ display: 'flex', gap: 14 }}>
+          {bar(done, look?.color || 'var(--accent)', 'выполнено', `${fmt(data.fact)} из ${fmt(data.plan)}`)}
+          {bar(gone, 'var(--text-faint)', 'прошло срока', data.days_left != null
+            ? (data.days_left >= 0 ? `осталось ${data.days_left} дн.` : `срок прошёл ${-data.days_left} дн. назад`)
+            : `до ${ru(data.deadline)}`)}
+        </div>
+        {/* Главный ответ виджета — одной строкой и словами: проценты рядом
+            человек всё равно вычитает друг из друга в уме.
+            🔴 Когда план УЖЕ выполнен, «опережение на 588,58 п.п.» — верное, но
+            бессмысленное число: вопрос «успеваем ли» на нём закрыт, и ответ
+            измеряется днями до срока, а не пунктами. Найдено осмотром своего
+            же кадра на данных заказчика (выполнение 656 %). */}
+        {done != null && done >= 100 ? (
+          <div style={{ marginTop: 8, fontWeight: 600, color: 'var(--success)' }}>
+            ✓ План выполнен
+            {data.days_left != null && data.days_left > 0 ? ` за ${data.days_left} дн. до срока` : ''}
+          </div>
+        ) : lead != null && (
+          <div style={{ marginTop: 8, fontWeight: 600, color: lead >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+            {lead >= 0 ? '▲ Опережение' : '▼ Отставание'} на {fmt(Math.abs(lead))} п.п. от графика
+          </div>
+        )}
+        <div style={{ ...muted, marginTop: 2 }}>
+          срок {ru(data.deadline)}
+          {data.start ? ` · отсчёт с ${ru(data.start)}` : ''}
+          {data.as_of ? ` · данные на ${ru(data.as_of)}` : ''}
+        </div>
+        {data.need_per_day != null && (
+          <div style={{ marginTop: 6 }}>
+            Чтобы успеть, нужно <b>+{fmt(Math.round(data.need_per_day))}</b>
+            {data.unit ? ` ${data.unit}` : ''} в день
+            {data.forecast?.reason === 'ok' && data.forecast.rate != null && (
+              <span style={{ color: 'var(--text-2)' }}> — сейчас идёт +{fmt(Math.round(data.forecast.rate))} в день</span>
+            )}
+          </div>
+        )}
+        {data.slice_note && (
+          <div style={{ fontSize: 11, color: 'var(--warn)', marginTop: 4 }} title="Разбор разрезов взят из проверок качества выпуска">
+            ⚠ {data.slice_note}
+          </div>
+        )}
+        {/* Прогноз — тот же компонент и тот же расчёт, что у «План-факта»:
+            две разные даты «когда успеем» на одном экране недопустимы. */}
+        {data.forecast && data.forecast.reason !== 'done' && (
+          <PlanForecast f={data.forecast} unit={data.unit} />
+        )}
+      </div>
+    )
+  }
   if (data.type === 'table') {
     const cols: string[] = data.columns || []
     let rows: any[] = data.rows || []

@@ -320,6 +320,28 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     setCrossSeries((arr) => arr.length > 2 ? arr.filter((_, idx) => idx !== i) : arr)
   }
 
+  // Полосы «план и факт»: список пар. Тот же приём, что у «Сравнения
+  // источников» выше, — набирается выпадающими списками, без формул.
+  type PairItem = { plan_field: string; fact_field: string; label: string }
+  const initPairs: PairItem[] = (cfg0.pairs as { plan_field: string; fact_field: string; label?: string }[] | undefined)
+    ?.map((x) => ({ plan_field: x.plan_field, fact_field: x.fact_field, label: x.label || '' }))
+    || [{ plan_field: numFields(initDataset)[0]?.code || '', fact_field: numFields(initDataset)[1]?.code || numFields(initDataset)[0]?.code || '', label: '' }]
+  const [pairs, setPairs] = useState<PairItem[]>(initPairs)
+  function updatePair(i: number, patch: Partial<PairItem>) {
+    setPairs((arr) => arr.map((it, idx) => idx === i ? { ...it, ...patch } : it))
+  }
+  function addPair() {
+    setPairs((arr) => [...arr, { plan_field: numFields(dataset)[0]?.code || '', fact_field: numFields(dataset)[1]?.code || '', label: '' }])
+  }
+  function removePair(i: number) {
+    setPairs((arr) => arr.length > 1 ? arr.filter((_, idx) => idx !== i) : arr)
+  }
+  // Термометр: срок, к которому план должен быть выполнен, и начало отсчёта.
+  // Начало необязательно — по умолчанию первый отчёт формы; выдумывать «начало
+  // года» нельзя, иначе «прошло срока» окажется неправдой.
+  const [deadline, setDeadline] = useState<string>((cfg0.deadline as string) || '')
+  const [thermStart, setThermStart] = useState<string>((cfg0.start as string) || '')
+
   const [pickerOpen, setPickerOpen] = useState(false)
   // Разрез матрицы: строки формы (районы) или её показатели. У сводной формы
   // строка одна, и осмыслен только второй разрез.
@@ -331,7 +353,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const isText = type === 'text'
   const isImage = type === 'image'
   const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
-  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall', 'matrix'].includes(type)
+  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall', 'matrix', 'bullet', 'thermometer'].includes(type)
   const usesValueField = ['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall'].includes(type)
     || (type === 'matrix' && matrixBy !== 'fields')
     || (['kpi', 'gauge'].includes(type) && source === 'dataset')
@@ -414,6 +436,18 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     // Воронка: минимум два этапа, иначе показывать нечего — «сколько дошло»
     // существует только при переходе с шага на шаг.
     if (type === 'funnel') return (dataset && multiFields.length >= 2) ? { dataset_code: dataset, value_fields: multiFields } : null
+    // Полосы: пара без обоих полей бессмысленна — отбрасываем её молча, но
+    // если не осталось ни одной, виджет не собираем (иначе на дашборде
+    // появилась бы пустая карточка без объяснения).
+    if (type === 'bullet') {
+      const valid = pairs.filter((x) => x.plan_field && x.fact_field)
+      return (dataset && valid.length)
+        ? { dataset_code: dataset, pairs: valid.map((x) => ({ plan_field: x.plan_field, fact_field: x.fact_field, ...(x.label.trim() ? { label: x.label.trim() } : {}) })) }
+        : null
+    }
+    if (type === 'thermometer') return (dataset && planField && factField && deadline)
+      ? { dataset_code: dataset, plan_field: planField, fact_field: factField, deadline, ...(thermStart ? { start: thermStart } : {}) }
+      : null
     if (type === 'status_grid') return (dataset && valueField)
       ? { dataset_code: dataset, value_field: valueField, ...(planField ? { plan_field: planField } : {}) } : null
     if (type === 'heatmap' || type === 'pivot') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields } : null
@@ -625,6 +659,50 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           ))}
           <button type="button" style={{ ...btnAuto, height: 34 }} onClick={addCrossItem}>＋ Добавить источник</button>
         </div>
+      )}
+      {type === 'bullet' && (
+        <div style={{ flexBasis: '100%' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', margin: '8px 0 4px' }}>
+            Пары «план + факт» — строка на каждую. Шкала общая: 100 % это план, поэтому показатели
+            разного масштаба сравнимы между собой.
+          </div>
+          {pairs.map((it, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 6, flexWrap: 'wrap' }}>
+              <F t="План"><select style={sel} value={it.plan_field} onChange={(e) => updatePair(i, { plan_field: e.target.value })}>
+                {numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
+              </select></F>
+              <F t="Факт"><select style={sel} value={it.fact_field} onChange={(e) => updatePair(i, { fact_field: e.target.value })}>
+                {numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
+              </select></F>
+              <F t="Подпись строки (необяз.)"><input style={{ ...sel, width: 160 }} placeholder="имя графы факта" value={it.label} onChange={(e) => updatePair(i, { label: e.target.value })} /></F>
+              <button type="button" style={{ ...btnGhost, height: 34 }} disabled={pairs.length <= 1} onClick={() => removePair(i)} title={pairs.length <= 1 ? 'Нужна хотя бы одна пара' : 'Убрать строку'}>✕</button>
+            </div>
+          ))}
+          <button type="button" style={{ ...btnAuto, height: 34 }} onClick={addPair}>＋ Добавить показатель</button>
+        </div>
+      )}
+      {type === 'thermometer' && (
+        <>
+          <F t="План"><select style={sel} value={planField} onChange={(e) => setPlanField(e.target.value)}>
+            {numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
+          </select></F>
+          <F t="Факт"><select style={sel} value={factField} onChange={(e) => setFactField(e.target.value)}>
+            {numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
+          </select></F>
+          <F t="Срок">
+            <input style={{ ...sel, width: 150 }} type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)}
+              title="Дата, к которой план должен быть выполнен. В госформе она обычно написана в имени графы плана — «до 1 сентября 2026 г.»" />
+          </F>
+          <F t="Отсчёт с (пусто — первый отчёт)">
+            <input style={{ ...sel, width: 150 }} type="date" value={thermStart} onChange={(e) => setThermStart(e.target.value)}
+              title="От этой даты считается «сколько срока прошло». По умолчанию — дата первого отчёта формы: выдуманное начало сделало бы отставание или опережение неправдой." />
+          </F>
+          {!deadline && (
+            <div style={{ flexBasis: '100%', fontSize: 11, color: 'var(--warn)' }}>
+              Без срока термометр не считается: «успеваем ли» существует только относительно даты.
+            </div>
+          )}
+        </>
       )}
       {type === 'gauge' && (
         <F t="Шкала, max (пусто — авто)"><input style={{ ...sel, width: 130 }} type="number" placeholder="напр. 100" value={gaugeMax} onChange={(e) => setGaugeMax(e.target.value)} /></F>
