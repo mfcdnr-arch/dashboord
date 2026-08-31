@@ -60,7 +60,10 @@ async def list_links(conn, org_id, user: dict) -> List[dict]:
     if not rows:
         return []
 
-    visible_dash = None
+    # Пустое множество, а не None: читается оно только в ветке dashboard-пункта,
+    # но «ничего не видно» — честное значение по умолчанию, а None там означал бы
+    # падение вместо отказа в доступе.
+    visible_dash: set = set()
     if any(r["kind"] == "dashboard" for r in rows):
         visible_dash = await visible_dashboard_ids(conn, org_id, user)
     # Гейт разделов без собственного гейта в NAV — тот же критерий, что уже

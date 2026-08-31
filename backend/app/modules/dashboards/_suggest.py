@@ -554,7 +554,8 @@ def _funnel_chain(fields: list, values: Optional[dict] = None) -> list:
     seq = [values.get(f["code"]) for f in chain]
     if any(v is None for v in seq):
         return []
-    if any(seq[i] < seq[i + 1] for i in range(len(seq) - 1)):
+    sums = [float(v) for v in seq if v is not None]
+    if any(sums[i] < sums[i + 1] for i in range(len(sums) - 1)):
         return []              # не вкладываются — значит это не ступени
     return chain
 

@@ -216,3 +216,124 @@ def test_plan_value_must_not_move_between_reports():
     msg = next(w["message"] for w in quality.compare_with_previous(cur, prev, names)
                if w["code"] == "plan_changed")
     assert "38 992" in msg and "41 971" in msg and "Записались" in msg
+
+
+# ── Отчёт, полученный умножением предыдущего ─────────────────────────────────
+#
+# Числа во всех тестах ниже — НАСТОЯЩИЕ, из формы «Внедрение сервиса МАХ»
+# заказчика. Синтетика тут была бы слабее: правило целиком про то, отличает ли
+# оно живой отчёт от пересчитанного, а это вопрос к реальному разбросу, а не к
+# придуманному.
+
+MAX_NAMES = {
+    "otpr": "Количество отправленных уведомлений · Факт · нарастающим итогом",
+    "obr": "Количество обращений за результатом · Факт · нарастающим итогом",
+    "dost": "Количество успешно доставленных уведомлений · Факт · нарастающим итогом",
+    "dost_m": "Количество успешно доставленных уведомлений · Факт · нарастающим итогом (текущий месяц)",
+    "otpr_m": "Количество отправленных уведомлений · Факт · нарастающим итогом (текущий месяц)",
+    "zap": "Количество пользователей, записавшихся на посещение МФЦ · Факт · за отчётную неделю",
+}
+
+
+def _cells(values: dict, row: str = "ДНР") -> dict:
+    return {(row, code): float(v) for code, v in values.items()}
+
+
+# Отчёты за 12.08 и 19.08.2026: все тринадцать показателей выросли ровно
+# в 1,035 раза. Разброс коэффициентов — в пятом знаке, это округление до целых.
+MULTIPLIED_PREV = {"otpr": 2451769, "obr": 967018, "dost": 911538,
+                   "dost_m": 486618, "otpr_m": 449586, "zap": 266371}
+MULTIPLIED_CUR = {"otpr": 2537581, "obr": 1000864, "dost": 943442,
+                  "dost_m": 503650, "otpr_m": 465322, "zap": 275694}
+
+# Отчёт за 05.08.2026 против 22.07: живые данные, каждый показатель менялся
+# по-своему — от «не изменился вовсе» до +30 %.
+LIVE_PREV = {"otpr": 2257155, "obr": 891651, "dost": 847714,
+             "dost_m": 467902, "otpr_m": 331979, "zap": 249048}
+LIVE_CUR = {"otpr": 2357470, "obr": 929825, "dost": 876479,
+            "dost_m": 467902, "otpr_m": 432294, "zap": 256126}
+
+
+def test_report_multiplied_by_single_factor_is_flagged():
+    """Все показатели изменились в одно и то же число раз — так не бывает.
+
+    Найдено случайно 30.08.2026: три РАЗНЫХ показателя на «Главной» показали
+    одинаковые +3,50 %. По одному файлу такое не видно вовсе, а на дашборде
+    выглядит как обычный ровный рост.
+    """
+    w = quality.compare_with_previous(_cells(MULTIPLIED_CUR), _cells(MULTIPLIED_PREV),
+                                      MAX_NAMES, "12.08.2026")
+    mult = [x for x in w if x["code"] == "multiplied_by_factor"]
+    assert mult, w
+    msg = mult[0]["message"]
+    # Замечание обязано назвать коэффициент: без него человеку нечего проверять
+    # в исходном файле.
+    assert "×1,035" in msg and "+3,50 %" in msg, msg
+    assert "2 451 769" in msg and "2 537 581" in msg, msg
+    assert mult[0]["count"] == len(MULTIPLIED_CUR)
+
+
+def test_live_report_with_varied_growth_is_not_flagged():
+    """Живой отчёт правило пропускает молча — иначе им перестанут пользоваться."""
+    codes = {x["code"] for x in quality.compare_with_previous(
+        _cells(LIVE_CUR), _cells(LIVE_PREV), MAX_NAMES, "22.07.2026")}
+    assert "multiplied_by_factor" not in codes
+
+
+def test_needs_enough_indicators_to_be_confident():
+    """На двух-трёх показателях совпадение коэффициента ещё может быть случайным.
+
+    Правило либо срабатывает уверенно, либо молчит: на мелкой форме оно молчит
+    даже при точном совпадении.
+    """
+    few_prev = {("ДНР", c): float(v) for c, v in list(MULTIPLIED_PREV.items())[:3]}
+    few_cur = {("ДНР", c): float(v) for c, v in list(MULTIPLIED_CUR.items())[:3]}
+    assert not [x for x in quality.compare_with_previous(few_cur, few_prev, MAX_NAMES)
+                if x["code"] == "multiplied_by_factor"]
+
+    four_prev = {("ДНР", c): float(v) for c, v in list(MULTIPLIED_PREV.items())[:4]}
+    four_cur = {("ДНР", c): float(v) for c, v in list(MULTIPLIED_CUR.items())[:4]}
+    assert [x for x in quality.compare_with_previous(four_cur, four_prev, MAX_NAMES)
+            if x["code"] == "multiplied_by_factor"]
+
+
+def test_unchanged_report_is_not_reported_twice():
+    """Коэффициент 1 — это «перенесли прошлую неделю», и об этом говорит
+    ДРУГОЕ правило. Два замечания об одном и том же приучают их пролистывать."""
+    same = _cells(MULTIPLIED_PREV)
+    codes = {x["code"] for x in quality.compare_with_previous(dict(same), same, MAX_NAMES)}
+    assert "same_as_previous" in codes, "случай не должен пропасть вовсе"
+    assert "multiplied_by_factor" not in codes
+
+
+def test_percent_column_does_not_hide_multiplication():
+    """Процентная графа при пересчёте обычно остаётся прежней.
+
+    Если считать её наравне с количествами, одна неизменившаяся графа развалит
+    полосу коэффициентов и скроет умножение всех остальных.
+    """
+    names = dict(MAX_NAMES, dolya="Доля доставленных уведомлений, %")
+    prev = {**_cells(MULTIPLIED_PREV), ("ДНР", "dolya"): 37.18}
+    cur = {**_cells(MULTIPLIED_CUR), ("ДНР", "dolya"): 37.18}
+    assert [x for x in quality.compare_with_previous(cur, prev, names)
+            if x["code"] == "multiplied_by_factor"]
+
+
+def test_new_row_does_not_distort_the_factor():
+    """Появившееся отделение не должно сбивать коэффициент.
+
+    Сравниваем только ячейки, которые есть в ОБОИХ выпусках: иначе новая строка
+    вошла бы в сумму текущего выпуска и коэффициент по каждому показателю уехал
+    бы по-своему — умножение осталось бы незамеченным.
+    """
+    prev = {("Донецк", c): float(v) for c, v in MULTIPLIED_PREV.items()}
+    prev.update({("Макеевка", c): float(v) / 3 for c, v in MULTIPLIED_PREV.items()})
+    cur = {("Донецк", c): float(v) for c, v in MULTIPLIED_CUR.items()}
+    cur.update({("Макеевка", c): float(v) / 3 for c, v in MULTIPLIED_CUR.items()})
+    # Отделение открылось на этой неделе: своей истории у него нет, а цифры
+    # по показателям у него разные — именно они и сбили бы полосу.
+    cur.update({("Горловка", c): float(v) * k
+                for k, (c, v) in enumerate(MULTIPLIED_CUR.items(), start=1)})
+
+    assert [x for x in quality.compare_with_previous(cur, prev, MAX_NAMES)
+            if x["code"] == "multiplied_by_factor"]

@@ -130,6 +130,42 @@ services:
     depends_on: *backend_deps
     restart: unless-stopped
 
+  # 🔴 ПРОГОН ТЕСТОВ. Запуск:
+  #     docker compose -p dashbord run --rm tests
+  #     docker compose -p dashbord run --rm tests python -m pytest tests/test_quality_checks.py -q
+  #
+  # Почему отдельным сервисом, а не `docker exec dashbord_api python -m pytest`:
+  #  • в прод-образе НЕТ pytest (Dockerfile ставит только requirements.txt) и НЕТ
+  #    каталога tests — копируется лишь app/. Тесты в api-контейнере жили только
+  #    потому, что их когда-то занесли туда руками; при первом же пересоздании
+  #    контейнера всё это исчезает (наступили 31.08.2026);
+  #  • хуже того, занесённая копия тестов СТАРЕЕТ: прогон показывает «зелено», а
+  #    нового теста в нём просто нет — проверено, именно так и вышло.
+  # Каталог фронта монтируется потому, что девять тестов согласованности
+  # (test_widget_registry_consistency, test_flow_layout_consistency,
+  # test_alert_theme_tokens) читают исходники фронта по пути /frontend/src.
+  # Без него они падают — это и есть те «девять известных упавших», из-за
+  # которых красный прогон перестал что-либо значить.
+  #
+  # Образ dashbord-test:py312 = прод-образ + requirements-dev.txt. Если его нет
+  # (`docker images | grep dashbord-test`), собрать так (нужна сеть до PyPI):
+  #     docker build -t dashbord-api ./backend
+  #     printf 'FROM dashbord-api\\nCOPY requirements-dev.txt .\\nRUN pip install --no-cache-dir -r requirements-dev.txt\\n' \\
+  #       | docker build -t dashbord-test:py312 -f - ./backend
+  tests:
+    image: dashbord-test:py312
+    profiles: ["test"]
+    environment: *backend_env
+    working_dir: /app
+    volumes:
+      - ./backend/app:/app/app:ro
+      - ./backend/tests:/app/tests:ro
+      - ./backend/pytest.ini:/app/pytest.ini:ro
+      - ./backend/pyproject.toml:/app/pyproject.toml:ro
+      - ./frontend:/frontend:ro
+    depends_on: *backend_deps
+    command: python -m pytest -q
+
   # --- Появятся позже ---
   # frontend:  React + TypeScript (viewer + админка) — порт 3080
 
