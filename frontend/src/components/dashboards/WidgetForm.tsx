@@ -340,6 +340,9 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   // Начало необязательно — по умолчанию первый отчёт формы; выдумывать «начало
   // года» нельзя, иначе «прошло срока» окажется неправдой.
   // Рейтинг: сколько строк с каждого конца и показывать ли антитоп.
+  // Мини-графики: длина линии в отчётах и порядок строк.
+  const [sparkPeriods, setSparkPeriods] = useState<string>(cfg0.periods != null ? String(cfg0.periods) : '4')
+  const [sparkSort, setSparkSort] = useState<string>((cfg0.sort as string) || 'value')
   const [topN, setTopN] = useState<string>(cfg0.top_n != null ? String(cfg0.top_n) : '5')
   const [showBottom, setShowBottom] = useState<boolean>(cfg0.bottom !== false)
   const [rankBy, setRankBy] = useState<string>((cfg0.rank_by as string) || 'value')
@@ -357,8 +360,8 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const isText = type === 'text'
   const isImage = type === 'image'
   const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
-  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall', 'matrix', 'bullet', 'thermometer', 'ranked'].includes(type)
-  const usesValueField = ['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall', 'ranked'].includes(type)
+  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall', 'matrix', 'bullet', 'thermometer', 'ranked', 'spark_table'].includes(type)
+  const usesValueField = ['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall', 'ranked', 'spark_table'].includes(type)
     || (type === 'matrix' && matrixBy !== 'fields')
     || (['kpi', 'gauge'].includes(type) && source === 'dataset')
   // Воронка тоже набирается из нескольких полей, но порядок галочек для неё
@@ -451,6 +454,10 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     }
     if (type === 'thermometer') return (dataset && planField && factField && deadline)
       ? { dataset_code: dataset, plan_field: planField, fact_field: factField, deadline, ...(thermStart ? { start: thermStart } : {}) }
+      : null
+    if (type === 'spark_table') return (dataset && valueField)
+      ? { dataset_code: dataset, value_field: valueField,
+          periods: Number(sparkPeriods) || 4, sort: sparkSort }
       : null
     if (type === 'ranked') return (dataset && valueField)
       ? { dataset_code: dataset, value_field: valueField, top_n: Number(topN) || 5,
@@ -671,6 +678,22 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           ))}
           <button type="button" style={{ ...btnAuto, height: 34 }} onClick={addCrossItem}>＋ Добавить источник</button>
         </div>
+      )}
+      {type === 'spark_table' && (
+        <>
+          <F t="Отчётов в линии">
+            <input style={{ ...sel, width: 110 }} type="number" min={2} max={24}
+              value={sparkPeriods} onChange={(e) => setSparkPeriods(e.target.value)}
+              title="Сколько последних отчётов показывает линия. На двух точках она вырождается в отрезок и формы движения не показывает." />
+          </F>
+          <F t="Порядок строк">
+            <select style={sel} value={sparkSort} onChange={(e) => setSparkSort(e.target.value)}>
+              <option value="value">По величине</option>
+              <option value="change">По изменению (кто просел — сверху)</option>
+              <option value="form">Как в форме</option>
+            </select>
+          </F>
+        </>
       )}
       {type === 'ranked' && (
         <>

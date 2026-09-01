@@ -167,6 +167,13 @@ def _detect_anomalies(periods: list, values: list, threshold: float = 2.0) -> li
 # Рейтинг: сколько строк показываем с каждого конца. Пять — столько, сколько
 # человек удерживает в голове одним взглядом; больше превращает рейтинг обратно
 # в таблицу, ради ухода от которой он и заводился.
+# Мини-графики: сколько последних отчётов показывает линия. Четыре — месяц
+# недельной формы, то есть ровно тот горизонт, на котором спрашивают «как оно
+# сейчас двигается»; на двух точках линия вырождается в отрезок и формы не
+# показывает вовсе.
+SPARK_PERIODS = 4
+SPARK_MAX_PERIODS = 24
+
 RANKED_TOP_N = 5
 RANKED_MAX_SIDE = 15
 
@@ -954,6 +961,55 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         res["alert"] = evaluate_alert("plan_fact", cfg, res)
         return res
 
+    if t == "spark_table":
+        # Строка формы + её траектория за последние отчёты. От матрицы
+        # отличается не оформлением: та показывает ЧИСЛА по каждому периоду и
+        # на двенадцати столбцах перестаёт помещаться, а здесь у каждой строки
+        # одна линия — видно форму движения (растёт, просела, скачет), и таких
+        # строк можно показать шестьдесят.
+        field = cfg.get("value_field")
+        if not cfg.get("dataset_code") or not field:
+            raise DashboardError("Мини-графики: укажите dataset_code и показатель")
+        want = max(2, min(SPARK_MAX_PERIODS, int(cfg.get("periods") or SPARK_PERIODS)))
+        m = await _dataset_row_period_matrix(
+            conn, org_id, cfg["dataset_code"], field, from_date, to_date, row, allowed,
+            max_periods=want)
+
+        out_rows = []
+        for label in m["labels"]:
+            values = m["grid"][label]
+            # Прирост считаем к предыдущему НЕПУСТОМУ отчёту: в форме бывают
+            # пропуски, и сравнение с пустой клеткой дало бы «нет данных» там,
+            # где движение на самом деле есть.
+            filled = [v for v in values if v is not None]
+            last = filled[-1] if filled else None
+            prev = filled[-2] if len(filled) > 1 else None
+            delta = (last - prev) if (last is not None and prev is not None) else None
+            # Процент от нуля не считаем вовсе: «рост на бесконечность» ничего
+            # не сообщает (то же правило, что в матрице).
+            delta_pct = (delta / prev * 100.0) if (delta is not None and prev) else None
+            alert = evaluate_alert("kpi", cfg, {"value": last})
+            out_rows.append({"label": label, "values": values, "last": last, "prev": prev,
+                             "delta": delta, "delta_pct": delta_pct,
+                             "level": (alert or {}).get("level"), "color": (alert or {}).get("color")})
+
+        # Порядок задаёт человек: по величине («кто крупный»), по изменению
+        # («кто просел») или как в форме («найти своё отделение глазами»).
+        sort = cfg.get("sort") or "value"
+        if sort == "value":
+            out_rows.sort(key=lambda d: (d["last"] is None, -(d["last"] or 0)))
+        elif sort == "change":
+            # Просевшие сверху, а НЕ сдвинувшиеся — в конец. Найдено на живых
+            # данных: у формы МВД почти все отделения стоят на нуле, и простая
+            # сортировка по возрастанию занимала весь первый экран строками с
+            # ±0, а единственное выросшее на 52 уезжало в самый низ. Порядок
+            # формально честный, но отвечающий не на тот вопрос.
+            out_rows.sort(key=lambda d: (not d["delta"], d["delta"] or 0))
+        return {"type": "spark_table", "title": name, "rows": out_rows,
+                "periods": m["periods"], "total_periods": m["total_periods"],
+                "shown_periods": m["shown_periods"], "rows_total": len(out_rows),
+                "sort": sort, "unit": cfg.get("unit")}
+
     if t == "ranked":
         # Рейтинг строк: кто впереди и кто в хвосте. Ни один из имеющихся видов
         # на это не отвечает: столбчатый график на 63 отделения — частокол,
@@ -1036,7 +1092,7 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         # Имена граф читаем ОДНИМ запросом на весь виджет, а не по одному на
         # строку: на десяти парах это была бы пара десятков лишних обращений.
         titles = await _field_titles(conn, org_id, code, period)
-        out_rows: List[dict] = []
+        out_rows = []
         for pair in pairs[:BULLET_MAX_PAIRS]:
             plan_f, fact_f = pair.get("plan_field"), pair.get("fact_field")
             if not plan_f or not fact_f:

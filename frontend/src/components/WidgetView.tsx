@@ -799,6 +799,64 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
       </div>
     )
   }
+  if (data.type === 'spark_table') {
+    // Строка формы, её траектория и текущее число. Линию рисует тот же
+    // `Sparkline`, что стоит в карточке показателя: одна и та же вещь на
+    // дашборде не должна выглядеть двумя разными способами.
+    const rows: any[] = data.rows || []
+    const periods: string[] = data.periods || []
+    const span = periods.length > 1 ? `${fmtPeriod(periods[0])} → ${fmtPeriod(periods[periods.length - 1])}` : ''
+    const C = chartColors()
+    return (
+      <div style={{ fontSize: 13, overflow: 'auto', height: '100%' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <tbody>
+            {rows.map((r, i) => {
+              // Пропуски в ряду не рисуем нулями: ноль — это «было ноль», а
+              // пропуск — «отчёта не было», и линия не должна их путать.
+              const pts = (r.values || []).filter((v: number | null) => v != null)
+              return (
+                <tr key={i} style={{ borderTop: i ? '1px solid var(--border-faint)' : undefined }}>
+                  <td style={{ padding: '4px 6px 4px 0', maxWidth: 260, overflow: 'hidden',
+                    textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.label}>{r.label}</td>
+                  <td style={{ width: 90, padding: '4px 6px' }}>
+                    {pts.length > 1
+                      ? <Sparkline values={pts} color={r.color || C.c1} />
+                      : <span style={muted}>нет ряда</span>}
+                  </td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600,
+                    color: r.color || undefined, whiteSpace: 'nowrap' }}>
+                    {r.last == null ? '—' : fmt(r.last)}
+                  </td>
+                  {/* Ноль — это НЕ рост: зелёная стрелка вверх у Δ=0 читается
+                      как движение. На форме МВД так были помечены 61 ряд из 62,
+                      то есть «ничего не изменилось» выглядело успехом. */}
+                  <td style={{ padding: '4px 0 4px 6px', textAlign: 'right', whiteSpace: 'nowrap',
+                    color: !r.delta ? 'var(--text-faint)'
+                      : r.delta > 0 ? 'var(--success)' : 'var(--danger)' }}>
+                    {r.delta == null ? '—'
+                      : r.delta === 0 ? 'без изменений'
+                        : `${r.delta > 0 ? '▲ +' : '▼ '}${fmt(r.delta)}`}
+                    {r.delta ? (
+                      r.delta_pct != null && (
+                        <span style={{ ...muted, marginLeft: 4 }}>({fmt(r.delta_pct)}%)</span>
+                      )
+                    ) : null}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        <div style={{ ...muted, marginTop: 6 }}>
+          строк: {data.rows_total} · линия по {data.shown_periods} отчётам{span ? ` (${span})` : ''}
+          {data.total_periods > data.shown_periods ? ` из ${data.total_periods}` : ''}
+          {' · '}
+          {data.sort === 'change' ? 'порядок по изменению' : data.sort === 'form' ? 'порядок как в форме' : 'порядок по величине'}
+        </div>
+      </div>
+    )
+  }
   if (data.type === 'ranked') {
     // Рейтинг: место, полоса и число. Полосу считает клиент — правила в ней
     // нет, только соотношение уже пришедших чисел; масштаб приходит с сервера

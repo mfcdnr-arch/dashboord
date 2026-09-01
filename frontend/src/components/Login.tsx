@@ -172,7 +172,7 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
             на основе фактов, а не догадок.
           </p>
           <p style={{ fontSize: narrow ? 12.5 : 13.5, lineHeight: 1.5, opacity: 0.78, margin: '0 0 28px', maxWidth: 560 }}>
-            24 типа виджетов, drill-down до первичных строк, ролевой доступ и модерация публикаций,
+            25 типов виджетов, drill-down до первичных строк, ролевой доступ и модерация публикаций,
             архив данных за прошлые периоды и экспорт в Excel/PDF.
           </p>
 

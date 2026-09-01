@@ -233,6 +233,18 @@ def _dump_widget(wb, summary, sheet_name, wid: str, t: str, name: str, data: dic
         ws.append(["Подразделение", "Значение"])
         for c, v in zip(data.get("categories", []), data.get("values", []), strict=False):
             ws.append([c, v])
+    elif t == "spark_table":
+        ws = wb.create_sheet(sheet_name(wid, name))
+        # Линию в файл не перенести, поэтому уезжают сами точки: по столбцу на
+        # отчёт. Иначе выгрузка теряет ровно то, ради чего виджет и смотрят.
+        periods = data.get("periods") or []
+        ws.append(["Строка"] + [_ru_date(p) for p in periods] + ["Изменение", "Изменение, %"])
+        for r in data.get("rows", []):
+            ws.append([r.get("label")] + list(r.get("values") or [])
+                      + [r.get("delta"), r.get("delta_pct")])
+        if data.get("total_periods", 0) > data.get("shown_periods", 0):
+            ws.append([f"показаны последние {data['shown_periods']} отчётов "
+                       f"из {data['total_periods']}"])
     elif t == "ranked":
         ws = wb.create_sheet(sheet_name(wid, name))
         ws.append(["Место", "Строка", "Значение", "План", "Выполнение, %", "Доля в итоге, %"])

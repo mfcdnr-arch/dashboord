@@ -61,6 +61,9 @@ export const FLOW_SIZE: Record<string, { w: number; h: number }> = {
   // Матрица «строка × дата»: столбец на каждый отчёт плюс прирост под
   // значением — в половине ряда она уходит в горизонтальную прокрутку.
   matrix: { w: 12, h: 8 },
+  // Мини-графики по строкам: строка формы, линия и число в ряд. Строк бывает
+  // шестьдесят, поэтому высота — по содержимому (AUTO_HEIGHT).
+  spark_table: { w: 12, h: 8 },
   text: { w: 12, h: 2 },
 }
 
@@ -103,7 +106,7 @@ export interface FlowItem {
 // отдать её содержимому.
 // Полосы — той же породы, что матрица: строк ровно столько, сколько пар
 // «план + факт» выбрано, и константа прятала бы часть строк молча.
-const AUTO_HEIGHT = new Set(['kpi', 'kpi_group', 'text', 'status_grid', 'image', 'matrix', 'table', 'bullet', 'ranked'])
+const AUTO_HEIGHT = new Set(['kpi', 'kpi_group', 'text', 'status_grid', 'image', 'matrix', 'table', 'bullet', 'ranked', 'spark_table'])
 
 /**
  * Типы, которые на широком мониторе не грех уплотнить, и предел уплотнения.
