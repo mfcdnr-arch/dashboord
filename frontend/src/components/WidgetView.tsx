@@ -13,7 +13,7 @@ import { alertLook, levelLook } from '../lib/alertColors'
 import { exportWidgetXlsx } from '../api'
 import PassportDialog from './dashboards/PassportDialog'
 import { fmtNumber as fmt, logScaleAdvice } from '../lib/format'
-import { distinctLabels, elideMiddle } from '../lib/text'
+import { distinctLabels, elideMiddle, plural } from '../lib/text'
 
 // Отрисовка данных виджета: KPI/таблица/план-факт — HTML, столбцы/линия/круговая —
 // ECharts. По кнопке «подробнее» — drill (прозрачность): формула метрики + первичные строки.
@@ -796,6 +796,69 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             подписи — цифра «когда» без объяснения «откуда» доверия не
             заслуживает, а руководитель по ней принимает решение. */}
         {data.forecast && <PlanForecast f={data.forecast} unit={data.unit} />}
+      </div>
+    )
+  }
+  if (data.type === 'ranked') {
+    // Рейтинг: место, полоса и число. Полосу считает клиент — правила в ней
+    // нет, только соотношение уже пришедших чисел; масштаб приходит с сервера
+    // и посчитан по ВСЕМ строкам, а не по показанным, иначе антитоп рисовался
+    // бы от своего максимума и выглядел бы вровень с топом.
+    const rows: any[] = data.rows || []
+    const scale: number = data.scale_max || 0
+    const byPlan = data.rank_by === 'plan_pct'
+    // Разрыв ставим ровно там, где место перестаёт идти подряд: считать его по
+    // индексу нельзя — при отключённом антитопе разрыв идёт в конце списка.
+    const gapAfter = rows.findIndex((r, i) => i + 1 < rows.length && rows[i + 1].rank !== r.rank + 1)
+    return (
+      <div style={{ fontSize: 13 }}>
+        {rows.map((r, i) => {
+          const base = byPlan ? r.pct : r.value
+          const w = scale > 0 && base != null ? Math.max(1, Math.min(100, (base / scale) * 100)) : 0
+          return (
+            <div key={i}>
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                  <span style={{ color: 'var(--text-faint)', flexShrink: 0, minWidth: 22 }}>{r.rank}.</span>
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    title={r.label}>{r.label}</span>
+                  <b style={{ flexShrink: 0, color: r.color || undefined }}>
+                    {byPlan ? (r.pct == null ? '—' : `${fmt(r.pct)}%`) : fmt(r.value)}
+                  </b>
+                </div>
+                <div style={{ height: 8, background: 'var(--border-faint)', borderRadius: 5, marginTop: 3, marginLeft: 30 }}>
+                  <div style={{ width: `${w}%`, height: '100%', borderRadius: 5, background: r.color || 'var(--rank-bar)' }} />
+                </div>
+                <div style={{ ...muted, marginLeft: 30 }}>
+                  {byPlan ? `${fmt(r.value)}${r.plan != null ? ` из ${fmt(r.plan)}` : ''}` : ''}
+                  {byPlan && r.share != null ? ' · ' : ''}
+                  {r.share != null ? `${fmt(r.share)} % от итога` : ''}
+                </div>
+              </div>
+              {/* Пропущенную середину показываем явно: без неё десять строк
+                  выглядят полным списком, и «последнее место» читается как
+                  десятое, а не как шестьдесят третье. */}
+              {i === gapAfter && data.skipped > 0 && (
+                <div style={{ ...muted, textAlign: 'center', margin: '2px 0 8px' }}>
+                  ⋮ ещё {data.skipped} {plural(data.skipped, 'строка', 'строки', 'строк')} не показано
+                </div>
+              )}
+            </div>
+          )
+        })}
+        {/* Места между равными строками задаёт только устойчивость сортировки.
+            На форме МВД сорок пять отделений с нулём получали места 58, 59,
+            60… — порядок, которого не существует. Говорим об этом прямо. */}
+        {data.tied_last > 1 && (
+          <div style={{ ...muted, color: 'var(--warn)', marginTop: 4 }}>
+            ⚠ последнее место делят {data.tied_last} строк с одинаковым значением{' '}
+            {fmt(data.tied_value)}{byPlan ? ' %' : ''} — порядок между ними произволен
+          </div>
+        )}
+        <div style={{ ...muted, marginTop: 4 }}>
+          всего строк: {data.rows_total}
+          {byPlan ? ' · порядок по выполнению плана' : ' · порядок по значению'}
+        </div>
       </div>
     )
   }

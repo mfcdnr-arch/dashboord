@@ -107,6 +107,9 @@ WIDGET_SIZE = {
     # Полосы: строка на пару «план + факт». Высота растёт с числом строк, её
     # считает `bullet_height` — здесь запасное значение на 3 строки.
     "bullet": (6, 7),
+    # Рейтинг: высота растёт с числом показанных строк, её считает
+    # `ranked_height` — здесь запасное значение на топ-5 без антитопа.
+    "ranked": (6, 8),
     # Термометр: два столбика («выполнено» против «прошло срока»), под ними
     # «нужно в день» и прогноз — в семи рядах прогноз уезжает в прокрутку.
     "thermometer": (4, 9),
@@ -137,6 +140,27 @@ def bullet_height(rows: int) -> int:
     return min(24, 3 + max(1, rows))
 
 
+# Рейтинг по умолчанию: пять строк сверху и пять снизу.
+RANKED_TOP_N = 5
+
+
+def ranked_rows_shown(cfg: dict) -> int:
+    """Сколько строк покажет рейтинг — по его же настройке.
+
+    Точное число строк формы заранее неизвестно (оно в данных, а не в
+    конфигурации), поэтому берём верхнюю оценку: топ плюс антитоп. Та же
+    договорённость, что у матрицы, — обе стороны (сборка и «↕ Подогнать
+    размеры») считают высоту ОДНИМ правилом.
+    """
+    top = max(1, int(cfg.get("top_n") or RANKED_TOP_N))
+    return top * 2 if cfg.get("bottom", True) else top
+
+
+def ranked_height(rows: int) -> int:
+    """Высота карточки рейтинга: шапка, строки и подпись под ними."""
+    return min(24, 4 + max(1, rows))
+
+
 def matrix_height(field_count: int) -> int:
     """Высота матрицы «показатель × дата» — по числу строк, которые она покажет.
 
@@ -163,7 +187,7 @@ def _content_height(widget: dict, default_h: int) -> int:
     ломала то, что собрал мастер.
     """
     kind = widget.get("widget_type")
-    if kind not in ("matrix", "bullet"):
+    if kind not in ("matrix", "bullet", "ranked"):
         return default_h
     cfg = widget.get("config") or {}
     if isinstance(cfg, str):
@@ -173,6 +197,8 @@ def _content_height(widget: dict, default_h: int) -> int:
             cfg = {}
     if kind == "bullet":
         return bullet_height(len(cfg.get("pairs") or []))
+    if kind == "ranked":
+        return ranked_height(ranked_rows_shown(cfg))
     # Разрез по строкам формы: сколько их будет, заранее неизвестно — берём ту
     # же оценку в шесть строк, что и авто-сборка, чтобы обе стороны считали
     # одинаково.
@@ -529,13 +555,18 @@ MIN_PERIODS_WATERFALL = 3
 # Термометров на форму: у каждого свой срок и свой показатель, но первый экран
 # не должен состоять из них одних.
 MAX_AUTO_THERMOMETERS = 2
+# Рейтинг нужен там, где строк слишком много, чтобы читать их подряд. Порог
+# выше, чем у светофора (6): на восьми отделениях список повторил бы плитки,
+# а на шестидесяти трёх плитки превращаются в стену, и «кто в хвосте» из них
+# уже не вычитывается.
+MIN_ROWS_RANKED = 10
 
 
 # Куда какой вид попадает по смыслу страницы: «как сейчас» / «как менялось» /
 # «откуда цифры». Иначе воронка оказалась бы среди первичных данных, а водопад
 # на «Обзоре» — там, где его никто не ищет.
 BY_MEANING_PAGE = {
-    "funnel": PAGE_OVERVIEW, "status_grid": PAGE_OVERVIEW,
+    "funnel": PAGE_OVERVIEW, "status_grid": PAGE_OVERVIEW, "ranked": PAGE_OVERVIEW,
     "bullet": PAGE_OVERVIEW, "thermometer": PAGE_OVERVIEW,
     "waterfall": PAGE_DYNAMICS, "yoy": PAGE_DYNAMICS,
     "pie": PAGE_RAW, "heatmap": PAGE_RAW,
@@ -548,6 +579,7 @@ BY_MEANING_TITLE = {
     "pie": "{name}: доли строк",
     "heatmap": "Тепловая карта показателей",
     "bullet": "План и факт: все показатели",
+    "ranked": "{name}: кто впереди и кто в хвосте",
     "thermometer": "{name}: успеваем ли к сроку",
 }
 
@@ -656,6 +688,13 @@ def by_meaning_specs(fields: list, rows: int, periods: int, first_period: str = 
         # Один показатель по многим строкам: столбчатый график на 63 полоски
         # нечитаем, а плитка на отделение отвечает «где хорошо, где плохо».
         out.append({"kind": "status_grid", "fields": [main[0]]})
+
+    if rows >= MIN_ROWS_RANKED and main:
+        # Светофор отвечает «где плохо» цветом, рейтинг — «кто первый и кто
+        # последний» порядком. На шести отделениях хватает первого, на
+        # шестидесяти трёх без второго не обойтись.
+        out.append({"kind": "ranked", "fields": [main[0]],
+                    "height": ranked_height(ranked_rows_shown({}))})
 
     if PIE_ROWS[0] <= rows <= PIE_ROWS[1] and main:
         out.append({"kind": "pie", "fields": [main[0]]})

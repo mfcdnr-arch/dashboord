@@ -49,6 +49,9 @@ export const FLOW_SIZE: Record<string, { w: number; h: number }> = {
   status_grid: { w: 6, h: 6 },
   // Полосы «план и факт»: строка на пару, высота — по содержимому (AUTO_HEIGHT).
   bullet: { w: 6, h: 7 },
+  // Рейтинг: строк столько, сколько показано с обоих концов, — высота по
+  // содержимому (AUTO_HEIGHT).
+  ranked: { w: 6, h: 8 },
   // Термометр к сроку: два столбика, под ними «нужно в день» и прогноз.
   thermometer: { w: 4, h: 9 },
   // Таблицы и заголовки: во всю ширину — у таблицы своя ширина, в половине
@@ -100,7 +103,7 @@ export interface FlowItem {
 // отдать её содержимому.
 // Полосы — той же породы, что матрица: строк ровно столько, сколько пар
 // «план + факт» выбрано, и константа прятала бы часть строк молча.
-const AUTO_HEIGHT = new Set(['kpi', 'kpi_group', 'text', 'status_grid', 'image', 'matrix', 'table', 'bullet'])
+const AUTO_HEIGHT = new Set(['kpi', 'kpi_group', 'text', 'status_grid', 'image', 'matrix', 'table', 'bullet', 'ranked'])
 
 /**
  * Типы, которые на широком мониторе не грех уплотнить, и предел уплотнения.

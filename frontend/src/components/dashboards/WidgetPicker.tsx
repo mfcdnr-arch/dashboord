@@ -13,6 +13,7 @@ const ICONS: Record<string, React.ReactNode> = {
   plan_fact: <svg style={box} viewBox="0 0 52 34"><rect x="8" y="8" width="8" height="20" fill={C3} /><rect x="20" y="14" width="8" height="14" fill={C1} /><rect x="6" y="30" width="40" height="3" rx="1.5" fill="#eef0f3" /><rect x="6" y="30" width="26" height="3" rx="1.5" fill={GREEN} /></svg>,
   bullet: <svg style={box} viewBox="0 0 52 34"><rect x="6" y="7" width="40" height="5" rx="2.5" fill="#eef0f3" /><rect x="6" y="7" width="30" height="5" rx="2.5" fill={GREEN} /><line x1="28" y1="5" x2="28" y2="14" stroke="#4b5563" strokeWidth="1.5" /><rect x="6" y="15" width="40" height="5" rx="2.5" fill="#eef0f3" /><rect x="6" y="15" width="16" height="5" rx="2.5" fill={C1} /><line x1="28" y1="13" x2="28" y2="22" stroke="#4b5563" strokeWidth="1.5" /><rect x="6" y="23" width="40" height="5" rx="2.5" fill="#eef0f3" /><rect x="6" y="23" width="24" height="5" rx="2.5" fill={GOLD} /><line x1="28" y1="21" x2="28" y2="30" stroke="#4b5563" strokeWidth="1.5" /></svg>,
   thermometer: <svg style={box} viewBox="0 0 52 34"><rect x="13" y="4" width="9" height="26" rx="4" fill="#eef0f3" /><rect x="13" y="14" width="9" height="16" rx="4" fill={C1} /><rect x="30" y="4" width="9" height="26" rx="4" fill="#eef0f3" /><rect x="30" y="18" width="9" height="12" rx="4" fill={C3} /><line x1="9" y1="12" x2="44" y2="12" stroke={GREEN} strokeWidth="1.5" strokeDasharray="3 2" /></svg>,
+  ranked: <svg style={box} viewBox="0 0 52 34"><text x="5" y="10" fontSize="6" fill={C3}>1</text><rect x="11" y="5" width="34" height="5" rx="2.5" fill={GREEN} /><text x="5" y="18" fontSize="6" fill={C3}>2</text><rect x="11" y="13" width="24" height="5" rx="2.5" fill={GREEN} /><text x="5" y="26" fontSize="6" fill={C3}>⋮</text><rect x="11" y="21" width="12" height="5" rx="2.5" fill={GOLD} /><rect x="11" y="28" width="6" height="5" rx="2.5" fill={C1} /></svg>,
   bar: <svg style={box} viewBox="0 0 52 34"><rect x="8" y="16" width="7" height="12" fill={C1} /><rect x="19" y="8" width="7" height="20" fill={C1} /><rect x="30" y="20" width="7" height="8" fill={C1} /><rect x="41" y="12" width="7" height="16" fill={C1} /></svg>,
   line: <svg style={box} viewBox="0 0 52 34"><polyline points="8,24 18,14 28,18 40,8 46,12" fill="none" stroke={C1} strokeWidth="2.5" /></svg>,
   pie: <svg style={box} viewBox="0 0 52 34"><circle cx="26" cy="17" r="13" fill={C3} /><path d="M26 17 L26 4 A13 13 0 0 1 37 23 Z" fill={C1} /></svg>,
@@ -71,6 +72,7 @@ export const WIDGET_GROUPS: Group[] = [
       { v: 'pivot', t: 'Сводная таблица', hint: 'Строки × поля с итогами по строкам/столбцам' },
       { v: 'matrix', t: 'Матрица по датам', hint: 'Строки формы × отчётные даты: значение и прирост к прошлому отчёту' },
       { v: 'status_grid', t: 'Светофор', hint: 'Плитка на каждую строку формы, цвет — по порогам' },
+      { v: 'ranked', t: 'Рейтинг строк', hint: 'Кто впереди и кто в хвосте: топ и антитоп отделений полосами, с местом, долей и разрывом посередине' },
     ],
   },
   {

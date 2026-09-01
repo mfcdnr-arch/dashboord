@@ -339,6 +339,10 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   // Термометр: срок, к которому план должен быть выполнен, и начало отсчёта.
   // Начало необязательно — по умолчанию первый отчёт формы; выдумывать «начало
   // года» нельзя, иначе «прошло срока» окажется неправдой.
+  // Рейтинг: сколько строк с каждого конца и показывать ли антитоп.
+  const [topN, setTopN] = useState<string>(cfg0.top_n != null ? String(cfg0.top_n) : '5')
+  const [showBottom, setShowBottom] = useState<boolean>(cfg0.bottom !== false)
+  const [rankBy, setRankBy] = useState<string>((cfg0.rank_by as string) || 'value')
   const [deadline, setDeadline] = useState<string>((cfg0.deadline as string) || '')
   const [thermStart, setThermStart] = useState<string>((cfg0.start as string) || '')
 
@@ -353,8 +357,8 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const isText = type === 'text'
   const isImage = type === 'image'
   const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
-  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall', 'matrix', 'bullet', 'thermometer'].includes(type)
-  const usesValueField = ['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall'].includes(type)
+  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall', 'matrix', 'bullet', 'thermometer', 'ranked'].includes(type)
+  const usesValueField = ['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall', 'ranked'].includes(type)
     || (type === 'matrix' && matrixBy !== 'fields')
     || (['kpi', 'gauge'].includes(type) && source === 'dataset')
   // Воронка тоже набирается из нескольких полей, но порядок галочек для неё
@@ -447,6 +451,14 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     }
     if (type === 'thermometer') return (dataset && planField && factField && deadline)
       ? { dataset_code: dataset, plan_field: planField, fact_field: factField, deadline, ...(thermStart ? { start: thermStart } : {}) }
+      : null
+    if (type === 'ranked') return (dataset && valueField)
+      ? { dataset_code: dataset, value_field: valueField, top_n: Number(topN) || 5,
+          bottom: showBottom,
+          // Ранжировать по выполнению плана можно только когда план задан —
+          // иначе получился бы порядок по пустоте.
+          ...(planField && rankBy === 'plan_pct' ? { plan_field: planField, rank_by: 'plan_pct' }
+            : planField ? { plan_field: planField } : {}) }
       : null
     if (type === 'status_grid') return (dataset && valueField)
       ? { dataset_code: dataset, value_field: valueField, ...(planField ? { plan_field: planField } : {}) } : null
@@ -659,6 +671,28 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           ))}
           <button type="button" style={{ ...btnAuto, height: 34 }} onClick={addCrossItem}>＋ Добавить источник</button>
         </div>
+      )}
+      {type === 'ranked' && (
+        <>
+          <F t="План (необяз.)"><select style={sel} value={planField} onChange={(e) => setPlanField(e.target.value)}>
+            <option value="">— без плана —</option>
+            {numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
+          </select></F>
+          <F t="Порядок">
+            <select style={sel} value={rankBy} onChange={(e) => setRankBy(e.target.value)} disabled={!planField}
+              title={planField ? 'По выполнению плана крупное отделение не выигрывает автоматически: сравниваются не размеры, а исполнение'
+                : 'Чтобы ранжировать по выполнению плана, укажите поле плана'}>
+              <option value="value">По значению</option>
+              <option value="plan_pct">По выполнению плана, %</option>
+            </select>
+          </F>
+          <F t="Строк с каждого конца"><input style={{ ...sel, width: 100 }} type="number" min={1} max={15}
+            value={topN} onChange={(e) => setTopN(e.target.value)} /></F>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }}
+            title="Антитоп — то, ради чего рейтинг чаще всего и открывают: кто отстаёт.">
+            <input type="checkbox" checked={showBottom} onChange={(e) => setShowBottom(e.target.checked)} />Показывать антитоп
+          </label>
+        </>
       )}
       {type === 'bullet' && (
         <div style={{ flexBasis: '100%' }}>

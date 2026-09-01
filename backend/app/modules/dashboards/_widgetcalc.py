@@ -164,6 +164,12 @@ def _detect_anomalies(periods: list, values: list, threshold: float = 2.0) -> li
 # шкала снизу не ниже 120 % (иначе выполненный план упирается в самый край и
 # «выполнено» неотличимо от «перевыполнено»), сверху не выше 300 % (при 656 %
 # у одной строки остальные схлопнулись бы в невидимые огрызки).
+# Рейтинг: сколько строк показываем с каждого конца. Пять — столько, сколько
+# человек удерживает в голове одним взглядом; больше превращает рейтинг обратно
+# в таблицу, ради ухода от которой он и заводился.
+RANKED_TOP_N = 5
+RANKED_MAX_SIDE = 15
+
 BULLET_MAX_PAIRS = 12
 BULLET_SCALE_MIN = 120.0
 BULLET_SCALE_CAP = 300.0
@@ -947,6 +953,76 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             res["forecast"] = _plan_forecast(series, plan, fact)
         res["alert"] = evaluate_alert("plan_fact", cfg, res)
         return res
+
+    if t == "ranked":
+        # Рейтинг строк: кто впереди и кто в хвосте. Ни один из имеющихся видов
+        # на это не отвечает: столбчатый график на 63 отделения — частокол,
+        # светофор красит «где плохо», но не выстраивает порядок, а таблицу
+        # надо сортировать руками и читать числа подряд.
+        field = cfg.get("value_field")
+        if not cfg.get("dataset_code") or not field:
+            raise DashboardError("Рейтинг: укажите dataset_code и показатель")
+        code = cfg["dataset_code"]
+        series = await _dataset_series(conn, org_id, code, field, row, allowed, period)
+        plan_by_row = {}
+        if cfg.get("plan_field"):
+            plan_by_row = {x["category"]: x["value"] for x in await _dataset_series(
+                conn, org_id, code, cfg["plan_field"], row, allowed, period)}
+        # По чему ранжируем: по самому значению или по проценту выполнения
+        # плана. Второе честнее сравнивает отделения разного размера — большое
+        # всегда выигрывает по абсолютному числу, но может отставать от плана.
+        by_plan = bool(plan_by_row) and cfg.get("rank_by") == "plan_pct"
+
+        items = []
+        for x in series:
+            plan = plan_by_row.get(x["category"])
+            pct = (x["value"] / plan * 100.0) if plan else None
+            if by_plan and pct is None:
+                # Строки без плана в рейтинге «по выполнению» участвовать не
+                # могут: приписать им ноль значило бы отправить их в хвост за
+                # то, что план им просто не задан.
+                continue
+            items.append({"label": x["category"], "value": x["value"], "plan": plan, "pct": pct})
+        items.sort(key=lambda d: (d["pct"] if by_plan else d["value"]), reverse=True)
+
+        total = sum(d["value"] for d in items)
+        for i, d in enumerate(items):
+            d["rank"] = i + 1
+            # Доля в общем объёме отвечает на «насколько он весит»: первое
+            # место с 40 % и первое место с 3 % — разные новости.
+            d["share"] = (d["value"] / total * 100.0) if total else None
+            alert = evaluate_alert("kpi", cfg, {"value": d["pct"] if d["pct"] is not None else d["value"]})
+            d["level"], d["color"] = (alert or {}).get("level"), (alert or {}).get("color")
+
+        top_n = max(1, min(RANKED_MAX_SIDE, int(cfg.get("top_n") or RANKED_TOP_N)))
+        bottom = bool(cfg.get("bottom", True))
+        if not bottom or len(items) <= top_n:
+            shown, skipped = items[:top_n], max(0, len(items) - top_n)
+        elif len(items) <= top_n * 2:
+            # Разрыв в ноль строк — это не разрыв, а обман: список и так
+            # показан целиком, и «… ещё 0 …» между половинами лишь сбивает.
+            shown, skipped = items, 0
+        else:
+            shown, skipped = items[:top_n] + items[-top_n:], len(items) - top_n * 2
+
+        # Полосу рисует клиент — в ней нет правила, только соотношение уже
+        # пришедших чисел. Масштаб берётся по ВСЕМ строкам, а не по показанным:
+        # иначе антитоп рисовался бы от своего максимума и выглядел бы
+        # сопоставимым с топом (та же ошибка, что чинили у полосок в таблице).
+        scale_of = [(d["pct"] if by_plan else d["value"]) for d in items] or [0]
+        # 🔴 Найдено на живых данных: в форме МВД у сорока пяти отделений
+        # значение 0, а рейтинг проставлял им места 58, 59, 60… — то есть
+        # показывал порядок там, где его нет. Числа верны, но порядок между
+        # равными задан лишь устойчивостью сортировки, и выдавать его за
+        # рейтинг нельзя. Считаем, сколько строк делят последнее место, и
+        # говорим об этом словами.
+        worst = min(scale_of)
+        tied = sum(1 for v in scale_of if v == worst)
+        return {"type": "ranked", "title": name, "rows": shown, "skipped": skipped,
+                "rows_total": len(items), "total": total,
+                "scale_max": max(scale_of), "rank_by": "plan_pct" if by_plan else "value",
+                "tied_last": tied if tied > 1 else 0, "tied_value": worst if tied > 1 else None,
+                "unit": cfg.get("unit")}
 
     if t == "bullet":
         # «Полосы»: несколько пар «план + факт» ОДНОЙ карточкой, строка на пару.

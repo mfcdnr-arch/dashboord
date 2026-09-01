@@ -84,6 +84,22 @@ def _pct(v: float | None) -> str:
 
 # Уровень порога словами: в файле цвета нет, а «danger» ничего не сообщает
 # тому, кто открыл выгрузку в Excel.
+def _num(v) -> str:
+    """Целое печатаем целым: на экране стоит «0», и файл обязан совпадать."""
+    if v is None:
+        return ""
+    return str(int(v)) if float(v).is_integer() else str(v)
+
+
+def _plural(n: int, one: str, few: str, many: str) -> str:
+    """Русское склонение по числу. Ловушка — 11–14: «11 строк», а не «11 строка»."""
+    tail = abs(n) % 100
+    if 11 <= tail <= 14:
+        return many
+    last = tail % 10
+    return one if last == 1 else few if 2 <= last <= 4 else many
+
+
 _LEVEL_RU = {"danger": "ниже 90 % плана", "poor": "заметное отставание",
              "warn": "план не выполнен", "good": "план выполнен"}
 
@@ -217,6 +233,26 @@ def _dump_widget(wb, summary, sheet_name, wid: str, t: str, name: str, data: dic
         ws.append(["Подразделение", "Значение"])
         for c, v in zip(data.get("categories", []), data.get("values", []), strict=False):
             ws.append([c, v])
+    elif t == "ranked":
+        ws = wb.create_sheet(sheet_name(wid, name))
+        ws.append(["Место", "Строка", "Значение", "План", "Выполнение, %", "Доля в итоге, %"])
+        for r in data.get("rows", []):
+            ws.append([r.get("rank"), r.get("label"), r.get("value"),
+                       r.get("plan"), r.get("pct"), r.get("share")])
+        # Пропущенная середина названа прямо: иначе в файле «10 строк» выглядят
+        # полным списком, хотя на экране между ними был разрыв.
+        if data.get("skipped"):
+            n = data["skipped"]
+            ws.append([None, f"… ещё {n} {_plural(n, 'строка', 'строки', 'строк')} не показано "
+                             f"(всего {data.get('rows_total')})"])
+        # Оговорка про равные строки обязана уехать в файл вместе с местами:
+        # без неё выгрузка утверждает порядок, которого нет, — а именно её и
+        # несут руководителю.
+        if data.get("tied_last"):
+            n = data["tied_last"]
+            ws.append([None, f"Последнее место делят {n} {_plural(n, 'строка', 'строки', 'строк')} "
+                             f"с одинаковым значением {_num(data.get('tied_value'))} — "
+                             "порядок между ними произволен"])
     elif t == "bullet":
         # Полосы — своим листом, а не в «Сводку»: строк столько же, сколько пар,
         # и в общей сводке они растворились бы среди чисел других виджетов.
