@@ -679,6 +679,141 @@ def _validate_grid(rows, value_fields, label_col, field_type) -> list:
     return warnings
 
 
+# --------------------------------------------------------------------------- #
+# Книга, где ЛИСТ = отчётная дата
+# --------------------------------------------------------------------------- #
+#
+# Прежние формы устроены «один файл — один отчёт за одну дату». Файлы РЦО
+# (02.09.2026) устроены иначе: книга несёт историю, лист на каждый рабочий день
+# — 12 листов в «Окнах и часах» и 189 в «Ежедневном отчёте». Раскладывать их
+# руками по одному документу на дату — это 189 загрузок, то есть работа, ради
+# ухода от которой система и строилась.
+#
+# Год на листе НЕ написан («17.08»), поэтому его передаёт вызывающая сторона:
+# вытаскивать год из имени файла — гадание, а ошибка в нём тихо создаёт
+# выпуски не того года, и вся динамика на дашборде уезжает.
+_SHEET_DATE_RE = re.compile(r"^\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})(?:\s*[.\-/]\s*(\d{2,4}))?\s*$")
+
+
+def sheet_date(title: str, year: int):
+    """Отчётная дата из имени листа: «17.08», «17.08.2026», «17/08». Иначе None.
+
+    Молчаливого угадывания здесь быть не должно: лист с именем «Свод» или
+    «проверка» — не дата, и выпуска по нему не будет. Отказ виден в отчёте
+    загрузки построчно.
+    """
+    from datetime import date
+
+    m = _SHEET_DATE_RE.match(str(title or ""))
+    if not m:
+        return None
+    day, month, yr = int(m.group(1)), int(m.group(2)), m.group(3)
+    if yr:
+        yr = int(yr)
+        year = yr if yr > 100 else 2000 + yr
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None          # «40.09» — не дата, а опечатка в имени листа
+
+
+async def build_releases_by_sheet(
+    conn, *, job_id: str, code: str, name: str, year: int, user: dict,
+    layout: Optional[dict] = None, since=None,
+    exclude_row_labels: Sequence[str] = (), supersede: bool = False,
+) -> dict:
+    """Выпуск на КАЖДЫЙ лист книги: лист даёт отчётную дату, разметка общая.
+
+    Три решения, без которых это не работает на настоящих файлах.
+
+    1. **Поля пересчитываются ПО КАЖДОМУ листу**, а не берутся с первого. Форма
+       живёт: в «Ежедневном отчёте» за январь–сентябрь ширина выросла с 282 до
+       330 столбцов и сменилось двенадцать наборов услуг. Применить разметку
+       первого листа ко всем значило бы сдвинуть столбцы и разложить чужие
+       числа под чужими именами. Человек задаёт ГЕОМЕТРИЮ (сколько этажей
+       шапки, где область данных, что исключить), а имена и коды считает
+       `layout_preview` — тем же кодом, что и обычный выпуск.
+
+    2. **Коды закрепляет справочник объекта.** Одна и та же услуга получает
+       один код во всех датах, потому что `layout_preview` сопоставляет имена с
+       уже заведёнными полями. Иначе добавление услуги в марте разорвало бы
+       ряд каждого показателя правее неё.
+
+    3. **Идемпотентность по датам.** Заказчик присылает ТОТ ЖЕ файл с
+       дописанными листами, поэтому даты, по которым активный выпуск уже есть,
+       пропускаются. Без этого каждое обновление перезаливало бы всю историю —
+       под миллион значений ради десятка новых дат.
+    """
+    ctx = await resolve_context(conn, job_id)
+    if ctx is None:
+        raise ValueError("Задание извлечения не найдено")
+    object_id, org_id = ctx["object_id"], ctx["organization_id"]
+
+    tables = await conn.fetch(
+        "select id, sheet_or_page from extracted_tables where extraction_job_id=$1::uuid "
+        "order by table_index", job_id)
+    if not tables:
+        raise ValueError("В задании нет ни одной распознанной таблицы")
+
+    lay = dict(DEFAULT_LAYOUT)
+    lay.update(layout or {})
+    drop = {_norm_name(x) for x in exclude_row_labels}
+
+    created, skipped, failed = [], [], []
+    for t in tables:
+        period = sheet_date(t["sheet_or_page"], year)
+        if period is None:
+            skipped.append({"sheet": t["sheet_or_page"], "reason": "имя листа не похоже на дату"})
+            continue
+        if since and period < since:
+            skipped.append({"sheet": t["sheet_or_page"], "reason": "раньше выбранной глубины истории"})
+            continue
+        # Уже загруженную дату не трогаем: файл приходит целиком, и повторная
+        # заливка стоила бы всей истории при десятке новых дат.
+        exists = await conn.fetchval(
+            "select id from dataset_releases where organization_id=$1 and code=$2 "
+            "and reporting_period_start=$3 and status <> 'superseded'", org_id, code, period)
+        if exists and not supersede:
+            skipped.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
+                            "reason": "выпуск за эту дату уже есть"})
+            continue
+
+        try:
+            prev = await layout_preview(
+                conn, str(t["id"]), object_id, data_rect=lay.get("data_rect"),
+                header_rows=lay.get("header_rows"), orientation=lay["orientation"],
+                skip_rows=lay.get("skip_rows") or (), sample=0)
+            skip = list(lay.get("skip_rows") or ())
+            if drop:
+                # Итоговые блоки исключаем ПО ПОДПИСИ, а не по номеру строки:
+                # в «Ежедневном отчёте» под таблицей три блока итогов («за
+                # день», «На вчера», «Накопительный»), и их положение сдвигается
+                # вместе с числом отделений. Прими мы их за отделения — суммы
+                # утроились бы (та же беда, что с «ИТОГО» 27.08).
+                extra = [r["index"] for r in prev["rows"]
+                         if _norm_name(r.get("label") or "") in drop]
+                if extra:
+                    skip = sorted(set(skip) | set(extra))
+                    prev = await layout_preview(
+                        conn, str(t["id"]), object_id, data_rect=lay.get("data_rect"),
+                        header_rows=lay.get("header_rows"), orientation=lay["orientation"],
+                        skip_rows=skip, sample=0)
+            fields = [c for c in prev["columns"] if not c.get("is_counter")]
+            rel = await build_release(
+                conn, job_id=job_id, table_id=str(t["id"]), code=code, name=name,
+                reporting_period_start=period, reporting_period_end=period,
+                fields=fields, supersede=supersede, user=user,
+                layout={**lay, "skip_rows": skip}, auto=True)
+            created.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
+                            "values": rel.get("values_count"), "fields": len(fields)})
+        except Exception as e:                       # noqa: BLE001 — причина уезжает в отчёт
+            failed.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
+                           "error": str(e)[:200]})
+
+    return {"created": created, "skipped": skipped, "failed": failed,
+            "sheets": len(tables), "released": len(created)}
+
+
 async def build_release(conn, *, job_id: str, table_id: str, code: str, name: str,
                         reporting_period_start, reporting_period_end,
                         fields: List[dict], supersede: bool, user: dict,
