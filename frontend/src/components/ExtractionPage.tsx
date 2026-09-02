@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   addHomeKpisFromFields, createRelease, getExtractionForVersion, getJob, layoutPreview, qualityCheck,
-  releaseImpact, startExtraction,
+  createReleasesBySheet, releaseImpact, startExtraction,
   type CellPick, type Doc, type ExtractionJob, type FieldMap, type LayoutPreview,
   type LayoutTemplate, type ReleaseResult, type ValidationWarning,
 } from '../api'
@@ -11,7 +11,7 @@ import InfoTip from './InfoTip'
 import SheetGrid, { colName, fillMerges, type PickedCell, type Rect } from './SheetGrid'
 import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
 import { buildReleaseFields } from '../lib/releaseFields'
-import { cancelRelease, deleteRelease, listVersionReleases, restoreRelease, type ReleaseImpact, type VersionRelease } from '../api/ingestion'
+import { cancelRelease, deleteRelease, listVersionReleases, restoreRelease, type ReleaseBySheetResult, type ReleaseImpact, type SheetOutcome, type VersionRelease } from '../api/ingestion'
 import ImpactPanel from './ingestion/ImpactPanel'
 
 const TYPES = [
@@ -343,6 +343,33 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
     return () => clearTimeout(id)
   }, [qualityKey, job?.job_id, tableId, mode]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Книга, где ЛИСТ = отчётная дата. Показываем только когда листов больше
+  // одного И их имена похожи на даты: на обычной одностраничной форме этот
+  // блок был бы шумом, а на книге со служебными листами («Свод») — обещанием,
+  // которого система не выполнит.
+  const sheetDates = (job?.tables || []).filter((t) => /^\s*\d{1,2}\s*[.\-/]\s*\d{1,2}/.test(t.sheet_or_page || ''))
+  const bySheetPossible = (job?.tables || []).length > 1 && sheetDates.length > 1
+  const [bySheet, setBySheet] = useState(false)
+  const [sheetYear, setSheetYear] = useState(String(new Date().getFullYear()))
+  const [sheetSince, setSheetSince] = useState('')
+  const [excludeLabels, setExcludeLabels] = useState('')
+  const [sheetResult, setSheetResult] = useState<ReleaseBySheetResult | null>(null)
+
+  async function submitBySheet() {
+    if (!job?.job_id) return
+    if (!code.trim() || !name.trim()) { setError('Заполните код и название датасета'); return }
+    setSubmitting(true); setError(null)
+    try {
+      const r = await createReleasesBySheet(job.job_id, {
+        code: code.trim(), name: name.trim(), year: Number(sheetYear),
+        since: sheetSince || null,
+        layout: { data_rect: rect, header_rows: headerRows, orientation, skip_rows: skipRows },
+        exclude_row_labels: excludeLabels.split('\n').map((x) => x.trim()).filter(Boolean),
+      })
+      setSheetResult(r)
+    } catch (e) { fail(e) } finally { setSubmitting(false) }
+  }
+
   async function submit(supersede: boolean) {
     if (!job?.job_id || !tableId) return
     if (!code.trim() || !name.trim()) { setError('Заполните код и название датасета'); return }
@@ -571,10 +598,55 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
                 <Field label="Код"><input style={input} value={code} onChange={(e) => setCode(e.target.value)} /></Field>
                 <Field label="Название"><input style={{ ...input, width: 240 }} value={name} onChange={(e) => setName(e.target.value)} /></Field>
                 <Field label="Период"><input style={{ ...input, width: 160 }} type="date" value={period} onChange={(e) => setPeriod(e.target.value)} /></Field>
-                <button style={{ ...btn, alignSelf: 'flex-end' }} disabled={submitting} onClick={() => submit(false)}>
-                  {submitting ? 'Сохранение…' : 'Подтвердить выпуск'}
-                </button>
+                {!bySheet && (
+                  <button style={{ ...btn, alignSelf: 'flex-end' }} disabled={submitting} onClick={() => submit(false)}>
+                    {submitting ? 'Сохранение…' : 'Подтвердить выпуск'}
+                  </button>
+                )}
               </div>
+
+              {bySheetPossible && (
+                <div style={{ marginTop: 12, padding: 12, border: '1px solid var(--border-faint)', borderRadius: 8 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                    <input type="checkbox" checked={bySheet} onChange={(e) => { setBySheet(e.target.checked); setSheetResult(null) }} />
+                    <b>Каждый лист — отдельная отчётная дата</b>
+                    <span style={{ color: 'var(--text-faint)' }}>
+                      (листов с датой в имени: {sheetDates.length} из {(job?.tables || []).length})
+                    </span>
+                  </label>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                    Книга несёт историю: по листу на отчётную дату. Разметку вы задаёте один раз, а
+                    показатели пересчитываются на каждом листе — форма могла меняться по ходу года.
+                    Даты, по которым выпуск уже есть, пропускаются: тот же файл с дописанными
+                    листами можно грузить повторно.
+                  </div>
+                  {bySheet && (
+                    <>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                        <Field label="Год">
+                          <input style={{ ...input, width: 90 }} type="number" value={sheetYear}
+                            onChange={(e) => setSheetYear(e.target.value)}
+                            title="На листах пишут «17.08» без года. Подставлять его по имени файла нельзя: ошибка тихо создаст выпуски не того года." />
+                        </Field>
+                        <Field label="С какой даты (пусто — все)">
+                          <input style={{ ...input, width: 160 }} type="date" value={sheetSince}
+                            onChange={(e) => setSheetSince(e.target.value)} />
+                        </Field>
+                        <Field label="Исключить строки с подписью (по одной в строке)">
+                          <textarea style={{ ...input, width: 260, height: 56 }} value={excludeLabels}
+                            onChange={(e) => setExcludeLabels(e.target.value)}
+                            placeholder={'Принято\nВыдано\nОтказ\nНа вчера'}
+                            title="Блоки итогов под таблицей. Приняв их за строки данных, система удвоит или утроит суммы." />
+                        </Field>
+                        <button style={{ ...btn, alignSelf: 'flex-end' }} disabled={submitting} onClick={submitBySheet}>
+                          {submitting ? 'Загрузка…' : `Выпустить по листам (${sheetDates.length})`}
+                        </button>
+                      </div>
+                      {sheetResult && <SheetReport res={sheetResult} />}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </>
@@ -1013,6 +1085,28 @@ function StatusBadge({ status }: { status: string }) {
   const s = map[status] || map.none
   return <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 12, background: s.bg, color: s.c }}>{s.t}</span>
 }
+
+/** Судьба КАЖДОГО листа: без этого «загружено» скрывает отвалившиеся даты. */
+function SheetReport({ res }: { res: ReleaseBySheetResult }) {
+  const row = (o: SheetOutcome, tone: string, tail: string) => (
+    <div key={o.sheet + tail} style={{ fontSize: 12, color: tone }}>
+      {o.sheet}{o.period ? ` → ${o.period.split('-').reverse().join('.')}` : ''} · {tail}
+    </div>
+  )
+  return (
+    <div style={{ marginTop: 10, maxHeight: 220, overflow: 'auto' }}>
+      <div style={{ fontSize: 13, marginBottom: 4 }}>
+        Листов: <b>{res.sheets}</b> · выпущено: <b>{res.released}</b>
+        {res.skipped.length ? ` · пропущено: ${res.skipped.length}` : ''}
+        {res.failed.length ? ` · с ошибкой: ${res.failed.length}` : ''}
+      </div>
+      {res.failed.map((o) => row(o, 'var(--danger)', `⚠ ${o.error}`))}
+      {res.created.map((o) => row(o, 'var(--success)', `значений ${o.values}, граф ${o.fields}`))}
+      {res.skipped.map((o) => row(o, 'var(--text-faint)', o.reason || 'пропущен'))}
+    </div>
+  )
+}
+
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (

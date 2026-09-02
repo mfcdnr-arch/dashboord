@@ -172,6 +172,35 @@ export async function layoutPreview(jobId: string, body: Layout & { table_id: st
   return res.json()
 }
 
+export interface SheetOutcome { sheet: string; period?: string; values?: number; fields?: number; reason?: string; error?: string }
+export interface ReleaseBySheetResult {
+  sheets: number; released: number
+  created: SheetOutcome[]; skipped: SheetOutcome[]; failed: SheetOutcome[]
+}
+
+/**
+ * Книга, где ЛИСТ = отчётная дата: один файл — много выпусков.
+ *
+ * Отдельно от `createRelease`, а не флагом: у обычного выпуска один лист, одна
+ * дата и один ответ, а здесь их десятки, и ответ построчный — иначе слово
+ * «загружено» скроет, что половина дат отвалилась.
+ */
+export async function createReleasesBySheet(
+  jobId: string,
+  body: {
+    code: string; name: string; year: number; since?: string | null
+    layout?: Layout; exclude_row_labels?: string[]; supersede?: boolean
+  },
+): Promise<ReleaseBySheetResult> {
+  const res = await fetch(`/extraction-jobs/${jobId}/release-by-sheet`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 export async function createRelease(
   jobId: string,
   body: {

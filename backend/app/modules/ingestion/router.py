@@ -229,6 +229,26 @@ class ReleaseIn(BaseModel):
     supersede: bool = False
 
 
+class ReleaseBySheetIn(BaseModel):
+    """Книга, где ЛИСТ = отчётная дата.
+
+    `year` обязателен: на листах госформ пишут «17.08» без года, и подставлять
+    его по имени файла — гадание, а ошибка тихо создаёт выпуски не того года.
+    `since` — глубина истории: книга за девять месяцев даёт 189 дат, и грузить
+    их все нужно далеко не всегда.
+    """
+    code: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=200)
+    year: int = Field(ge=2000, le=2100)
+    since: Optional[date] = None
+    layout: Optional[LayoutIn] = None
+    # Подписи строк, которые НЕ являются строками данных: в ежедневном отчёте
+    # под таблицей три блока итогов («Принято/Выдано/Отказ», «На вчера»,
+    # «Накопительный»), и приняв их за отделения, суммы утроились бы.
+    exclude_row_labels: List[str] = Field(default_factory=list)
+    supersede: bool = False
+
+
 class CanonicalFieldIn(BaseModel):
     code: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=200)
@@ -416,6 +436,42 @@ async def create_canonical_field(object_id: str, body: CanonicalFieldIn, user: d
             body.is_row_label, body.description, user["id"],
         )
     return dict(row)
+
+
+@router.post("/extraction-jobs/{job_id}/release-by-sheet",
+             status_code=status.HTTP_201_CREATED)
+async def create_releases_by_sheet(job_id: str, body: ReleaseBySheetIn,
+                                   user: dict = Depends(manage)):
+    """Выпуск на каждый лист книги. Отдаёт построчный отчёт: что создано, что
+    пропущено и почему.
+
+    Отдельным эндпоинтом, а не флагом обычного выпуска: у того один лист, одна
+    дата и один ответ, а здесь их десятки, и человеку нужно видеть судьбу
+    КАЖДОГО листа — иначе «загружено» скрывает, что половина дат отвалилась.
+    """
+    async with db.get_pool().acquire() as conn:
+        if not await _job_in_org(conn, job_id, user["organization_id"]):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание извлечения не найдено")
+        try:
+            async with conn.transaction():
+                res = await mapping.build_releases_by_sheet(
+                    conn, job_id=job_id, code=body.code, name=body.name,
+                    year=body.year, user=user, since=body.since,
+                    layout=body.layout.model_dump() if body.layout else None,
+                    exclude_row_labels=body.exclude_row_labels,
+                    supersede=body.supersede)
+                # В журнал — одно событие на загрузку, а не на каждый лист:
+                # это одно решение человека, и в ленте аудита полсотни записей
+                # об одном нажатии кнопки только мешают.
+                await audit_svc.write_event(
+                    conn, user["organization_id"], user["id"], "create", "dataset_release",
+                    job_id,
+                    new_data={"code": body.code, "by_sheet": True, "year": body.year,
+                              "sheets": res["sheets"], "released": res["released"],
+                              "skipped": len(res["skipped"]), "failed": len(res["failed"])})
+                return res
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
 
 
 @router.get("/objects/{object_id}/dataset-releases")
