@@ -453,25 +453,29 @@ async def create_releases_by_sheet(job_id: str, body: ReleaseBySheetIn,
         if not await _job_in_org(conn, job_id, user["organization_id"]):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание извлечения не найдено")
         try:
-            async with conn.transaction():
-                res = await mapping.build_releases_by_sheet(
-                    conn, job_id=job_id, code=body.code, name=body.name,
-                    year=body.year, user=user, since=body.since,
-                    layout=body.layout.model_dump() if body.layout else None,
-                    exclude_row_labels=body.exclude_row_labels,
-                    supersede=body.supersede)
-                # В журнал — одно событие на загрузку, а не на каждый лист:
-                # это одно решение человека, и в ленте аудита полсотни записей
-                # об одном нажатии кнопки только мешают.
-                await audit_svc.write_event(
-                    conn, user["organization_id"], user["id"], "create", "dataset_release",
-                    job_id,
-                    new_data={"code": body.code, "by_sheet": True, "year": body.year,
-                              "sheets": res["sheets"], "released": res["released"],
-                              "skipped": len(res["skipped"]), "failed": len(res["failed"])})
-                return res
+            # Общей транзакции здесь НЕТ намеренно: каждый лист сохраняется сам
+            # по себе (см. build_releases_by_sheet). Иначе один сорвавшийся лист
+            # откатил бы полсотни успешных, а это под миллион значений — при
+            # том что повторный запуск идемпотентен и просто дозальёт недостающее.
+            res = await mapping.build_releases_by_sheet(
+                conn, job_id=job_id, code=body.code, name=body.name,
+                year=body.year, user=user, since=body.since,
+                layout=body.layout.model_dump() if body.layout else None,
+                exclude_row_labels=body.exclude_row_labels,
+                supersede=body.supersede)
         except ValueError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+        # В журнал — одно событие на загрузку, а не на каждый лист: это одно
+        # решение человека, и полсотни записей об одном нажатии кнопки только
+        # мешают читать ленту.
+        async with conn.transaction():
+            await audit_svc.write_event(
+                conn, user["organization_id"], user["id"], "create", "dataset_release",
+                job_id,
+                new_data={"code": body.code, "by_sheet": True, "year": body.year,
+                          "sheets": res["sheets"], "released": res["released"],
+                          "skipped": len(res["skipped"]), "failed": len(res["failed"])})
+        return res
 
 
 @router.get("/objects/{object_id}/dataset-releases")

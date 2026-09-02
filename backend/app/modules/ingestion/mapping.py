@@ -779,33 +779,45 @@ async def build_releases_by_sheet(
             continue
 
         try:
-            prev = await layout_preview(
-                conn, str(t["id"]), object_id, data_rect=lay.get("data_rect"),
-                header_rows=lay.get("header_rows"), orientation=lay["orientation"],
-                skip_rows=lay.get("skip_rows") or (), sample=0)
-            skip = list(lay.get("skip_rows") or ())
-            if drop:
+            # 🔴 Транзакция на ЛИСТ, а не на всю загрузку. В asyncpg первая же
+            # ошибка внутри транзакции «отравляет» её: все последующие запросы
+            # падают с «current transaction is aborted», и построчный отчёт
+            # показал бы 53 фальшивые ошибки вместо одной настоящей. Вложенный
+            # `conn.transaction()` — это SAVEPOINT: сорвавшийся лист
+            # откатывается сам, остальные остаются.
+            #
+            # Частичная загрузка здесь ЛУЧШЕ, чем всё-или-ничего: функция
+            # идемпотентна по датам, поэтому повторный запуск дозальёт
+            # недостающее, а откат полусотни листов из-за одного означал бы
+            # переливать под миллион значений заново.
+            async with conn.transaction():
+                prev = await layout_preview(
+                    conn, str(t["id"]), object_id, data_rect=lay.get("data_rect"),
+                    header_rows=lay.get("header_rows"), orientation=lay["orientation"],
+                    skip_rows=lay.get("skip_rows") or (), sample=0)
+                skip = list(lay.get("skip_rows") or ())
+                if drop:
                 # Итоговые блоки исключаем ПО ПОДПИСИ, а не по номеру строки:
                 # в «Ежедневном отчёте» под таблицей три блока итогов («за
                 # день», «На вчера», «Накопительный»), и их положение сдвигается
                 # вместе с числом отделений. Прими мы их за отделения — суммы
                 # утроились бы (та же беда, что с «ИТОГО» 27.08).
-                extra = [r["index"] for r in prev["rows"]
-                         if _norm_name(r.get("label") or "") in drop]
-                if extra:
-                    skip = sorted(set(skip) | set(extra))
-                    prev = await layout_preview(
-                        conn, str(t["id"]), object_id, data_rect=lay.get("data_rect"),
-                        header_rows=lay.get("header_rows"), orientation=lay["orientation"],
-                        skip_rows=skip, sample=0)
-            fields = [c for c in prev["columns"] if not c.get("is_counter")]
-            rel = await build_release(
-                conn, job_id=job_id, table_id=str(t["id"]), code=code, name=name,
-                reporting_period_start=period, reporting_period_end=period,
-                fields=fields, supersede=supersede, user=user,
-                layout={**lay, "skip_rows": skip}, auto=True)
-            created.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
-                            "values": rel.get("values_count"), "fields": len(fields)})
+                    extra = [r["index"] for r in prev["rows"]
+                             if _norm_name(r.get("label") or "") in drop]
+                    if extra:
+                        skip = sorted(set(skip) | set(extra))
+                        prev = await layout_preview(
+                            conn, str(t["id"]), object_id, data_rect=lay.get("data_rect"),
+                            header_rows=lay.get("header_rows"), orientation=lay["orientation"],
+                            skip_rows=skip, sample=0)
+                fields = [c for c in prev["columns"] if not c.get("is_counter")]
+                rel = await build_release(
+                    conn, job_id=job_id, table_id=str(t["id"]), code=code, name=name,
+                    reporting_period_start=period, reporting_period_end=period,
+                    fields=fields, supersede=supersede, user=user,
+                    layout={**lay, "skip_rows": skip}, auto=True)
+                created.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
+                                "values": rel.get("values_count"), "fields": len(fields)})
         except Exception as e:                       # noqa: BLE001 — причина уезжает в отчёт
             failed.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
                            "error": str(e)[:200]})
