@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from typing import Any, List, Optional, Sequence
 
@@ -70,6 +71,9 @@ def _norm_name(name: str) -> str:
     """
     text = _EMBEDDED_DATE_RE.sub("", name or "")
     return " ".join(text.split()).lower()
+
+
+log = logging.getLogger(__name__)
 
 
 async def resolve_context(conn, job_id: str) -> Optional[dict]:
@@ -616,7 +620,16 @@ async def quality_warnings(conn, org_id, *, code: str, period, rows: List[List[s
     if not current:
         return []
     names = {f["field_code"]: f["field_name"] for f in fields}
-    return quality.check_release(current, names, previous, prev_period)
+    try:
+        return quality.check_release(current, names, previous, prev_period)
+    except Exception as e:                      # noqa: BLE001
+        # Проверки качества по определению СОВЕТУЮТ, а не запрещают: «решение
+        # за человеком, выпуск обратим». Значит и сорваться они права не имеют —
+        # иначе ошибка в подсказке отменяет саму работу. Ровно это и случилось
+        # при загрузке ежедневного отчёта: деление на ноль в одном правиле
+        # обрушило 52 выпуска из 54.
+        log.warning("Проверки качества не отработали (%s) — выпуск продолжается", e)
+        return []
 
 
 def _cast(value: str, data_type: str) -> dict:

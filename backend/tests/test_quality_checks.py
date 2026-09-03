@@ -337,3 +337,74 @@ def test_new_row_does_not_distort_the_factor():
 
     assert [x for x in quality.compare_with_previous(cur, prev, MAX_NAMES)
             if x["code"] == "multiplied_by_factor"]
+
+
+def test_indicator_dropping_to_zero_does_not_break_the_rule():
+    """🔴 Показатель, просевший до нуля, не должен ронять правило — и выпуск.
+
+    Найдено боевой загрузкой ежедневного отчёта РЦО: услугу за день ни разу не
+    оказали, коэффициент её роста стал нулём, а правило делило на минимальный
+    коэффициент. Падало оно ВНУТРИ выпуска, поэтому не выпустилось 52 листа из
+    54 — проверка, которая по замыслу только советует, отменяла саму работу.
+
+    По существу гипотеза при нуле и так мертва: равномерного умножения на
+    положительное число, при котором одна графа обнулилась, не бывает.
+    """
+    names = {f"f{i}": f"Услуга {i} · Факт · нарастающим итогом" for i in range(5)}
+    prev = {("Отделение", f"f{i}"): 100.0 for i in range(5)}
+    cur = {("Отделение", f"f{i}"): 104.0 for i in range(5)}
+    cur[("Отделение", "f0")] = 0.0          # услугу сегодня не оказывали
+
+    w = quality.compare_with_previous(cur, prev, names, "01.07.2026")
+    assert not [x for x in w if x["code"] == "multiplied_by_factor"]
+
+    # А без обнулившейся графы правило по-прежнему срабатывает: защита не
+    # должна была отключить его вовсе.
+    cur[("Отделение", "f0")] = 104.0
+    assert [x for x in quality.compare_with_previous(cur, prev, names, "01.07.2026")
+            if x["code"] == "multiplied_by_factor"]
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_broken_rule_does_not_cancel_the_release(seed_dataset, monkeypatch):
+    """🔴 Сломавшаяся проверка обязана промолчать, а не сорвать выпуск.
+
+    Это страховка ВТОРОГО слоя. Корневую причину (деление на ноль) закрывает
+    тест выше, но правил в модуле пять и будут новые: проверки по замыслу
+    СОВЕТУЮТ, значит ошибка в подсказке не вправе отменять саму работу. Ровно
+    это и случилось при загрузке ежедневного отчёта РЦО — 52 выпуска из 54 не
+    состоялись из-за сбоя в подсказке.
+
+    Бьём по `mapping.quality_warnings`, а не по `check_release`: страховка живёт
+    именно там, и прежние тесты проходили мимо неё.
+    """
+    from app import db
+    from app.modules.ingestion import mapping, quality
+
+    fields = [
+        {"column_index": 0, "field_code": "office", "field_name": "Отделение",
+         "data_type": "text", "is_row_label": True},
+        {"column_index": 1, "field_code": "plan", "field_name": "План · нарастающим итогом",
+         "data_type": "number", "is_row_label": False},
+    ]
+    rows = [["Донецк", "100"]]
+
+    def boom(*_a, **_kw):
+        raise ZeroDivisionError("float division by zero")
+
+    monkeypatch.setattr(quality, "check_release", boom)
+    async with db.acquire() as conn:
+        org = await conn.fetchval("select id from organizations limit 1")
+        broken = await mapping.quality_warnings(
+            conn, org, code=seed_dataset["code"], period=None,
+            rows=rows, fields=fields, label_col=0)
+    assert broken == [], "выпуск продолжается — замечаний просто нет"
+
+    # А с исправными правилами проверки по-прежнему работают: страховка не
+    # должна была отключить их вовсе.
+    monkeypatch.undo()
+    async with db.acquire() as conn:
+        org = await conn.fetchval("select id from organizations limit 1")
+        ok = await mapping.quality_warnings(
+            conn, org, code=seed_dataset["code"], period=None,
+            rows=rows, fields=fields, label_col=0)
+    assert isinstance(ok, list)
