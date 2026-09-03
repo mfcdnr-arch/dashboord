@@ -408,3 +408,42 @@ async def test_broken_rule_does_not_cancel_the_release(seed_dataset, monkeypatch
             conn, org, code=seed_dataset["code"], period=None,
             rows=rows, fields=fields, label_col=0)
     assert isinstance(ok, list)
+
+def test_almost_empty_release_is_named():
+    """🔴 Лист-заготовка ещё не заполненного дня.
+
+    Числа НАСТОЯЩИЕ, из ежедневного отчёта РЦО: 186 заполненных клеток против
+    20 088 накануне — 0,92 %. Данные при этом верные, день просто не наступил.
+    Но виджет читает ПОСЛЕДНИЙ выпуск, поэтому дашборд открывался пустым, и
+    человек видел нули там, где ждал цифры.
+    """
+    prev = {(f"Отделение {i}", f"f{j}"): 1.0 for i in range(62) for j in range(324)}
+    cur = {(f"Отделение {i}", "f0"): 0.0 for i in range(186)}
+    w = quality.compare_with_previous(cur, prev, {}, "31.08.2026")
+    empty = [x for x in w if x["code"] == "almost_empty"]
+    assert empty, "почти пустой выпуск обязан быть назван"
+    # Запятая, а не точка: в проекте принята русская запись дробей, и тест не
+    # должен подменять её сам — иначе он пропустит именно то, что проверяет.
+    assert "186" in empty[0]["message"] and "0,9 %" in empty[0]["message"]
+
+
+def test_short_working_day_is_not_called_empty():
+    """А короткий день — не пустой, и правило о нём молчит.
+
+    Замер по 53 парам выпусков РЦО: рабочий день даёт 100 % заполненных клеток
+    от предыдущего, суббота — около 50 %, второе снизу значение по всей истории
+    45,79 %. Сработай правило на них, его приучились бы пролистывать.
+    """
+    prev = {(f"Отделение {i}", f"f{j}"): 1.0 for i in range(62) for j in range(324)}
+    half = {k: v for i, (k, v) in enumerate(prev.items()) if i % 2 == 0}   # 50 %
+    assert not [x for x in quality.compare_with_previous(half, prev, {}, "28.08.2026")
+                if x["code"] == "almost_empty"]
+
+
+def test_tiny_form_does_not_trigger_the_rule():
+    """На мелкой форме доля скачет от одной ячейки — правило молчит."""
+    prev = {("Строка", f"f{j}"): 1.0 for j in range(10)}
+    cur = {("Строка", "f0"): 1.0}
+    assert not [x for x in quality.compare_with_previous(cur, prev, {}, "01.07.2026")
+                if x["code"] == "almost_empty"]
+

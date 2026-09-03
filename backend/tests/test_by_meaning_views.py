@@ -117,3 +117,42 @@ def test_plan_and_share_columns_are_not_taken_as_facts():
     used = {f["code"] for s in got for f in s["fields"]}
     assert "plan" not in used and "share" not in used
     assert "fact" in used
+
+def test_wide_form_shows_the_busiest_indicators_not_the_first_ones():
+    """🔴 На форме из сотен граф «первые N» — это лотерея.
+
+    Найдено на данных РЦО: мастер взял 24 графы из 326 по порядку заведения и
+    попал на редкие услуги — даже в рабочий день у выбранной графы 62 строки и
+    итог 0, а «ИТОГО · Принято» (5 943 за день) на дашборд не попало вовсе.
+    Порядок заведения полей — это порядок столбцов в файле, и о важности он не
+    говорит ничего.
+    """
+    from app.modules.dashboards._suggest import MAX_AUTO_KPI, _pick_shown
+
+    wide = [{"code": f"f{i}", "name": f"Услуга {i} · Принято, ед."}
+            for i in range(MAX_AUTO_KPI + 20)]
+    # Нагруженные графы лежат в КОНЦЕ списка — ровно как в форме заказчика.
+    volumes = {f["code"]: 0.0 for f in wide}
+    busiest = [f["code"] for f in wide[-5:]]
+    for n, code in enumerate(busiest):
+        volumes[code] = 1000.0 * (n + 1)
+
+    shown = [f["code"] for f in _pick_shown(wide, volumes)]
+    assert len(shown) == MAX_AUTO_KPI
+    for code in busiest:
+        assert code in shown, "нагруженная графа обязана попасть на дашборд"
+    assert shown[0] == busiest[-1], "самая нагруженная — первой"
+
+
+def test_narrow_form_keeps_the_order_of_the_file():
+    """На узкой форме порядок не трогаем: там помещаются все.
+
+    Порядок столбцов файла осмыслен сам по себе, и ломать его без выгоды
+    незачем.
+    """
+    from app.modules.dashboards._suggest import _pick_shown
+
+    narrow = [{"code": f"f{i}", "name": f"Показатель {i}"} for i in range(5)]
+    volumes = {"f0": 1.0, "f4": 9999.0}
+    assert [f["code"] for f in _pick_shown(narrow, volumes)] == [f["code"] for f in narrow]
+

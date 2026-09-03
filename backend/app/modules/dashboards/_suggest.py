@@ -461,6 +461,25 @@ async def collect_object_datasets(conn, org_id, object_id: str,
             "  and status<>'superseded' "
             "  order by reporting_period_start desc nulls last, created_at desc limit 1) "
             "group by 1", org_id, d["code"])
+        # Объём показателя за ВСЮ историю выпусков — по нему мастер решает, какие
+        # показатели вынести на дашборд, когда их больше, чем туда помещается.
+        #
+        # Отдельным запросом от `sums`, а не переиспользованием: тот считает
+        # ПОСЛЕДНИЙ выпуск, и этого достаточно для проверки вложенности воронки,
+        # но негодно для выбора. Реальный случай (РЦО, 02.09.2026): последним
+        # листом книги оказалась пустая заготовка ещё не заполненного дня — по
+        # ней все показатели равны нулю, и сортировка по объёму выбрала бы
+        # наугад ровно так же, как порядок заведения.
+        #
+        # abs(): объём — это «сколько через показатель проходит», и минус его не
+        # уменьшает. Знак здесь ни при чём, а взаимное вычитание значений скрыло
+        # бы нагруженную графу.
+        volumes = await conn.fetch(
+            "select v.canonical_field_code as code, sum(abs(v.value_number)) as total "
+            "from dataset_values v where v.dataset_release_id in ("
+            "  select id from dataset_releases where organization_id=$1 and code=$2 "
+            "  and status<>'superseded') "
+            "group by 1", org_id, d["code"])
         out.append({
             "code": d["code"], "name": await _dataset_display_name(conn, org_id, d["code"]),
             "periods": d["periods"] or 0, "releases": d["releases"] or 0,
@@ -468,6 +487,7 @@ async def collect_object_datasets(conn, org_id, object_id: str,
             "fields": fields,
             "period_dates": [r["p"].isoformat() for r in dates],
             "sums": {r["code"]: float(r["total"]) for r in sums if r["total"] is not None},
+            "volumes": {r["code"]: float(r["total"]) for r in volumes if r["total"] is not None},
         })
     return out
 
@@ -679,7 +699,8 @@ def _funnel_chain(fields: list, values: Optional[dict] = None) -> list:
 
 
 def by_meaning_specs(fields: list, rows: int, periods: int, first_period: str = "",
-                     last_period: str = "", values: Optional[dict] = None) -> list:
+                     last_period: str = "", values: Optional[dict] = None,
+                     volumes: Optional[dict] = None) -> list:
     """Дополнительные виды виджетов, подобранные под СМЫСЛ данных.
 
     Возвращает список {kind, config-заготовка} — без места на сетке: раскладку
@@ -689,6 +710,13 @@ def by_meaning_specs(fields: list, rows: int, periods: int, first_period: str = 
     facts = [f for f in fields
              if _split_name(f["name"]).get("role") != "plan" and not is_share(f["name"])]
     main = [f for f in facts if _is_main_slice(_split_name(f["name"]).get("slice", ""))] or facts
+    # Виды «по смыслу» берут ОДНУ графу (`main[0]`) — светофор, рейтинг,
+    # мини-графики, водопад. Брать первую по порядку заведения здесь так же
+    # неверно, как и в отборе карточек: на форме РЦО это дало рейтинг по
+    # редкой услуге с итогом 0, тогда как «ИТОГО · Принято» давало 5 943 в
+    # день. Сортируем по объёму, если он замерен.
+    if volumes:
+        main = sorted(main, key=lambda f: -volumes.get(f["code"], 0.0))
 
     chain = _funnel_chain(main, values)
     if chain:
@@ -784,6 +812,30 @@ def _plan_fact_pairs(fields: list) -> list:
     return out
 
 
+def _pick_shown(fields: list, volumes: dict) -> list:
+    """Какие показатели вынести на дашборд, когда их больше, чем помещается.
+
+    🔴 Раньше брались ПЕРВЫЕ по порядку заведения — то есть по сути наугад.
+    На форме РЦО из 326 граф это дало дашборд из редких услуг: даже в рабочий
+    день у выбранной графы 62 строки и итог 0, а «ИТОГО · Принято» (5 943 за
+    день) на дашборд не попало вовсе.
+
+    Порядок заведения полей — это порядок столбцов в файле, и он ничего не
+    говорит о важности. Объём говорит: показатель, через который проходят
+    тысячи обращений, и показатель с нулём за полгода — разные новости.
+
+    На узкой форме порядок НЕ меняется: пересортировка там ничего не улучшает
+    (помещаются все), а привычный порядок столбцов файла — сам по себе
+    осмысленный порядок, ломать его без выгоды незачем.
+    """
+    if len(fields) <= MAX_AUTO_KPI:
+        return fields
+    # Показатели без замеренного объёма уходят в конец, а не наверх: у них
+    # объём неизвестен, и ставить их впереди заведомо нагруженных нельзя.
+    ranked = sorted(fields, key=lambda f: -volumes.get(f["code"], 0.0))
+    return ranked[:MAX_AUTO_KPI]
+
+
 def plan_auto_build(datasets: list, selection: Optional[dict] = None,
                     alerts: bool = True, pin_period: Optional[str] = None) -> list:
     """Что именно будет создано — список виджетов с местом на сетке и страницей.
@@ -815,7 +867,7 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
         fields = [f for f in d["fields"] if want_fields is None or f["code"] in want_fields]
         if not fields:
             continue
-        shown = fields[:MAX_AUTO_KPI]
+        shown = _pick_shown(fields, d.get("volumes") or {})
         has_dyn = d["periods"] > 1
 
         # views/has_dyn связываем явно: замыкание на переменную цикла — классическая
@@ -1015,7 +1067,7 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
             extra = by_meaning_specs(
                 fields, rows=d.get("rows") or 0, periods=d["periods"],
                 first_period=dates[0] if dates else "", last_period=dates[-1] if dates else "",
-                values=d.get("sums"))
+                values=d.get("sums"), volumes=d.get("volumes"))
             for e in extra:
                 kind, fs = e["kind"], e["fields"]
                 w, h = WIDGET_SIZE.get(kind, (6, 6))
