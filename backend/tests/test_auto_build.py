@@ -85,8 +85,21 @@ async def test_auto_build_makes_kpi_for_every_numeric_field(client, admin_header
         for w in cards:
             c = cfg_of(w)
             used += c.get("value_fields") or ([c["value_field"]] if c.get("value_field") else [])
-        assert sorted(used) == sorted(c for c, _ in FIELDS), \
-            f"каждый показатель должен быть показан ровно один раз: {sorted(used)}"
+        # План показывает НЕ карточка, а полоса выполнения: он цель, а не разрез
+        # факта, и строкой рядом с фактами читался как ещё одно фактическое
+        # число. Инвариант тот же — ни один показатель не потерян, — но считать
+        # покрытие надо по всем видам, а не по одним карточкам.
+        for w in rows:
+            c = cfg_of(w)
+            if w["widget_type"] in ("plan_fact", "thermometer"):
+                used += [c[k] for k in ("plan_field", "fact_field") if c.get(k)]
+            elif w["widget_type"] == "bullet":
+                used += [pr[k] for pr in (c.get("pairs") or [])
+                         for k in ("plan_field", "fact_field") if pr.get(k)]
+        assert sorted(set(used)) == sorted(c for c, _ in FIELDS), \
+            f"ни один показатель не должен потеряться: {sorted(set(used))}"
+        assert not any("f3" in (cfg_of(w).get("value_fields") or []) for w in cards), \
+            "план не кладётся в группу разрезов"
         groups = [w for w in rows if w["widget_type"] == "kpi_group"]
         assert groups, "у показателя с несколькими разрезами должна быть группа"
         assert all(len(cfg_of(w)["value_fields"]) > 1 for w in groups), \
@@ -149,10 +162,18 @@ async def test_view_is_chosen_by_role_of_the_indicator(client, admin_headers, se
         # Карточка нужна каждому показателю, но разрезы одного показателя идут
         # одной группой — считаем покрытие, а не число карточек.
         import json as _json
-        covered = sorted(fields_of("kpi") + [
-            f for w in rows if w["widget_type"] == "kpi_group"
-            for f in (_json.loads(w["config"]) if isinstance(w["config"], str) else w["config"])["value_fields"]])
-        assert covered == sorted(c for c, _ in FIELDS), f"показатель потерялся: {covered}"
+        def _cfg(w):
+            return _json.loads(w["config"]) if isinstance(w["config"], str) else w["config"]
+
+        covered = set(fields_of("kpi"))
+        for w in rows:
+            c = _cfg(w)
+            if w["widget_type"] == "kpi_group":
+                covered |= set(c["value_fields"])
+            elif w["widget_type"] in ("plan_fact", "thermometer"):
+                # План идёт полосой выполнения, а не карточкой-разрезом.
+                covered |= {c[k] for k in ("plan_field", "fact_field") if c.get(k)}
+        assert sorted(covered) == sorted(c for c, _ in FIELDS), f"показатель потерялся: {sorted(covered)}"
         assert any(w["widget_type"] == "plan_fact" for w in rows), \
             "у «Доставленные» есть и План, и Факт — должна быть полоса выполнения"
     finally:

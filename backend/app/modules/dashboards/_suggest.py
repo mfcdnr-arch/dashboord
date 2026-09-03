@@ -939,11 +939,29 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
         groups: list = []          # [(ключ показателя, [поля])]
         singles: list = []
         by_subject: dict = {}
+        # 🔴 План в группу разрезов не кладём. Разрезы — это способы посмотреть
+        # на ОДНУ и ту же величину («нарастающим итогом», «за неделю»), а план
+        # это цель, другая сущность. Строкой рядом с фактами он читается как
+        # ещё одно фактическое число: на форме МАХ группа «записавшихся»
+        # открывалась строкой «(до 1 сентября 2026 г.) 41 971» над «нарастающим
+        # итогом 275 694», и разницу между ними видно не было.
+        plan_cards = [f for f in cards if _split_name(f["name"]).get("role") == "plan"]
+        plan_codes = {f["code"] for f in plan_cards}
         for f in cards:
+            if f["code"] in plan_codes:
+                continue
             key = _subject_key(_split_name(f["name"])["subject"])
             by_subject.setdefault(key, []).append(f)
         for key, fs in by_subject.items():
             (groups if len(fs) > 1 else singles).append((key, fs))
+        # План, у которого ЕСТЬ факт, на странице уже показан — полосой
+        # «план-факт» или термометром, и третий показ той же цифры лишний.
+        # А вот план БЕЗ факта не показал бы никто: он остаётся отдельной
+        # карточкой, чтобы не пропасть из виду молча.
+        paired = {pl["code"] for pl, _fa in pf_pairs}
+        for f in plan_cards:
+            if f["code"] not in paired:
+                singles.append((_subject_key(_split_name(f["name"])["subject"]), [f]))
 
         gi = 0
         for _key, fs in groups:

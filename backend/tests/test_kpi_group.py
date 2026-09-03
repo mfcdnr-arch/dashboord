@@ -114,3 +114,53 @@ async def test_summary_answers_how_things_are(client, admin_headers, seed_datase
     finally:
         await purge_dashboard(did)
         await _cleanup(obj, ["plan", "fact"])
+
+def test_plan_is_not_a_slice_of_the_fact():
+    """🔴 План не кладётся в группу разрезов — он цель, а не разрез.
+
+    Найдено предпросмотром пересборки дашборда заказчика: группа «записавшихся»
+    открывалась строкой «(до 1 сентября 2026 г.) 41 971» над «нарастающим итогом
+    275 694». Обе цифры верны, но рядом друг с другом план читается как ещё одно
+    фактическое число — разницы между целью и фактом не видно.
+
+    План при этом НЕ пропадает: на той же странице его показывают полоса
+    «план-факт» и термометр.
+    """
+    from app.modules.dashboards import _suggest
+
+    fields = [
+        {"code": "plan", "name": "Записались · План (до 1 сентября 2026 г.)"},
+        {"code": "fact", "name": "Записались · Факт · нарастающим итогом"},
+        {"code": "week", "name": "Записались · Факт · за отчетную неделю"},
+    ]
+    ds = [{"code": "t", "name": "Форма", "periods": 4, "releases": 4, "rows": 1,
+           "fields": fields, "period_dates": ["2026-08-%02d" % d for d in (5, 12, 19, 26)]}]
+    specs = _suggest.plan_auto_build(ds, None)
+
+    group = next(s for s in specs if s["widget_type"] == "kpi_group")
+    assert "plan" not in group["config"]["value_fields"], "план не разрез"
+    assert set(group["config"]["value_fields"]) == {"fact", "week"}
+
+    # И план всё равно показан — парой «план-факт».
+    assert any(s["widget_type"] in ("plan_fact", "bullet") for s in specs)
+
+
+def test_plan_without_a_fact_does_not_vanish():
+    """А план, которому не с чем встать в пару, остаётся отдельной карточкой.
+
+    Иначе он пропал бы с дашборда молча: полосы и термометр его не покажут —
+    им нужен факт.
+    """
+    from app.modules.dashboards import _suggest
+
+    fields = [
+        {"code": "plan", "name": "Охват · План (до 1 сентября 2026 г.)"},
+        {"code": "other", "name": "Обращения · Факт · нарастающим итогом"},
+    ]
+    ds = [{"code": "t", "name": "Форма", "periods": 4, "releases": 4, "rows": 1,
+           "fields": fields, "period_dates": ["2026-08-%02d" % d for d in (5, 12, 19, 26)]}]
+    specs = _suggest.plan_auto_build(ds, None)
+
+    kpi_fields = {s["config"].get("value_field") for s in specs if s["widget_type"] == "kpi"}
+    assert "plan" in kpi_fields, "непарный план обязан остаться на виду"
+
