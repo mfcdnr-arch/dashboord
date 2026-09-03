@@ -361,6 +361,57 @@ async def _dataset_row_period_matrix(conn, org_id, dataset_code: str, value_fiel
             "total_periods": total, "shown_periods": len(ids)}
 
 
+async def _dataset_field_list(conn, org_id, dataset_code: str, value_fields=None,
+                              period=None, row=None, allowed=None):
+    """Столбцы формы СТРОКАМИ: по значению на каждый показатель за один отчёт.
+
+    Единственный разрез, которого в системе не было. Все списочные виды
+    (рейтинг, светофор, мини-графики, матрица по строкам) строятся ПО СТРОКАМ
+    формы, поэтому внутри одного отделения схлопываются в одну строку —
+    проверено на живых данных. А в формах РЦО и «Статистики услуг» услуги
+    лежат именно в СТОЛБЦАХ: 337 и 707 граф соответственно.
+
+    Имена граф здесь НЕ разбираются: у РЦО они устроены как
+    «Ведомство · Услуга · Показатель», у «Статистики» — «Услуга 5: Принято».
+    Один зашитый разбор привязал бы виджет к одной форме; группировку, если
+    она нужна, делает вызывающая сторона по явному разделителю.
+
+    Строки формы сворачиваются ТЕМ ЖЕ правилом, что и карточка показателя:
+    количества складываются, доли усредняются.
+    """
+    from ._aggregate import aggregate_series
+
+    rel = await mr._active_release(conn, org_id, dataset_code, period)
+    if rel is None:
+        raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
+    names = {r["code"]: r["name"] for r in await conn.fetch(
+        "select drf.canonical_field_code as code, coalesce(cf.name, drf.canonical_field_code) as name "
+        "from dataset_release_fields drf "
+        "left join canonical_fields cf on cf.code=drf.canonical_field_code "
+        "  and cf.object_id=(select object_id from dataset_releases where id=$1) "
+        "where drf.dataset_release_id=$1", rel)}
+
+    params: list = [rel, list(value_fields) if value_fields else None, row]
+    acl = _row_acl_clause(params, allowed)
+    rows = await conn.fetch(
+        "select canonical_field_code as code, row_label, value_number from dataset_values "
+        "where dataset_release_id=$1 and value_number is not null "
+        "and ($2::text[] is null or canonical_field_code = any($2::text[])) "
+        f"and ($3::text is null or row_label=$3){acl}", *params)
+
+    by_field: dict = {}
+    for r in rows:
+        by_field.setdefault(r["code"], []).append(float(r["value_number"]))
+
+    out = []
+    for code, vals in by_field.items():
+        name = names.get(code, code)
+        value, how = aggregate_series(vals, name)
+        out.append({"field": code, "name": name, "value": value,
+                    "aggregate": how, "rows_used": len(vals)})
+    return out
+
+
 async def _dataset_field_period_matrix(conn, org_id, dataset_code: str, value_fields: List[str],
                                        from_date=None, to_date=None, row=None, allowed=None,
                                        max_periods: int = 12):

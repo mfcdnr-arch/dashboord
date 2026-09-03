@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import WidgetComments from './dashboards/WidgetComments'
 import type { EChartsOption } from 'echarts'
@@ -796,6 +796,80 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             подписи — цифра «когда» без объяснения «откуда» доверия не
             заслуживает, а руководитель по ней принимает решение. */}
         {data.forecast && <PlanForecast f={data.forecast} unit={data.unit} />}
+      </div>
+    )
+  }
+  if (data.type === 'field_list') {
+    // Столбцы формы строками. Полосу считает клиент от максимума — правила в
+    // ней нет, только соотношение уже пришедших чисел; масштаб по ВСЕМ
+    // показанным строкам, иначе хвост рисовался бы вровень с лидером.
+    const rows: any[] = data.rows || []
+    const max = Math.max(1, ...rows.map((r) => Math.abs(r.value || 0)))
+    let lastGroup: string | null = null
+    return (
+      <div style={{ fontSize: 13, overflow: 'auto', height: '100%' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <tbody>
+            {rows.map((r, i) => {
+              const head = data.grouped && r.group && r.group !== lastGroup ? r.group : null
+              if (head) lastGroup = r.group
+              const w = Math.max(1, Math.round((Math.abs(r.value || 0) / max) * 100))
+              return (
+                <Fragment key={i}>
+                  {head && (
+                    <tr><td colSpan={4} style={{ padding: '8px 6px 2px', fontWeight: 600,
+                      color: 'var(--text-2)', borderTop: i ? '1px solid var(--border-faint)' : undefined }}>
+                      {head}</td></tr>
+                  )}
+                  <tr style={{ borderTop: head ? undefined : '1px solid var(--border-faint)' }}>
+                    {/* Имя госформы бывает длиной в абзац («Прием запросов и
+                        предоставлением сведений о наличии…»). Без ограничения
+                        оно выдавливает полосу и число за край карточки, и вид
+                        уходит в горизонтальную прокрутку — замерено. */}
+                    <td style={{ padding: '4px 6px 4px 0', maxWidth: 0, width: '55%',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      title={r.name}>{r.name}</td>
+                    <td style={{ width: 110, padding: '4px 6px' }}>
+                      <div style={{ height: 8, background: 'var(--border-faint)', borderRadius: 5 }}>
+                        <div style={{ width: `${w}%`, height: '100%', borderRadius: 5,
+                          background: r.color || 'var(--rank-bar)' }} />
+                      </div>
+                    </td>
+                    <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600,
+                      color: r.color || undefined, whiteSpace: 'nowrap' }}>
+                      {fmt(r.value)}{r.aggregate === 'avg' ? ' ⌀' : ''}
+                    </td>
+                    <td style={{ padding: '4px 0 4px 6px', textAlign: 'right', whiteSpace: 'nowrap',
+                      color: !r.delta ? 'var(--text-faint)'
+                        : r.delta > 0 ? 'var(--success)' : 'var(--danger)' }}>
+                      {r.delta == null ? '—'
+                        : r.delta === 0 ? 'без изменений'
+                          : `${r.delta > 0 ? '▲ +' : '▼ '}${fmt(r.delta)}`}
+                      {r.share != null && (
+                        <span style={{ ...muted, marginLeft: 6 }}>{fmt(r.share)} %</span>
+                      )}
+                    </td>
+                  </tr>
+                </Fragment>
+              )
+            })}
+          </tbody>
+        </table>
+        <div style={{ ...muted, marginTop: 6 }}>
+          показателей: {rows.length} из {data.fields_total}
+          {data.zero_hidden > 0 && (
+            <> · {data.zero_hidden} {plural(data.zero_hidden, 'показатель', 'показателя', 'показателей')}
+              {' '}без значений за этот отчёт не показаны</>
+          )}
+          {' · '}
+          {data.sort === 'change' ? 'порядок по изменению'
+            : data.sort === 'name' ? 'порядок по названию' : 'порядок по величине'}
+          {data.grouped ? ' внутри ведомства' : ''}
+          {data.has_total_row && ' · графа-итог найдена по арифметике и в доле не участвует'}
+          {/* Молчащий столбец доли объясняем словами: пустая колонка читается
+              как поломка, а не как решение. */}
+          {data.share_note && <div style={{ marginTop: 2 }}>⚠ {data.share_note}</div>}
+        </div>
       </div>
     )
   }

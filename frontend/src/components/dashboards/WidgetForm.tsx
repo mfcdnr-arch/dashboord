@@ -341,6 +341,10 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   // года» нельзя, иначе «прошло срока» окажется неправдой.
   // Рейтинг: сколько строк с каждого конца и показывать ли антитоп.
   // Мини-графики: длина линии в отчётах и порядок строк.
+  // Показатели списком: разделитель для группировки и что делать с пустыми.
+  const [groupSep, setGroupSep] = useState<string>((cfg0.group_sep as string) || '')
+  const [flSort, setFlSort] = useState<string>((cfg0.sort as string) || 'value')
+  const [hideZero, setHideZero] = useState<boolean>(cfg0.hide_zero !== false)
   const [sparkPeriods, setSparkPeriods] = useState<string>(cfg0.periods != null ? String(cfg0.periods) : '4')
   const [sparkSort, setSparkSort] = useState<string>((cfg0.sort as string) || 'value')
   const [topN, setTopN] = useState<string>(cfg0.top_n != null ? String(cfg0.top_n) : '5')
@@ -360,7 +364,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const isText = type === 'text'
   const isImage = type === 'image'
   const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
-  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall', 'matrix', 'bullet', 'thermometer', 'ranked', 'spark_table'].includes(type)
+  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall', 'matrix', 'bullet', 'thermometer', 'ranked', 'spark_table', 'field_list'].includes(type)
   const usesValueField = ['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall', 'ranked', 'spark_table'].includes(type)
     || (type === 'matrix' && matrixBy !== 'fields')
     || (['kpi', 'gauge'].includes(type) && source === 'dataset')
@@ -454,6 +458,11 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     }
     if (type === 'thermometer') return (dataset && planField && factField && deadline)
       ? { dataset_code: dataset, plan_field: planField, fact_field: factField, deadline, ...(thermStart ? { start: thermStart } : {}) }
+      : null
+    // Показателей можно не выбирать: пусто — значит все графы формы.
+    if (type === 'field_list') return dataset
+      ? { dataset_code: dataset, sort: flSort, hide_zero: hideZero,
+          ...(groupSep ? { group_sep: groupSep } : {}) }
       : null
     if (type === 'spark_table') return (dataset && valueField)
       ? { dataset_code: dataset, value_field: valueField,
@@ -678,6 +687,26 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           ))}
           <button type="button" style={{ ...btnAuto, height: 34 }} onClick={addCrossItem}>＋ Добавить источник</button>
         </div>
+      )}
+      {type === 'field_list' && (
+        <>
+          <F t="Порядок">
+            <select style={sel} value={flSort} onChange={(e) => setFlSort(e.target.value)}>
+              <option value="value">По величине</option>
+              <option value="change">По изменению (кто просел — сверху)</option>
+              <option value="name">По названию</option>
+            </select>
+          </F>
+          <F t="Группировать по началу имени">
+            <input style={{ ...sel, width: 130 }} value={groupSep} placeholder="напр. · или :"
+              onChange={(e) => setGroupSep(e.target.value)}
+              title="Разделитель в имени графы. У формы РЦО это « · » («Ведомство · Услуга · Показатель»), у «Статистики услуг» — «:». Пусто — плоский список без заголовков." />
+          </F>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }}
+            title="Показатели без значений за этот отчёт. Их число называется под таблицей — молча они не пропадают.">
+            <input type="checkbox" checked={hideZero} onChange={(e) => setHideZero(e.target.checked)} />Скрывать пустые
+          </label>
+        </>
       )}
       {type === 'spark_table' && (
         <>

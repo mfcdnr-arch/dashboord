@@ -16,6 +16,7 @@ from ._rowrls import allowed_rows_for_dataset
 from ._widgetsources import (
     _align,
     _dataset_as_of,
+    _dataset_field_list,
     _dataset_field_period_matrix,
     _dataset_multi_series,
     _dataset_period_series,
@@ -960,6 +961,109 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             res["forecast"] = _plan_forecast(series, plan, fact)
         res["alert"] = evaluate_alert("plan_fact", cfg, res)
         return res
+
+    if t == "field_list":
+        # Столбцы формы — строками. Отвечает на вопрос, которого не давал ни
+        # один прежний вид: «какие услуги идут и в каком объёме». В РЦО и
+        # «Статистике услуг» услуги лежат в СТОЛБЦАХ (337 и 707 граф), а все
+        # списочные виды строятся по строкам и внутри одного отделения
+        # схлопываются в одну строку.
+        if not cfg.get("dataset_code"):
+            raise DashboardError("Показатели списком: укажите dataset_code")
+        code = cfg["dataset_code"]
+        items = await _dataset_field_list(
+            conn, org_id, code, cfg.get("value_fields"), period, row, allowed)
+        prev_period = await _prev_period(conn, org_id, code, period)
+        prev_by_field = {}
+        if prev_period:
+            prev_by_field = {x["field"]: x["value"] for x in await _dataset_field_list(
+                conn, org_id, code, cfg.get("value_fields"), prev_period, row, allowed)}
+
+        # Группировка — по ЯВНОМУ разделителю из настройки, а не по угаданному:
+        # у РЦО имена вида «Ведомство · Услуга · Показатель», у «Статистики» —
+        # «Услуга 5: Принято». Зашитый разбор привязал бы виджет к одной форме.
+        sep = cfg.get("group_sep")
+        for x in items:
+            head, _, tail = (x["name"].partition(sep) if sep else ("", "", ""))
+            x["group"] = head.strip() if (sep and tail) else None
+            # «Хвост» имени — что именно измеряет графа («Принято, ед.»).
+            x["measure"] = x["name"].rsplit(sep, 1)[-1].strip() if sep else None
+
+        # 🔴 Доля осмысленна не всегда, и по умолчанию её лучше не показывать.
+        # Найдено живой проверкой: в списке рядом стоят «Принято» и «Выдано»
+        # одной услуги — это две стадии ОДНОГО обращения, и доля от их суммы
+        # считает его дважды. Плюс графа «ИТОГО», которая сама равна сумме
+        # остальных.
+        #
+        # Условие первое: все показанные графы измеряют ОДНО И ТО ЖЕ (совпадает
+        # хвост имени). Иначе доли нет вовсе.
+        sums = [x for x in items if x["aggregate"] == "sum"]
+        measures = {x["measure"] for x in sums if x["measure"]}
+        homogeneous = bool(sep) and len(measures) == 1
+        grand = sum(x["value"] for x in sums)
+
+        # Условие второе: графа-ИТОГО. Ищем её АРИФМЕТИКОЙ, а не по названию —
+        # тем же приёмом, что проверка «сумма по строкам против строки Итого».
+        # Название формы менять могут, а равенство сумме остальных — не могут.
+        base, total_field = grand, None
+        for x in sums:
+            rest = grand - x["value"]
+            if rest > 0 and abs(x["value"] - rest) <= max(1.0, 0.005 * x["value"]):
+                total_field, base = x["field"], rest
+                break
+
+        for x in items:
+            prev = prev_by_field.get(x["field"])
+            x["prev"] = prev
+            x["delta"] = (x["value"] - prev) if prev is not None else None
+            # Процент от нуля не считаем: «рост на бесконечность» ничего не
+            # сообщает (то же правило, что в матрице и мини-графиках).
+            x["delta_pct"] = (x["delta"] / prev * 100.0) if (x["delta"] is not None and prev) else None
+            x["is_total"] = x["field"] == total_field
+            x["share"] = (x["value"] / base * 100.0) if (
+                homogeneous and base and x["aggregate"] == "sum" and not x["is_total"]) else None
+            alert = evaluate_alert("kpi", cfg, {"value": x["value"]})
+            x["level"], x["color"] = (alert or {}).get("level"), (alert or {}).get("color")
+
+        hide_zero = cfg.get("hide_zero", True)
+        zero = [x for x in items if not x["value"]]
+        shown = [x for x in items if x["value"]] if hide_zero else list(items)
+
+        sort = cfg.get("sort") or "value"
+        if sort == "value":
+            shown.sort(key=lambda d: -abs(d["value"]))
+        elif sort == "change":
+            # Не сдвинувшиеся — в конец: иначе первый экран занимают строки без
+            # движения (та же правка, что у мини-графиков).
+            shown.sort(key=lambda d: (not d["delta"], d["delta"] or 0))
+        elif sort == "name":
+            shown.sort(key=lambda d: d["name"])
+
+        # 🔴 При группировке порядок должен быть СНАЧАЛА по группам, иначе
+        # заголовок ведомства повторяется в списке по нескольку раз: строки
+        # идут по величине, и «Росреестр» встречается то там, то здесь.
+        # Найдено осмотром живого кадра. Сами группы идут по своему объёму —
+        # крупное ведомство сверху, — а внутри группы сохраняется выбранный
+        # порядок, поэтому сортировка выше не пропадает.
+        if sep:
+            weight: dict = {}
+            for x in shown:
+                g = x.get("group")
+                weight[g] = weight.get(g, 0.0) + abs(x["value"])
+            order = {g: i for i, (g, _w) in enumerate(
+                sorted(weight.items(), key=lambda kv: -kv[1]))}
+            shown.sort(key=lambda d: order.get(d.get("group"), len(order)))
+
+        return {"type": "field_list", "title": name, "rows": shown,
+                "total": base, "fields_total": len(items),
+                # Почему доли нет — говорим прямо, а не оставляем пустой столбец.
+                "share_note": None if homogeneous else (
+                    "доля не считается: в списке разные показатели (принято, выдано, отказ), "
+                    "и складывать их нельзя — это стадии одного обращения"),
+                "has_total_row": total_field is not None,
+                "zero_hidden": len(zero) if hide_zero else 0,
+                "sort": sort, "grouped": bool(sep), "unit": cfg.get("unit"),
+                "prev_period": prev_period}
 
     if t == "spark_table":
         # Строка формы + её траектория за последние отчёты. От матрицы

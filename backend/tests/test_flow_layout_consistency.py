@@ -23,7 +23,7 @@ from app.modules.dashboards._base import ANNOTATION_TYPES, WIDGET_TYPES
 from app.modules.dashboards._suggest import WIDGET_SIZE
 
 FRONTEND_FILE = Path(__file__).resolve().parents[2] / "frontend/src/lib/flowLayout.ts"
-FULL_WIDTH = {"table", "pivot", "matrix", "text", "spark_table"}
+FULL_WIDTH = {"table", "pivot", "matrix", "text", "spark_table", "field_list"}
 
 
 def _frontend_sizes() -> dict[str, tuple[int, int]]:
