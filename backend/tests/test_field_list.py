@@ -211,3 +211,63 @@ async def test_growth_is_measured_against_the_previous_report(client, admin_head
         assert by["dead_acc"]["delta_pct"] is None
     finally:
         await _cleanup(did)
+
+
+async def test_total_is_computed_when_the_form_has_no_total_column(client, admin_headers, fl_ds):
+    """Итог считается системой, когда графы-итога в списке нет.
+
+    Страховка на будущее: в нынешних данных РЦО незаполненной графы-итога при
+    заполненных составляющих нет ни разу (0 пар из 3 348). Проверяем на
+    подмножестве без «ИТОГО»: система обязана сложить составляющие сама,
+    сказать, по скольким графам сложила, и НЕ выдавать это за число формы.
+    """
+    did, pid = await _page(client, admin_headers, "zfl_computed")
+    try:
+        d = await _data(client, admin_headers, pid,
+                        {"dataset_code": fl_ds, "group_sep": " · ",
+                         "value_fields": ["zags_acc", "mvd_acc"]})
+        assert d["has_total_row"] is False, "графы-итога в списке нет"
+        # 220 + 100. Это ровно то, что в форме лежит в графе «ИТОГО · Принято»
+        # (320) — её в список не брали, значит сложили именно составляющие.
+        assert d["computed_total"] == 320.0
+        assert d["computed_total_fields"] == 2, "число граф, по которым сложено"
+    finally:
+        await _cleanup(did)
+
+
+async def test_computed_total_never_replaces_a_filled_total_column(client, admin_headers, fl_ds):
+    """🔴 Заполненную графу-итог наша сумма не подменяет.
+
+    Число формы — это цифра отчёта, и молча ставить вместо неё свою нельзя
+    никогда. Когда «ИТОГО» в списке есть и заполнено, поведение остаётся
+    прежним: показываем графу формы, посчитанного итога не появляется вовсе.
+    """
+    did, pid = await _page(client, admin_headers, "zfl_no_replace")
+    try:
+        d = await _data(client, admin_headers, pid,
+                        {"dataset_code": fl_ds, "group_sep": " · ", "value_fields": ACC})
+        assert d["has_total_row"] is True
+        assert d["computed_total"] is None, "своя сумма вместо числа формы недопустима"
+        assert d["computed_total_fields"] == 0
+        # База доли осталась прежней — сумма БЕЗ графы-итога.
+        assert d["total"] == 320.0
+    finally:
+        await _cleanup(did)
+
+
+async def test_mixed_list_gets_no_computed_total_at_all(client, admin_headers, fl_ds):
+    """🔴 На разнородном списке итога не считаем вовсе.
+
+    «Принято» и «Выдано» — две стадии ОДНОГО обращения, и их сумма считает его
+    дважды. То же правило, по которому на таком списке не показывается и доля:
+    складывать разнородные графы нельзя ни для доли, ни для итога.
+    """
+    did, pid = await _page(client, admin_headers, "zfl_mixed_total")
+    try:
+        d = await _data(client, admin_headers, pid,
+                        {"dataset_code": fl_ds, "group_sep": " · "})   # все графы
+        assert d["computed_total"] is None
+        assert d["computed_total_fields"] == 0
+        assert d["share_note"], "причина, по которой список признан разнородным"
+    finally:
+        await _cleanup(did)

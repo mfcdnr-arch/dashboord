@@ -57,8 +57,12 @@ export default function PagePreview({ pageId, injWidgets, injPageData, flow = fa
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: FLOW_GAP }}>
           {flowItems(widgets, gridWidth ?? 0).map((it) => {
             const w = widgets.find((x) => x.id === it.id)!
+            // border-box: height здесь — размер, который посчитала раскладка
+            // (flowItems). Без него поля (10+10) и рамка (1+1) прибавились бы
+            // сверху, карточка стала бы на 22px выше заданной, и ряд витрины
+            // разъехался бы с расчётом.
             return (
-              <div key={it.id} style={{ gridColumn: `span ${it.span}`, minWidth: 0,
+              <div key={it.id} style={{ gridColumn: `span ${it.span}`, minWidth: 0, boxSizing: 'border-box',
                 ...(it.auto ? { minHeight: 110 } : { height: it.height }),
                 border: '1px solid var(--border-faint)', borderRadius: 10, padding: 10,
                 background: 'var(--surface)', overflow: 'hidden' }}>
@@ -79,8 +83,13 @@ export default function PagePreview({ pageId, injWidgets, injPageData, flow = fa
         <GridLayout className="layout" width={gridWidth} cols={12} rowHeight={40} margin={[10, 10]}
           isDraggable={false} isResizable={false} compactType="vertical"
           layout={widgets.map((w) => ({ i: w.id, x: w.position_x || 0, y: w.position_y || 0, w: w.width || 4, h: w.height || 4 }))}>
+          {/* Высоту элементу задаёт react-grid-layout inline. Правило
+              `.react-grid-item{box-sizing}` в theme.css сюда пока достаёт
+              (карточка — прямой потомок сетки), но объявляем и здесь: ровно
+              на этой зависимости карточка дашборда однажды и потеряла
+              border-box, когда её обернули в отдельный div. */}
           {widgets.map((w) => (
-            <div key={w.id} style={{ border: '1px solid var(--border-faint)', borderRadius: 10, padding: 10, background: 'var(--surface)', overflow: 'hidden' }}>
+            <div key={w.id} style={{ boxSizing: 'border-box', border: '1px solid var(--border-faint)', borderRadius: 10, padding: 10, background: 'var(--surface)', overflow: 'hidden' }}>
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{w.name}</div>
               <WidgetView widgetId={w.id} showDrill={false} batched injData={pageData[w.id]?.data} injError={pageData[w.id]?.error} />
             </div>

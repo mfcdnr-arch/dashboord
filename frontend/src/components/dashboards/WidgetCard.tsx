@@ -68,7 +68,16 @@ export function WidgetCard({
   density?: DensityMetrics
 }) {
   return (
-        <div data-widget-id={w.id} style={{ ...widgetCard, padding: density.pad, height: '100%', overflow: 'hidden',
+        // boxSizing здесь обязателен, а не «для аккуратности». Высота приходит
+        // от раскладки (в «потоке» — height ячейки, в сетке — height:100% от
+        // .react-grid-item), а глобального border-box в проекте нет: при
+        // content-box поля карточки и рамка прибавляются СВЕРХУ к этой высоте,
+        // и карточка оказывается выше своей ячейки — замер на дашборде РЦО дал
+        // ячейку 431px против карточки 461px (14+14 поля + 1+1 рамка), перелив
+        // выливался в следующий ряд сетки и накладывался на соседей. Величина
+        // зависит от плотности (в компактном режиме поля 9 → перелив 20px),
+        // поэтому «подобрать высоту» нельзя — нужен именно border-box.
+        <div data-widget-id={w.id} style={{ ...widgetCard, boxSizing: 'border-box', padding: density.pad, height: '100%', overflow: 'hidden',
           display: 'flex', flexDirection: 'column',
           // Подсветка цели перехода из меню «↗ куда дальше»: гаснет
           // сама через пару секунд, чтобы не остаться навсегда.

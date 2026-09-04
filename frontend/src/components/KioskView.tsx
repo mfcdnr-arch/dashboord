@@ -133,4 +133,9 @@ const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 
 const bar: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid #1e293b' }
 const ctrl: React.CSSProperties = { width: 34, height: 34, borderRadius: 8, border: '1px solid #334155', background: '#1e293b', color: '#fff', cursor: 'pointer', fontSize: 16 }
 const selDark: React.CSSProperties = { height: 34, borderRadius: 8, border: '1px solid #334155', background: '#1e293b', color: '#fff', fontSize: 13, padding: '0 6px' }
-const card: React.CSSProperties = { background: '#fff', color: '#111827', borderRadius: 12, padding: 14, overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }
+// boxSizing: высоту карточке задают обе раскладки витрины — «поток»
+// (height: it.height * 1.5) и react-grid-layout (inline, в пикселях). Без
+// border-box поля (14+14) прибавлялись бы к ней сверху: карточка выходила на
+// 28px выше расчётной, а тело внутри (maxHeight: calc(100% - 26px)) считало
+// свой предел от неверной базы. Глобального border-box в проекте нет.
+const card: React.CSSProperties = { boxSizing: 'border-box', background: '#fff', color: '#111827', borderRadius: 12, padding: 14, overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }
