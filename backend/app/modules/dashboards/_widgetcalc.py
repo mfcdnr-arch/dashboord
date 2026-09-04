@@ -405,6 +405,85 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
     return res
 
 
+# Сколько столбиков виджет «Сравнение показателей» способен показать так, чтобы
+# их можно было прочитать. Число столбиков — ПРОИЗВЕДЕНИЕ строк на показатели,
+# и взрывается обычно первое: у формы МАХ одна строка и 13 показателей (13
+# столбиков — ровно то, ради чего вид и заводился), а у ежедневного отчёта РЦО
+# 62 отделения и 24 показателя, то есть 1 488. Замер на дашборде заказчика: ось
+# рисует 62 повёрнутые подписи, легенда разбивается на 17 страниц, а сами
+# столбики становятся волосяными линиями.
+#
+# Порог по произведению, а не по каждому измерению отдельно: ограничь мы
+# показатели числом, оно неминуемо оказалось бы меньше 13 и порезало бы форму
+# МАХ — случай, который вид обслуживает правильно и который ломать нельзя.
+MAX_COMPARE_BARS = 80
+# Ниже этих значений сокращать нечего: сравнение из четырёх столбиков перестаёт
+# быть сравнением.
+MIN_COMPARE_ROWS = 6
+MIN_COMPARE_SERIES = 4
+
+
+def _trim_compare(res: dict, cfg: dict) -> None:
+    """Оставить читаемое число столбиков и СКАЗАТЬ, что убрано.
+
+    Молчаливой обрезки быть не должно — это правило действует в проекте с
+    «Ранжированного списка» и «Показателей списком»: виджет, тихо показавший
+    часть данных, читается как показавший все.
+
+    Сокращаем сперва СТРОКИ, потом показатели. Вопрос вида — «какое соотношение
+    между показателями», строки для него разрез, а не предмет; к тому же именно
+    строк бывает шестьдесят, а показателей — десяток.
+
+    Порядок — по ОБЪЁМУ (сумма модулей значений), а не по порядку в форме:
+    порядок граф в файле о важности не говорит ничего, и на дашборде заказчика
+    из-за него наверх выходили редкие услуги. `abs`, потому что объём — это
+    «сколько через показатель проходит», и минус его не уменьшает.
+    """
+    cats = res.get("categories") or []
+    series = res.get("series") or []
+    if not cats or not series:
+        return
+    if len(cats) * len(series) <= MAX_COMPARE_BARS:
+        return
+
+    def col_volume(i: int) -> float:
+        return sum(abs(sv["data"][i]) for sv in series
+                   if i < len(sv["data"]) and sv["data"][i] is not None)
+
+    def row_volume(sv: dict) -> float:
+        return sum(abs(v) for v in sv["data"] if v is not None)
+
+    keep_cats = len(cats)
+    keep_series = len(series)
+    # Сколько строк можно оставить при полном наборе показателей.
+    if keep_series and MAX_COMPARE_BARS // keep_series >= MIN_COMPARE_ROWS:
+        keep_cats = max(MIN_COMPARE_ROWS, MAX_COMPARE_BARS // keep_series)
+    else:
+        keep_cats = MIN_COMPARE_ROWS
+        keep_series = max(MIN_COMPARE_SERIES, MAX_COMPARE_BARS // keep_cats)
+
+    keep_cats, keep_series = min(keep_cats, len(cats)), min(keep_series, len(series))
+    hidden_rows, hidden_series = len(cats) - keep_cats, len(series) - keep_series
+    if not hidden_rows and not hidden_series:
+        return
+
+    # Отбираем по объёму, но ПОРЯДОК показа оставляем прежним: человек читает
+    # форму в её собственном порядке, и перетасовка при каждом открытии мешала
+    # бы сверять виджет с файлом.
+    idx = sorted(range(len(cats)), key=col_volume, reverse=True)[:keep_cats]
+    idx.sort()
+    sidx = sorted(range(len(series)), key=lambda i: row_volume(series[i]), reverse=True)[:keep_series]
+    sidx.sort()
+
+    res["categories"] = [cats[i] for i in idx]
+    res["series"] = [{"name": series[i]["name"], "data": [series[i]["data"][j] for j in idx]}
+                     for i in sidx]
+    res["hidden_rows"] = hidden_rows
+    res["hidden_series"] = hidden_series
+    res["total_rows"] = len(cats)
+    res["total_series"] = len(series)
+
+
 async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
                                 from_date=None, to_date=None, row=None, user=None) -> dict:
     cfg = _normalize_cfg(cfg)
@@ -440,6 +519,7 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         if not cfg.get("dataset_code") or not fields:
             raise DashboardError("Сравнение: укажите dataset_code и value_fields")
         res = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row, allowed, period)
+        _trim_compare(res, cfg)
         res["type"], res["viz"], res["title"] = "compare", cfg.get("viz", "bar"), name
         # Шкала: 'log' | 'linear' | не задано (тогда решает разброс значений на
         # фронте). Показатели одной формы различаются на два порядка — на линейной

@@ -1473,6 +1473,13 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     // категории важнее, цвета серий читаются по подсказке при наведении.
     // Поворачиваем подписи категорий, только когда их несколько: единственная
     // повёрнутая подпись уходит влево и наезжает на ось значений.
+    // Подписи категорий у РЦО — имена отделений: «Отделение № 1 ГБУ "МФЦ ДНР"
+    // г. Мариуполь ул.Ленина, 107». Различает их НАЧАЛО, а elideMiddle режет
+    // именно середину, и на оси оставалась одна улица — «Отделение…ль ул.Ленина,
+    // 107». Отсекаем общую часть по словам, тем же приёмом, что у легенды.
+    const shortCats = distinctLabels(cats)
+    const catShort: Record<string, string> = {}
+    cats.forEach((c, i) => { catShort[c] = shortCats[i] })
     const singleCat = cats.length === 1
     const rotated = cats.length > 1 && cats.some((c) => c.length > 6)
     // Единственная длинная подпись («Донецкая Народная Республика») шире узкой
@@ -1525,7 +1532,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         axisLabel: {
           interval: 0, rotate: rotated ? 30 : 0, fontSize: 11, hideOverlap: true,
           ...(wrapSingle ? { width: catLabelW, overflow: 'break' as const } : {}),
-          formatter: (v: string) => (wrapSingle ? v : elideMiddle(v, 28)),
+          formatter: (v: string) => (wrapSingle ? v : elideMiddle(catShort[v] ?? v, 28)),
         } },
       // На ужатом графике пять делений оси налезают друг на друга — оставляем меньше.
       // Логарифмическая шкала — когда показатели различаются на два порядка:
@@ -1569,6 +1576,18 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
           {data.growth_index && (
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
               Индекс роста: у каждого источника первая точка = 100 %, дальше — рост в процентах к ней.
+            </div>
+          )}
+          {(data.hidden_rows > 0 || data.hidden_series > 0) && (
+            // Молчаливой обрезки быть не должно: виджет, тихо показавший часть
+            // данных, читается как показавший все. Правило то же, что у
+            // «Ранжированного списка» и «Показателей списком».
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+              Показаны самые крупные:{' '}
+              {data.hidden_rows > 0 && `${cats.length} строк${cats.length === 1 ? 'а' : ''} из ${data.total_rows}`}
+              {data.hidden_rows > 0 && data.hidden_series > 0 && ' и '}
+              {data.hidden_series > 0 && `${(data.series || []).length} показателей из ${data.total_series}`}
+              {' '}— иначе столбики становятся неразличимы. Полный состав виден в таблице.
             </div>
           )}
           {useLog && (
