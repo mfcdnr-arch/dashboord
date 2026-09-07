@@ -45,9 +45,15 @@ const fmt = (n: number) =>
  * считаем среднее, для остальных — сумму.
  */
 const SHARE_RE = /%|доля|удельн|средн/i
+// Явно названная единица КОЛИЧЕСТВА отменяет догадку по словам: длинные имена
+// госуслуг ловятся по «средн» внутри «среднего общего образования» и по «%»
+// внутри «Компенсация 50% ОСАГО». Копия правила из backend/_aggregate.py —
+// расхождение здесь означало бы, что конструктор и дашборд считают по-разному;
+// совпадение держит тест backend/tests/test_share_and_fit.py.
+const COUNT_UNIT_RE = /,\s*(ед|шт|чел)\.?/i
 export function aggregate(name: string, nums: number[]): { value: number; kind: string } {
   if (!nums.length) return { value: 0, kind: '' }
-  if (SHARE_RE.test(name)) {
+  if (!COUNT_UNIT_RE.test(name) && SHARE_RE.test(name)) {
     return { value: nums.reduce((a, b) => a + b, 0) / nums.length, kind: 'среднее' }
   }
   return { value: nums.reduce((a, b) => a + b, 0), kind: 'сумма' }
