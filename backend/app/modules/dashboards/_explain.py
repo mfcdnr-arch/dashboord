@@ -236,6 +236,46 @@ def _explain_one(w: dict, metrics: dict, fields: dict) -> str:
     return ""
 
 
+async def widget_captions(conn, org_id, widgets: List[dict]) -> Dict[str, str]:
+    """{id виджета: короткая подпись «по какой форме»}.
+
+    🔴 Заведено по замечанию заказчика: на карточке написано «Выдано, ед.», и
+    непонятно — выдано ЧЕГО. В самой форме этого слова нет: графа называется
+    буквально «ИТОГО · Выдано, ед.», и выдумать «обращений» нельзя — придуманное
+    пояснение к государственному показателю хуже отсутствующего.
+
+    Но форма называет СЕБЯ: «РЦО: ежедневный отчёт в разрезе отделов и услуг».
+    Это и есть честный ответ на «чего»: раз отчёт по услугам, значит принято и
+    выдано — по услугам. Поэтому подпись — имя формы, а не выдуманный предмет.
+
+    Подпись не показывается там, где она ничего не добавляет: если имя виджета
+    и так начинается с имени формы (так называет их авто-сборка у таблиц и
+    графиков), повторять его под заголовком незачем.
+    """
+    from ._suggest import form_title
+
+    codes = sorted({str((w["config"] or {}).get("dataset_code")) for w in widgets
+                    if (w["config"] or {}).get("dataset_code")})
+    if not codes:
+        return {}
+    rows = await conn.fetch(
+        "select distinct on (code) code, name from dataset_releases "
+        "where organization_id=$1 and code = any($2::text[]) and status <> 'superseded' "
+        "order by code, reporting_period_start desc nulls last, created_at desc",
+        org_id, codes)
+    names = {r["code"]: form_title(r["name"]) for r in rows}
+
+    out: Dict[str, str] = {}
+    for w in widgets:
+        cfg = w["config"] or {}
+        code = cfg.get("dataset_code")
+        title = names.get(code)
+        if not title:
+            continue
+        out[str(w["id"])] = title
+    return out
+
+
 def widget_configs(rows) -> List[dict]:
     """Виджеты в виде, удобном для разбора: config уже словарь."""
     return [{"id": r["id"], "widget_type": r["widget_type"], "config": _cfg(r)} for r in rows]

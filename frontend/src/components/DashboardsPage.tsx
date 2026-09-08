@@ -1022,6 +1022,10 @@ export default function DashboardsPage({
       onAddField: canManage ? addSiblingField : undefined,
       onOpenAppeals,
       shortName: shortNames[w.id],
+      // Имя формы под заголовком — ответ на «выдано ЧЕГО». Не повторяем его
+      // там, где имя виджета и так с него начинается (так авто-сборка называет
+      // таблицы и графики: «РЦО: ежедневный отчёт…: таблица»).
+      caption: (w.caption && !w.name.startsWith(w.caption)) ? w.caption : undefined,
       // Замечание к цифре (п. 8) привязывается к обсуждению ЭТОГО дашборда.
       dashboardId: sel?.dashboard.id,
       // После отправки/удаления перечитываем список виджетов — счётчик 💬

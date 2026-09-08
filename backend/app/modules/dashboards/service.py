@@ -33,7 +33,7 @@ from ._comments import (  # noqa: F401
     widget_comment_counts,
 )
 from ._describe import describe_dashboard  # noqa: F401
-from ._explain import explain_widgets, widget_configs  # noqa: F401
+from ._explain import explain_widgets, widget_captions, widget_configs  # noqa: F401
 from ._passport import widget_passport  # noqa: F401
 from ._planfact import (  # noqa: F401
     PLAN_FACT_SCALE,
@@ -923,7 +923,12 @@ async def list_page_widgets(conn, org_id, page_id: str, user: dict) -> dict:
     # Пояснение «что это за цифра» считаем ЗДЕСЬ, пачкой на всю страницу:
     # значок ⓘ должен отвечать сразу при наведении, а догрузка по одному
     # значку показала бы пустоту ровно в тот момент, когда на неё смотрят.
-    explain = await explain_widgets(conn, org_id, widget_configs(rows))
+    cfgs = widget_configs(rows)
+    explain = await explain_widgets(conn, org_id, cfgs)
+    # По какой ФОРМЕ цифра. Заказчик спросил «выдано чего?» — в самой графе
+    # («ИТОГО · Выдано, ед.») предмета нет, а имя формы его называет: «отчёт в
+    # разрезе отделов и услуг». Выдумывать предмет нельзя, назвать форму — можно.
+    captions = await widget_captions(conn, org_id, cfgs)
     # Число замечаний к цифре (п. 8) — тоже пачкой: значок 💬 в подвале виджета
     # должен быть виден сразу, а запрос на каждый виджет показал бы пустоту
     # ровно тогда, когда на неё смотрят.
@@ -931,6 +936,7 @@ async def list_page_widgets(conn, org_id, page_id: str, user: dict) -> dict:
     return {"page_id": page_id, "widgets": [
         {**{k: w[k] for k in ("id", "name", "widget_type", "position_x", "position_y", "width", "height")},
          "config": _cfg(w), "explain": explain.get(str(w["id"])),
+         "caption": captions.get(str(w["id"])),
          "comments_count": comments.get(str(w["id"]), 0)} for w in rows]}
 
 

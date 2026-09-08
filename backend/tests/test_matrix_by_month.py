@@ -320,3 +320,55 @@ def test_auto_build_asks_the_waterfall_for_periods():
     wf = [s for s in specs if s["kind"] == "waterfall"]
     assert wf, "на накопительной графе с историей водопад должен предлагаться"
     assert wf[0]["config"]["by"] == "periods"
+
+
+# ── Подписи виджетов: что это за показатель ────────────────────────────────
+
+def test_widget_name_gets_the_measure_only_where_the_subject_is_not_the_indicator():
+    """🔴 «ИТОГО: по отделениям» — по отделениям ЧТО?
+
+    У формы РЦО первый сегмент имени графы — это ВЕДОМСТВО («ИТОГО»,
+    «Росреестр»), и виджет, названный по нему, не говорит, что измеряет. У формы
+    МАХ, наоборот, первый сегмент и есть полное имя показателя, и дописывать к
+    нему хвост значило бы удлинять и без того длинное имя.
+
+    Различаем ПО ДАННЫМ: меру дописываем, когда хвост назвал ЕДИНИЦУ. Хвост без
+    единицы — это разрез («нарастающим итогом»), а не мера.
+    """
+    from app.modules.dashboards._aggregate import subject_with_measure
+
+    assert subject_with_measure("ИТОГО · Выдано, ед.") == "ИТОГО · Выдано, ед."
+    assert subject_with_measure("ЕСИА (260) · Принято, ед.") == "ЕСИА (260) · Принято, ед."
+    # Услуга из середины в заголовок не тянется — он и так длинный.
+    assert subject_with_measure(
+        "Росреестр · Государственная регистрация прав · Принято, ед.") == "Росреестр · Принято, ед."
+    # У формы МАХ предмет назван первым сегментом, хвост — разрез, а не мера.
+    assert subject_with_measure(
+        "Количество обращений за результатом оказания услуг в МФЦ · Факт · нарастающим итогом**"
+    ) == "Количество обращений за результатом оказания услуг в МФЦ"
+    # Имя без разделителя остаётся как есть.
+    assert subject_with_measure("Количество рабочих часов") == "Количество рабочих часов"
+
+
+async def test_widget_list_says_which_form_the_number_comes_from(client, admin_headers, mm_ds):
+    """Подпись «по какой форме» — ответ на «выдано ЧЕГО».
+
+    В самой графе предмета нет («ИТОГО · Выдано, ед.»), выдумывать его нельзя.
+    Но форма называет себя, и это честный ответ: раз отчёт по услугам, значит
+    принято и выдано — по услугам.
+    """
+    did, pid = await _page(client, admin_headers, "zmm_caption")
+    try:
+        await client.post(f"/dashboard-pages/{pid}/widgets", headers=admin_headers,
+                          json={"name": "Карточка", "widget_type": "kpi",
+                                "config": {"dataset_code": mm_ds, "value_field": "flow"}})
+        # Аннотация (текст) данными не подкреплена — подписывать нечего.
+        await client.post(f"/dashboard-pages/{pid}/widgets", headers=admin_headers,
+                          json={"name": "Заголовок", "widget_type": "text",
+                                "config": {"text": "Просто текст"}})
+        got = (await client.get(f"/dashboard-pages/{pid}/widgets", headers=admin_headers)).json()
+        by_name = {w["name"]: w for w in got["widgets"]}
+        assert by_name["Карточка"]["caption"] == "Месяцы"
+        assert by_name["Заголовок"]["caption"] is None
+    finally:
+        await _cleanup(did)

@@ -13,7 +13,7 @@ from typing import List, Optional
 
 from ..metrics import resolver as mr
 from ..metrics.data_suggestions import _clean, _is_main_slice, _split_name, _subject_key
-from ._aggregate import is_share, is_total_column
+from ._aggregate import is_share, is_total_column, subject_with_measure
 from ._alerts import _cfg
 from ._base import DashboardError
 
@@ -1088,7 +1088,7 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
                 base = next((f for f in shown if view_of(f) in ("dynamics", "both")), shown[0])
                 spec_cfg = {"dataset_code": code, "value_field": base["code"],
                             "max_periods": MATRIX_PERIODS, **grouping}
-                spec_name = f"{_split_name(base['name'])['subject']}: по строкам и {when}"
+                spec_name = f"{subject_with_measure(base['name'])}: по строкам и {when}"
             else:
                 spec_cfg = {"dataset_code": code, "by": "fields",
                             "value_fields": [f["code"] for f in shown[:MATRIX_FIELDS]],
@@ -1173,7 +1173,7 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
                 else:
                     y, raw_y = raw_y, raw_y + h
                 specs.append({"page": page, "name": BY_MEANING_TITLE[kind].format(
-                                  name=_clean(_split_name(fs[0]["name"])["subject"]) or fs[0]["name"]),
+                                  name=subject_with_measure(fs[0]["name"]) or fs[0]["name"]),
                               "widget_type": kind, "config": cfg,
                               "position_x": 0, "position_y": y, "width": w, "height": h})
 

@@ -18,7 +18,7 @@ export function WidgetCard({
   w, data, error, alert, isCollapsed, onToggleCollapse, highlighted, editMode, canManage,
   hasSources, onEdit, onAlerts, onDelete, tip,
   reloadKey, from, to, row, asOf, onPick, batched, onNavigate, onAddField, onOpenAppeals, shortName,
-  density = DENSITY.comfortable, dashboardId, onCommentsChanged,
+  caption, density = DENSITY.comfortable, dashboardId, onCommentsChanged,
 }: {
   w: Widget
   data?: Record<string, unknown>
@@ -53,6 +53,16 @@ export function WidgetCard({
    * визуально тяжелее самого числа. Полное имя остаётся в подсказке.
    */
   shortName?: string
+  /**
+   * По какой ФОРМЕ цифра — имя набора данных.
+   *
+   * Заказчик спросил «выдано чего?»: на карточке стоит «Выдано, ед.», а
+   * предмета нет — и в самой графе его тоже нет, она называется буквально
+   * «ИТОГО · Выдано, ед.». Выдумывать «обращений» нельзя, а имя формы («РЦО:
+   * ежедневный отчёт в разрезе отделов и услуг») отвечает честно: раз отчёт по
+   * услугам, значит принято и выдано — по услугам.
+   */
+  caption?: string
   onOpenAppeals?: () => void
   /** Дашборд — чтобы замечание к цифре (п. 8) привязалось к его обсуждению. */
   dashboardId?: string
@@ -137,6 +147,16 @@ export function WidgetCard({
                 <span style={{ flexShrink: 0, alignSelf: 'flex-start' }}><InfoTip text={tip} /></span>
               )}
             </div>
+            {/* По какой ФОРМЕ цифра. Заказчик спросил «выдано чего?»: на карточке
+                стоит «Выдано, ед.», а предмета нет — и в самой графе его тоже нет
+                («ИТОГО · Выдано, ед.»). Выдумывать «обращений» нельзя, а имя формы
+                («ежедневный отчёт в разрезе отделов и услуг») отвечает честно.
+                Не повторяем его там, где имя виджета и так с него начинается. */}
+            {!isCollapsed && caption && (
+              <div style={{ fontSize: 11, color: 'var(--text-faint)', lineHeight: 1.3,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={`Форма: ${caption}`}>{caption}</div>
+            )}
             {/* Служебный ряд (тип виджета, правка, пороги, удаление)
                 показываем ТОЛЬКО в режиме правки. В обычном просмотре
                 он съедал треть маленькой карточки — из-за него у KPI
