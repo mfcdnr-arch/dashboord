@@ -80,6 +80,87 @@ async def _add_ghost(conn, org_id, cfg: dict, res: dict, row, allowed, period) -
     res["ghost"] = {"period": prev, "values": values}
 
 
+def fold_of(title: str) -> str:
+    """Как сворачивать показатель в месяц: 'sum' | 'avg' | 'last'.
+
+    Правило одно на систему, и живёт оно здесь, потому что мест уже два —
+    месячный бакет «Сравнения источников» и матрица по месяцам:
+
+    * **доля** усредняется (`is_share`) — складывать проценты нельзя;
+    * **нарастающий итог** берётся последним отчётом месяца (`classify_slice`):
+      такое значение уже содержит в себе все предыдущие, и сумма отчётов даёт
+      число, которого не существует (замер на форме МАХ: 2 731 459 вместо
+      943 442);
+    * **поток за период** складывается — только здесь сложение и означает то,
+      что человек ожидает увидеть.
+    """
+    from ..ingestion.quality import classify_slice  # локально: иначе цикл импорта
+
+    if is_share(title):
+        return "avg"
+    return "last" if classify_slice(title) == "cumulative" else "sum"
+
+
+def _group_matrix_by_month(m: dict, fold_for) -> dict:
+    """Столбцы матрицы: отчёты → МЕСЯЦЫ.
+
+    Зачем. У ежедневного отчёта РЦО 53 выпуска за два месяца, и матрица «строка ×
+    отчётная дата» показывает последние 12 дней — то есть отвечает на «что было
+    на прошлой неделе», но не на «как прошёл месяц». Вопрос заказчика («сравнения
+    за месяца») — про второе.
+
+    Свёртка берётся у КАЖДОЙ строки своя (`fold_for`): в разрезе по показателям
+    в одной матрице соседствуют поток, доля и накопительный итог, и складывать
+    их одним правилом нельзя.
+
+    Возвращается ещё и число отчётов в каждом месяце — и это не украшение.
+    Замер на РЦО: в июле 27 отчётов и 109 767 принято, в августе 26 и 106 342.
+    Голая разница месяцев даёт −3,1 % («просели»), а на один отчёт +0,6 %
+    («выросли») — ЗНАК ПЕРЕВОРАЧИВАЕТСЯ только оттого, что в августе на один
+    отчётный день меньше. Виджет, умолчавший об этом, вводит в заблуждение
+    уверенным тоном.
+    """
+    periods: List[str] = m["periods"]
+    buckets: List[str] = []
+    idx_of: Dict[str, int] = {}
+    for p in periods:
+        b = p[:7] if len(p) >= 7 else p          # YYYY-MM
+        if b not in idx_of:
+            idx_of[b] = len(buckets)
+            buckets.append(b)
+    reports = [0] * len(buckets)
+    for p in periods:
+        reports[idx_of[p[:7] if len(p) >= 7 else p]] += 1
+
+    grid: Dict[str, List[Optional[float]]] = {}
+    for lbl, cells in m["grid"].items():
+        fold = fold_for(lbl)
+        acc: List[List[float]] = [[] for _ in buckets]
+        for i, v in enumerate(cells):
+            if v is not None:
+                acc[idx_of[periods[i][:7] if len(periods[i]) >= 7 else periods[i]]].append(v)
+        out: List[Optional[float]] = []
+        for vals in acc:
+            if not vals:
+                out.append(None)
+            elif fold == "avg":
+                out.append(sum(vals) / len(vals))
+            elif fold == "last":
+                # Отчёты идут по возрастанию даты, значит последний в списке —
+                # последний в месяце.
+                out.append(vals[-1])
+            else:
+                out.append(sum(vals))
+        grid[lbl] = out
+
+    return {"periods": buckets, "labels": m["labels"], "grid": grid,
+            "names": m.get("names", {}), "how": m.get("how", {}),
+            "reports": reports,
+            # Сколько месяцев есть на самом деле — против скольких показано.
+            "total_periods": len(buckets), "shown_periods": len(buckets),
+            "total_reports": m.get("total_periods")}
+
+
 def _month_buckets(pairs, title: str):
     """Отчёты одного набора данных → значение месяца. Как сворачивать — по СМЫСЛУ графы.
 
@@ -105,9 +186,7 @@ def _month_buckets(pairs, title: str):
     вводит в заблуждение. Замер: голая разница месяцев даёт −3,1 % («просели»),
     а на один отчёт +0,6 % («выросли») — знак переворачивается.
     """
-    from ..ingestion.quality import classify_slice  # локально: иначе цикл импорта
-
-    fold = "avg" if is_share(title) else ("last" if classify_slice(title) == "cumulative" else "sum")
+    fold = fold_of(title)
     order: List[str] = []
     by_bucket: Dict[str, List[float]] = {}
     for period, val in pairs:
@@ -919,17 +998,54 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         # дату». У сводной формы строка одна, и первый разрез вырождается в
         # одну строку; второй как раз для неё.
         by_fields = (cfg.get("by") == "fields")
+        # Столбцы — отчёты или МЕСЯЦЫ. У ежедневного отчёта РЦО 53 выпуска, и по
+        # отчётам матрица показывает последние 12 дней: на вопрос «как прошёл
+        # месяц» она не отвечает. При группировке по месяцам отчёты берём ВСЕ
+        # (`max_periods=0`), иначе в месяцы свернулись бы последние 12 дней, а
+        # предел применяем уже к месяцам.
+        by_month = (cfg.get("period_group") == "month")
+        src_limit = 0 if by_month else max_periods
         if by_fields:
             fields = [f for f in (cfg.get("value_fields") or []) if f]
             if not cfg.get("dataset_code") or not fields:
                 raise DashboardError("Матрица по показателям: укажите dataset_code и показатели")
             m = await _dataset_field_period_matrix(
                 conn, org_id, cfg["dataset_code"], fields,
-                from_date, to_date, row, allowed, max_periods)
+                from_date, to_date, row, allowed, src_limit)
         else:
             m = await _dataset_row_period_matrix(
                 conn, org_id, cfg["dataset_code"], cfg["value_field"],
-                from_date, to_date, row, allowed, max_periods)
+                from_date, to_date, row, allowed, src_limit)
+        month_reports: Optional[List[int]] = None
+        total_reports: Optional[int] = None
+        # Способ свёртки месяца — только для разреза по строкам: там он один на
+        # всю матрицу. В разрезе по показателям у каждой строки он свой, и одно
+        # общее слово было бы неправдой.
+        row_fold: Optional[str] = None
+        if by_month:
+            if by_fields:
+                names = m.get("names", {})
+                def fold_for(lbl: str) -> str:
+                    return fold_of(names.get(lbl, lbl))
+            else:
+                # В разрезе по строкам все клетки — один и тот же показатель,
+                # поэтому правило свёртки одно на всю матрицу.
+                row_title = await _field_title(conn, org_id, cfg["dataset_code"], cfg["value_field"])
+                one = fold_of(row_title or cfg["value_field"])
+                row_fold = one
+                def fold_for(lbl: str) -> str:
+                    return one
+            m = _group_matrix_by_month(m, fold_for)
+            total_reports = m.pop("total_reports", None)
+            month_reports = m.get("reports")
+            if max_periods and len(m["periods"]) > max_periods:
+                # Режем ПОСЛЕДНИЕ месяцы, как и отчёты: смотрят обычно свежее.
+                cut = len(m["periods"]) - max_periods
+                m["periods"] = m["periods"][cut:]
+                month_reports = (month_reports or [])[cut:]
+                m["reports"] = month_reports
+                m["grid"] = {k: v[cut:] for k, v in m["grid"].items()}
+                m["shown_periods"] = len(m["periods"])
         periods = m["periods"]
         n = len(periods)
         matrix_rows: List[dict] = []
@@ -974,6 +1090,14 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             title = await _field_title(conn, org_id, cfg["dataset_code"], cfg["value_field"])
             subtitle = title or cfg["value_field"]
         return {"type": "matrix", "title": name, "by": ("fields" if by_fields else "rows"),
+                "period_group": ("month" if by_month else "report"),
+                # Сколько отчётов вошло в каждый месяц. Месяцы неравны между
+                # собой, и без этой цифры сравнение месяцев вводит в заблуждение.
+                "reports": month_reports, "total_reports": total_reports,
+                # 'sum' | 'avg' | 'last' — как месяц собран из отчётов. Нужен
+                # фронту, чтобы не предлагать «на один отчёт» там, где деление
+                # бессмысленно (накопительный итог, доля).
+                "fold": row_fold,
                 # Дата, за которую данные показаны на самом деле: у матрицы это
                 # её последний столбец. Общая метка свежести здесь соврала бы —
                 # при фильтре периода она показывала бы дату последнего выпуска,

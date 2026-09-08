@@ -1071,16 +1071,25 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
             # (сводная форма по субъекту) — матрица по строкам выродилась бы в
             # одну строку, и нужен обратный разрез: показатели × даты, то самое,
             # ради чего файлы сводят в Excel руками.
+            # Столбцы — отчёты или месяцы. Отчётов больше, чем матрица способна
+            # показать (у ежедневной формы РЦО их 53 при пределе 12), — значит
+            # по отчётам она ответит только «что было на прошлой неделе», а
+            # девять десятых истории спрячет. Тогда осмысленнее месяцы: столбцов
+            # становится два-три, и виден весь период. При коротком ряде
+            # (недельная форма за месяц) отчёты подробнее, их и оставляем.
+            by_month = d["periods"] > MATRIX_PERIODS
+            grouping = {"period_group": "month"} if by_month else {}
+            when = "месяцам" if by_month else "датам"
             if many_rows:
                 base = next((f for f in shown if view_of(f) in ("dynamics", "both")), shown[0])
                 spec_cfg = {"dataset_code": code, "value_field": base["code"],
-                            "max_periods": MATRIX_PERIODS}
-                spec_name = f"{_split_name(base['name'])['subject']}: по строкам и датам"
+                            "max_periods": MATRIX_PERIODS, **grouping}
+                spec_name = f"{_split_name(base['name'])['subject']}: по строкам и {when}"
             else:
                 spec_cfg = {"dataset_code": code, "by": "fields",
                             "value_fields": [f["code"] for f in shown[:MATRIX_FIELDS]],
-                            "max_periods": MATRIX_PERIODS}
-                spec_name = f"{dsname}: показатели по датам"
+                            "max_periods": MATRIX_PERIODS, **grouping}
+                spec_name = f"{dsname}: показатели по {when}"
             # Высота по числу строк, которые матрица реально покажет: у формы
             # заказчика их тринадцать, и в стандартные 8 рядов помещаются две.
             m_h = matrix_height(len(spec_cfg.get("value_fields") or []))

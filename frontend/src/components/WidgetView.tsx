@@ -98,10 +98,19 @@ function logBound(values: number[], kind: 'min' | 'max'): number {
 
 // Подпись периода на графике динамики. Периоды приходят как «2026-07-22»
 // (дата выпуска) либо «2026-07» (месяц) — машинный вид на оси читается плохо.
+const MONTHS_RU = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
+  'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь']
+
 function fmtPeriod(p: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(p)) return fmtAsOf(p)
   const m = /^(\d{4})-(\d{2})$/.exec(p)
-  return m ? `${m[2]}.${m[1]}` : p
+  // Месяц словом, а не «08.2026»: в шапке из двух-двенадцати столбцов это
+  // читается сразу и не путается с отчётной датой соседнего виджета.
+  if (m) {
+    const idx = Number(m[2]) - 1
+    return MONTHS_RU[idx] ? `${MONTHS_RU[idx]} ${m[1]}` : `${m[2]}.${m[1]}`
+  }
+  return p
 }
 
 // Палитра серий — из CSS-токенов темы (см. theme.css: --chart-*); при смене темы
@@ -1828,6 +1837,21 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
       distinctLabels(src).forEach((short, i) => { shortRow[src[i]] = short })
     }
     const labelOf = (r: any) => (byFields ? (shortRow[String(r.row)] || r.row) : r.row)
+    const byMonth = data.period_group === 'month'
+    const reports: number[] = data.reports || []
+    // «На один отчёт» считаем только там, где месяц СЛОЖЕН из отчётов: у
+    // накопительного итога и доли деление на число отчётов бессмысленно.
+    const perReport = byMonth && data.fold === 'sum' && (data.col_totals || []).length === periods.length
+      ? (data.col_totals as number[]).map((v, i) => (reports[i] ? v / reports[i] : null))
+      : null
+    const unevenMonths = byMonth && reports.length > 1 && new Set(reports).size > 1
+    const monthNote = !unevenMonths ? null : [
+      `В месяцах разное число отчётов: ${periods.map((p, i) => `${fmtPeriod(p)} — ${reports[i]}`).join(', ')}.`,
+      perReport
+        ? ` Сравнивая месяцы целиком, помните об этом: на один отчёт получается ${
+            periods.map((p, i) => `${fmtPeriod(p)} ${fmt(Math.round(perReport[i] ?? 0))}`).join(', ')}.`
+        : '',
+    ].join('')
     const mVal = (r: any, col: string) => (col === '__row' ? r.row : col === '__chg' ? r.total_change : r.values[Number(col)])
     rows = sortRows(rows, matrixSort, mVal)
     const totCell: React.CSSProperties = { ...td, fontWeight: 700, background: 'var(--surface-accent)' }
@@ -1835,10 +1859,22 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
       <div>
         <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 4 }}>
           {data.field_title}
-          {data.total_periods > data.shown_periods
-            ? ` · показаны последние ${data.shown_periods} отчётов из ${data.total_periods}`
-            : ` · отчётов: ${data.shown_periods}`}
+          {byMonth
+            ? ` · столбцы — месяцы (по ${data.total_reports} ${plural(data.total_reports || 0, 'отчёту', 'отчётам', 'отчётам')})`
+            : data.total_periods > data.shown_periods
+              ? ` · показаны последние ${data.shown_periods} отчётов из ${data.total_periods}`
+              : ` · отчётов: ${data.shown_periods}`}
         </div>
+        {monthNote && (
+          // 🔴 Месяцы неравны между собой, и молчать об этом нельзя. Замер на
+          // РЦО: июль 27 отчётов и 109 767 принято, август 26 и 106 342 —
+          // разница месяцев −3,1 % («просели»), а на один отчёт +0,6 %
+          // («выросли»). Знак переворачивается только из-за лишнего отчётного
+          // дня, и без этой строки виджет врёт уверенным тоном.
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, lineHeight: 1.45 }}>
+            {monthNote}
+          </div>
+        )}
         <div style={{ overflowX: print ? 'visible' : 'auto', width: '100%', maxWidth: '100%' }}>
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
           <thead><tr>

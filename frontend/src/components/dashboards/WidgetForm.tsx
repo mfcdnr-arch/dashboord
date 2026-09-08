@@ -391,6 +391,10 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const [forecast, setForecast] = useState<boolean>(!!cfg0.forecast)
   // Сколько последних отчётов показывает матрица «строка × дата».
   const [maxPeriods, setMaxPeriods] = useState<string>(cfg0.max_periods != null ? String(cfg0.max_periods) : '12')
+  // Столбцы матрицы — отчёты или месяцы. У ежедневной формы 53 выпуска за два
+  // месяца, и по отчётам матрица отвечает на «что было на прошлой неделе», а
+  // не на «как прошёл месяц».
+  const [periodGroup, setPeriodGroup] = useState<string>(cfg0.period_group === 'month' ? 'month' : 'report')
   // Волна F: обнаружение аномалий (без ИИ — отклонение от линии тренда в σ).
   const [anomalies, setAnomalies] = useState<boolean>(!!cfg0.anomalies)
   const [anomalyThreshold, setAnomalyThreshold] = useState<string>(cfg0.anomaly_threshold != null ? String(cfg0.anomaly_threshold) : '2')
@@ -481,14 +485,16 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     if (type === 'heatmap' || type === 'pivot') return (dataset && multiFields.length) ? { dataset_code: dataset, value_fields: multiFields } : null
     if (type === 'matrix') {
       if (!dataset) return null
+      const grouping = periodGroup === 'month' ? { period_group: 'month' } : {}
       if (matrixBy === 'fields') {
         return multiFields.length
           ? { dataset_code: dataset, by: 'fields', value_fields: multiFields,
-              max_periods: Number(maxPeriods) || 12 }
+              max_periods: Number(maxPeriods) || 12, ...grouping }
           : null
       }
       return valueField
-        ? { dataset_code: dataset, value_field: valueField, max_periods: Number(maxPeriods) || 12 }
+        ? { dataset_code: dataset, value_field: valueField,
+            max_periods: Number(maxPeriods) || 12, ...grouping }
         : null
     }
     if (type === 'dynamics') return (dataset && valueField) ? {
@@ -859,12 +865,26 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         </F>
       )}
       {type === 'matrix' && (
-        <F t="Сколько последних отчётов">
+        <F t="Что в столбцах">
+          <select style={sel} value={periodGroup} onChange={(e) => setPeriodGroup(e.target.value)}
+            title="У ежедневной формы полсотни отчётов за два месяца: по отчётам матрица отвечает на «что было на прошлой неделе», по месяцам — на «как прошёл месяц»">
+            <option value="report">Отчётные даты</option>
+            <option value="month">Месяцы</option>
+          </select>
+          <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4, maxWidth: 340 }}>
+            {periodGroup === 'month'
+              ? 'Месяц собирается из отчётов по смыслу показателя: потоки складываются, накопительный итог берётся последним отчётом месяца, доли усредняются. Число отчётов в каждом месяце виджет назовёт сам — месяцы неравны между собой.'
+              : 'Столбец на каждый отчёт.'}
+          </div>
+        </F>
+      )}
+      {type === 'matrix' && (
+        <F t={periodGroup === 'month' ? 'Сколько последних месяцев' : 'Сколько последних отчётов'}>
           <input style={{ ...sel, width: 80 }} type="number" min="2" max="52" value={maxPeriods}
             onChange={(e) => setMaxPeriods(e.target.value)}
             title="Недельная форма за год даёт полсотни столбцов — матрица перестаёт читаться. Сколько отчётов есть всего, виджет скажет сам." />
           <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4, maxWidth: 320 }}>
-            Строки формы × отчётные даты: в ячейке значение и прирост к прошлому отчёту.
+            Строки формы × {periodGroup === 'month' ? 'месяцы' : 'отчётные даты'}: в ячейке значение и прирост к предыдущему столбцу.
           </div>
         </F>
       )}
