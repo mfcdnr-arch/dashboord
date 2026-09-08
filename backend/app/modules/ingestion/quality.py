@@ -32,9 +32,9 @@
 """
 from __future__ import annotations
 
-import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from ..dashboards._aggregate import TOTAL_LABEL_RE, head_tail
 from ..metrics.data_suggestions import _clean, _is_main_slice, _split_name, _subject_key
 
 # Ключ значения: (название строки, код показателя)
@@ -64,7 +64,12 @@ def _fmt(v: float) -> str:
 # Строка-итог госформы: «Итого», «Всего», «ИТОГО по региону». Ищем ЯВНУЮ
 # подпись — строку вроде «Донецкая Народная Республика», которая по смыслу тоже
 # свод, распознать нельзя, и гадать система не должна.
-_TOTAL_ROW_RE = re.compile(r"итог|всего", re.IGNORECASE)
+#
+# Выражение и разбор имени переехали в `dashboards._aggregate` — туда же, где
+# живёт `is_share`: это всё ответы на один вопрос «что с чем складывается», и
+# теперь их использует ещё и сводная таблица. Двух понятий об «итоге» в системе
+# быть не должно.
+_TOTAL_ROW_RE = TOTAL_LABEL_RE
 
 # Допуск при сверке суммы с итогом. Ноль тут не годится: в формах округляют, и
 # расхождение в единицу — не ошибка заполнения, а следствие округления. Зато
@@ -179,14 +184,10 @@ def _check_total_row(current: Dict[Key, float], names: Dict[str, str]) -> Option
 def _head_tail(name: str) -> Tuple[str, str]:
     """Имя графы → (всё до последнего разделителя, последний сегмент).
 
-    Разделитель тот же « · », что и в разборе имён госформ
-    (`metrics.data_suggestions._split_name`): второго понятия о том, как
-    устроено имя графы, в системе быть не должно.
+    Общий разбор — в `dashboards._aggregate.head_tail`; здесь оставлено имя,
+    под которым правило известно в этом модуле.
     """
-    parts = [_clean(p) for p in re.split(r"\s*·\s*", name or "") if _clean(p)]
-    if not parts:
-        return "", ""
-    return " · ".join(parts[:-1]), parts[-1]
+    return head_tail(name)
 
 
 def _check_total_column(current: Dict[Key, float], names: Dict[str, str]) -> Optional[dict]:

@@ -218,10 +218,20 @@ def _dump_widget(wb, summary, sheet_name, wid: str, t: str, name: str, data: dic
     elif t == "pivot":
         ws = wb.create_sheet(sheet_name(wid, name))
         cols = list(data.get("columns", []))
-        ws.append(["Строка"] + cols + ["Итого"])
+        # Файл повторяет экран: колонки «Итого» нет там, где её нет на виджете
+        # (показаны разные показатели — их сумма считала бы обращение дважды), а
+        # оговорка про свод и доли уезжает строкой под таблицу. Иначе человек
+        # унёс бы на совещание число, которого на экране не было.
+        row_total = data.get("row_total") is not False
+        ws.append(["Строка"] + cols + (["Итого"] if row_total else []))
         for r in data.get("rows", []):
-            ws.append([r.get("row")] + list(r.get("values", [])) + [r.get("total")])
-        ws.append(["Итого"] + list(data.get("col_totals", [])) + [data.get("grand_total")])
+            ws.append([r.get("row")] + list(r.get("values", []))
+                      + ([r.get("total")] if row_total else []))
+        ws.append(["Итого"] + list(data.get("col_totals", []))
+                  + ([data.get("grand_total")] if row_total else []))
+        if data.get("total_note"):
+            ws.append([])
+            ws.append([data["total_note"]])
     elif t == "waterfall":
         ws = wb.create_sheet(sheet_name(wid, name))
         ws.append(["Категория", "Значение"])

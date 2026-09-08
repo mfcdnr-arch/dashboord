@@ -9,7 +9,7 @@ import math
 import statistics
 from typing import Dict, List, Optional
 
-from ._aggregate import aggregate_series
+from ._aggregate import aggregate_series, is_share, is_total_column, measure_of
 from ._alerts import alert_styles, cell_alert_levels, evaluate_alert
 from ._base import DashboardError, ru_date
 from ._rowrls import allowed_rows_for_dataset
@@ -78,6 +78,57 @@ async def _add_ghost(conn, org_id, cfg: dict, res: dict, row, allowed, period) -
                              "ни по одной строке — показывать нечего.")
         return
     res["ghost"] = {"period": prev, "values": values}
+
+
+def _month_buckets(pairs, title: str):
+    """Отчёты одного набора данных → значение месяца. Как сворачивать — по СМЫСЛУ графы.
+
+    🔴 Раньше месяц собирался плюсом по всем отчётам, каким бы ни был показатель.
+    На накопительном итоге это давало число, которого не существует: у формы МАХ
+    в августе три отчёта — 876 479, 911 538 и 943 442, — и сумма 2 731 459 в 2,9
+    раза больше правды (943 442) и в 28,5 раза больше месячного прироста
+    (95 728). Виджетов этого типа на стенде нет ни одного, поэтому дефект пока
+    не проявлялся, но месячные сравнения встают ровно на эту механику.
+
+    Три способа, и все три уже приняты в системе:
+
+    * **доля** — среднее по отчётам месяца (`is_share`: складывать проценты
+      нельзя, правило одно на систему);
+    * **нарастающий итог** — ПОСЛЕДНИЙ отчёт месяца (`classify_slice`): такое
+      значение уже содержит в себе все предыдущие;
+    * **поток за период** (принято, выдано) — сумма: только здесь сложение и
+      означает то, что человек ожидает увидеть.
+
+    Возвращает (значения по месяцам, способ свёртки, число отчётов в каждом
+    месяце). Число отчётов возвращается всегда: месяцы неравны между собой —
+    у РЦО в июле 27 отчётов, в августе 26, — и без этой цифры сравнение месяцев
+    вводит в заблуждение. Замер: голая разница месяцев даёт −3,1 % («просели»),
+    а на один отчёт +0,6 % («выросли») — знак переворачивается.
+    """
+    from ..ingestion.quality import classify_slice  # локально: иначе цикл импорта
+
+    fold = "avg" if is_share(title) else ("last" if classify_slice(title) == "cumulative" else "sum")
+    order: List[str] = []
+    by_bucket: Dict[str, List[float]] = {}
+    for period, val in pairs:
+        bucket = period[:7] if len(period) >= 7 else period  # YYYY-MM
+        if bucket not in by_bucket:
+            by_bucket[bucket] = []
+            order.append(bucket)
+        by_bucket[bucket].append(val)
+
+    vmap: Dict[str, float] = {}
+    for bucket in order:
+        vals = by_bucket[bucket]
+        if fold == "avg":
+            vmap[bucket] = sum(vals) / len(vals)
+        elif fold == "last":
+            # Отчёты приходят по возрастанию даты (`_dataset_period_series`),
+            # поэтому последний в списке — последний в месяце.
+            vmap[bucket] = vals[-1]
+        else:
+            vmap[bucket] = sum(vals)
+    return vmap, fold, {b: len(by_bucket[b]) for b in order}
 
 
 async def _column_value(conn, org_id, cfg: dict, field: str, row, allowed, period):
@@ -550,26 +601,84 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
     if t == "pivot":
         # Сводная таблица: строки × поля + итоги по строкам, столбцам и общий.
         # Для МФЦ: услуги × показатели с автоматическими суммами (отчётность).
+        #
+        # 🔴 Итог по строке складывал ВСЁ, что человек выбрал, — и потому считал
+        # одно обращение дважды. Замер на отчёте РЦО за 31.08.2026: графы
+        # «ИТОГО · Принято» 5 426, «ЕСИА · Принято» 2 885 и «Росреестр ·
+        # регистрация прав · Принято» 441 давали «итог» 8 752, тогда как правда
+        # — 5 426: две последние графы уже сидят внутри первой.
+        #
+        # Причин не складывать три, и все три — про имя графы (общее правило —
+        # `_aggregate`): графа-свод содержит остальные; доли не складываются
+        # вовсе; графы с разным хвостом («Принято» и «Выдано») измеряют разные
+        # стадии ОДНОГО обращения. В последнем случае итога нет вовсе, и
+        # причина названа словами — тот же выбор, что у «Показателей списком»,
+        # где по той же причине не показывается доля. Пустая колонка читалась бы
+        # как поломка.
         fields = cfg.get("value_fields") or []
         if not cfg.get("dataset_code") or not fields:
             raise DashboardError("Сводная таблица: укажите dataset_code и value_fields")
         ms = await _dataset_multi_series(conn, org_id, cfg["dataset_code"], fields, row, allowed, period)
         cols = [s["name"] for s in ms["series"]]
-        col_totals = [0.0] * len(cols)
-        grand = 0.0
+
+        total_cols = [ci for ci, c in enumerate(cols) if is_total_column(c)]
+        share_cols = [ci for ci, c in enumerate(cols) if is_share(c)]
+        skip = set(total_cols) | set(share_cols)
+        summable = [ci for ci in range(len(cols)) if ci not in skip]
+        # Форма называет своё устройство только когда в именах есть разделитель.
+        # Если не называет — судить о том, что с чем складывается, не по чему, и
+        # правило молчит: поведение остаётся прежним (та же оговорка, что в
+        # проверке качества «итоговая графа против суммы составляющих»).
+        # Имя переменной с суффиксом: ниже в этой же функции ветка «Показатели
+        # списком» держит свой `measures` (множество), и общее имя дало бы
+        # коллизию типов — те же грабли, что с `change` в ветке «год к году».
+        pivot_measures = [measure_of(cols[ci]) for ci in summable]
+        structured = bool(pivot_measures) and all(pivot_measures)
+        mixed = structured and len(set(pivot_measures)) > 1
+        row_total = bool(summable) and not mixed
+
+        notes: List[str] = []
+        if total_cols:
+            notes.append("Граф{} {} — свод: {} уже содержит остальные, поэтому в «Итого» по строке не вход{}.".format(
+                "а" if len(total_cols) == 1 else "ы",
+                ", ".join(f"«{cols[ci]}»" for ci in total_cols),
+                "она" if len(total_cols) == 1 else "они",
+                "ит" if len(total_cols) == 1 else "ят"))
+        if share_cols:
+            notes.append("Доли и проценты в сумму не входят — их итог не сумма, а среднее: "
+                         + ", ".join(f"«{cols[ci]}»" for ci in share_cols) + ".")
+        if mixed:
+            notes.append("Итога по строке нет: показаны разные показатели ({}). Это стадии одного "
+                         "обращения, и их сумма считала бы его дважды.".format(
+                             "; ".join(sorted(set(pivot_measures)))))
+
         rows_out = []
+        by_col: List[List[float]] = [[] for _ in cols]
         for ri, rlabel in enumerate(ms["categories"]):
-            vals, rtotal = [], 0.0
-            for ci, s in enumerate(ms["series"]):
-                v = s["data"][ri]
+            vals = []
+            rtotal = 0.0
+            for ci, srs in enumerate(ms["series"]):
+                v = srs["data"][ri]
                 vals.append(v)
                 if v is not None:
-                    rtotal += v
-                    col_totals[ci] += v
-                    grand += v
-            rows_out.append({"row": rlabel, "values": vals, "total": rtotal})
+                    by_col[ci].append(v)
+                    if ci in summable:
+                        rtotal += v
+            rows_out.append({"row": rlabel, "values": vals, "total": (rtotal if row_total else None)})
+
+        # Итог столбца — той же свёрткой, что и карточка показателя: количества
+        # складываются, доли усредняются и помечаются ⌀.
+        col_totals, col_aggregate = [], []
+        for ci, c in enumerate(cols):
+            value, how = aggregate_series(by_col[ci], c)
+            col_totals.append(value)
+            col_aggregate.append(how)
+        grand = sum(col_totals[ci] for ci in summable) if row_total else None
+
         return {"type": "pivot", "title": name, "columns": cols, "rows": rows_out,
-                "col_totals": col_totals, "grand_total": grand}
+                "col_totals": col_totals, "col_aggregate": col_aggregate, "grand_total": grand,
+                "row_total": row_total, "total_columns": total_cols, "share_columns": share_cols,
+                "total_note": (" ".join(notes) if notes else None)}
 
     if t == "waterfall":
         # Водопад: вклад каждой строки в накопленный итог (нарастающим), финальный столбец «Итого».
@@ -677,10 +786,8 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             item_allowed = await allowed_rows_for_dataset(conn, org_id, user, dc) if user is not None else None
             if match_by == "period":
                 pairs = await _dataset_period_series(conn, org_id, dc, vf, from_date, to_date, row, item_allowed)
-                vmap: Dict[str, float] = {}
-                for period, val in pairs:
-                    bucket = period[:7] if len(period) >= 7 else period  # YYYY-MM
-                    vmap[bucket] = vmap.get(bucket, 0.0) + val
+                title = await _field_title(conn, org_id, dc, vf) or vf
+                vmap, fold, per_bucket = _month_buckets(pairs, title)
             else:
                 vmap = {p["category"]: p["value"]
                         for p in await _dataset_series(conn, org_id, dc, vf, row, item_allowed)}
@@ -689,7 +796,13 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
                     seen_cat.add(c)
                     cat_order.append(c)
             raw_series.append((label, vmap))
-            sources_meta.append({"label": label, "dataset_code": dc, "as_of": await _dataset_as_of(conn, org_id, dc)})
+            sources_meta.append({"label": label, "dataset_code": dc,
+                                 "as_of": await _dataset_as_of(conn, org_id, dc),
+                                 # Как месяц собран из отчётов и по скольким — без
+                                 # этого «август» одного источника и «август»
+                                 # другого выглядят одинаково, хотя в первом 26
+                                 # ежедневных отчётов, а во втором 3 недельных.
+                                 **({"fold": fold, "reports": per_bucket} if match_by == "period" else {})})
         categories = sorted(cat_order)
         series = [{"name": label, "data": [vmap.get(c) for c in categories]} for label, vmap in raw_series]
         if cfg.get("growth_index") and match_by == "period":

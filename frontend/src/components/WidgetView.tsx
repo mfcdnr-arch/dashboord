@@ -1784,18 +1784,41 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     }
     const pivotVal = (r: any, col: string) => (col === '__row' ? r.row : col === '__total' ? r.total : r.values[Number(col)])
     rows = sortRows(rows, pivotSort, pivotVal)
+    // Итог по строке есть не всегда: когда показаны разные показатели («Принято»
+    // и «Выдано»), их сумма считала бы одно обращение дважды, и колонки нет
+    // вовсе — причину сервер называет словами. У слепков архива, снятых до этой
+    // правки, поля нет: там поведение прежнее.
+    const rowTotal: boolean = data.row_total !== false
+    const totalCols: number[] = data.total_columns || []
+    const shareCols: number[] = data.share_columns || []
+    const colAgg: string[] = data.col_aggregate || []
     return (
       <div>
         <input style={searchInput} placeholder="🔍 Поиск по сводной…" value={pivotSearch} onChange={(e) => setPivotSearch(e.target.value)} />
+        {/* Оговорка стоит НАД таблицей: у таблицы своя прокрутка, и подпись под
+            ней уезжает из виду ровно тогда, когда объясняет отсутствующую
+            колонку «Итого». */}
+        {data.total_note && (
+          <div style={{ fontSize: 11, color: 'var(--muted)', margin: '0 0 6px', lineHeight: 1.45 }}>{data.total_note}</div>
+        )}
         <div style={{ overflowX: print ? 'visible' : 'auto', width: '100%', maxWidth: '100%' }}>
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
           <thead><tr>
             <th style={{ ...th, ...sortableTh, ...stickyCol, ...stickyHead }} title={SORT_HINT} onClick={() => toggleSort(setPivotSort, '__row')}>Строка{sortArrow(pivotSort, '__row')}</th>
-            {cols.map((c, ci) => <th key={c} style={{ ...th, ...sortableTh }} title={SORT_HINT} onClick={() => toggleSort(setPivotSort, String(ci))}>{c}{sortArrow(pivotSort, String(ci))}</th>)}
-            <th style={{ ...th, ...sortableTh, color: 'var(--accent)' }} title={SORT_HINT} onClick={() => toggleSort(setPivotSort, '__total')}>Итого{sortArrow(pivotSort, '__total')}</th>
+            {cols.map((c, ci) => (
+              <th key={c} style={{ ...th, ...sortableTh }}
+                title={totalCols.includes(ci) ? `${c} — свод: в «Итого» по строке не входит, иначе обращение считалось бы дважды`
+                  : shareCols.includes(ci) ? `${c} — доля: в сумму не входит, её итог — среднее`
+                  : SORT_HINT}
+                onClick={() => toggleSort(setPivotSort, String(ci))}>
+                {totalCols.includes(ci) && <span style={{ color: 'var(--muted)', marginRight: 4 }}>Σ</span>}
+                {c}{sortArrow(pivotSort, String(ci))}
+              </th>
+            ))}
+            {rowTotal && <th style={{ ...th, ...sortableTh, color: 'var(--accent)' }} title={SORT_HINT} onClick={() => toggleSort(setPivotSort, '__total')}>Итого{sortArrow(pivotSort, '__total')}</th>}
           </tr></thead>
           <tbody>
-            {rows.length === 0 && <tr><td style={td} colSpan={cols.length + 2}>Ничего не найдено</td></tr>}
+            {rows.length === 0 && <tr><td style={td} colSpan={cols.length + (rowTotal ? 2 : 1)}>Ничего не найдено</td></tr>}
             {/* Строка сводной кликается так же, как строка обычной таблицы. */}
             {rows.map((r, i) => (
               <tr key={i} onClick={onPick && !print ? () => onPick(String(r.row)) : undefined}
@@ -1804,13 +1827,18 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                 <td style={{ ...td, fontWeight: 600, ...stickyCol,
                   ...(onPick && !print ? { color: 'var(--accent)' } : {}) }}>{r.row}</td>
                 {cols.map((_, ci) => <td key={ci} style={{ ...td, textAlign: 'right' }}>{typeof r.values[ci] === 'number' ? fmt(r.values[ci]) : '—'}</td>)}
-                <td style={{ ...totCell, textAlign: 'right' }}>{fmt(r.total)}</td>
+                {rowTotal && <td style={{ ...totCell, textAlign: 'right' }}>{fmt(r.total)}</td>}
               </tr>
             ))}
           </tbody>
           <tfoot><tr><td style={{ ...totCell, ...stickyCol, background: 'var(--surface-2)' }}>Итого</td>
-            {(data.col_totals || []).map((v: number, i: number) => <td key={i} style={{ ...totCell, textAlign: 'right' }}>{fmt(v)}</td>)}
-            <td style={{ ...totCell, textAlign: 'right', color: 'var(--accent)' }}>{fmt(data.grand_total)}</td>
+            {(data.col_totals || []).map((v: number, i: number) => (
+              <td key={i} style={{ ...totCell, textAlign: 'right' }}
+                title={colAgg[i] === 'avg' ? 'Среднее по строкам: доли не складываются' : undefined}>
+                {colAgg[i] === 'avg' ? '⌀ ' : ''}{fmt(v)}
+              </td>
+            ))}
+            {rowTotal && <td style={{ ...totCell, textAlign: 'right', color: 'var(--accent)' }}>{fmt(data.grand_total)}</td>}
           </tr></tfoot>
         </table>
         </div>

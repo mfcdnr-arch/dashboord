@@ -13,7 +13,7 @@ from typing import List, Optional
 
 from ..metrics import resolver as mr
 from ..metrics.data_suggestions import _clean, _is_main_slice, _split_name, _subject_key
-from ._aggregate import is_share
+from ._aggregate import is_share, is_total_column
 from ._alerts import _cfg
 from ._base import DashboardError
 
@@ -748,7 +748,20 @@ def by_meaning_specs(fields: list, rows: int, periods: int, first_period: str = 
         out.append({"kind": "pie", "fields": [main[0]]})
 
     if rows >= MIN_ROWS_HEATMAP and len(main) >= MIN_FIELDS_HEATMAP:
-        out.append({"kind": "heatmap", "fields": main[:6]})
+        # 🔴 Свод и его составляющие на одной карте несопоставимы: клетка
+        # «ИТОГО · Принято» СОДЕРЖИТ в себе клетку «ЕСИА · Принято», и цвет
+        # сравнивает целое с частью. А отбор идёт по объёму, поэтому свод всегда
+        # оказывался первым — на дашборде заказчика в карту попали ОБА свода
+        # («ИТОГО · Принято» и «ИТОГО · Выдано») плюс четыре их составляющие.
+        #
+        # Оговорка о том, чего эта правка НЕ лечит: тесноту шкалы. Замер на том
+        # же виджете — 67,7 % клеток в нижней пятой части шкалы, а без сводов
+        # 69,4 %, то есть чуть хуже. Теснота идёт от самих данных (медиана 27
+        # при максимуме 290 — длинный хвост по 63 отделениям), и лечится она
+        # шкалой, а не выбором граф.
+        parts = [f for f in main if not is_total_column(f["name"])]
+        heat = parts if len(parts) >= MIN_FIELDS_HEATMAP else main
+        out.append({"kind": "heatmap", "fields": heat[:6]})
 
     cum = [f for f in main if _is_cumulative(f["name"])]
     if cum and periods >= MIN_PERIODS_WATERFALL:
