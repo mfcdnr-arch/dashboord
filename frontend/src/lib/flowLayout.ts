@@ -44,7 +44,7 @@ export const FLOW_SIZE: Record<string, { w: number; h: number }> = {
   compare: { w: 6, h: 8 },
   cross_dataset_compare: { w: 6, h: 8 },
   objects_compare: { w: 6, h: 7 },
-  heatmap: { w: 6, h: 7 },
+
   funnel: { w: 6, h: 7 },
   status_grid: { w: 6, h: 6 },
   // Полосы «план и факт»: строка на пару, высота — по содержимому (AUTO_HEIGHT).
@@ -61,6 +61,10 @@ export const FLOW_SIZE: Record<string, { w: number; h: number }> = {
   // Матрица «строка × дата»: столбец на каждый отчёт плюс прирост под
   // значением — в половине ряда она уходит в горизонтальную прокрутку.
   matrix: { w: 12, h: 8 },
+  // Тепловая карта: строк в ней столько, сколько строк в форме (у РЦО 63
+  // отделения), поэтому она той же породы, что таблица и матрица — во всю
+  // ширину и с высотой по содержимому (AUTO_HEIGHT).
+  heatmap: { w: 12, h: 8 },
   // Мини-графики по строкам: строка формы, линия и число в ряд. Строк бывает
   // шестьдесят, поэтому высота — по содержимому (AUTO_HEIGHT).
   spark_table: { w: 12, h: 8 },
@@ -109,7 +113,9 @@ export interface FlowItem {
 // отдать её содержимому.
 // Полосы — той же породы, что матрица: строк ровно столько, сколько пар
 // «план + факт» выбрано, и константа прятала бы часть строк молча.
-const AUTO_HEIGHT = new Set(['kpi', 'kpi_group', 'text', 'status_grid', 'image', 'matrix', 'table', 'bullet', 'ranked', 'spark_table', 'field_list'])
+// Тепловая карта считает свою высоту сама (по числу строк) и НЕ тянется под
+// карточку, как остальные графики, — поэтому auto-высота ей годится.
+const AUTO_HEIGHT = new Set(['kpi', 'kpi_group', 'text', 'status_grid', 'image', 'matrix', 'table', 'bullet', 'ranked', 'spark_table', 'field_list', 'heatmap'])
 
 /**
  * Типы, которые на широком мониторе не грех уплотнить, и предел уплотнения.

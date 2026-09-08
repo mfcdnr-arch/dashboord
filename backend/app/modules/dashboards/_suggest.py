@@ -102,7 +102,10 @@ WIDGET_SIZE = {
     "dynamics": (4, 7),
     "bar": (12, 6), "line": (12, 6), "pie": (6, 6), "waterfall": (6, 6),
     "compare": (12, 8), "cross_dataset_compare": (12, 8), "yoy": (12, 6),
-    "heatmap": (6, 7), "pivot": (12, 6), "table": (12, 6), "matrix": (12, 7),
+    # Тепловая карта — того же рода, что таблица и матрица: строк в ней
+    # столько, сколько строк в форме (у РЦО 63 отделения), и в половине ряда
+    # подписи осей ложатся друг на друга. Высоту считает `heatmap_height`.
+    "heatmap": (12, 7), "pivot": (12, 6), "table": (12, 6), "matrix": (12, 7),
     "funnel": (6, 7), "status_grid": (6, 6), "objects_compare": (6, 7),
     # Полосы: строка на пару «план + факт». Высота растёт с числом строк, её
     # считает `bullet_height` — здесь запасное значение на 3 строки.
@@ -182,6 +185,23 @@ def matrix_height(field_count: int) -> int:
     return max(8, min(24, 5 + (field_count or 6)))
 
 
+def heatmap_height(row_count: int) -> int:
+    """Высота тепловой карты — по числу СТРОК формы, а не по типу виджета.
+
+    🔴 Найдено осмотром виджета на дашборде заказчика: у ежедневного отчёта РЦО
+    63 отделения, а карта стояла в семи рядах (280px) — на строку приходилось
+    4,6px, подписи сливались в сплошной мазок, и карта не отвечала ни на один
+    вопрос. Та же беда, что была у матрицы: константа из таблицы прячет строки.
+
+    Шаг строки 22px — тот же, что на фронте (`ROW_PX` в отрисовке карты): при
+    11px подписи ниже 20px начинают слипаться. Потолок в 40 рядов совпадает с
+    потолком высоты самого графика (1600px), чтобы карта не оказалась выше
+    отведённой ей карточки.
+    """
+    rows = row_count or 6
+    return max(7, min(40, 4 + -(-rows * 22 // 40)))
+
+
 def _content_height(widget: dict, default_h: int) -> int:
     """Высота, зависящая от СОДЕРЖИМОГО виджета, а не только от его типа.
 
@@ -193,7 +213,7 @@ def _content_height(widget: dict, default_h: int) -> int:
     ломала то, что собрал мастер.
     """
     kind = widget.get("widget_type")
-    if kind not in ("matrix", "bullet", "ranked"):
+    if kind not in ("matrix", "bullet", "ranked", "heatmap"):
         return default_h
     cfg = widget.get("config") or {}
     if isinstance(cfg, str):
@@ -205,6 +225,12 @@ def _content_height(widget: dict, default_h: int) -> int:
         return bullet_height(len(cfg.get("pairs") or []))
     if kind == "ranked":
         return ranked_height(ranked_rows_shown(cfg))
+    if kind == "heatmap":
+        # Число строк формы из конфигурации виджета: сборка кладёт туда то,
+        # что реально замерила. Без этой подсказки кнопка «↕ Подогнать размеры»
+        # ужала бы карту обратно до табличной высоты — ровно тот дефект, что
+        # уже ловили на матрице.
+        return heatmap_height(cfg.get("rows_hint") or 0)
     # Разрез по строкам формы: сколько их будет, заранее неизвестно — берём ту
     # же оценку в шесть строк, что и авто-сборка, чтобы обе стороны считали
     # одинаково.
@@ -761,7 +787,11 @@ def by_meaning_specs(fields: list, rows: int, periods: int, first_period: str = 
         # шкалой, а не выбором граф.
         parts = [f for f in main if not is_total_column(f["name"])]
         heat = parts if len(parts) >= MIN_FIELDS_HEATMAP else main
-        out.append({"kind": "heatmap", "fields": heat[:6]})
+        out.append({"kind": "heatmap", "fields": heat[:6],
+                    "height": heatmap_height(rows),
+                    # `rows_hint` — замеренное число строк: по нему подгонка
+                    # размеров посчитает ТУ ЖЕ высоту, что и сборка.
+                    "config": {"value_fields": [f["code"] for f in heat[:6]], "rows_hint": rows}})
 
     cum = [f for f in main if _is_cumulative(f["name"])]
     if cum and periods >= MIN_PERIODS_WATERFALL:

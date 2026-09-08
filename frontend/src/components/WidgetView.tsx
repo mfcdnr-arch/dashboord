@@ -13,7 +13,7 @@ import { alertLook, levelLook } from '../lib/alertColors'
 import { exportWidgetXlsx } from '../api'
 import PassportDialog from './dashboards/PassportDialog'
 import { fmtNumber as fmt, logScaleAdvice } from '../lib/format'
-import { distinctLabels, elideMiddle, plural } from '../lib/text'
+import { distinctLabels, dropCommonWords, elideMiddle, plural } from '../lib/text'
 
 // Отрисовка данных виджета: KPI/таблица/план-факт — HTML, столбцы/линия/круговая —
 // ECharts. По кнопке «подробнее» — drill (прозрачность): формула метрики + первичные строки.
@@ -1604,22 +1604,84 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   }
 
   if (data.type === 'heatmap') {
+    // Шаг строки тепловой карты: при 11px подписи ниже 20px начинают слипаться.
+    const ROW_PX = 22
     const rows: string[] = data.rows || []
     const cols: string[] = data.columns || []
     const cells: number[][] = data.cells || []
     if (rows.length === 0 || cols.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
-    const longX = cols.some((c) => c.length > 6)
+    // Подписи обеих осей — имена госформы: строки это отделения («Отделение № 1
+    // ГБУ "МФЦ ДНР" г. Мариуполь ул.Ленина, 107»), столбцы — графы вида
+    // «Ведомство · Услуга · Показатель». В полном виде они наезжают друг на
+    // друга и превращаются в мазок (замер на РЦО: 63 подписи по ~300px в
+    // карточке шириной 265). Отсекаем общую часть по словам — тот же приём, что
+    // в легенде графиков и в подписях «Сравнения»; полное имя остаётся в
+    // подсказке при наведении.
+    // Сначала убираем слова, повторяющиеся у ВСЕХ подписей («ГБУ "МФЦ ДНР"» есть
+    // у каждого из 63 отделений и не различает ничего), затем общие начало и
+    // конец. У отделений различает НАЧАЛО (номер и город), поэтому обрезаем
+    // хвост, а не середину: elideMiddle съел бы как раз номер.
+    const shortRows = dropCommonWords(distinctLabels(dropCommonWords(rows)))
+      .map((r) => (r.length > 46 ? `${r.slice(0, 45).trimEnd()}…` : r))
+    // Графа формы устроена как «Ведомство · Услуга · Показатель», и каждый
+    // сегмент отвечает за своё: ведомство различает столбцы между собой,
+    // показатель («Принято»/«Выдано») — внутри ведомства, а услуга длиннее их
+    // обоих. Поэтому подпись переносим ПО СЕГМЕНТАМ, а не по словам: перенос по
+    // словам разложил «Росреестр · Государственная регистрация прав на
+    // недвижимое имущество · Выдано» на семь строк, и ни одна не помещалась.
+    // Услугу обрезаем с КОНЦА: у двух услуг Росреестра различается начало
+    // («Государственная регистрация» против «Государственный кадастровый»), а
+    // хвост у них почти одинаков («…имущество» / «…имущества»).
+    // Чем больше столбцов, тем уже слот под подпись: на шести графах и ноутбуке
+    // (окно 1150) строка в 18 знаков шире слота и задевает соседнюю — замерено.
+    const colChars = cols.length >= 5 ? 14 : 18
+    // Сегмент переносим ПО СЛОВАМ, а не режем: у двух услуг Росреестра
+    // различие («регистрация прав» против «кадастровый учет») стоит ВТОРЫМ
+    // словом, и обрезка по 14 знакам оставляла от обеих «Государственн…» —
+    // подписи переставали различаться вовсе.
+    const wrapSeg = (t: string, width: number, maxLines: number): string[] => {
+      const lines: string[] = []
+      let cur = ''
+      for (const word of t.split(/\s+/).filter(Boolean)) {
+        if (!cur) cur = word
+        else if (cur.length + 1 + word.length <= width) cur += ` ${word}`
+        else { lines.push(cur); cur = word; if (lines.length === maxLines) break }
+      }
+      if (lines.length < maxLines && cur) lines.push(cur)
+      return lines.map((l, i) => (l.length > width
+        ? `${l.slice(0, width - 1).trimEnd()}…`
+        : (i === maxLines - 1 && lines.length === maxLines && t.length > lines.join(' ').length ? `${l}…` : l)))
+    }
+    const colLabel = (c: string) => {
+      const seg = c.split(' · ').map((x) => x.trim()).filter(Boolean)
+      if (seg.length < 2) return wrapSeg(c, colChars + 6, 2).join('\n')
+      // Первый сегмент — ведомство, последний — показатель: они короткие и
+      // важны целиком. Длинная середина (услуга) получает две строки.
+      return [
+        ...wrapSeg(seg[0], colChars, 1),
+        ...seg.slice(1, -1).flatMap((x) => wrapSeg(x, colChars, 2)),
+        ...wrapSeg(seg[seg.length - 1], colChars, 1),
+      ].join('\n')
+    }
+    const shortCols = dropCommonWords(cols).map(colLabel)
+    const colLines = Math.max(...shortCols.map((c) => c.split('\n').length))
+    const longX = shortCols.some((c) => c.length > 6)
     const opt: EChartsOption = {
       tooltip: { position: 'top', formatter: (p: any) => `${cols[p.value[0]]} · ${rows[p.value[1]]}: <b>${fmt(p.value[2])}</b>` },
-      grid: { left: 8, right: 12, top: 10, bottom: longX ? 58 : 44, containLabel: true },
-      xAxis: { type: 'category', data: cols, splitArea: { show: true }, axisLabel: { fontSize: 11, interval: 0, rotate: longX ? 30 : 0 } },
-      yAxis: { type: 'category', data: rows, splitArea: { show: true }, axisLabel: { fontSize: 11, interval: 0 } },
+      grid: { left: 8, right: 12, top: 10, bottom: longX ? 24 + colLines * 13 : 44, containLabel: true },
+      xAxis: { type: 'category', data: shortCols, splitArea: { show: true },
+        axisLabel: { fontSize: 10, interval: 0, lineHeight: 12 } },
+      yAxis: { type: 'category', data: shortRows, splitArea: { show: true }, axisLabel: { fontSize: 11, interval: 0 } },
       visualMap: { min: data.min ?? 0, max: data.max || 1, calculable: true, orient: 'horizontal', left: 'center', bottom: 0,
         itemHeight: 80, textStyle: { fontSize: 10 }, inRange: { color: C.heat } },
       series: [{ type: 'heatmap', data: cells, label: { show: rows.length * cols.length <= 60, fontSize: 10, formatter: (p: any) => fmt(p.value[2]) },
         emphasis: { itemStyle: { shadowBlur: 6, shadowColor: 'rgba(0,0,0,0.3)' } } }],
     }
-    const h = Math.min(380, Math.max(200, rows.length * 26 + (longX ? 96 : 82)))
+    // 🔴 Прежний потолок в 380px означал, что при 63 отделениях на строку
+    // остаётся 4,6px — подписи ложились друг на друга, и карта переставала быть
+    // читаемой вовсе. Высота идёт по числу строк, как у матрицы: длинная
+    // страница читается лучше, чем нечитаемый мазок в маленькой карточке.
+    const h = Math.min(1600, Math.max(200, rows.length * ROW_PX + (longX ? 96 : 82)))
     return <EChart option={P(opt)} height={h} />
   }
 
