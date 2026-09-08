@@ -395,6 +395,8 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   // месяца, и по отчётам матрица отвечает на «что было на прошлой неделе», а
   // не на «как прошёл месяц».
   const [periodGroup, setPeriodGroup] = useState<string>(cfg0.period_group === 'month' ? 'month' : 'report')
+  // Разрез водопада: вклад ПЕРИОДОВ (ради чего вид и заводился) или строк формы.
+  const [wfBy, setWfBy] = useState<string>(cfg0.by === 'periods' ? 'periods' : 'rows')
   // Волна F: обнаружение аномалий (без ИИ — отклонение от линии тренда в σ).
   const [anomalies, setAnomalies] = useState<boolean>(!!cfg0.anomalies)
   const [anomalyThreshold, setAnomalyThreshold] = useState<string>(cfg0.anomaly_threshold != null ? String(cfg0.anomaly_threshold) : '2')
@@ -506,8 +508,9 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     } : null
     return (dataset && valueField)
       ? { dataset_code: dataset, value_field: valueField,
+          ...(type === 'waterfall' && wfBy === 'periods' ? { by: 'periods' } : {}),
           ...(ghostPrev && (type === 'bar' || type === 'line') ? { ghost_prev: true } : {}) }
-      : null // bar/line/pie/yoy
+      : null // bar/line/pie/yoy/waterfall
   }
 
   // Итоговый config = базовый + (опционально) свой фильтр (кроме text/image).
@@ -862,6 +865,20 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
             <option value="rows">Строки формы (районы, отделения) × даты</option>
             <option value="fields">Показатели формы × даты</option>
           </select>
+        </F>
+      )}
+      {type === 'waterfall' && (
+        <F t="Из чего складывается итог">
+          <select style={sel} value={wfBy} onChange={(e) => setWfBy(e.target.value)}
+            title="«Вклад периодов» отвечает на «за счёт чего итог такой», «вклад строк» — на «кто сколько дал»">
+            <option value="periods">Вклад периодов (отчёты или месяцы)</option>
+            <option value="rows">Вклад строк формы (районы, отделения)</option>
+          </select>
+          <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4, maxWidth: 340 }}>
+            {wfBy === 'periods'
+              ? 'У накопительного итога вклад периода — это прирост к предыдущему, а первый столбик показывает уровень, с которого начали. Для долей вид не строится: вклады долей не складываются.'
+              : 'Столбик на строку формы; если строк много, хвост складывается в «Прочие» — иначе сумма столбиков перестала бы сходиться с итогом.'}
+          </div>
         </F>
       )}
       {type === 'matrix' && (

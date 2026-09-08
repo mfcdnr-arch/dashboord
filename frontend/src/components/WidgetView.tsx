@@ -2111,16 +2111,28 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     if (cats.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
     const vals: number[] = (data.values || []).map((x: any) => (x == null ? 0 : x))
     const total = vals.reduce((a, b) => a + b, 0)
-    const catAll = [...cats, data.total_label || 'Итого']
+    // Подписи: у разреза по периодам это даты или месяцы (коротко и так), у
+    // разреза по строкам — имена отделений, и им нужна та же обработка, что на
+    // остальных осях: убрать повторяющееся у всех, отсечь общее, обрезать хвост.
+    const shortCats = data.by === 'periods'
+      ? cats.map(fmtPeriod)
+      : dropCommonWords(distinctLabels(dropCommonWords(cats)))
+        .map((c) => (c.length > 22 ? `${c.slice(0, 21).trimEnd()}…` : c))
+    const catAll = [...shortCats, data.total_label || 'Итого']
+    const fullAll = [...cats, data.total_label || 'Итого']
     const placeholder: number[] = []
     const bars: any[] = []
     let run = 0
-    vals.forEach((x) => { placeholder.push(x >= 0 ? run : run + x); bars.push({ value: Math.abs(x), itemStyle: { color: x >= 0 ? '#0f6e56' : '#a3532d' } }); run += x })
+    // Цвета — из токенов темы, а не жёсткие: в тёмной теме прежние #0f6e56 и
+    // #a3532d светились чужими пятнами (та же правка, что у порогов 18.08).
+    const up = 'var(--alert-good)'
+    const down = 'var(--alert-danger)'
+    vals.forEach((x) => { placeholder.push(x >= 0 ? run : run + x); bars.push({ value: Math.abs(x), itemStyle: { color: x >= 0 ? up : down } }); run += x })
     placeholder.push(0); bars.push({ value: total, itemStyle: { color: C.c1 } })
     const longX = catAll.some((c) => c.length > 6)
     const opt: EChartsOption = {
       grid: { left: 44, right: 12, top: 12, bottom: longX ? 56 : 40 },
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: (p: any) => { const i = p[0].dataIndex; const v = i < vals.length ? vals[i] : total; return `${catAll[i]}: <b>${fmt(v)}</b>` } },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: (p: any) => { const i = p[0].dataIndex; const v = i < vals.length ? vals[i] : total; return `${fullAll[i]}: <b>${fmt(v)}</b>` } },
       xAxis: { type: 'category', data: catAll, axisLabel: { interval: 0, rotate: longX ? 30 : 0, fontSize: 11 } },
       yAxis: { type: 'value' },
       series: [
@@ -2128,7 +2140,26 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         { type: 'bar', stack: 'wf', data: bars, barMaxWidth: 40, label: { show: true, position: 'top', fontSize: 10, formatter: (p: any) => fmt(p.dataIndex < vals.length ? vals[p.dataIndex] : total) } },
       ],
     }
-    return <EChart option={P(opt)} height={220} />
+    return (
+      <div style={{ height: '100%' }}>
+        <EChart option={P(opt)} height={data.note || data.hidden_rows ? 196 : 220} />
+        {data.note && (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>
+            {data.note}
+            {data.grouped === 'month' && ' Отчёты свёрнуты в месяцы — иначе столбиков было бы полсотни.'}
+          </div>
+        )}
+        {data.hidden_rows > 0 && (
+          // Хвост не отброшен, а сложен в один столбик: водопад держится на
+          // равенстве «сумма вкладов = итог», и отбрасывание сломало бы саму
+          // арифметику, а не только полноту.
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+            Показаны крупнейшие {(data.categories || []).length - 1} из {data.total_rows};
+            остальные сложены в «Прочие», поэтому сумма столбиков по-прежнему равна итогу.
+          </div>
+        )}
+      </div>
+    )
   }
 
   if (data.type === 'objects_compare') {

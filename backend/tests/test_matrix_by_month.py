@@ -226,3 +226,97 @@ def test_auto_build_picks_months_only_for_a_long_series():
     short_series = plan(4)
     assert short_series and "period_group" not in short_series[0]["config"]
     assert "датам" in short_series[0]["name"]
+
+
+# ── Водопад: из чего сложился итог ─────────────────────────────────────────
+
+async def test_waterfall_by_periods_on_a_cumulative_field(client, admin_headers, mm_ds):
+    """🔴 Накопительный итог: вклад периода — ПРИРОСТ, а не само значение.
+
+    Найдено осмотром дашборда заказчика: авто-сборка берёт накопительную графу и
+    называет виджет «вклад периодов», а данные приходили ПО СТРОКАМ — у формы
+    МАХ водопад из одного столбика объяснял 2 537 581 самим собой.
+
+    Первый столбик — уровень на начало отрезка: начни водопад с нуля, он
+    приписал бы первому периоду всё накопленное до него.
+    """
+    did, pid = await _page(client, admin_headers, "zmm_wf_cum")
+    try:
+        r = await client.post(f"/dashboard-pages/{pid}/widgets", headers=admin_headers,
+                              json={"name": "Водопад", "widget_type": "waterfall",
+                                    "config": {"dataset_code": mm_ds, "value_field": "cum",
+                                               "by": "periods"}})
+        d = (await client.get(f"/widgets/{r.json()['id']}/data", headers=admin_headers)).json()
+        assert d["by"] == "periods" and d["fold"] == "last"
+        # Строки свёрнуты суммой внутри отчёта: 1000 → 1200 → 1500 → 1800 → 2000.
+        assert d["categories"][0] == "2026-07-05"
+        assert d["values"] == [1000.0, 200.0, 300.0, 300.0, 200.0]
+        # Сумма столбиков = последнее значение: на этом водопад и держится.
+        assert sum(d["values"]) == 2000.0
+        assert "уровень на начало" in (d["note"] or "")
+    finally:
+        await _cleanup(did)
+
+
+async def test_waterfall_by_periods_on_a_flow_field(client, admin_headers, mm_ds):
+    """Поток: вклад периода — само значение, итог — сумма."""
+    did, pid = await _page(client, admin_headers, "zmm_wf_flow")
+    try:
+        r = await client.post(f"/dashboard-pages/{pid}/widgets", headers=admin_headers,
+                              json={"name": "Водопад", "widget_type": "waterfall",
+                                    "config": {"dataset_code": mm_ds, "value_field": "flow",
+                                               "by": "periods"}})
+        d = (await client.get(f"/widgets/{r.json()['id']}/data", headers=admin_headers)).json()
+        assert d["fold"] == "sum" and d["note"] is None
+        assert d["values"] == [100.0, 200.0, 300.0, 400.0, 500.0]
+        assert sum(d["values"]) == 1500.0
+    finally:
+        await _cleanup(did)
+
+
+async def test_waterfall_refuses_a_share_and_says_why(client, admin_headers, mm_ds):
+    """Доля: вид не строится вовсе. Правдоподобная с виду картинка хуже её отсутствия."""
+    did, pid = await _page(client, admin_headers, "zmm_wf_share")
+    try:
+        r = await client.post(f"/dashboard-pages/{pid}/widgets", headers=admin_headers,
+                              json={"name": "Водопад", "widget_type": "waterfall",
+                                    "config": {"dataset_code": mm_ds, "value_field": "share",
+                                               "by": "periods"}})
+        resp = await client.get(f"/widgets/{r.json()['id']}/data", headers=admin_headers)
+        assert resp.status_code >= 400
+        assert "не складываются" in resp.text
+    finally:
+        await _cleanup(did)
+
+
+def test_waterfall_by_rows_keeps_the_sum_equal_to_the_total():
+    """🔴 Хвост складывается в «Прочие», а не отбрасывается.
+
+    У столбчатого графика лишние строки можно просто не показать: каждый столбик
+    сам по себе. Водопад держится на равенстве «сумма вкладов = итог», и
+    отбрасывание сломало бы саму арифметику, а не только полноту.
+    """
+    from app.modules.dashboards._widgetcalc import MAX_WF_BARS, _trim_waterfall
+
+    cats = [f"Отделение {i}" for i in range(30)]
+    vals = [float(i) for i in range(30)]
+    res = {"categories": list(cats), "values": list(vals)}
+    _trim_waterfall(res)
+
+    assert len(res["categories"]) == MAX_WF_BARS
+    assert "Прочие" in res["categories"][-1]
+    assert res["hidden_rows"] == 30 - (MAX_WF_BARS - 1)
+    # Главное: сумма не изменилась.
+    assert sum(res["values"]) == sum(vals)
+
+
+def test_auto_build_asks_the_waterfall_for_periods():
+    """Разрез задаётся ЯВНО: иначе виджет снова показывал бы строки под именем «вклад периодов»."""
+    from app.modules.dashboards._suggest import by_meaning_specs
+
+    fields = [{"code": "cum", "name": "Количество доставленных · Факт · нарастающим итогом"}]
+    specs = by_meaning_specs(fields, rows=3, periods=6, values={"cum": 100.0},
+                             volumes={"cum": 100.0})
+    wf = [s for s in specs if s["kind"] == "waterfall"]
+    assert wf, "на накопительной графе с историей водопад должен предлагаться"
+    assert wf[0]["config"]["by"] == "periods"

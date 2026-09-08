@@ -161,6 +161,49 @@ def _group_matrix_by_month(m: dict, fold_for) -> dict:
             "total_reports": m.get("total_periods")}
 
 
+# Столбиков в водопаде: у формы РЦО 62 отделения, и водопад из 62 полосок
+# нечитаем ровно так же, как столбчатый график (замер 08.09).
+MAX_WF_BARS = 12
+
+
+def _trim_waterfall(res: dict) -> None:
+    """Оставить читаемое число вкладов, свернув остальные в «Прочие».
+
+    🔴 Здесь нельзя просто отбросить хвост, как у столбчатого графика: водопад
+    держится на равенстве «сумма вкладов = итог». Отбрось мы полсотни строк —
+    столбики перестали бы сходиться с итоговым, и виджет соврал бы арифметикой,
+    а не только полнотой. Поэтому хвост не выбрасывается, а СКЛАДЫВАЕТСЯ в один
+    столбик, и сколько строк в нём — сказано в его подписи.
+    """
+    cats = res.get("categories") or []
+    vals = res.get("values") or []
+    if len(cats) <= MAX_WF_BARS:
+        return
+    idx = sorted(range(len(cats)),
+                 key=lambda i: abs(vals[i]) if vals[i] is not None else 0.0,
+                 reverse=True)[:MAX_WF_BARS - 1]
+    idx.sort()
+    keep = set(idx)
+    rest = [v for i, v in enumerate(vals) if i not in keep and v is not None]
+    res["categories"] = [cats[i] for i in idx] + [
+        f"Прочие ({len(rest)} {_plural_rows(len(rest))})"]
+    res["values"] = [vals[i] for i in idx] + [sum(rest)]
+    res["hidden_rows"] = len(rest)
+    res["total_rows"] = len(cats)
+
+
+def _plural_rows(n: int) -> str:
+    tail = abs(n) % 100
+    if 11 <= tail <= 14:
+        return "строк"
+    last = tail % 10
+    if last == 1:
+        return "строка"
+    if 2 <= last <= 4:
+        return "строки"
+    return "строк"
+
+
 def _month_buckets(pairs, title: str):
     """Отчёты одного набора данных → значение месяца. Как сворачивать — по СМЫСЛУ графы.
 
@@ -799,15 +842,79 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
                 "total_note": (" ".join(notes) if notes else None)}
 
     if t == "waterfall":
-        # Водопад: вклад каждой строки в накопленный итог (нарастающим), финальный столбец «Итого».
-        # Для МФЦ: из чего складывается общий объём (услуги → суммарно).
+        # Водопад: из чего сложился итог — по ПЕРИОДАМ или по СТРОКАМ формы.
+        #
+        # 🔴 Разрез по периодам добавлен потому, что его не было, хотя вид ради
+        # него и заводился: авто-сборка берёт накопительную графу и называет
+        # виджет «вклад периодов», а данные приходили по строкам. На дашборде
+        # заказчика это выглядело так: у формы МАХ (одна строка) водопад из
+        # ОДНОГО столбика, объясняющий 2 537 581 самим собой, а у РЦО — 62
+        # отделения за один день под именем «периоды». Название врало.
         if not cfg.get("dataset_code") or not cfg.get("value_field"):
             raise DashboardError("Водопад: укажите dataset_code и value_field")
-        series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed, period)
-        cats = [s["category"] for s in series]
-        vals = [s["value"] for s in series]
-        return {"type": "waterfall", "title": name, "categories": cats, "values": vals,
-                "total_label": cfg.get("total_label") or "Итого"}
+        # Умолчание — строки: у виджетов, заведённых до этой правки, разреза в
+        # конфигурации нет, и менять им смысл молча нельзя.
+        if cfg.get("by") != "periods":
+            series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"],
+                                           row, allowed, period)
+            cats = [s["category"] for s in series]
+            vals = [s["value"] for s in series]
+            res = {"type": "waterfall", "title": name, "by": "rows",
+                   "categories": cats, "values": vals,
+                   "total_label": cfg.get("total_label") or "Итого"}
+            _trim_waterfall(res)
+            return res
+
+        title = await _field_title(conn, org_id, cfg["dataset_code"], cfg["value_field"]) \
+            or cfg["value_field"]
+        fold = fold_of(title)
+        if fold == "avg":
+            # Доля не складывается, а водопад — это ровно сложение вкладов.
+            # Правдоподобная с виду картинка была бы неверной, поэтому её нет.
+            raise DashboardError(
+                f"Водопад по периодам не строится для доли («{title}»): вклады долей не "
+                "складываются. Возьмите количество или посмотрите долю в «Динамике».")
+
+        pairs = await _dataset_period_series(conn, org_id, cfg["dataset_code"],
+                                             cfg["value_field"], from_date, to_date, row, allowed)
+        if not pairs:
+            raise DashboardError("Водопад: за выбранный период отчётов нет")
+        grouped = None
+        reports = None
+        if len(pairs) > MAX_WF_BARS:
+            # Столбик на каждый из 53 ежедневных отчётов — снова мазок. Сворачиваем
+            # в месяцы ТЕМ ЖЕ правилом, что и матрица: второго понятия о том, как
+            # собирается месяц, в системе быть не должно.
+            vmap, _fold, per_month = _month_buckets(pairs, title)
+            steps = [(k, vmap[k]) for k in vmap]
+            grouped, reports = "month", [per_month[k] for k in vmap]
+            if len(steps) > MAX_WF_BARS:
+                cut = len(steps) - MAX_WF_BARS
+                steps, reports = steps[cut:], reports[cut:]
+        else:
+            steps = list(pairs)
+
+        if fold == "last":
+            # Накопительный итог: вклад периода — это ПРИРОСТ к предыдущему, а
+            # сам итог равен последнему значению. Первый столбик — уровень, с
+            # которого начали: иначе водопад начинался бы с нуля и приписывал
+            # первому периоду всё накопленное до него.
+            cats = [steps[0][0]] + [p for p, _ in steps[1:]]
+            vals = [steps[0][1]] + [steps[i][1] - steps[i - 1][1] for i in range(1, len(steps))]
+            base_note = ("Первый столбик — уровень на начало отрезка, дальше приросты: "
+                         "накопительный итог не складывается по периодам.")
+        else:
+            cats = [p for p, _ in steps]
+            vals = [v for _, v in steps]
+            base_note = None
+
+        res = {"type": "waterfall", "title": name, "by": "periods",
+               "categories": cats, "values": vals,
+               "total_label": cfg.get("total_label") or "Итого",
+               "fold": fold, "grouped": grouped, "reports": reports,
+               "note": base_note,
+               "as_of": (steps[-1][0] if steps else None)}
+        return res
 
     if t == "funnel":
         # Воронка: этапы процесса по ПОЛЯМ формы (обращения → отправлено →
