@@ -253,3 +253,52 @@ def test_heatmap_keeps_totals_when_there_is_nothing_else():
                              volumes={"a": 5426.0, "b": 4500.0})
     heat = [s for s in specs if s["kind"] == "heatmap"]
     assert heat and len(heat[0]["fields"]) == 2
+
+
+# ── График по строкам: обрезка вместо мазка ────────────────────────────────
+
+def test_row_bars_are_trimmed_by_volume_and_the_rest_is_named():
+    """🔴 63 отделения на графике — сплошной мазок; показываем крупнейшие и говорим сколько.
+
+    Молчаливой обрезки быть не должно: график, тихо показавший часть строк,
+    читается как показавший все. Порядок показа — как в форме, а не по величине:
+    перетасовка при каждом открытии мешала бы сверять виджет с файлом.
+    """
+    from app.modules.dashboards._widgetcalc import MAX_ROW_BARS, _trim_bars
+
+    cats = [f"Отделение № {i}" for i in range(1, 64)]
+    # Самые крупные намеренно раскиданы по всему списку и в КОНЦЕ тоже — отбор
+    # по порядку заведения взял бы не их.
+    vals = [float(i) for i in range(63)]
+    res = {"categories": list(cats), "values": list(vals)}
+    _trim_bars(res)
+
+    assert len(res["categories"]) == MAX_ROW_BARS
+    assert res["hidden_rows"] == 63 - MAX_ROW_BARS
+    assert res["total_rows"] == 63
+    # Оставлены крупнейшие…
+    assert res["values"] == sorted(vals, reverse=True)[:MAX_ROW_BARS][::-1]
+    # …и показаны в порядке формы (по возрастанию индекса), а не по величине.
+    assert res["categories"] == [c for c in cats if c in set(res["categories"])]
+
+
+def test_short_row_list_is_not_touched_and_no_note_appears():
+    """На форме из пяти строк обрезать нечего — и говорить не о чем."""
+    from app.modules.dashboards._widgetcalc import _trim_bars
+
+    res = {"categories": ["Донецк", "Макеевка", "Горловка"], "values": [3.0, 1.0, 2.0]}
+    _trim_bars(res)
+    assert res["categories"] == ["Донецк", "Макеевка", "Горловка"]
+    assert "hidden_rows" not in res
+
+
+def test_negative_values_count_by_volume_not_by_sign():
+    """Объём — это «сколько через строку проходит»; минус его не уменьшает."""
+    from app.modules.dashboards._widgetcalc import MAX_ROW_BARS, _trim_bars
+
+    cats = [f"с{i}" for i in range(20)]
+    vals = [0.0] * 19 + [-1000.0]
+    res = {"categories": list(cats), "values": list(vals)}
+    _trim_bars(res)
+    assert len(res["categories"]) == MAX_ROW_BARS
+    assert -1000.0 in res["values"], "крупнейшая по модулю строка должна остаться"

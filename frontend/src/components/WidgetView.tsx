@@ -12,7 +12,7 @@ import ReportProblemDialog from './dashboards/ReportProblemDialog'
 import { alertLook, levelLook } from '../lib/alertColors'
 import { exportWidgetXlsx } from '../api'
 import PassportDialog from './dashboards/PassportDialog'
-import { fmtNumber as fmt, logScaleAdvice } from '../lib/format'
+import { fmtNumber as fmt, heatSteps, logScaleAdvice } from '../lib/format'
 import { distinctLabels, dropCommonWords, elideMiddle, plural } from '../lib/text'
 
 // Отрисовка данных виджета: KPI/таблица/план-факт — HTML, столбцы/линия/круговая —
@@ -117,6 +117,15 @@ function chartOption(data: any): EChartsOption {
         label: { fontSize: 11 }, color: C.palette }],
     }
   }
+  // Подписи категорий — имена отделений («Отделение № 1 ГБУ "МФЦ ДНР" г. Мариуполь
+  // ул.Ленина, 107»). Сначала убираем слова, повторяющиеся у ВСЕХ (они не
+  // различают ничего), потом общее начало и конец, и только затем обрезаем — с
+  // хвоста, потому что различает эти имена НАЧАЛО: номер отделения и город.
+  // Полное имя остаётся в подсказке при наведении.
+  // На развёрнутом графике подпись идёт строкой и место под неё есть: 34 знака
+  // — это ~190px из 642 на карточке в половину ряда, то есть меньше трети.
+  const shortCats = dropCommonWords(distinctLabels(dropCommonWords(cats)))
+    .map((c) => (c.length > 34 ? `${c.slice(0, 33).trimEnd()}…` : c))
   const isLine = data.type === 'line'
   // «Призрак» прошлого отчёта (п. 3): бледная серия ПОЗАДИ текущей. Цвет и
   // пунктир — те же, что у прошлого года в виджете «Год к году» (`C.prev`):
@@ -125,13 +134,56 @@ function chartOption(data: any): EChartsOption {
   const ghostSeries = ghost ? [ghostOpt(ghost, isLine, C)] : []
   // Под легенду резервируем место в сетке, иначе она ложится на подписи
   // категорий — те же грабли, что уже ловили на «Сравнении» 09.08.
-  const catsRoom = cats.some((c) => c.length > 6) ? 46 : 24
+  const catsRoom = shortCats.some((c) => c.length > 6) ? 46 : 24
+  // 🔴 Разворот графика, а не обрезка подписей. У формы РЦО категории — имена
+  // отделений: на карточке в половину ряда (642px) слот категории 38px, а
+  // подпись при 11px занимает 138px, и повёрнутые на 30° подписи давали 27
+  // наложений даже после сокращения до 12 столбиков. На горизонтальных полосах
+  // подпись идёт СТРОКОЙ и читается целиком, а длина имени перестаёт спорить с
+  // числом категорий. Разворачиваем только там, где иначе не помещается:
+  // короткие подписи («Донецк», «Горловка») на вертикальных столбиках нагляднее.
+  const horizontal = !isLine && cats.length > 4 && shortCats.some((c) => c.length > 10)
+  const catAxis = { type: 'category' as const, data: shortCats,
+    axisLabel: { interval: 0, rotate: horizontal ? 0 : (shortCats.some((c) => c.length > 6) ? 30 : 0), fontSize: 11 } }
+  if (horizontal) {
+    return {
+      // Ось категорий у ECharts растёт снизу вверх, поэтому её переворачиваем:
+      // иначе первая строка формы оказалась бы внизу графика.
+      grid: { left: 8, right: 44, top: 8, bottom: ghost ? 30 : 8, containLabel: true },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
+        formatter: (ps: any) => {
+          const arr = Array.isArray(ps) ? ps : [ps]
+          const i = arr[0]?.dataIndex ?? 0
+          return [cats[i] ?? '', ...arr.map((p: any) => `${p.marker}${p.seriesName}: <b>${fmt(p.value)}</b>`)].join('<br/>')
+        } },
+      legend: ghost ? { bottom: 0, itemHeight: 8, itemWidth: 14, textStyle: { fontSize: 10 } } : undefined,
+      // Делений на оси значений — немного и без наложений: на узкой карточке
+      // (417px при окне 1150) под саму ось остаётся ~180px, и подписи «100 150
+      // 200 250» наезжали друг на друга. Точное число у каждой полосы всё равно
+      // подписано справа, поэтому спрятать лишнее деление ничего не теряет.
+      xAxis: { type: 'value' as const, splitNumber: 3, axisLabel: { hideOverlap: true, fontSize: 10 } },
+      yAxis: { ...catAxis, inverse: true },
+      series: [{ type: 'bar', name: 'Сейчас', data: vals, color: C.c1, itemStyle: { color: C.c1 },
+        barMaxWidth: 18,
+        label: { show: true, position: 'right', fontSize: 10, formatter: (p: any) => fmt(p.value) } },
+        ...(ghost ? [{ ...ghostOpt(ghost, false, C), symbolSize: 6 }] : [])],
+    }
+  }
   return {
     grid: { left: gridLeft([...vals, ...(ghost?.values || [])]), right: 12, top: 12,
       bottom: catsRoom + (ghost ? 22 : 0) },
-    tooltip: { trigger: 'axis' },
+    // На оси подпись сокращена, поэтому в подсказке показываем ПОЛНУЮ: иначе
+    // сокращение перестало бы быть безопасным — узнать, какое это отделение,
+    // было бы негде.
+    tooltip: { trigger: 'axis',
+      formatter: (ps: any) => {
+        const arr = Array.isArray(ps) ? ps : [ps]
+        const i = arr[0]?.dataIndex ?? 0
+        const head = cats[i] ?? ''
+        return [head, ...arr.map((p: any) => `${p.marker}${p.seriesName}: <b>${fmt(p.value)}</b>`)].join('<br/>')
+      } },
     legend: ghost ? { bottom: 0, itemHeight: 8, itemWidth: 14, textStyle: { fontSize: 10 } } : undefined,
-    xAxis: { type: 'category', data: cats, axisLabel: { interval: 0, rotate: cats.some((c) => c.length > 6) ? 30 : 0, fontSize: 11 } },
+    xAxis: { type: 'category', data: shortCats, axisLabel: { interval: 0, rotate: shortCats.some((c) => c.length > 6) ? 30 : 0, fontSize: 11 } },
     yAxis: { type: 'value' },
     // Призрак идёт ПЕРВЫМ в списке: у столбиков с barGap:'-100%' вторая серия
     // рисуется поверх первой, поэтому «раньше» должно быть до «сейчас».
@@ -1610,6 +1662,16 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     const cols: string[] = data.columns || []
     const cells: number[][] = data.cells || []
     if (rows.length === 0 || cols.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
+    // 🔴 На равномерной шкале «от нуля до максимума» карта РЦО сливалась в один
+    // бледный тон: замер — 67,7 % клеток лежат в нижней пятой части шкалы,
+    // потому что распределение длиннохвостое (медиана 27 при максимуме 290 на
+    // 63 отделениях). Цвет переставал отвечать на свой единственный вопрос —
+    // «где нагрузка».
+    //
+    // Ступени по КВАНТИЛЯМ разводят клетки поровну. Границы подписаны в
+    // легенде, поэтому величина не подменяется местом в ряду: человек видит,
+    // какому числу соответствует оттенок.
+    const steps = heatSteps(cells.map((c) => c[2]).filter((v) => typeof v === 'number'), C.heat)
     // Подписи обеих осей — имена госформы: строки это отделения («Отделение № 1
     // ГБУ "МФЦ ДНР" г. Мариуполь ул.Ленина, 107»), столбцы — графы вида
     // «Ведомство · Услуга · Показатель». В полном виде они наезжают друг на
@@ -1672,8 +1734,12 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
       xAxis: { type: 'category', data: shortCols, splitArea: { show: true },
         axisLabel: { fontSize: 10, interval: 0, lineHeight: 12 } },
       yAxis: { type: 'category', data: shortRows, splitArea: { show: true }, axisLabel: { fontSize: 11, interval: 0 } },
-      visualMap: { min: data.min ?? 0, max: data.max || 1, calculable: true, orient: 'horizontal', left: 'center', bottom: 0,
-        itemHeight: 80, textStyle: { fontSize: 10 }, inRange: { color: C.heat } },
+      visualMap: steps
+        // Ступени по РАСПРЕДЕЛЕНИЮ, а не по отрезку от нуля до максимума.
+        ? { type: 'piecewise', pieces: steps.pieces, orient: 'horizontal', left: 'center', bottom: 0,
+            itemWidth: 14, itemHeight: 10, textStyle: { fontSize: 10 } }
+        : { min: data.min ?? 0, max: data.max || 1, calculable: true, orient: 'horizontal', left: 'center', bottom: 0,
+            itemHeight: 80, textStyle: { fontSize: 10 }, inRange: { color: C.heat } },
       series: [{ type: 'heatmap', data: cells, label: { show: rows.length * cols.length <= 60, fontSize: 10, formatter: (p: any) => fmt(p.value[2]) },
         emphasis: { itemStyle: { shadowBlur: 6, shadowColor: 'rgba(0,0,0,0.3)' } } }],
     }
@@ -1682,7 +1748,18 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     // читаемой вовсе. Высота идёт по числу строк, как у матрицы: длинная
     // страница читается лучше, чем нечитаемый мазок в маленькой карточке.
     const h = Math.min(1600, Math.max(200, rows.length * ROW_PX + (longX ? 96 : 82)))
-    return <EChart option={P(opt)} height={h} />
+    return (
+      <div style={{ height: '100%' }}>
+        <EChart option={P(opt)} height={h} />
+        {steps && (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>
+            Ступени шкалы — по распределению значений: в каждой примерно пятая часть клеток.
+            Значения различаются в {fmt(Math.round(steps.spread))} раз, и на равномерной шкале
+            {' '}{steps.crowded} % клеток слились бы в один оттенок. Границы ступеней подписаны в легенде.
+          </div>
+        )}
+      </div>
+    )
   }
 
   if (data.type === 'kpi_group') {
@@ -2037,8 +2114,39 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   if ((data.categories || []).length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
   return (
     <div style={{ height: '100%' }}>
-      <EChart option={P(chartOption(data))} height={data.ghost_note ? 182 : 200} onPick={onPick} />
+      <EChart option={P(chartOption(data))} height={chartHeight(data)} onPick={onPick} />
+      <TrimNote hidden={data.hidden_rows} shown={(data.categories || []).length} total={data.total_rows} />
       <GhostNote note={data.ghost_note} />
+    </div>
+  )
+}
+
+/** Высота графика: у развёрнутого она задаётся ЧИСЛОМ ПОЛОС.
+ *
+ *  У вертикального графика высота — дело вкуса, у горизонтального — нет: полос
+ *  ровно столько, сколько категорий, и на фиксированной высоте они схлопываются
+ *  в нечитаемые нити. Шаг 20px: при 11px подписи ниже 18px начинают слипаться.
+ *  Условие то же, что в `chartOption`, — иначе высота и разворот разойдутся. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function chartHeight(data: any): number {
+  const cats: string[] = data.categories || []
+  const wide = data.type === 'bar' && cats.length > 4
+    && cats.some((c) => String(c).length > 10)
+  const base = (data.ghost_note ? 182 : 200) - (data.hidden_rows > 0 ? 16 : 0)
+  return wide ? Math.max(base, cats.length * 20 + 44) : base
+}
+
+/** Сколько строк не поместилось на график.
+ *
+ *  Молчаливой обрезки быть не должно: график, тихо показавший часть строк,
+ *  читается как показавший все. То же правило и та же формулировка, что у
+ *  «Сравнения показателей», «Ранжированного списка» и «Показателей списком». */
+function TrimNote({ hidden, shown, total }: { hidden?: number; shown: number; total?: number }) {
+  if (!hidden || hidden <= 0) return null
+  return (
+    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+      Показаны самые крупные: {shown} {plural(shown, 'строка', 'строки', 'строк')} из {total}
+      {' '}— иначе столбики становятся неразличимы. Полный список — в таблице ниже.
     </div>
   )
 }
