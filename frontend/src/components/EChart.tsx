@@ -6,6 +6,8 @@ import { BarChart, LineChart, PieChart, GaugeChart, HeatmapChart, ScatterChart }
 import { GridComponent, TooltipComponent, LegendComponent, TitleComponent, VisualMapComponent } from 'echarts/components'
 import { SVGRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts' // только тип (стирается при сборке)
+// Русская запись чисел — та же, что во всей системе (см. lib/format).
+import { fmtNumber } from '../lib/format'
 
 // SVG-рендерер (а не Canvas): графики — векторные. Причины для гос-он-прем (Astra):
 // не зависим от canvas, чётко при печати/PDF, работает в любом браузере с SVG.
@@ -43,12 +45,25 @@ export function withThemedText(option: EChartsOption): EChartsOption {
   const faint = tok('--border-faint', '#f1f5f9')
 
   type Ax = Record<string, unknown>
-  const axis = (a: Ax): Ax => ({
-    ...a,
-    axisLabel: { color: muted, ...(a.axisLabel as Ax || {}) },
-    axisLine: a.axisLine ?? { lineStyle: { color: line } },
-    splitLine: a.splitLine ?? { lineStyle: { color: faint } },
-  })
+  const axis = (a: Ax): Ax => {
+    const given = (a.axisLabel as Ax) || {}
+    // Числа на оси печатались по умолчанию ECharts — «1,000» вместо «1 000»,
+    // хотя ВЕЗДЕ в системе они русские (`fmtNumber`). На одном экране рядом
+    // оказывались две записи одного числа. Формат добавляется только оси
+    // ЗНАЧЕНИЙ и только там, где свой форматтер не задан: у категорий на оси
+    // подписи, а не числа, и трогать их нечем.
+    const needsNumberFormat = a.type === 'value' && given.formatter === undefined
+    return {
+      ...a,
+      axisLabel: {
+        color: muted,
+        ...(needsNumberFormat ? { formatter: (v: number) => fmtNumber(v) } : {}),
+        ...given,
+      },
+      axisLine: a.axisLine ?? { lineStyle: { color: line } },
+      splitLine: a.splitLine ?? { lineStyle: { color: faint } },
+    }
+  }
   const eachAxis = (ax: unknown) =>
     Array.isArray(ax) ? ax.map((a) => axis(a as Ax)) : ax ? axis(ax as Ax) : ax
 

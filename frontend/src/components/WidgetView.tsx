@@ -2164,17 +2164,50 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
 
   if (data.type === 'objects_compare') {
     const cats: string[] = data.categories || []
-    if (cats.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных по объектам для этого показателя</div>
-    const longX = cats.some((c) => c.length > 6)
+    if (cats.length === 0) {
+      // Причина пустоты названа словами: «нет данных» здесь читается как сбой,
+      // хотя обычно показатель просто зовётся у объектов по-разному.
+      return (
+        <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.5 }}>
+          {data.note || 'Нет данных по объектам для этого показателя'}
+        </div>
+      )
+    }
+    // Имена объектов длинные и с общим началом («Статистика услуг — …»):
+    // та же обработка, что на остальных осях, полное имя — в подсказке.
+    const shortObjs = dropCommonWords(distinctLabels(dropCommonWords(cats)))
+      .map((c) => (c.length > 22 ? `${c.slice(0, 21).trimEnd()}…` : c))
+    const perObj: any[] = data.objects || []
+    const longX = shortObjs.some((c) => c.length > 6)
     const opt: EChartsOption = {
       grid: { left: 44, right: 12, top: 14, bottom: longX ? 60 : 40 },
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      xAxis: { type: 'category', data: cats, axisLabel: { interval: 0, rotate: longX ? 30 : 0, fontSize: 11 } },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
+        formatter: (ps: any) => {
+          const arr = Array.isArray(ps) ? ps : [ps]
+          const i = arr[0]?.dataIndex ?? 0
+          const when = perObj[i]?.period ? ` · отчёт за ${ru(perObj[i].period)}` : ''
+          return `${cats[i] ?? ''}${when}<br/><b>${fmt(arr[0]?.value)}</b>`
+        } },
+      xAxis: { type: 'category', data: shortObjs, axisLabel: { interval: 0, rotate: longX ? 30 : 0, fontSize: 11 } },
       yAxis: { type: 'value' },
       series: [{ type: 'bar', barMaxWidth: 44, label: { show: true, position: 'top', fontSize: 11, formatter: (p: any) => fmt(p.value) },
         data: (data.values || []).map((v: number, i: number) => ({ value: v, itemStyle: { color: C.palette[i % C.palette.length] } })) }],
     }
-    return <EChart option={P(opt)} height={220} onPick={onPick} />
+    const hints = [
+      data.note,
+      // У каждого объекта свой последний отчёт — сравнивать их можно, но знать
+      // об этом человек обязан: иначе разные даты выглядят одним срезом.
+      data.mixed_periods ? 'У объектов разные последние отчёты — дата каждого видна при наведении.' : null,
+      data.aggregate === 'avg' ? '⌀ Доля усреднена по строкам: проценты не складываются.' : null,
+    ].filter(Boolean)
+    return (
+      <div style={{ height: '100%' }}>
+        <EChart option={P(opt)} height={hints.length ? 220 - hints.length * 16 : 220} onPick={onPick} />
+        {hints.map((h, i) => (
+          <div key={i} style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>{h}</div>
+        ))}
+      </div>
+    )
   }
 
   // bar | line | pie
@@ -2182,7 +2215,11 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   return (
     <div style={{ height: '100%' }}>
       <EChart option={P(chartOption(data))} height={chartHeight(data)} onPick={onPick} />
-      <TrimNote hidden={data.hidden_rows} shown={(data.categories || []).length} total={data.total_rows} />
+      <TrimNote hidden={data.hidden_rows} shown={(data.categories || []).length} total={data.total_rows}
+        folded={data.type === 'pie'} />
+      {data.note && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>{data.note}</div>
+      )}
       <GhostNote note={data.ghost_note} />
     </div>
   )
@@ -2208,8 +2245,19 @@ function chartHeight(data: any): number {
  *  Молчаливой обрезки быть не должно: график, тихо показавший часть строк,
  *  читается как показавший все. То же правило и та же формулировка, что у
  *  «Сравнения показателей», «Ранжированного списка» и «Показателей списком». */
-function TrimNote({ hidden, shown, total }: { hidden?: number; shown: number; total?: number }) {
+function TrimNote({ hidden, shown, total, folded }: { hidden?: number; shown: number; total?: number; folded?: boolean }) {
   if (!hidden || hidden <= 0) return null
+  // У круговой хвост не отброшен, а СЛОЖЕН в «Прочие» — формулировка «показаны
+  // самые крупные» там была бы неправдой: показаны все, просто часть одним
+  // сектором, и сумма долей по-прежнему равна целому.
+  if (folded) {
+    return (
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+        Крупнейшие {shown - 1} из {total}; остальные сложены в «Прочие», поэтому доли
+        по-прежнему считаются от целого.
+      </div>
+    )
+  }
   return (
     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
       Показаны самые крупные: {shown} {plural(shown, 'строка', 'строки', 'строк')} из {total}

@@ -28,6 +28,7 @@ from ._widgetsources import (
     _formula_value,
     _metric_value,
     _prev_period,
+    _row_acl_clause,
 )
 
 
@@ -466,7 +467,9 @@ def _normalize_cfg(cfg: dict) -> dict:
 
 # Виджеты, которым нужен весь РЯД периодов, а не один выпуск: они получают
 # диапазон как есть и сами разворачивают его во временную ось.
-RANGE_TYPES = {"dynamics", "yoy", "cross_dataset_compare", "matrix"}
+# «Сравнение подразделений» тоже здесь: у него нет одного `dataset_code`
+# (он ходит по всем объектам), поэтому диапазон он разбирает сам.
+RANGE_TYPES = {"dynamics", "yoy", "cross_dataset_compare", "matrix", "objects_compare"}
 
 
 async def _period_for_range(conn, org_id, code: str, from_date, to_date):
@@ -669,6 +672,56 @@ def _trim_compare(res: dict, cfg: dict) -> None:
 # После разворота предел задаёт высота карточки: 12 полос по 20px плюс ось — это
 # 290px, ровно то, что помещается в стандартную карточку графика.
 MAX_ROW_BARS = 12
+
+
+# Секторов в круговой. Замер на ежедневном отчёте РЦО: 62 отделения, пятёрка
+# крупнейших — 20,8 % целого, 20 секторов тоньше 1 %, самый мелкий 0,018 % (то
+# есть волосяная линия). Семь секторов плюс «Прочие» — предел, за которым доли
+# перестают читаться; та же граница, по которой авто-сборка вообще предлагает
+# круговую (`PIE_ROWS`).
+MAX_PIE_SLICES = 8
+
+
+def _trim_pie(res: dict) -> None:
+    """Оставить читаемое число секторов, СЛОЖИВ остальные в «Прочие».
+
+    🔴 Раньше круговой обрезки не было вовсе, и это было осознанно: доля
+    считается ОТ ЦЕЛОГО, и, показав десять строк из шестидесяти двух, виджет
+    показал бы доли от обрезка — числа выглядели бы настоящими и были бы
+    неверны. Вывод из этого сделан не «обрезать нельзя», а «нельзя ВЫБРАСЫВАТЬ»:
+    хвост сворачивается в один сектор, целое остаётся целым, и сумма долей
+    по-прежнему равна 100 %. Тот же приём, что у водопада по строкам.
+
+    Пустые значения тоже попадают в «Прочие»: сектор нулевой ширины не виден
+    вовсе, но строка существует, и молча терять её нельзя.
+    """
+    cats = res.get("categories") or []
+    vals = res.get("values") or []
+    if len(cats) <= MAX_PIE_SLICES:
+        return
+    idx = sorted(range(len(cats)),
+                 key=lambda i: abs(vals[i]) if i < len(vals) and vals[i] is not None else 0.0,
+                 reverse=True)[:MAX_PIE_SLICES - 1]
+    idx.sort()
+    keep = set(idx)
+    rest = [vals[i] for i in range(len(cats)) if i not in keep]
+    res["categories"] = [cats[i] for i in idx] + [
+        f"Прочие ({len(rest)} {_plural_rows(len(rest))})"]
+    res["values"] = [vals[i] for i in idx] + [sum(v for v in rest if v is not None)]
+    res["hidden_rows"] = len(rest)
+    res["total_rows"] = len(cats)
+
+    # 🔴 Обрезка вылечила читаемость, но не ответила на вопрос «а годится ли
+    # тут круговая вообще». Замер на РЦО: «Прочие» заняли 73,2 % — то есть
+    # доминирующей доли нет, распределение ровное, и круг показывает лишь
+    # «почти всё в остальных». Говорим об этом прямо и называем вид, который
+    # на этих данных отвечает: рейтинг выстраивает порядок, которого у круга нет.
+    whole = sum(v for v in res["values"] if v)
+    tail = res["values"][-1] or 0.0
+    if whole and tail / whole > 0.5:
+        res["note"] = (f"На «Прочие» приходится {tail / whole * 100:.0f} % целого: доминирующей доли "
+                       "нет, и круговая почти ничего не показывает. На таких данных нагляднее "
+                       "«Ранжированный список» — он выстраивает порядок.")
 
 
 def _trim_bars(res: dict) -> None:
@@ -971,23 +1024,116 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
                 "unit": cfg.get("unit"), "compared_to_plan": bool(plan_by_row)}
 
     if t == "objects_compare":
-        # Сравнение подразделений: показатель (поле) агрегируется по ОБЪЕКТАМ
-        # (каждый объект = подразделение/филиал), берётся последний выпуск на объект.
+        # Сравнение подразделений: один показатель по ОБЪЕКТАМ (объект =
+        # подразделение/филиал), у каждого берётся его последний выпуск.
+        #
+        # 🔴 Осмотр 09.09 нашёл здесь три дефекта сразу, и все — молчаливые.
+        # (1) Фильтр периода не действовал ВООБЩЕ: обёртка `_compute_widget`
+        # сводит диапазон к выпуску по `dataset_code`, а у этого вида его нет —
+        # он ходит по всем объектам. Замер на РЦО: при фильтре «июль» виджет
+        # показывал 5 426 (цифру за 31.08) вместо 5 211, а на диапазоне, где
+        # отчётов нет вовсе, всё равно отдавал данные. Ровно тот дефект, что
+        # закрыт для остальных видов 17.08, — этот прошёл мимо правки.
+        # (2) Права на строки не применялись: `allowed` считается только при
+        # заданном `dataset_code`, поэтому человек с правилом на одну строку
+        # увидел бы здесь сумму по ВСЕМ. На стенде правил пока нет, и дыра не
+        # проявляется, но она настоящая.
+        # (3) Доли складывались: сумма процентов по объектам — не показатель.
         field = cfg.get("value_field")
         if not field:
             raise DashboardError("Сравнение подразделений: укажите показатель (поле)")
-        rows = await conn.fetch(
-            "with latest as ("
-            "  select distinct on (object_id) id, object_id from dataset_releases "
-            "  where organization_id=$1 and status<>'superseded' and object_id is not null "
-            "  order by object_id, reporting_period_start desc nulls last, created_at desc) "
-            "select o.name as obj, coalesce(sum(dv.value_number),0) as val "
-            "from latest l join objects o on o.id=l.object_id "
-            "join dataset_values dv on dv.dataset_release_id=l.id and dv.canonical_field_code=$2 "
-            "group by o.name having coalesce(sum(dv.value_number),0) <> 0 order by val desc",
-            org_id, field)
-        return {"type": "objects_compare", "title": name,
-                "categories": [r["obj"] for r in rows], "values": [float(r["val"]) for r in rows]}
+        # Закреплённый срез (страница по дате) сводится к точке диапазона.
+        oc_from = cfg.get("period") or from_date
+        oc_to = cfg.get("period") or to_date
+        rels = await conn.fetch(
+            "select distinct on (r.object_id) r.id, r.object_id, o.name as obj, "
+            "       r.code as ds_code, r.reporting_period_start as period "
+            "from dataset_releases r "
+            "join objects o on o.id = r.object_id "
+            "where r.organization_id=$1 and r.status <> 'superseded' and r.object_id is not null "
+            "  and ($3::text is null or r.reporting_period_start >= $3::text::date) "
+            "  and ($4::text is null or r.reporting_period_start <= $4::text::date) "
+            # Берём только выпуски, где эта графа ЕСТЬ: у объекта бывает
+            # несколько форм, и «последний выпуск объекта» мог оказаться
+            # выпуском другой формы, в которой показателя нет вовсе.
+            #
+            # 🔴 Проверяем по САМИМ ЗНАЧЕНИЯМ, а не по списку граф выпуска
+            # (`dataset_release_fields`): список — это объявление, значения —
+            # факт, и расходятся они не только в тестах. Заодно так отсеиваются
+            # выпуски, где графа объявлена, но не заполнена: показывать объект
+            # с пустой графой значило бы приписать ему ноль.
+            "  and exists (select 1 from dataset_values dv "
+            "              where dv.dataset_release_id = r.id "
+            "                and dv.canonical_field_code = $2 "
+            "                and dv.value_number is not null) "
+            "order by r.object_id, r.reporting_period_start desc nulls last, r.created_at desc",
+            org_id, field, oc_from, oc_to)
+        if not rels and (oc_from or oc_to):
+            return {"type": "objects_compare", "title": name, "no_data_in_period": True,
+                    "from_date": oc_from, "to_date": oc_to}
+
+        # Имена с суффиксом: `cats`, `vals` и `order` в этой же функции уже
+        # заняты другими ветками — те же грабли, что с `measures` 08.09.
+        oc_cats: List[str] = []
+        oc_vals: List[float] = []
+        per_object: List[dict] = []
+        how = "sum"
+        for r in rels:
+            title = await _field_title(conn, org_id, r["ds_code"], field, None) or field
+            # Права на строки — СВОИ у каждого датасета, как в «Сравнении
+            # источников»: объекты разные, и общий набор был бы неверен.
+            obj_allowed = (await allowed_rows_for_dataset(conn, org_id, user, r["ds_code"])
+                           if user is not None else None)
+            params: list = [r["id"], field, row]
+            acl = _row_acl_clause(params, obj_allowed)
+            numbers = await conn.fetch(
+                "select value_number from dataset_values "
+                "where dataset_release_id=$1 and canonical_field_code=$2 and value_number is not null "
+                f"and ($3::text is null or row_label=$3){acl}", *params)
+            if not numbers:
+                continue
+            value, how = aggregate_series((float(x["value_number"]) for x in numbers), title)
+            if not value:
+                continue
+            oc_cats.append(r["obj"])
+            oc_vals.append(value)
+            per_object.append({"object": r["obj"], "dataset_code": r["ds_code"],
+                               "period": (r["period"].isoformat() if r["period"] else None)})
+
+        oc_order = sorted(range(len(oc_vals)), key=lambda i: -oc_vals[i])
+        oc_cats = [oc_cats[i] for i in oc_order]
+        oc_vals = [oc_vals[i] for i in oc_order]
+        per_object = [per_object[i] for i in oc_order]
+
+        # 🔴 Один столбик — это не сравнение, и молчать об этом нельзя.
+        # Коды граф выводятся из заголовков КОНКРЕТНОЙ формы, поэтому у другого
+        # подразделения они свои, и показатель находится ровно у одного объекта.
+        # Прежний виджет рисовал одинокий столбик, который читался как «у
+        # остальных ноль», хотя правда — «у остальных этот показатель зовётся
+        # иначе».
+        #
+        # Сопоставлять объекты ПО ИМЕНИ показателя (как это делает аналитика
+        # папки) здесь НЕЛЬЗЯ, и это проверено на данных: в форме «Статистика
+        # услуг» графы названы позиционно — «Услуга 1: Принято» есть у всех 12
+        # ведомств, но у МВД это миграционный учёт, у ФНС регистрация юрлиц, а
+        # у Росреестра кадастровый учёт. Сопоставление по имени дало бы
+        # правдоподобный график, сравнивающий разные услуги.
+        note = None
+        if len(oc_cats) == 1:
+            note = (f"Показатель найден только у объекта «{oc_cats[0]}» — сравнивать не с чем. "
+                    "Коды граф выводятся из заголовков конкретной формы, поэтому у другого "
+                    "подразделения тот же показатель называется своим кодом.")
+        elif not oc_cats:
+            note = "Ни у одного объекта нет значений по этому показателю."
+
+        res = {"type": "objects_compare", "title": name,
+               "categories": oc_cats, "values": oc_vals,
+               "aggregate": how, "objects": per_object, "note": note}
+        if per_object:
+            res["as_of"] = max((p["period"] for p in per_object if p["period"]), default=None)
+            # Даты у объектов могут различаться — у каждого свой последний отчёт.
+            res["mixed_periods"] = len({p["period"] for p in per_object}) > 1
+        return res
 
     if t == "cross_dataset_compare":
         # Сравнение источников: несколько РАЗНЫХ dataset_code (разных загруженных
@@ -1803,10 +1949,13 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
     res = {"type": t, "title": name,
            "categories": [s["category"] for s in series],
            "values": [s["value"] for s in series]}
-    # Круговой диаграмме обрезка НЕ положена, и это решение: доля считается от
-    # целого, а показав десять строк из шестидесяти трёх, мы показали бы доли от
-    # обрезка — числа выглядели бы настоящими и были бы неверны. Столбику же
-    # обрезка ничего не искажает: каждый столбик сам по себе.
+    # Обрезка у столбика и у круговой устроена ПО-РАЗНОМУ, и это не мелочь.
+    # Столбику лишние строки можно просто не показать — каждый столбик сам по
+    # себе. Круговая же держится на равенстве «сумма долей = целое», поэтому у
+    # неё хвост не выбрасывается, а СКЛАДЫВАЕТСЯ в сектор «Прочие»: доли
+    # остаются долями от целого.
+    if t == "pie":
+        _trim_pie(res)
     if t != "pie":
         _trim_bars(res)
         # Призрак строится ПОСЛЕ обрезки: он сопоставляется по названию строки,
