@@ -1062,7 +1062,8 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             60… — порядок, которого не существует. Говорим об этом прямо. */}
         {data.tied_last > 1 && (
           <div style={{ ...muted, color: 'var(--warn)', marginTop: 4 }}>
-            ⚠ последнее место делят {data.tied_last} строк с одинаковым значением{' '}
+            ⚠ последнее место делят {data.tied_last}{' '}
+            {plural(data.tied_last, 'строка', 'строки', 'строк')} с одинаковым значением{' '}
             {fmt(data.tied_value)}{byPlan ? ' %' : ''} — порядок между ними произволен
           </div>
         )}
