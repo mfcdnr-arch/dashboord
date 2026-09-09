@@ -114,6 +114,30 @@ def test_separator_inside_a_service_name_does_not_make_a_third_level():
     assert len(res["levels"]) == 2, "четвёртый сегмент у одной графы — не ступень"
 
 
+def _filler(n, volume=500.0, has_children=True):
+    """Ведомства-наполнители: без них список короче порога и не группируется вовсе."""
+    return [{"value": f"Ведомство {i}", "volume": volume, "has_children": has_children}
+            for i in range(n)]
+
+
+def test_short_list_is_not_grouped_at_all():
+    """Короткий список остаётся целым, даже когда одинокие в нём есть.
+
+    Порог не косметический: первый экран лестницы рисует «Ранжированный
+    список», а он показывает 12 строк. Если список в него и так помещается,
+    узел «Отдельные услуги» ничего не упрощает, зато прячет часть формы за
+    лишним щелчком.
+    """
+    g = group_lone([
+        {"value": "Росреестр", "volume": 199811, "has_children": True},
+        {"value": "ЕСИА (260)", "volume": 114048, "has_children": False},
+        {"value": "Апостиль", "volume": 39, "has_children": False},
+    ])
+    assert g["node"] is None
+    assert len(g["rows"]) == 3
+    assert "целиком" in g["reason"]
+
+
 def test_lone_values_are_grouped_but_large_ones_stay():
     """Одинокие сводятся в узел; крупное без подступени остаётся строкой.
 
@@ -127,7 +151,7 @@ def test_lone_values_are_grouped_but_large_ones_stay():
         {"value": "ОМС (297, 299)", "volume": 23136, "has_children": False},
         {"value": "УКЭП (483)", "volume": 1282, "has_children": False},
         {"value": "Апостиль (347, 348)", "volume": 39, "has_children": False},
-    ])
+    ] + _filler(10))
     names = [r["value"] for r in g["rows"]]
     assert "ЕСИА (260)" in names and "ОМС (297, 299)" in names
     assert "УКЭП (483)" not in names and "Апостиль (347, 348)" not in names
@@ -148,15 +172,30 @@ def test_structure_is_never_hidden_even_at_zero_volume():
         {"value": "Росреестр", "volume": 199811, "has_children": True},
         {"value": "Администрация м.о. Горловка", "volume": 0, "has_children": True},
         {"value": "Апостиль", "volume": 39, "has_children": False},
-    ])
+    ] + _filler(12))
     assert "Администрация м.о. Горловка" in [r["value"] for r in g["rows"]]
     assert g["node"]["grouped"] == ["Апостиль"]
 
 
 def test_without_volume_nothing_is_grouped():
     """Данных ещё нет — судить не по чему, список остаётся полным."""
-    g = group_lone([{"value": "Росреестр", "volume": 0, "has_children": False},
-                    {"value": "Апостиль", "volume": 0, "has_children": False}])
+    g = group_lone(_filler(20, volume=0) +
+                   [{"value": "Апостиль", "volume": 0, "has_children": False}])
     assert g["node"] is None
-    assert len(g["rows"]) == 2
-    assert "нет" in g["reason"].lower()
+    assert len(g["rows"]) == 21
+
+
+def test_single_level_form_is_never_grouped():
+    """🔴 У одноступенчатой формы группировки нет вовсе — найдено живой проверкой.
+
+    Признак «нет своей подступени» там верен для КАЖДОГО значения и потому не
+    различает ничего: правило вырождается в отбор по объёму, а распределение у
+    госформ длиннохвостое. Замер на «Статистике услуг — МВД»: из 29 услуг в
+    узел уходили 26, на экране оставалось четыре строки вместо формы.
+    """
+    services = [{"value": f"Услуга {i}", "volume": max(1, 3000 // (i + 1)),
+                 "has_children": False} for i in range(29)]
+    g = group_lone(services)
+    assert g["node"] is None
+    assert len(g["rows"]) == 29, "ни одна услуга не спрятана"
+    assert "одна ступень" in g["reason"]

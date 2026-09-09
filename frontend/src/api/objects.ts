@@ -250,3 +250,50 @@ export async function getFolderCalendar(
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// ── Ступени формы (лестница уровней) ────────────────────────────────────────
+// Система ПРЕДЛАГАЕТ иерархию по именам граф, человек подтверждает и даёт
+// уровням названия — один раз на форму. Имена уровней система не придумывает:
+// надёжного источника для них в данных нет, а правдоподобное имя человек
+// подтвердит не глядя.
+export interface LevelSuggestion {
+  kind: 'hierarchy' | 'slices' | 'flat' | 'unknown'
+  separator: string | null
+  reason: string
+  measures: string[]
+  measure_default?: string | null
+  rows: { count: number; sample: string[] }
+  levels: { index: number; count: number; sample: string[]; name: string }[]
+  group?: { rows: number; lone: string[]; reason: string; sample: string[] }
+}
+export interface ConfirmedLevels {
+  levels: { index: number; name: string }[]
+  row_level: string
+  group_lone: boolean
+  measure_default?: string | null
+  fingerprint?: string
+}
+export interface LevelsState {
+  suggestion: LevelSuggestion
+  confirmed: ConfirmedLevels | null
+  /** Форма изменилась с момента подтверждения — применять его нельзя. */
+  stale: boolean
+  has_template: boolean
+}
+
+export async function getFormLevels(objectId: string): Promise<LevelsState> {
+  const res = await fetch(`/objects/${objectId}/levels`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function confirmFormLevels(
+  objectId: string, body: Omit<ConfirmedLevels, 'fingerprint'>,
+): Promise<ConfirmedLevels> {
+  const res = await fetch(`/objects/${objectId}/levels`, {
+    method: 'POST', headers: { ...authH(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

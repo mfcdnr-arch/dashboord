@@ -44,6 +44,7 @@ from typing import Dict, List, Optional, Sequence
 
 from ..dashboards._aggregate import is_total_column
 from ..metrics.data_suggestions import _PLAN_RE, _clean
+from ..metrics.describe import _plural
 
 # Вердикт об устройстве формы.
 KIND_HIERARCHY = "hierarchy"   # в именах граф лежат ступени
@@ -74,6 +75,13 @@ LONE_SHARE = 0.01
 
 # Как назвать узел, в который сводятся одинокие значения.
 LONE_NODE = "Отдельные услуги"
+
+# Короткий список не группируем вовсе. Порог не выдуман: первый экран лестницы
+# рисует «Ранжированный список», а он показывает 12 строк — если список в него
+# и так помещается, группировка не даёт ничего, зато прячет часть формы. Найдено
+# живой проверкой: у «Статистики услуг — ФНС» всего 6 услуг, и правило по
+# объёму сворачивало ТРИ из них, то есть половину формы, в «Отдельные услуги».
+GROUP_FROM_ROWS = 12
 
 
 def is_slice_tail(tail: Optional[str]) -> bool:
@@ -183,7 +191,16 @@ def detect_levels(names: Sequence[str]) -> Dict:
             "measures": [t for t in tails if not is_slice_tail(t)],
             "fields_total": len(clean_names), "fields_with_separator": total,
             "reason": (f"Имена граф собраны через «{sep.strip()}» из "
-                       f"{len(levels) + 1} частей: {len(levels)} ступеней и мера.")}
+                       f"{len(levels) + 1} частей: {len(levels)} "
+                       f"{_plural(len(levels), 'ступень', 'ступени', 'ступеней')} и мера.")}
+
+
+def _by_volume(items: List[Dict], total: float) -> List[Dict]:
+    """Строки по убыванию объёма, с проставленной долей."""
+    rows = sorted(items, key=lambda i: -abs(float(i.get("volume") or 0)))
+    for it in rows:
+        it["share"] = (abs(float(it.get("volume") or 0)) / total) if total else 0.0
+    return rows
 
 
 def group_lone(values: Sequence[Dict], threshold: float = LONE_SHARE) -> Dict:
@@ -223,6 +240,26 @@ def group_lone(values: Sequence[Dict], threshold: float = LONE_SHARE) -> Dict:
     items = [dict(v) for v in values]
     total = sum(abs(float(i.get("volume") or 0)) for i in items)
 
+    # 🔴 На ОДНОСТУПЕНЧАТОЙ форме не группируем вовсе. Признак «нет своей
+    # подступени» там верен для каждого значения и потому не различает ничего:
+    # правило вырождается в чистый отбор по объёму, а распределение у госформ
+    # длиннохвостое. Замер: у «Статистики услуг — МВД» из 29 услуг в узел
+    # уходили 26 — на экране оставалось четыре строки вместо формы.
+    #
+    # Группировка задумана для другого случая: первая ступень — ведомства, и
+    # среди них затесались одинокие услуги без ведомства. Нет второй ступени —
+    # нет и этого случая.
+    if not any(i.get("has_children") for i in items):
+        return {"rows": _by_volume(items, total), "lone": [], "node": None,
+                "reason": "У формы одна ступень — сводить нечего: "
+                          "каждое значение здесь и есть предмет."}
+
+    if len(items) <= GROUP_FROM_ROWS:
+        short = _by_volume(items, total)
+        return {"rows": short, "lone": [], "node": None,
+                "reason": f"Значений всего {len(items)} — список читается целиком, "
+                          "сводить нечего."}
+
     rows: List[Dict] = []
     lone: List[Dict] = []
     for it in items:
@@ -246,7 +283,9 @@ def group_lone(values: Sequence[Dict], threshold: float = LONE_SHARE) -> Dict:
         rows.append(node)   # узел ставим в конец: он по определению мелкий
 
     return {"rows": rows, "lone": lone, "node": node,
-            "reason": (f"{len(lone)} значений без своей подступени дают вместе "
+            "reason": (f"{len(lone)} "
+                       f"{_plural(len(lone), 'значение', 'значения', 'значений')} "
+                       f"без своей подступени дают вместе "
                        f"{(node['share'] * 100) if node else 0:.1f} % объёма — "
                        f"сведены в «{LONE_NODE}»." if lone else
                        "Одиноких значений нет — сводить нечего.")}

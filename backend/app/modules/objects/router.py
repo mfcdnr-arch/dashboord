@@ -15,6 +15,7 @@ from ..audit.service import write_event
 from ..auth.deps import get_current_user, require_roles
 from . import analytics
 from . import calendar as calendar_svc
+from . import levels as levels_svc
 
 router = APIRouter(prefix="/objects", tags=["objects"])
 
@@ -35,6 +36,25 @@ class ObjectPatch(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     code: Optional[str] = Field(default=None, max_length=100)
     description: Optional[str] = None
+
+
+class LevelIn(BaseModel):
+    """Одна подтверждённая ступень: её номер и имя, которое дал человек."""
+    index: int = Field(ge=0, le=9)
+    name: str = Field(min_length=1, max_length=100)
+
+
+class LevelsIn(BaseModel):
+    """Что человек подтвердил в мастере ступеней.
+
+    Имена уровней обязательны: они попадают в текст интерфейса («источник не
+    даёт разбивки по уровню „Услуга"»), и «Ступень 1» там читалось бы как
+    недоделка. Это одно действие на форму, а не на каждый отчёт.
+    """
+    levels: list[LevelIn]
+    row_level: str = Field(min_length=1, max_length=100)
+    group_lone: bool = True
+    measure_default: Optional[str] = None
 
 
 class FolderIn(BaseModel):
@@ -220,6 +240,39 @@ async def build_suggestion(object_id: str, user: dict = Depends(manage)):
             "dataset_codes": codes,
             "dashboards": existing,
         }
+
+
+@router.get("/{object_id}/levels")
+async def get_levels(object_id: str, user: dict = Depends(manage)):
+    """Ступени формы: что предлагает система и что подтвердил человек."""
+    async with db.get_pool().acquire() as conn:
+        obj = await conn.fetchrow(
+            "select id from objects where id=$1::uuid and organization_id=$2",
+            object_id, user["organization_id"])
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
+        return await levels_svc.get_state(conn, obj["id"])
+
+
+@router.post("/{object_id}/levels")
+async def confirm_levels(object_id: str, body: LevelsIn, user: dict = Depends(manage)):
+    """Подтвердить ступени формы — один раз, дальше форма узнаётся сама."""
+    async with db.get_pool().acquire() as conn:
+        obj = await conn.fetchrow(
+            "select id, name from objects where id=$1::uuid and organization_id=$2",
+            object_id, user["organization_id"])
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
+        try:
+            saved = await levels_svc.save(
+                conn, obj["id"], body.model_dump(), user["id"])
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        await write_event(
+            conn, user["organization_id"], user["id"], "update", "object", str(obj["id"]),
+            new_data={"levels": [lv["name"] for lv in saved["levels"]],
+                      "row_level": saved["row_level"]})
+        return saved
 
 
 @router.get("/{object_id}/folders")

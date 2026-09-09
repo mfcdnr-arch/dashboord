@@ -9,6 +9,7 @@ import { folderLabel, folderTree } from '../lib/folderTree'
 import ExtractionPage from './ExtractionPage'
 import RowAclEditor from './RowAclEditor'
 import FolderAnalytics from './objects/FolderAnalytics'
+import FormLevels from './objects/FormLevels'
 import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
 import AutoBuildWizard from './dashboards/AutoBuildWizard'
 import { getBuildSuggestion, type BuildSuggestion } from '../api/objects'
@@ -392,6 +393,12 @@ export default function ObjectsPage(
           onError={setError}
         />
       )}
+
+      {/* Ступени формы: система предлагает иерархию по именам граф, человек
+          подтверждает — один раз на форму. Стоит на экране объекта, а не папки:
+          форма принадлежит объекту (объект = одна форма), там же живёт и её
+          разметка. */}
+      {obj && !folder && canManage && <FormLevels objectId={obj.id} />}
 
       {obj && !folder && (
         <Section title={`Папки объекта «${obj.name}»`}>
