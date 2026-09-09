@@ -36,6 +36,7 @@ import { DashboardHeader } from './dashboards/DashboardHeader'
 import { AttentionBar } from './dashboards/AttentionBar'
 import { SummaryBar } from './dashboards/SummaryBar'
 import { RowDrillBar } from './dashboards/RowDrillBar'
+import LadderBar from './dashboards/LadderBar'
 import { MissingFieldsDialog } from './dashboards/MissingFieldsDialog'
 import { TemplateCloneDialog } from './dashboards/TemplateCloneDialog'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
@@ -218,6 +219,9 @@ export default function DashboardsPage({
   const [pFrom, setPFrom] = useState('')
   const [pTo, setPTo] = useState('')
   const [crossRow, setCrossRow] = useState<string | null>(null)
+  // Ветка лестницы: сегменты имени графы («Росреестр» → «Госрегистрация»).
+  // Отдельно от crossRow: тот фильтрует СТРОКИ формы, а лестница — ГРАФЫ.
+  const [levelPath, setLevelPath] = useState<string[]>([])
   // Виджет, к которому только что перешли из меню «↗ куда дальше»: подсвечен
   // пару секунд, чтобы человек увидел, куда его привели.
   const [highlight, setHighlight] = useState<string | null>(null)
@@ -246,11 +250,11 @@ export default function DashboardsPage({
     if (!page) { setPageData({}); setBatchFailed(false); return }
     let cancelled = false
     setPageData({}); setBatchFailed(false)
-    getPageData(page.id, pFrom || undefined, pTo || undefined, crossRow || undefined)
+    getPageData(page.id, pFrom || undefined, pTo || undefined, crossRow || undefined, levelPath)
       .then((r) => { if (cancelled) return; const m: Record<string, PageWidgetData> = {}; r.widgets.forEach((w) => { m[w.id] = w }); setPageData(m) })
       .catch(() => { if (!cancelled) setBatchFailed(true) }) // фолбэк на self-fetch
     return () => { cancelled = true }
-  }, [page?.id, pFrom, pTo, crossRow, reloadKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [page?.id, pFrom, pTo, crossRow, levelPath.join('>'), reloadKey]) // eslint-disable-line react-hooks/exhaustive-deps
   const pageRef = useRef<HTMLDivElement>(null)
   // Вёрстка отчёта рисуется ЗА ЭКРАНОМ на время выгрузки: снимок делается с
   // неё, а не с дашборда. На экране у карточек фиксированная высота, обрезанные
@@ -1108,6 +1112,11 @@ export default function DashboardsPage({
           {/* Провалились в строку данных: куда именно и как она на фоне других. */}
           <RowDrillBar pageId={page?.id ?? null} row={crossRow} from={pFrom} to={pTo}
             onClear={() => setCrossRow(null)} />
+
+          {/* Лестница уровней: где мы в иерархии формы и что лежит ниже.
+              Показывается только там, где ступени подтверждены. */}
+          <LadderBar pageId={page?.id ?? null} path={levelPath} setPath={setLevelPath}
+            from={pFrom || undefined} to={pTo || undefined} />
 
           {/* «Как дела»: что выросло и что просело к прошлому отчёту —
               первый экран отвечал «сколько», но не «как дела». */}

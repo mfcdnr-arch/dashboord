@@ -34,6 +34,7 @@ from ._comments import (  # noqa: F401
 )
 from ._describe import describe_dashboard  # noqa: F401
 from ._explain import explain_widgets, widget_captions, widget_configs  # noqa: F401
+from ._levels import page_ladder  # noqa: F401
 from ._passport import widget_passport  # noqa: F401
 from ._planfact import (  # noqa: F401
     PLAN_FACT_SCALE,

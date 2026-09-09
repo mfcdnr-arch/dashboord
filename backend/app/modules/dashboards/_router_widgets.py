@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
@@ -145,11 +145,19 @@ async def list_widgets(page_id: str, user: dict = Depends(get_current_user)):
 async def page_data(page_id: str, user: dict = Depends(get_current_user),
                     from_: Optional[str] = Query(None, alias="from"),
                     to: Optional[str] = Query(None),
-                    row: Optional[str] = Query(None)):
-    """Данные всех виджетов страницы за 1 запрос (перф). Учитывает фильтры страницы."""
+                    row: Optional[str] = Query(None),
+                    level: Optional[List[str]] = Query(None)):
+    """Данные всех виджетов страницы за 1 запрос (перф). Учитывает фильтры страницы.
+
+    `level` — ветка лестницы, по сегменту на параметр («?level=Росреестр&
+    level=Госрегистрация»). Списком, а не одной строкой с разделителем: в
+    названиях ведомств и услуг встречается что угодно, и любой разделитель
+    однажды оказался бы внутри имени.
+    """
     async with db.acquire(user["id"]) as conn:
         try:
-            return await service.compute_page_data(conn, user["organization_id"], page_id, user, from_, to, row)
+            return await service.compute_page_data(conn, user["organization_id"], page_id, user,
+                                                   from_, to, row, level_path=level)
         except DashboardError as e:
             raise _bad(e)
 
@@ -163,6 +171,21 @@ async def page_row_rank(page_id: str, row: str = Query(...),
     async with db.acquire(user["id"]) as conn:
         try:
             return await service.page_row_rank(conn, user["organization_id"], page_id, row, user, from_, to)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.get("/dashboard-pages/{page_id}/ladder")
+async def page_ladder(page_id: str, user: dict = Depends(get_current_user),
+                      level: Optional[List[str]] = Query(None),
+                      measure: Optional[str] = Query(None),
+                      from_: Optional[str] = Query(None, alias="from"),
+                      to: Optional[str] = Query(None)):
+    """Ступень лестницы: где мы и что показать ниже."""
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.page_ladder(conn, user["organization_id"], page_id, user,
+                                             level, measure, from_, to)
         except DashboardError as e:
             raise _bad(e)
 

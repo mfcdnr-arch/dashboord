@@ -705,6 +705,19 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   // За выбранный период отчётов нет. Говорим об этом прямо: раньше фильтр
   // молча показывал последний отчёт, и цифру не за тот период принимали за
   // нужную — пустое место честнее.
+  // Виджет не относится к выбранной ветке лестницы. Говорим прямо — по той же
+  // причине, по которой честно молчим при пустом периоде: цифра из другой
+  // ветки под тем же названием выглядит настоящей и потому опаснее пустоты.
+  if (data.not_in_branch) {
+    const branch = (data.level_path || []).join(' → ')
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%',
+        color: 'var(--text-faint)', fontSize: 13, lineHeight: 1.5, gap: 4 }}>
+        <div>Этот показатель не относится к ветке{branch ? ` «${branch}»` : ''}.</div>
+        <div style={{ fontSize: 12 }}>Вернитесь выше по лестнице, чтобы увидеть его.</div>
+      </div>
+    )
+  }
   if (data.no_data_in_period) {
     const ru = (d?: string) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d.split('-').reverse().join('.') : d)
     const range = [ru(data.from_date), ru(data.to_date)].filter(Boolean).join(' — ')

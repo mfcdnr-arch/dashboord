@@ -23,7 +23,8 @@ from ._widgetsources import _attach_as_of, _best_metric_version, _dataset_table,
 
 
 async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_date=None, row=None,
-                              user: Optional[dict] = None, skip_acl: bool = False) -> dict:
+                              user: Optional[dict] = None, skip_acl: bool = False,
+                              level_path=None) -> dict:
     w = await _widget_org(conn, org_id, widget_id)
     if w is None:
         raise DashboardError("Виджет не найден")
@@ -44,14 +45,18 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
     # иначе отфильтрованные данные одного отдела попали бы другому. Мягкая
     # деградация при недоступном Redis.
     tag = await rls_tag(conn, user)
-    key = f"wd:{widget_id}:{from_date or ''}:{to_date or ''}:{row or ''}:{tag}"
+    # 🔴 Ветка лестницы обязана быть в ключе: без неё «Росреестр» получил бы
+    # ответ, посчитанный для корня, — из кэша и потому незаметно.
+    branch = ">".join(level_path or ())
+    key = f"wd:{widget_id}:{from_date or ''}:{to_date or ''}:{row or ''}:{branch}:{tag}"
     cached = await cache.get(key)
     if cached is not None:
         try:
             return json.loads(cached)
         except ValueError:
             pass
-    result = await _compute_widget(conn, org_id, w["widget_type"], w["name"], _cfg(w), from_date, to_date, row, user=user)
+    result = await _compute_widget(conn, org_id, w["widget_type"], w["name"], _cfg(w),
+                                   from_date, to_date, row, user=user, level_path=level_path)
     # Свежесть данных: дата активного выпуска датасета («данные на X»).
     await _attach_as_of(conn, org_id, _cfg(w), result)
     try:
@@ -62,7 +67,7 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
 
 
 async def compute_page_data(conn, org_id, page_id: str, user: dict,
-                            from_date=None, to_date=None, row=None) -> dict:
+                            from_date=None, to_date=None, row=None, level_path=None) -> dict:
     """Данные ВСЕХ виджетов страницы одним запросом (перф: 1 запрос вместо N).
     Доступ проверяется один раз на уровне страницы; далее компьютим виджеты
     (с кэшем/алертами). Ошибка одного виджета не рушит остальные."""
@@ -83,7 +88,7 @@ async def compute_page_data(conn, org_id, page_id: str, user: dict,
             # user передаём для row-level RLS (skip_acl только пропускает повторную
             # проверку видимости дашборда/виджета — она уже сделана выше).
             data = await compute_widget_data(conn, org_id, wid, from_date, to_date, row,
-                                             user=user, skip_acl=True)
+                                             user=user, skip_acl=True, level_path=level_path)
             out.append({"id": wid, "data": data})
         except DashboardError as e:
             out.append({"id": wid, "error": str(e)})

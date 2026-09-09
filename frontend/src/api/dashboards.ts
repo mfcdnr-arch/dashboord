@@ -493,11 +493,15 @@ export async function listPageWidgets(pageId: string): Promise<{ page_id: string
 }
 // Данные всех виджетов страницы за 1 запрос (перф). Учитывает фильтры страницы.
 export interface PageWidgetData { id: string; data?: any; error?: string } // eslint-disable-line @typescript-eslint/no-explicit-any
-export async function getPageData(pageId: string, from?: string, to?: string, row?: string): Promise<{ page_id: string; widgets: PageWidgetData[] }> {
+export async function getPageData(pageId: string, from?: string, to?: string, row?: string,
+                                  levelPath?: string[]): Promise<{ page_id: string; widgets: PageWidgetData[] }> {
   const p = new URLSearchParams()
   if (from) p.set('from', from)
   if (to) p.set('to', to)
   if (row) p.set('row', row)
+  // Ветка лестницы — по сегменту на параметр: любой разделитель однажды
+  // оказался бы внутри названия ведомства или услуги.
+  for (const seg of levelPath || []) p.append('level', seg)
   const qs = p.toString()
   const res = await fetch(`/dashboard-pages/${pageId}/data${qs ? '?' + qs : ''}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
@@ -833,6 +837,39 @@ export async function widgetPassport(widgetId: string, row?: string): Promise<{
 }> {
   const res = await fetch(`/widgets/${widgetId}/passport${row ? `?row=${encodeURIComponent(row)}` : ''}`,
     { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+
+// ── Лестница уровней ────────────────────────────────────────────────────────
+export interface LadderChild { value: string; total: number; aggregate: string }
+export interface LadderStep {
+  available: boolean
+  reason?: string
+  dataset_code?: string
+  levels?: string[]
+  row_level?: string
+  path?: string[]
+  level_name?: string
+  is_rows?: boolean
+  skipped_level?: string
+  note?: string
+  measure?: string | null
+  measures?: string[]
+  children?: LadderChild[]
+  as_of?: string | null
+}
+
+export async function getLadder(pageId: string, path?: string[], measure?: string,
+                                from?: string, to?: string): Promise<LadderStep> {
+  const p = new URLSearchParams()
+  for (const seg of path || []) p.append('level', seg)
+  if (measure) p.set('measure', measure)
+  if (from) p.set('from', from)
+  if (to) p.set('to', to)
+  const qs = p.toString()
+  const res = await fetch(`/dashboard-pages/${pageId}/ladder${qs ? '?' + qs : ''}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }

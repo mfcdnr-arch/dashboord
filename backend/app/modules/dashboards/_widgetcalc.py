@@ -9,6 +9,9 @@ import math
 import statistics
 from typing import Dict, List, Optional
 
+from ..ingestion.hierarchy import pick_separator
+from . import _levels
+from . import _widgetsources as ws
 from ._aggregate import aggregate_series, is_share, is_total_column, measure_of
 from ._alerts import alert_styles, cell_alert_levels, evaluate_alert
 from ._base import DashboardError, ru_date
@@ -540,7 +543,8 @@ def slice_note(plan_name: Optional[str], fact_name: Optional[str]) -> Optional[s
 
 
 async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
-                          from_date=None, to_date=None, row=None, user=None) -> dict:
+                          from_date=None, to_date=None, row=None, user=None,
+                          level_path=None) -> dict:
     """Фильтр «Период» страницы + расчёт виджета.
 
     🔴 До этого период действовал ТОЛЬКО на «Динамику» (и на сравнение
@@ -556,6 +560,22 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
     фильтра страницы.
     """
     cfg = _normalize_cfg(cfg)
+
+    # Фильтр лестницы: сужаем набор граф до выбранной ветки. Стоит здесь, в
+    # одной обёртке над расчётом, ровно по той же причине, по которой здесь же
+    # живёт фильтр периода, — иначе каждый из 26 типов виджетов пришлось бы
+    # учить отдельно, а новый тип однажды забыли бы.
+    if level_path and cfg.get("dataset_code"):
+        titles = await ws._field_titles(conn, org_id, cfg["dataset_code"], cfg.get("period"))
+        sep = pick_separator(list(titles.values()))
+        if sep:
+            narrowed = _levels.narrow_cfg(cfg, titles, sep, level_path)
+            if narrowed is None:
+                # Честный ответ вместо цифры не из той ветки.
+                return {"type": t, "title": name, "not_in_branch": True,
+                        "level_path": list(level_path)}
+            cfg = narrowed
+
     # Свой фильтр виджета перекрывает фильтр страницы — учитываем ДО поиска
     # выпуска, иначе виджет со своим периодом получил бы чужой.
     if cfg.get("filter_scope") == "own":
@@ -573,6 +593,8 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         cfg = {**cfg, "period": applied}
 
     res = await _compute_widget_inner(conn, org_id, t, name, cfg, from_date, to_date, row, user)
+    if level_path and isinstance(res, dict):
+        res["level_path"] = list(level_path)
     if applied and isinstance(res, dict):
         # Дата, за которую данные показаны НА САМОМ ДЕЛЕ. Без неё карточка
         # подписалась бы датой последнего выпуска — то есть снова соврала бы.
