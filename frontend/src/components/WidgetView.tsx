@@ -1356,7 +1356,8 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         {/* Поиск и подсказка про сортировку — инструменты экрана: в отчёте
             ими не воспользуешься, а место они занимают. */}
         <div data-export-hide style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <input style={searchInput} placeholder="🔍 Поиск по таблице…" value={tableSearch} onChange={(e) => setTableSearch(e.target.value)} />
+          <input style={searchInput} placeholder="🔍 Поиск по таблице…" aria-label="Поиск по таблице"
+            value={tableSearch} onChange={(e) => setTableSearch(e.target.value)} />
           <span style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 8 }}>
             клик по заголовку столбца сортирует: ▲ по возрастанию, ▼ по убыванию, третий клик — сброс
           </span>

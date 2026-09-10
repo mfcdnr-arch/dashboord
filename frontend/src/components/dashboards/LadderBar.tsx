@@ -55,10 +55,16 @@ export default function LadderBar(
           </span>
         ))}
         {st.measures && st.measures.length > 1 && (
-          <select style={sel} value={measure || st.measure || ''}
-            onChange={(e) => setMeasure(e.target.value)}>
-            {st.measures.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
+          // Подпись видимая, а не только для диктора: сам по себе список
+          // показывал «Принято, ед.» и ничем не выдавал, что это переключатель.
+          <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6,
+            fontSize: 12, color: 'var(--text-muted)' }}>
+            мера
+            <select style={sel} value={measure || st.measure || ''}
+              onChange={(e) => setMeasure(e.target.value)}>
+              {st.measures.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </label>
         )}
       </div>
 
@@ -129,7 +135,7 @@ const crumb = (active: boolean): React.CSSProperties => ({
   textDecoration: active ? 'none' : 'underline dotted',
 })
 const sel: React.CSSProperties = {
-  marginLeft: 'auto', height: 28, border: '1px solid var(--border-strong)',
+  height: 28, border: '1px solid var(--border-strong)',
   borderRadius: 8, fontSize: 13, padding: '0 6px', maxWidth: 220,
 }
 const note: React.CSSProperties = {

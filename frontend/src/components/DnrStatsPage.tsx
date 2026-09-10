@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { authH } from '../api/http'
 import { alertLook } from '../lib/alertColors'
 import { fmtNumber } from '../lib/format'
+import { plural } from '../lib/text'
 import EChart from './EChart'
 import { chartColors, useThemeVersion } from '../theme'
 
@@ -237,13 +238,13 @@ function OverviewView({ onOpenList }: { onOpenList: () => void }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 20 }}>
             {growthOption && (
               <div style={panelStyle}>
-                <div style={panelTitle}>Прирост заявлений по ведомствам за период {ruDate(d.period_prev)} → {ruDate(d.as_of)}</div>
+                <h3 style={panelTitle}>Прирост заявлений по ведомствам за период {ruDate(d.period_prev)} → {ruDate(d.as_of)}</h3>
                 <EChart option={growthOption as any} height={260} />
               </div>
             )}
             {totalOption && (
               <div style={panelStyle}>
-                <div style={panelTitle}>Всего заявлений по ведомствам на {ruDate(d.as_of)} (накопительно)</div>
+                <h3 style={panelTitle}>Всего заявлений по ведомствам на {ruDate(d.as_of)} (накопительно)</h3>
                 <EChart option={totalOption as any} height={260} />
               </div>
             )}
@@ -251,7 +252,7 @@ function OverviewView({ onOpenList }: { onOpenList: () => void }) {
 
           {trendOption && (
             <div style={panelStyle}>
-              <div style={panelTitle}>Динамика по всем датам срезов ({d.trend.length})</div>
+              <h3 style={panelTitle}>Динамика по всем датам срезов ({d.trend.length})</h3>
               <div style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 8 }}>
                 Накопительные итоги по всем ведомствам; каждая точка — дата среза из загруженных файлов.
                 По мере поступления новых еженедельных файлов на графике сама появится следующая точка.
@@ -266,7 +267,7 @@ function OverviewView({ onOpenList }: { onOpenList: () => void }) {
               в один ряд — доля в объёме, конверсия и охват перечня услуг. */}
           {d.departments.length > 1 && (
             <div style={{ ...panelStyle, marginTop: 20 }}>
-              <div style={panelTitle}>Ведомства в сравнении (на {ruDate(d.as_of)})</div>
+              <h3 style={panelTitle}>Ведомства в сравнении (на {ruDate(d.as_of)})</h3>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
                   <thead>
@@ -280,7 +281,7 @@ function OverviewView({ onOpenList }: { onOpenList: () => void }) {
                   <tbody>
                     {[...d.departments].sort((a, b) => b.prinyato - a.prinyato).map((x) => (
                       <tr key={x.code}>
-                        <td style={{ ...tdStyle, textAlign: 'left' }}>{x.name}</td>
+                        <td style={tdText}>{x.name}</td>
                         <td style={tdStyle}>{fmt(x.prinyato)}</td>
                         <td style={tdStyle}>{x.share_pct != null ? pct(x.share_pct) : '—'}</td>
                         <td style={tdStyle}>{x.growth != null ? signed(x.growth) : '—'}</td>
@@ -305,9 +306,9 @@ function OverviewView({ onOpenList }: { onOpenList: () => void }) {
               строкой алерта: «не оказывается 5 из 67» не говорит, каких. */}
           {(d.services_missing || []).length > 0 && (
             <div style={{ ...panelStyle, marginTop: 20 }}>
-              <div style={panelTitle}>
+              <h3 style={panelTitle}>
                 Не оказываются нигде: {(d.services_missing || []).length} из {d.services_total}
-              </div>
+              </h3>
               <ul style={{ margin: 0, paddingLeft: 18 }}>
                 {(d.services_missing || []).map((x, i) => (
                   <li key={i} style={{ marginBottom: 4 }}>
@@ -324,9 +325,10 @@ function OverviewView({ onOpenList }: { onOpenList: () => void }) {
           {/* «Кто не оказывает услугу, которая идёт у соседей». */}
           {(d.office_gaps || []).length > 0 && (
             <div style={{ ...panelStyle, marginTop: 20 }}>
-              <div style={panelTitle}>
-                Есть у соседей, а здесь нет: отделений {d.office_gaps_total}
-              </div>
+              <h3 style={panelTitle}>
+                Есть у соседей, а здесь нет: {d.office_gaps_total}{' '}
+                {plural(d.office_gaps_total || 0, 'отделение', 'отделения', 'отделений')}
+              </h3>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
                   <thead>
@@ -340,12 +342,12 @@ function OverviewView({ onOpenList }: { onOpenList: () => void }) {
                   <tbody>
                     {(d.office_gaps || []).map((g, i) => (
                       <tr key={i}>
-                        <td style={{ ...tdStyle, textAlign: 'left' }}>
+                        <td style={tdText}>
                           {g.office}{g.city ? <span style={{ color: 'var(--text-muted)' }}> · {g.city}</span> : null}
                         </td>
                         <td style={tdStyle}>{g.refused || '—'}</td>
                         <td style={tdStyle}>{g.unknown || '—'}</td>
-                        <td style={{ ...tdStyle, textAlign: 'left', color: 'var(--text-muted)' }}>
+                        <td style={{ ...tdText, color: 'var(--text-muted)' }}>
                           {g.examples.join('; ')}
                         </td>
                       </tr>
@@ -366,7 +368,7 @@ function OverviewView({ onOpenList }: { onOpenList: () => void }) {
           )}
 
           <div style={{ ...panelStyle, marginTop: 20 }}>
-            <div style={panelTitle}>Алерты ({d.alerts.length})</div>
+            <h3 style={panelTitle}>Алерты ({d.alerts.length})</h3>
             {d.alerts.length === 0 && <div style={{ color: 'var(--text-muted)' }}>Замечаний нет.</div>}
             {d.alerts.length > 0 && (
               <ul style={{ margin: 0, paddingLeft: 18 }}>
@@ -393,7 +395,11 @@ function Card({ label, value, sub }: { label: string; value: string; sub?: strin
 }
 
 const panelStyle: React.CSSProperties = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, marginBottom: 20 }
-const panelTitle: React.CSSProperties = { fontWeight: 600, marginBottom: 8 }
+// Заголовок блока — настоящий <h3>: по заголовкам страницу листает экранный
+// диктор. Размер и поля гасим, чтобы вид остался прежним.
+const panelTitle: React.CSSProperties = {
+  fontWeight: 600, margin: '0 0 8px', fontSize: 'inherit',
+}
 // Числа в таблицах сравнения — по правому краю: так разряды выстраиваются
 // друг под другом и величины сравниваются глазом, а не чтением цифр подряд.
 const thStyle: React.CSSProperties = {
@@ -403,6 +409,11 @@ const thStyle: React.CSSProperties = {
 const tdStyle: React.CSSProperties = {
   padding: '6px 10px', borderBottom: '1px solid var(--border-faint)', textAlign: 'right',
   whiteSpace: 'nowrap',
+}
+// Ячейка с ТЕКСТОМ переносится: с `nowrap` таблица пробелов растягивалась до
+// 1847px в контейнере 1102px — примеры услуг читались только прокруткой вбок.
+const tdText: React.CSSProperties = {
+  padding: '6px 10px', borderBottom: '1px solid var(--border-faint)', textAlign: 'left',
 }
 const linkBtn: React.CSSProperties = {
   background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 12px',
