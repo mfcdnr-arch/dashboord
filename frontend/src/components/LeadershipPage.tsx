@@ -60,7 +60,10 @@ export default function LeadershipPage(
         </div>
       )}
 
-      <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))' }}>
+      {/* auto-FIT: подборка руководителю обычно из двух-трёх отчётов, и при
+          auto-fill пустые колонки оставались — плитка занимала треть ширины, а
+          остальное пустовало. auto-fit схлопывает пустые колонки. */}
+      <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))' }}>
         {(items || []).map((d) => (
           <button key={d.id} style={card} onClick={() => onOpen(d.id)}
             title="Открыть отчёт">

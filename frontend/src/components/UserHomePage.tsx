@@ -64,7 +64,7 @@ export default function UserHomePage(
       {(data?.key_kpis?.length ?? 0) > 0 && (
         <div style={card}>
           <div style={h2}>Ключевые показатели</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, marginTop: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 8 }}>
             {data!.key_kpis.map((k) => (
               <div key={k.code} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10 }}>
                 <div style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{k.name}</div>
@@ -129,7 +129,12 @@ export default function UserHomePage(
             какие показатели вам нужны, — доступ выдаёт администратор.
           </div>
         )}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12, marginTop: 10 }}>
+        {/* 🔴 auto-FIT, а не auto-fill: у сотрудника доступ обычно к одному
+            отделу, и при auto-fill пустые колонки остаются — карточка занимала
+            четверть ширины, а три четверти экрана пустовали (замечание ревизии
+            30.08). auto-fit схлопывает пустые колонки, и то, что есть,
+            занимает строку целиком. */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, marginTop: 10 }}>
           {(data?.objects || []).map((g) => (
             <div key={g.object_name} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10 }}>
               <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>
