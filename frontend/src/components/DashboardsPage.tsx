@@ -30,7 +30,8 @@ import { AboutDashboard, EditDashboardDialog } from './dashboards/AboutDashboard
 import { RenameDialog } from './dashboards/RenameDialog'
 import { useConfirm } from './dashboards/ConfirmDialog'
 import type { LinkState } from '../lib/deeplink'
-import { dashboardFreshness, dashboardMissingFields } from '../api/dashboards'
+import { dashboardFreshness, dashboardMissingFields, buildLadderPage, getLadderPagePlan,
+  type LadderPagePlan } from '../api/dashboards'
 import { FreshnessBar } from './dashboards/FreshnessBar'
 import { DashboardHeader } from './dashboards/DashboardHeader'
 import { AttentionBar } from './dashboards/AttentionBar'
@@ -643,6 +644,45 @@ export default function DashboardsPage({
       await reloadPage(); setReloadKey((k) => k + 1)
     } catch (e) { fail(e) } finally { setBusy(false) }
   }
+  /** Страница, собранная ПОД лестницу уровней (кусок 4).
+   *
+   *  🔴 Отдельной страницей, а не пересборкой дашборда: у уже собранного
+   *  дашборда виджеты правлены руками, на нём права и обсуждение. И главное —
+   *  на обычной странице большинство виджетов настроено на ОДНУ графу и внутри
+   *  ветки честно молчит (свод из ветки исключается, а замены у него нет).
+   *  Здесь же каждый виджет описан так, что ветка его только сужает.
+   */
+  async function ladderPage() {
+    if (!sel) return
+    setBusy(true); setError(null)
+    let plan: LadderPagePlan
+    try {
+      plan = await getLadderPagePlan(sel.dashboard.id)
+    } catch (e) { fail(e); setBusy(false); return }
+    setBusy(false)
+    const chain = [...plan.levels, plan.row_level].join(' → ')
+    if (!await ask({
+      title: plan.exists ? `Пересобрать страницу «${plan.page}»?` : `Добавить страницу «${plan.page}»?`,
+      message: `Ступени формы: ${chain}. Мера по умолчанию — «${plan.measure}».\n\n`
+        + `На странице будет ${plan.widgets.length}: ${plan.widgets.map((w) => `«${w.name}»`).join(', ')}. `
+        + 'Все они переживают спуск по ветке: рейтинг ранжирует строки по мере, '
+        + 'а список показателей и таблица показывают графы выбранной ветки.\n\n'
+        + (plan.exists
+          ? 'Наполнение ЭТОЙ страницы будет заменено. Остальные страницы дашборда не тронуты.'
+          : 'Остальные страницы дашборда не тронуты.'),
+      confirmLabel: plan.exists ? 'Пересобрать' : 'Добавить', busyLabel: 'Собираем…', tone: 'accent',
+    })) return
+    setBusy(true)
+    try {
+      const res = await buildLadderPage(sel.dashboard.id)
+      const fresh = await getDashboard(sel.dashboard.id)
+      setSel(fresh)
+      const made = (fresh.pages || []).find((p) => p.id === res.page_id)
+      if (made) setPage(made)
+      setReloadKey((k) => k + 1)
+    } catch (e) { fail(e) } finally { setBusy(false) }
+  }
+
   async function addWidget(body: { name: string; widget_type: string; config: Record<string, unknown>; width?: number; height?: number }) {
     if (!page) return
     try { await createWidget(page.id, { ...body, position_x: 0, position_y: 999 }); await reloadPage(); setReloadKey((k) => k + 1) } catch (e) { fail(e) }
@@ -1100,7 +1140,7 @@ export default function DashboardsPage({
                 currentPath: sel.dashboard.folder_name ? `${sel.dashboard.object_name}/${sel.dashboard.folder_name}` : null,
               }),
               saveTemplate: () => setTemplateName(sel.dashboard.name),
-              archive: () => setArchiveOpen(true), toggleAutoArchive, toggleSuggestFields,
+              archive: () => setArchiveOpen(true), toggleAutoArchive, toggleSuggestFields, ladderPage,
               del: doDeleteDashboard, comments: () => setCommentsOpen(true), kiosk: () => setKiosk(true),
               about: () => setAboutOpen(true),
               rename: () => setEditDash({ name: sel.dashboard.name, description: sel.dashboard.description || '' }),

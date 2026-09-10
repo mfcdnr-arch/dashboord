@@ -56,8 +56,17 @@ def under(name: Optional[str], sep: str, path: Sequence[str]) -> bool:
     return all(own[i] == p for i, p in enumerate(path))
 
 
+# 🔴 Виды, читающие ВСЕ графы формы. Списка граф в их конфигурации нет вовсе,
+# поэтому общее правило («оставить от списка графы ветки») их не задевало, и
+# внутри «Росреестра» такой виджет молча показывал форму целиком. Замер на
+# дашборде заказчика: таблица отдавала 327 колонок и в корне, и в ветке — то
+# есть данные не из той ветки под видом её собственных, ровно та ошибка, ради
+# которой фильтр и заводился. Ветку им надо назвать явно.
+WHOLE_FORM_TYPES = {"table", "field_list"}
+
+
 def narrow_cfg(cfg: dict, titles: Dict[str, str], sep: str,
-               path: Sequence[str]) -> Optional[dict]:
+               path: Sequence[str], widget_type: Optional[str] = None) -> Optional[dict]:
     """Сузить конфигурацию виджета до ветки лестницы.
 
     Возвращает `None`, если в ветке не осталось ни одной графы виджета: это не
@@ -77,6 +86,15 @@ def narrow_cfg(cfg: dict, titles: Dict[str, str], sep: str,
             return False
         name = titles.get(code, code)
         return under(name, sep, path) and not is_total_column(name)
+
+    # Вид читает всю форму и своего списка граф не имеет — составляем его по
+    # ветке. Пустая ветка означает, что показывать нечего: тот же честный ответ,
+    # что и у виджета, у которого графа из ветки выпала.
+    if widget_type in WHOLE_FORM_TYPES and cfg.get("value_fields") is None and not cfg.get("value_field"):
+        branch = [c for c in titles if keep(c)]
+        if not branch:
+            return None
+        return {**cfg, "value_fields": branch}
 
     out = dict(cfg)
     fields = [c for c in (cfg.get("value_fields") or []) if keep(c)]
@@ -280,3 +298,138 @@ async def _values(conn, org_id, dataset_code: str, period=None) -> List[dict]:
         "  and cf.object_id = (select object_id from dataset_releases where id=$1) "
         "where v.dataset_release_id = $1 and v.value_number is not null", rel)
     return [dict(r) for r in rows]
+
+
+# ── Страница, собранная ПОД лестницу ────────────────────────────────────────
+
+LADDER_PAGE = "Разбор по ступеням"
+
+
+async def _ladder_context(conn, org_id, dashboard_id: str) -> Dict:
+    """Форма дашборда, её объект и подтверждённая иерархия — общее для обоих шагов.
+
+    Предпросмотр и сборка обязаны смотреть на одно и то же: иначе обещанный
+    состав однажды разошёлся бы с созданным (то же правило, по которому мастер
+    авто-сборки считает план и результат ОДНОЙ функцией).
+    """
+    from ..ingestion.hierarchy import pick_separator
+    from ..objects.levels import load_confirmed
+    from ._base import DashboardError
+    from ._widgetsources import _field_titles
+
+    code = await conn.fetchval(
+        "select config->>'dataset_code' as code from widgets "
+        "where dashboard_id=$1::uuid and config->>'dataset_code' is not null "
+        "group by 1 order by count(*) desc limit 1", dashboard_id)
+    if not code:
+        raise DashboardError("На дашборде нет виджетов по данным формы — "
+                             "разбирать по ступеням нечего.")
+    obj_id = await conn.fetchval(
+        "select object_id from dataset_releases where organization_id=$1 and code=$2 "
+        "and status<>'superseded' order by reporting_period_start desc nulls last limit 1",
+        org_id, code)
+    conf = await load_confirmed(conn, obj_id) if obj_id else None
+    if not conf:
+        raise DashboardError("Ступени этой формы ещё не подтверждены. Откройте объект и "
+                             "подтвердите их в блоке «Ступени формы».")
+    titles = await _field_titles(conn, org_id, code)
+    sep = pick_separator(list(titles.values())) or " · "
+    levels = [lv.get("name") or f"Ступень {i + 1}"
+              for i, lv in enumerate(conf.get("levels") or [])]
+    measure = conf.get("measure_default") or ""
+    if not measure:
+        # Меру можно не подтвердить — тогда берём самую частую в форме: это
+        # догадка о ПОКАЗЕ, а не о данных, и человек меняет её переключателем.
+        counts: Dict[str, int] = {}
+        for nm in titles.values():
+            m = measure_of_name(nm, sep)
+            if m:
+                counts[m] = counts.get(m, 0) + 1
+        measure = max(counts, key=lambda k: counts[k]) if counts else ""
+    return {"dataset_code": code, "object_id": str(obj_id), "separator": sep,
+            "levels": levels, "row_level": conf.get("row_level") or "Строка",
+            "measure": measure}
+
+
+def ladder_page_specs(ctx: Dict) -> List[dict]:
+    """Виджеты страницы лестницы.
+
+    🔴 Главное правило страницы: КАЖДЫЙ её виджет обязан пережить спуск. На
+    обычной странице большинство виджетов настроено на одну графу («ИТОГО ·
+    Выдано, ед.»), а свод из ветки исключается — замер на дашборде заказчика:
+    внутри «Росреестра» из 12 виджетов «Обзора» считались 2, остальные честно
+    молчали. Здесь виджеты описаны так, что ветка их только сужает:
+
+      • рейтинг — по МЕРЕ, а не по графе: «Принято, ед.» разворачивается в
+        графы ветки и сворачивается по строке;
+      • «Показатели списком» и таблица списка граф не имеют вовсе, и ветку им
+        называет фильтр лестницы.
+
+    Новых типов виджетов не заводим — это решение из плана: страница рисуется
+    тем, что уже есть.
+    """
+    from ._suggest import WIDGET_SIZE
+
+    code, measure = ctx["dataset_code"], ctx["measure"]
+    row_level = ctx["row_level"]
+    specs: List[dict] = []
+    y = 0
+
+    def add(kind: str, name: str, cfg: dict, height: Optional[int] = None):
+        nonlocal y
+        w, h = WIDGET_SIZE[kind]
+        specs.append({"page": LADDER_PAGE, "name": name, "widget_type": kind, "config": cfg,
+                      "position_x": 0, "position_y": y, "width": 12, "height": height or h})
+        y += (height or h)
+
+    meas = f" · {measure}" if measure else ""
+    add("ranked", f"{row_level}: кто впереди и кто в хвосте{meas}",
+        {"dataset_code": code, "measure": measure, "top_n": 5, "bottom": True})
+    add("field_list", "Из чего складывается ветка",
+        {"dataset_code": code, "sort": "value", "hide_zero": True, "group_sep": ctx["separator"]})
+    # Имя без меры: таблица показывает ВСЕ графы ветки, а не одну меру, — и
+    # подписать её мерой значило бы соврать о содержимом.
+    add("table", "Первичные строки ветки", {"dataset_code": code})
+    return specs
+
+
+async def plan_ladder_page(conn, org_id, dashboard_id: str) -> Dict:
+    """Что будет создано — до того, как создавать."""
+    ctx = await _ladder_context(conn, org_id, dashboard_id)
+    specs = ladder_page_specs(ctx)
+    exists = await conn.fetchval(
+        "select id from dashboard_pages where dashboard_id=$1::uuid and name=$2",
+        dashboard_id, LADDER_PAGE)
+    return {"page": LADDER_PAGE, "exists": bool(exists), "dataset_code": ctx["dataset_code"],
+            "levels": ctx["levels"], "row_level": ctx["row_level"], "measure": ctx["measure"],
+            "widgets": [{"name": s["name"], "widget_type": s["widget_type"]} for s in specs]}
+
+
+async def build_ladder_page(conn, org_id, user_id, dashboard_id: str) -> Dict:
+    """Добавить страницу лестницы к СУЩЕСТВУЮЩЕМУ дашборду.
+
+    Отдельной страницей, а не пересборкой: у заказчика дашборд собран и правлен
+    руками, и заменять его наполнение ради лестницы нельзя (решение «к уже
+    загруженным формам — по кнопке»). Повторное нажатие заменяет наполнение
+    ТОЛЬКО этой страницы — иначе кнопка плодила бы одинаковые страницы.
+    """
+    from . import service as svc
+    from ._suggest import AUTO_LAYOUT_MODE
+
+    ctx = await _ladder_context(conn, org_id, dashboard_id)
+    specs = ladder_page_specs(ctx)
+    pid = await conn.fetchval(
+        "select id from dashboard_pages where dashboard_id=$1::uuid and name=$2",
+        dashboard_id, LADDER_PAGE)
+    if pid:
+        await conn.execute("delete from widgets where page_id=$1::uuid", str(pid))
+        pid = str(pid)
+    else:
+        page = await svc.create_page(conn, org_id, user_id, dashboard_id, LADDER_PAGE,
+                                     None, AUTO_LAYOUT_MODE)
+        pid = str(page["id"])
+    for s in specs:
+        await svc.create_widget(conn, org_id, user_id, pid, s["name"], s["widget_type"], s["config"],
+                                {"position_x": s["position_x"], "position_y": s["position_y"],
+                                 "width": s["width"], "height": s["height"]})
+    return {"page_id": pid, "page": LADDER_PAGE, "widgets": len(specs)}

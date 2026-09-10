@@ -95,9 +95,20 @@ export default function LadderBar(
       ))}
 
       {kids.length > top.length && (
-        <button type="button" style={more} onClick={() => setOpen(true)}>
-          показать все {kids.length}
-        </button>
+        <>
+          {/* Молчаливой обрезки быть не должно — правило и формулировка те же,
+              что у «Ранжированного списка» и «Сравнения показателей». Замер на
+              форме РЦО: на первой ступени 29 значений, из них семь за этот день
+              с нулём; макет обещал 22 строки, и обе цифры верны — просто
+              мелкое и пустое уходит за кнопку, а не исчезает. */}
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+            Показаны самые крупные: {top.length} из {kids.length} — остальные меньше по объёму,
+            в том числе те, у кого за этот отчёт ноль.
+          </div>
+          <button type="button" style={more} onClick={() => setOpen(true)}>
+            показать все {kids.length}
+          </button>
+        </>
       )}
       {open && kids.length > 8 && (
         <button type="button" style={more} onClick={() => setOpen(false)}>свернуть</button>

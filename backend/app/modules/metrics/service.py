@@ -290,6 +290,17 @@ async def preview(conn, org_id, formula_expression: str) -> dict:
     return {"value": value, "dependencies": deps, "ast": ast}
 
 
+def _form_measures(names) -> list:
+    """Различные меры формы — по тому же разделителю, что видит лестница."""
+    from ..dashboards._levels import measure_of_name
+    from ..ingestion.hierarchy import pick_separator
+
+    sep = pick_separator(list(names))
+    if not sep:
+        return []
+    return sorted({m for m in (measure_of_name(n, sep) for n in names) if m})
+
+
 async def list_data_sources(conn, org_id) -> dict:
     """Справочник для визуального конструктора: датасеты (поля/строки/даты) + метрики."""
     releases = await conn.fetch(
@@ -341,6 +352,15 @@ async def list_data_sources(conn, org_id) -> dict:
             "where dataset_release_id=$1 and row_label is not null order by row_label limit 300",
             grp["latest_id"],
         )
+        # 🔴 Меру можно взять только у графы, в которой есть ЧИСЛА. Иначе в
+        # список попадают «Наименование отдела МФЦ» и «Комментарии по офисам»
+        # — выбрать можно, а показать по ним нечего (та же ловушка, что уже
+        # ловили в мастере ступеней). Смотрим на сами значения, а не на
+        # объявленный тип графы: тип — догадка распознавания по образцу, и на
+        # «Статистике услуг» 118 числовых граф объявлены текстовыми.
+        numeric = {r["canonical_field_code"] for r in await conn.fetch(
+            "select distinct canonical_field_code from dataset_values "
+            "where dataset_release_id=$1 and value_number is not null", grp["latest_id"])}
         datasets.append({
             "code": grp["code"], "name": grp["name"], "object": grp["object"],
             "folder": grp["folder"],
@@ -349,6 +369,11 @@ async def list_data_sources(conn, org_id) -> dict:
             "document": grp["document"], "documents": grp["documents"],
             "releases": grp["releases"], "dates": grp["dates"],
             "fields": [dict(f) for f in fields],
+            # Меры формы («Принято, ед.», «Выдано, ед.») — хвосты имён граф.
+            # Считает их БЭКЕНД тем же правилом, что и лестница: разбирать имя
+            # на клиенте значило бы завести второе понятие о том, что графа
+            # измеряет, и однажды они разошлись бы.
+            "measures": _form_measures([f["name"] for f in fields if f["code"] in numeric]),
             "rows": [r["row_label"] for r in rows],
         })
 

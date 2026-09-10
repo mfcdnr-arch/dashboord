@@ -1127,6 +1127,10 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         <div style={{ ...muted, marginTop: 4 }}>
           всего строк: {data.rows_total}
           {byPlan ? ' · порядок по выполнению плана' : ' · порядок по значению'}
+          {/* Число в строке — свод по нескольким графам, и молчать об этом
+              нельзя: иначе оно читается как значение одной графы. */}
+          {data.folded_fields > 1 && ` · каждая строка — свод по ${data.folded_fields} ${
+            plural(data.folded_fields, 'графе', 'графам', 'графам')}`}
         </div>
       </div>
     )

@@ -122,6 +122,10 @@ export interface DataSet {
   documents?: string[]
   releases?: number
   dates: string[]; fields: DsField[]; rows: string[]
+  /** Меры формы («Принято, ед.», «Выдано, ед.») — хвосты имён граф.
+   *  Считает их сервер тем же правилом, что и лестница уровней: разбирать имя
+   *  на клиенте значило бы завести второе понятие о том, что графа измеряет. */
+  measures?: string[]
 }
 export interface MetricSource { code: string; name: string; unit?: string | null; formula?: string | null }
 export interface DataSources { datasets: DataSet[]; metrics: MetricSource[] }

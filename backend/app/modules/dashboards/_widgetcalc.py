@@ -561,6 +561,27 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
     """
     cfg = _normalize_cfg(cfg)
 
+    # Мера вместо перечня граф. Виджет, настроенный на ОДНУ графу («ИТОГО ·
+    # Принято, ед.»), внутри ветки замолкает: свод из ветки исключается, а
+    # замены у него нет — то есть, спустившись в «Росреестр», человек терял
+    # ответ на главный вопрос «кто впереди». Мера разворачивается в графы формы
+    # с этим хвостом, и такой список ветку переживает: ниже `narrow_cfg`
+    # оставит от него графы ветки. Заодно настройка не устаревает: появится в
+    # форме новая услуга — она попадёт в свод сама.
+    if cfg.get("measure") and cfg.get("dataset_code") and not cfg.get("value_fields"):
+        titles = await ws._field_titles(conn, org_id, cfg["dataset_code"], cfg.get("period"))
+        # Разделитель у каждой формы свой (« · » у РЦО, «:» у «Статистики
+        # услуг») — определяем его по самим именам, как это делает лестница.
+        # С зашитым « · » мера на форме со вторым разделителем не нашлась бы
+        # вовсе, и виджет упал бы на пустом списке граф.
+        msep = pick_separator(list(titles.values())) or " · "
+        picked = [c for c, nm in titles.items()
+                  if _levels.measure_of_name(nm, msep) == cfg["measure"] and not is_total_column(nm)]
+        if not picked:
+            raise DashboardError(
+                f"В форме нет граф с мерой «{cfg['measure']}» — выберите другую меру.")
+        cfg = {**cfg, "value_fields": picked}
+
     # Фильтр лестницы: сужаем набор граф до выбранной ветки. Стоит здесь, в
     # одной обёртке над расчётом, ровно по той же причине, по которой здесь же
     # живёт фильтр периода, — иначе каждый из 26 типов виджетов пришлось бы
@@ -569,7 +590,7 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
         titles = await ws._field_titles(conn, org_id, cfg["dataset_code"], cfg.get("period"))
         sep = pick_separator(list(titles.values()))
         if sep:
-            narrowed = _levels.narrow_cfg(cfg, titles, sep, level_path)
+            narrowed = _levels.narrow_cfg(cfg, titles, sep, level_path, t)
             if narrowed is None:
                 # Честный ответ вместо цифры не из той ветки.
                 return {"type": t, "title": name, "not_in_branch": True,
@@ -1788,10 +1809,52 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         # светофор красит «где плохо», но не выстраивает порядок, а таблицу
         # надо сортировать руками и читать числа подряд.
         field = cfg.get("value_field")
-        if not cfg.get("dataset_code") or not field:
+        # Больше одной графы — свод по строке. Одну графу ведём прежним путём:
+        # `_normalize_cfg` достраивает `value_fields` из `value_field` у КАЖДОГО
+        # виджета, и без этой оговорки все уже собранные рейтинги молча поехали
+        # бы через другой расчёт.
+        many = [f for f in (cfg.get("value_fields") or []) if f]
+        # Мера остаётся сводом и тогда, когда ветка сузила её до одной графы
+        # (у ЕСИА графа «Принято» одна): иначе рейтинг внутри такой ветки
+        # сломался бы на пустом `value_field`.
+        if len(many) < 2 and not cfg.get("measure"):
+            many = []
+        if not cfg.get("dataset_code") or not (field or many):
             raise DashboardError("Рейтинг: укажите dataset_code и показатель")
         code = cfg["dataset_code"]
-        series = await _dataset_series(conn, org_id, code, field, row, allowed, period)
+        folded = 0
+        if many:
+            # 🔴 Рейтинг по НЕСКОЛЬКИМ графам заведён ради лестницы уровней.
+            # Виджет с одной графой («ИТОГО · Принято, ед.») внутри ветки
+            # замолкает: свод из ветки исключается, а замены у него нет — то
+            # есть, спустившись в «Росреестр», человек терял ответ на главный
+            # вопрос «кто впереди». Список граф ветку переживает: `narrow_cfg`
+            # оставляет от него графы этой ветки, и рейтинг показывает
+            # отделения уже внутри неё.
+            multi = await ws._dataset_multi_series(conn, org_id, code, many, row, allowed, period)
+            names = [x["name"] for x in multi["series"]]
+            # Графы с разным хвостом складывать нельзя: «Принято» и «Выдано» —
+            # стадии ОДНОГО обращения, и сумма считает его дважды. Правило то
+            # же, по которому сводная таблица не показывает итога на смеси.
+            measures = {m for m in (measure_of(n) for n in names) if m}
+            if len(measures) > 1:
+                raise DashboardError(
+                    "Рейтинг складывает выбранные графы по строке, а они измеряют разное ("
+                    + ", ".join(sorted(measures)[:3])
+                    + "). Оставьте графы одной меры — иначе одно обращение сосчитается дважды.")
+            measure_name = names[0] if names else field
+            folded = len(names)
+            series = []
+            for i, cat in enumerate(multi["categories"]):
+                nums = [x["data"][i] for x in multi["series"] if x["data"][i] is not None]
+                if not nums:
+                    continue
+                total_i, _how = aggregate_series(nums, measure_name, cfg.get("unit"))
+                series.append({"category": cat, "value": total_i})
+        else:
+            if not field:
+                raise DashboardError("Рейтинг: укажите показатель")
+            series = await _dataset_series(conn, org_id, code, field, row, allowed, period)
         plan_by_row = {}
         if cfg.get("plan_field"):
             plan_by_row = {x["category"]: x["value"] for x in await _dataset_series(
@@ -1847,7 +1910,7 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         worst = min(scale_of)
         tied = sum(1 for v in scale_of if v == worst)
         return {"type": "ranked", "title": name, "rows": shown, "skipped": skipped,
-                "rows_total": len(items), "total": total,
+                "rows_total": len(items), "total": total, "folded_fields": folded,
                 "scale_max": max(scale_of), "rank_by": "plan_pct" if by_plan else "value",
                 "tied_last": tied if tied > 1 else 0, "tied_value": worst if tied > 1 else None,
                 "unit": cfg.get("unit")}
@@ -1951,7 +2014,11 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
     if t == "table":
         if not cfg.get("dataset_code"):
             raise DashboardError("Таблица: укажите dataset_code")
-        table = await _dataset_table(conn, org_id, cfg["dataset_code"], row, allowed, period)
+        # `value_fields` у таблицы своей настройкой не задаётся — его
+        # подставляет фильтр лестницы, называя графы ветки. Без этого таблица
+        # внутри «Росреестра» показывала бы всю форму целиком.
+        table = await _dataset_table(conn, org_id, cfg["dataset_code"], row, allowed, period,
+                                     fields=cfg.get("value_fields"))
         res = {"type": "table", "title": name, **table}
         # Условное форматирование ячеек: цвет по порогам считаем ТЕМ ЖЕ кодом,
         # что красит карточку показателя, а «полоску по величине» отдаём

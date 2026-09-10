@@ -148,6 +148,7 @@ export interface HeaderActions {
   archive: () => void
   toggleAutoArchive: () => void
   toggleSuggestFields: () => void
+  ladderPage: () => void
   del: () => void
   comments: () => void
   kiosk: () => void
@@ -391,6 +392,12 @@ export function DashboardHeader({
               {canManage && <button type="button" style={menuItem} onClick={() => { setMoreOpen(false); a.access() }}>🔒 Доступ</button>}
               {canManage && <button type="button" style={menuItem} onClick={() => { setMoreOpen(false); a.moveFolder() }}>📁 Переместить в папку</button>}
               {canManage && <button type="button" style={menuItem} onClick={() => { setMoreOpen(false); a.saveTemplate() }}>Сохранить как шаблон</button>}
+              {canManage && (
+                <button type="button" style={menuItem} onClick={() => { setMoreOpen(false); a.ladderPage() }}
+                  title="Отдельная страница, собранная под лестницу уровней: её виджеты переживают спуск по ветке">
+                  🪜 Страница с лестницей
+                </button>
+              )}
               {canManage && (
                 <button type="button" style={menuItem} onClick={() => { setMoreOpen(false); a.toggleSuggestFields() }}
                   title="Подсказка о показателях, которых нет на дашборде">

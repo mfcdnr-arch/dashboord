@@ -190,6 +190,34 @@ async def page_ladder(page_id: str, user: dict = Depends(get_current_user),
             raise _bad(e)
 
 
+@router.get("/dashboards/{dashboard_id}/ladder-page/plan")
+async def ladder_page_plan(dashboard_id: str, user: dict = Depends(manage)):
+    """Что будет на странице лестницы — до того, как её создавать.
+
+    Состав считается ТОЙ ЖЕ функцией, что и создаёт страницу: обещанное иначе
+    однажды разошлось бы с созданным.
+    """
+    async with db.acquire(user["id"]) as conn:
+        try:
+            return await service.plan_ladder_page(conn, user["organization_id"], dashboard_id)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.post("/dashboards/{dashboard_id}/ladder-page")
+async def ladder_page_build(dashboard_id: str, user: dict = Depends(manage)):
+    """Добавить к дашборду страницу, собранную под лестницу уровней."""
+    async with db.acquire(user["id"]) as conn:
+        try:
+            res = await service.build_ladder_page(conn, user["organization_id"], user["id"], dashboard_id)
+            await audit_svc.write_event(conn, user["organization_id"], user["id"], "create",
+                                        "dashboard_page", res["page_id"],
+                                        new_data={"ladder_page": True, "widgets": res["widgets"]})
+            return res
+        except DashboardError as e:
+            raise _bad(e)
+
+
 @router.get("/dashboard-pages/{page_id}/report-dates")
 async def page_report_dates(page_id: str, user: dict = Depends(get_current_user)):
     """Отчётные даты страницы — список для выбора конкретного отчёта фильтром."""

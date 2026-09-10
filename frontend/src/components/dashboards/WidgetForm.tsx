@@ -271,6 +271,11 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const [planField, setPlanField] = useState(cfg0.plan_field || numFields(initDataset)[0]?.code || '')
   const [factField, setFactField] = useState(cfg0.fact_field || numFields(initDataset)[0]?.code || '')
   const [multiFields, setMultiFields] = useState<string[]>(cfg0.value_fields || [])
+  // Рейтинг по МЕРЕ, а не по одной графе: «Принято, ед.» разворачивается в
+  // графы выбранной ветки лестницы и сворачивается по строке. Так рейтинг
+  // переживает спуск — виджет с одной графой внутри ветки замолкает, потому
+  // что свод из ветки исключается, а замены у него нет.
+  const [rankMeasure, setRankMeasure] = useState<string>((cfg0.measure as string) || '')
   const [viz, setViz] = useState(cfg0.viz || 'bar')
   const [scale, setScale] = useState<string>((initial?.config?.scale as string) || '')
   const [heading, setHeading] = useState(cfg0.heading || '')
@@ -365,7 +370,8 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const isImage = type === 'image'
   const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
   const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall', 'matrix', 'bullet', 'thermometer', 'ranked', 'spark_table', 'field_list'].includes(type)
-  const usesValueField = ['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall', 'ranked', 'spark_table'].includes(type)
+  const usesValueField = (['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall', 'spark_table'].includes(type)
+    || (type === 'ranked' && !rankMeasure))
     || (type === 'matrix' && matrixBy !== 'fields')
     || (['kpi', 'gauge'].includes(type) && source === 'dataset')
   // Воронка тоже набирается из нескольких полей, но порядок галочек для неё
@@ -474,8 +480,10 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       ? { dataset_code: dataset, value_field: valueField,
           periods: Number(sparkPeriods) || 4, sort: sparkSort }
       : null
-    if (type === 'ranked') return (dataset && valueField)
-      ? { dataset_code: dataset, value_field: valueField, top_n: Number(topN) || 5,
+    if (type === 'ranked') return (dataset && (valueField || rankMeasure))
+      ? { dataset_code: dataset,
+          ...(rankMeasure ? { measure: rankMeasure } : { value_field: valueField }),
+          top_n: Number(topN) || 5,
           bottom: showBottom,
           // Ранжировать по выполнению плана можно только когда план задан —
           // иначе получился бы порядок по пустоте.
@@ -735,6 +743,20 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       )}
       {type === 'ranked' && (
         <>
+          {/* Мера сворачивает графы ветки лестницы в одно число на строку.
+              Показываем переключатель только там, где форма называет своё
+              устройство: у плоской формы мер нет, и выбирать не из чего. */}
+          {(sources.datasets.find((d) => d.code === dataset)?.measures || []).length > 0 && (
+            <F t="Ранжируем по">
+              <select style={sel} value={rankMeasure} onChange={(e) => setRankMeasure(e.target.value)}
+                title="Мера складывает графы выбранной ветки лестницы: спустившись в ведомство, рейтинг покажет отделения внутри него. Одна графа внутри ветки замолкает.">
+                <option value="">— одной графе —</option>
+                {(sources.datasets.find((d) => d.code === dataset)?.measures || []).map((m) => (
+                  <option key={m} value={m}>мере «{m}»</option>
+                ))}
+              </select>
+            </F>
+          )}
           <F t="План (необяз.)"><select style={sel} value={planField} onChange={(e) => setPlanField(e.target.value)}>
             <option value="">— без плана —</option>
             {numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}

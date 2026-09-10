@@ -873,3 +873,26 @@ export async function getLadder(pageId: string, path?: string[], measure?: strin
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+/** Что будет на странице лестницы — состав до создания. */
+export interface LadderPagePlan {
+  page: string
+  exists: boolean
+  dataset_code: string
+  levels: string[]
+  row_level: string
+  measure: string
+  widgets: { name: string; widget_type: string }[]
+}
+
+export async function getLadderPagePlan(dashboardId: string): Promise<LadderPagePlan> {
+  const res = await fetch(`/dashboards/${dashboardId}/ladder-page/plan`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function buildLadderPage(dashboardId: string): Promise<{ page_id: string; page: string; widgets: number }> {
+  const res = await fetch(`/dashboards/${dashboardId}/ladder-page`, { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

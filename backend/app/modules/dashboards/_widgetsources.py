@@ -238,14 +238,22 @@ async def _dataset_period_series(conn, org_id, dataset_code: str, value_field: s
     return out
 
 
-async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None, period=None):
+async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None, period=None,
+                         fields: Optional[List[str]] = None):
+    """`fields` — показать только эти графы; пусто — всю форму.
+
+    Своей настройки у таблицы нет: список подставляет фильтр лестницы, называя
+    графы выбранной ветки. Без него таблица оставалась единственным виджетом,
+    который внутри ветки показывал форму целиком.
+    """
     rel = await mr._active_release(conn, org_id, dataset_code, period)
     if rel is None:
         raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
-    fields = await conn.fetch(
+    only = set(fields) if fields else None
+    frows = await conn.fetch(
         "select distinct canonical_field_code from dataset_values where dataset_release_id=$1 "
         "order by canonical_field_code", rel)
-    cols = [f["canonical_field_code"] for f in fields]
+    cols = [f["canonical_field_code"] for f in frows if only is None or f["canonical_field_code"] in only]
     params: list = [rel, row]
     acl = _row_acl_clause(params, allowed)
     vals = await conn.fetch(

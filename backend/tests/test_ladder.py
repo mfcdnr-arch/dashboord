@@ -241,3 +241,152 @@ async def test_ladder_walks_the_tree(client, admin_headers, tree):
 
     from tests.conftest import purge_dashboard
     await purge_dashboard(d["id"])
+
+
+# ── Кусок 4: страница, собранная под лестницу ───────────────────────────────
+
+def test_whole_form_widget_gets_the_branch_named_explicitly():
+    """🔴 Виджет, читающий ВСЮ форму, внутри ветки показывал форму целиком.
+
+    Своего списка граф у таблицы и «Показателей списком» в конфигурации нет,
+    поэтому общее правило («оставить от списка графы ветки») их не задевало.
+    Замер на дашборде заказчика: таблица отдавала 327 колонок и в корне, и
+    внутри «Росреестра» — данные не из той ветки под видом её собственных.
+    """
+    cfg = {"dataset_code": "d"}
+    out = narrow_cfg(cfg, TITLES, SEP, ["Росреестр"], "table")
+    assert out["value_fields"] == ["rr_reg_in", "rr_kad_in"], "ветка названа явно"
+    # Свод не попадает и сюда: внутри ветки он даёт итог по всей форме.
+    assert "itogo_in" not in out["value_fields"]
+    # Своя настройка человека сильнее: если графы выбраны, их и сужаем.
+    picked = narrow_cfg({"dataset_code": "d", "value_fields": ["rr_reg_in", "mvd_in"]},
+                        TITLES, SEP, ["Росреестр"], "field_list")
+    assert picked["value_fields"] == ["rr_reg_in"]
+    # В ветке нет ни одной графы — виджету показывать нечего.
+    assert narrow_cfg(cfg, TITLES, SEP, ["Роскосмос"], "table") is None
+    # Виду, который всю форму не читает, ничего не подставляем.
+    assert narrow_cfg(cfg, TITLES, SEP, ["Росреестр"], "kpi") == cfg
+
+
+async def test_ranked_by_measure_survives_the_descent(client, admin_headers, tree):
+    """🔴 Рейтинг по МЕРЕ переживает спуск, рейтинг по одной графе — нет.
+
+    Виджет, настроенный на «ИТОГО · Принято, ед.», внутри ветки замолкает: свод
+    из ветки исключается, а замены у него нет. Ради этого мера и заведена —
+    иначе, спустившись в ведомство, человек терял ответ на главный вопрос
+    «кто впереди».
+    """
+    d = (await client.post("/dashboards", json={"name": "ztest_ladder_ranked"},
+                           headers=admin_headers)).json()
+    p = (await client.post(f"/dashboards/{d['id']}/pages", json={"name": "Обзор"},
+                           headers=admin_headers)).json()
+    by_measure = (await client.post(f"/dashboard-pages/{p['id']}/widgets", headers=admin_headers,
+                                    json={"name": "рейтинг", "widget_type": "ranked",
+                                          "config": {"dataset_code": "zld_ds",
+                                                     "measure": "Принято, ед."}})).json()
+    by_total = (await client.post(f"/dashboard-pages/{p['id']}/widgets", headers=admin_headers,
+                                  json={"name": "рейтинг по своду", "widget_type": "ranked",
+                                        "config": {"dataset_code": "zld_ds",
+                                                   "value_field": "zld_itogo"}})).json()
+    async with db.acquire() as conn:
+        org = await conn.fetchval("select id from organizations order by created_at limit 1")
+        uid = await conn.fetchval("select id from users where login='admin'")
+        user = {"id": uid, "organization_id": org}
+        from app.modules.dashboards._widgetdata import compute_widget_data
+        root = await compute_widget_data(conn, org, by_measure["id"], user=user)
+        branch = await compute_widget_data(conn, org, by_measure["id"], user=user,
+                                           level_path=["Росреестр"])
+        one = await compute_widget_data(conn, org, by_total["id"], user=user,
+                                        level_path=["Росреестр"])
+    # В корне свод по трём графам-составляющим (свод формы исключён).
+    assert root["folded_fields"] == 3 and root["total"] == 441 + 244 + 448
+    # В ветке остаются только её графы, и число это подтверждает.
+    assert branch["folded_fields"] == 2 and branch["total"] == 441 + 244
+    assert one.get("not_in_branch") is True, "рейтинг по одной графе внутри ветки молчит"
+
+    from tests.conftest import purge_dashboard
+    await purge_dashboard(d["id"])
+
+
+async def test_ranked_refuses_to_fold_different_measures(client, admin_headers, tree):
+    """Складывать «Принято» и «Выдано» нельзя: это стадии ОДНОГО обращения."""
+    async with db.acquire() as conn:
+        rel = await conn.fetchval("select id from dataset_releases where code='zld_ds'")
+        obj = await conn.fetchval("select object_id from dataset_releases where id=$1", rel)
+        await conn.execute(
+            "insert into canonical_fields(object_id,code,name,data_type) "
+            "values($1,'zld_rr_out','Росреестр · Государственная регистрация прав · Выдано, ед.','number')",
+            obj)
+        await conn.execute("insert into dataset_release_fields(dataset_release_id,canonical_field_code) "
+                           "values($1,'zld_rr_out')", rel)
+        await conn.execute(
+            "insert into dataset_values(dataset_release_id,row_index,row_label,"
+            "canonical_field_code,value_number) values($1,0,'Отд. 1','zld_rr_out',10)", rel)
+
+    d = (await client.post("/dashboards", json={"name": "ztest_ladder_mix"},
+                           headers=admin_headers)).json()
+    p = (await client.post(f"/dashboards/{d['id']}/pages", json={"name": "Обзор"},
+                           headers=admin_headers)).json()
+    w = (await client.post(f"/dashboard-pages/{p['id']}/widgets", headers=admin_headers,
+                           json={"name": "смесь", "widget_type": "ranked",
+                                 "config": {"dataset_code": "zld_ds",
+                                            "value_fields": ["zld_rr_reg", "zld_rr_out"]}})).json()
+    r = await client.get(f"/widgets/{w['id']}/data", headers=admin_headers)
+    assert r.status_code == 400
+    assert "измеряют разное" in r.text or "измеряют разное" in r.json().get("detail", "")
+
+    from tests.conftest import purge_dashboard
+    await purge_dashboard(d["id"])
+
+
+async def test_ladder_page_is_built_and_rebuilt_without_doubling(client, admin_headers, tree):
+    """Страница лестницы добавляется к существующему дашборду и не двоится.
+
+    Состав считается ТОЙ ЖЕ функцией, что и создаёт страницу, — обещанное в
+    предпросмотре иначе однажды разошлось бы с созданным.
+    """
+    d = (await client.post("/dashboards", json={"name": "ztest_ladder_page"},
+                           headers=admin_headers)).json()
+    p = (await client.post(f"/dashboards/{d['id']}/pages", json={"name": "Обзор"},
+                           headers=admin_headers)).json()
+    await client.post(f"/dashboard-pages/{p['id']}/widgets", headers=admin_headers,
+                      json={"name": "якорь", "widget_type": "kpi",
+                            "config": {"dataset_code": "zld_ds", "value_field": "zld_rr_reg"}})
+
+    plan = (await client.get(f"/dashboards/{d['id']}/ladder-page/plan", headers=admin_headers)).json()
+    assert plan["exists"] is False
+    assert plan["levels"] == ["Ведомство", "Услуга"] and plan["row_level"] == "Отделение"
+    assert plan["measure"] == "Принято, ед."
+    kinds = [w["widget_type"] for w in plan["widgets"]]
+
+    made = (await client.post(f"/dashboards/{d['id']}/ladder-page", headers=admin_headers)).json()
+    assert made["widgets"] == len(plan["widgets"]), "создано ровно то, что обещал предпросмотр"
+    ws = (await client.get(f"/dashboard-pages/{made['page_id']}/widgets", headers=admin_headers)).json()
+    assert [w["widget_type"] for w in ws["widgets"]] == kinds
+
+    # Повтор заменяет наполнение ТОЛЬКО этой страницы и не плодит страниц.
+    again = (await client.post(f"/dashboards/{d['id']}/ladder-page", headers=admin_headers)).json()
+    assert again["page_id"] == made["page_id"]
+    full = (await client.get(f"/dashboards/{d['id']}", headers=admin_headers)).json()
+    assert [pg["name"] for pg in full["pages"]].count(plan["page"]) == 1
+    assert len(full["pages"]) == 2, "страница «Обзор» не тронута"
+
+    from tests.conftest import purge_dashboard
+    await purge_dashboard(d["id"])
+
+
+async def test_ladder_page_refuses_on_a_form_without_confirmed_levels(client, admin_headers, seed_dataset):
+    """Без подтверждённой иерархии страницу не собираем и говорим почему."""
+    d = (await client.post("/dashboards", json={"name": "ztest_ladder_flat"},
+                           headers=admin_headers)).json()
+    p = (await client.post(f"/dashboards/{d['id']}/pages", json={"name": "Обзор"},
+                           headers=admin_headers)).json()
+    await client.post(f"/dashboard-pages/{p['id']}/widgets", headers=admin_headers,
+                      json={"name": "карточка", "widget_type": "kpi",
+                            "config": {"dataset_code": "t_ds", "value_field": "plan"}})
+    r = await client.get(f"/dashboards/{d['id']}/ladder-page/plan", headers=admin_headers)
+    assert r.status_code == 400
+    assert "ступен" in r.text.lower()
+
+    from tests.conftest import purge_dashboard
+    await purge_dashboard(d["id"])
