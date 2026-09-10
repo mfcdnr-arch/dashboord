@@ -56,7 +56,7 @@ export default function InfoTip({ text, label = 'Подсказка' }: { text: 
       {open && createPortal(
         <span ref={tip} role="tooltip" style={{
           position: 'fixed', top: pos?.top ?? -9999, left: pos?.left ?? -9999, zIndex: 200,
-          width: TIP_WIDTH, background: 'var(--text)', color: 'var(--on-accent)', fontSize: 12, lineHeight: 1.4, fontWeight: 400,
+          width: TIP_WIDTH, background: 'var(--tooltip-bg)', color: 'var(--tooltip-fg)', fontSize: 12, lineHeight: 1.4, fontWeight: 400,
           padding: '8px 10px', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.25)', whiteSpace: 'normal',
           // до первого замера держим облачко невидимым, иначе виден скачок из угла
           visibility: pos ? 'visible' : 'hidden', pointerEvents: 'none',

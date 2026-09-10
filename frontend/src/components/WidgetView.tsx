@@ -12,7 +12,7 @@ import ReportProblemDialog from './dashboards/ReportProblemDialog'
 import { alertLook, levelLook } from '../lib/alertColors'
 import { exportWidgetXlsx } from '../api'
 import PassportDialog from './dashboards/PassportDialog'
-import { fmtNumber as fmt, heatSteps, logScaleAdvice } from '../lib/format'
+import { fmtNumber as fmt, heatSteps, logScaleAdvice, sparkSeries } from '../lib/format'
 import { distinctLabels, dropCommonWords, elideMiddle, fitRotatedAxis, plural, textWidth } from '../lib/text'
 
 // Отрисовка данных виджета: KPI/таблица/план-факт — HTML, столбцы/линия/круговая —
@@ -574,26 +574,102 @@ export function WidgetPreviewBody({ data }: { data: any }) {
 }
 
 // Цель/бенчмарк под показателем: значение цели + % достижения (зелёный при ≥100%).
-/** Мини-график динамики внутри карточки: только форма движения, без осей. */
-function Sparkline({ values, color }: { values: number[]; color: string }) {
+// Имя мини-графика для диктора: линию он не «увидит», поэтому называем границы
+// ряда — сколько отчётов, с чего начался и чем кончился.
+function sparkLabel(values: number[], periods?: (string | null)[]): string {
+  const at = (p: string | null | undefined, v: number) =>
+    (p ? `${fmtPeriod(String(p))} — ${fmt(v)}` : fmt(v))
+  const n = values.length
+  return `Динамика по ${n} ${plural(n, 'отчёту', 'отчётам', 'отчётам')}:`
+    + ` от ${at(periods?.[0], values[0])} до ${at(periods?.[n - 1], values[n - 1])}`
+}
+
+/**
+ * Мини-график динамики внутри карточки: только форма движения, без осей.
+ *
+ * Замечание заказчика (11.09): «на график вынести показатели, когда двигаешь
+ * стрелкой по графику». Подписать значения прямо на линии нельзя — 22px не
+ * вмещают ни осей, ни чисел, — но по наведению они нужны: линия отвечает на
+ * «росло или падало», а «сколько было в этой точке» не отвечал никто, кроме
+ * отдельного виджета «Динамика», до которого ещё надо дойти.
+ *
+ * Облачко выводится ПОРТАЛОМ в body: у карточки виджета overflow: hidden, и
+ * подсказка, вылезшая за её край, обрезалась бы посередине слова — тот же
+ * дефект уже ловили у значка ⓘ и у окна «подробнее».
+ */
+function Sparkline({ values, periods, color }:
+  { values: number[]; periods?: (string | null)[]; color: string }) {
   const w = 100, h = 22
+  const box = useRef<HTMLDivElement>(null)
+  const tip = useRef<HTMLSpanElement>(null)
+  const [hit, setHit] = useState<{ i: number; x: number; top: number } | null>(null)
+  const [left, setLeft] = useState<number | null>(null)
   const min = Math.min(...values), max = Math.max(...values)
   const span = max - min || 1
-  const pts = values.map((v, i) => {
-    const x = (i / (values.length - 1)) * w
-    const y = h - ((v - min) / span) * (h - 3) - 1.5
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  }).join(' ')
-  const last = values[values.length - 1]
-  const lastY = h - ((last - min) / span) * (h - 3) - 1.5
+  const xOf = (i: number) => (i / (values.length - 1)) * w
+  const yOf = (v: number) => h - ((v - min) / span) * (h - 3) - 1.5
+  const pts = values.map((v, i) => `${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`).join(' ')
+
+  // Ближайшая точка по горизонтали, а не попадание в саму точку: ряд короткий
+  // (обычно 4–12 отчётов), точки мелкие, и курсор ведут ВДОЛЬ линии.
+  const track = (e: React.MouseEvent) => {
+    const r = box.current?.getBoundingClientRect()
+    if (!r || r.width === 0) return
+    const rel = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width))
+    const i = Math.round(rel * (values.length - 1))
+    // Метка всё равно прыгает по точкам, поэтому перерисовываем на СМЕНЕ точки,
+    // а не на каждом движении мыши: иначе десяток карточек на странице
+    // пересчитывались бы по кадру на пиксель.
+    setHit((cur) => (cur && cur.i === i ? cur
+      : { i, x: r.left + (i / (values.length - 1)) * r.width, top: r.top }))
+  }
+
+  // Облачко держим в пределах окна: у крайней точки оно центрируется по ней и
+  // у левого края экрана уехало бы за границу (тот же приём, что у ⓘ).
+  useLayoutEffect(() => {
+    if (!hit) { setLeft(null); return }
+    const half = (tip.current?.offsetWidth ?? 0) / 2
+    setLeft(Math.min(Math.max(hit.x, half + 8), window.innerWidth - half - 8))
+  }, [hit])
+
+  const at = hit ? (hit.i / (values.length - 1)) * 100 : 0
+  const p = hit && periods ? periods[hit.i] : null
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none"
-      style={{ width: '100%', height: 22, marginTop: 4, display: 'block' }}
-      aria-label="Динамика по отчётным периодам">
-      <polyline points={pts} fill="none" stroke={color} strokeWidth={1.5}
-        vectorEffect="non-scaling-stroke" />
-      <circle cx={w} cy={lastY} r={2} fill={color} />
-    </svg>
+    <div ref={box} style={{ position: 'relative', marginTop: 4, cursor: 'crosshair' }}
+      onMouseMove={track} onMouseLeave={() => setHit(null)}>
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none"
+        style={{ width: '100%', height: 22, display: 'block' }}
+        aria-label={sparkLabel(values, periods)}>
+        <polyline points={pts} fill="none" stroke={color} strokeWidth={1.5}
+          vectorEffect="non-scaling-stroke" />
+        <circle cx={w} cy={yOf(values[values.length - 1])} r={2} fill={color} />
+      </svg>
+      {/* Метку рисуем разметкой, а не в SVG: preserveAspectRatio="none" тянет
+          картинку по ширине, и круг в ней превратился бы в эллипс. */}
+      {hit && (
+        <>
+          <span style={{ position: 'absolute', left: `${at}%`, top: 0, bottom: 0, width: 1,
+            background: color, opacity: 0.45, pointerEvents: 'none' }} />
+          <span style={{ position: 'absolute', left: `${at}%`,
+            top: `${(yOf(values[hit.i]) / h) * 100}%`, width: 7, height: 7,
+            marginLeft: -3.5, marginTop: -3.5, borderRadius: '50%', background: color,
+            boxShadow: '0 0 0 1.5px var(--surface)', pointerEvents: 'none' }} />
+        </>
+      )}
+      {hit && createPortal(
+        <span ref={tip} role="tooltip" style={{
+          position: 'fixed', left: left ?? hit.x, top: hit.top - 6, transform: 'translate(-50%, -100%)',
+          zIndex: 200, background: 'var(--tooltip-bg)', color: 'var(--tooltip-fg)',
+          borderRadius: 6, padding: '3px 7px',
+          fontSize: 11, lineHeight: 1.35, whiteSpace: 'nowrap', pointerEvents: 'none',
+          boxShadow: '0 4px 14px rgba(0,0,0,0.18)',
+        }}>
+          {p && <span style={{ opacity: 0.75 }}>{fmtPeriod(String(p))} · </span>}
+          <b>{fmt(values[hit.i])}</b>
+        </span>,
+        document.body,
+      )}
+    </div>
   )
 }
 
@@ -819,9 +895,11 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
           </div>
         )}
         {/* Мини-график: форма движения важнее отдельных значений, поэтому без
-            осей и подписей — они на такой высоте всё равно нечитаемы. */}
+            осей и подписей — они на такой высоте всё равно нечитаемы. Само
+            число за точку показывается по наведению. */}
         {Array.isArray(data.spark) && data.spark.length > 1 && (
-          <Sparkline values={data.spark as number[]} color={levelLook(data.alert?.level)?.color || 'var(--accent)'} />
+          <Sparkline values={data.spark as number[]} periods={data.spark_periods as string[] | undefined}
+            color={levelLook(data.alert?.level)?.color || 'var(--accent)'} />
         )}
         <AggregateNote data={data} />
         <TargetLine data={data} />
@@ -1024,14 +1102,18 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             {rows.map((r, i) => {
               // Пропуски в ряду не рисуем нулями: ноль — это «было ноль», а
               // пропуск — «отчёта не было», и линия не должна их путать.
-              const pts = (r.values || []).filter((v: number | null) => v != null)
+              // Период выбрасываем ВМЕСТЕ со значением, иначе подсказка при
+              // наведении назвала бы чужую дату — сдвиг на каждый пропуск.
+              const kept = sparkSeries(r.values || [], periods)
+              const pts = kept.values
               return (
                 <tr key={i} style={{ borderTop: i ? '1px solid var(--border-faint)' : undefined }}>
                   <td style={{ padding: '4px 6px 4px 0', maxWidth: 260, overflow: 'hidden',
                     textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.label}>{r.label}</td>
                   <td style={{ width: 90, padding: '4px 6px' }}>
                     {pts.length > 1
-                      ? <Sparkline values={pts} color={r.color || C.c1} />
+                      ? <Sparkline values={pts} periods={kept.periods}
+                        color={r.color || C.c1} />
                       : <span style={muted}>нет ряда</span>}
                   </td>
                   <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600,

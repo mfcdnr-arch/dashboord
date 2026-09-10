@@ -57,3 +57,23 @@ export function heatSteps(values: number[], palette: string[]): null | { pieces:
   })
   return { pieces, spread: max / Math.max(1, median), crowded }
 }
+
+/** Ряд для мини-графика: пропуски выброшены ВМЕСТЕ со своими периодами.
+ *
+ *  Пропуск в форме — это «отчёта не было», а не «было ноль», поэтому рисовать
+ *  его нулём нельзя. Но выбросить одно значение и оставить все даты значит
+ *  сдвинуть подписи: подсказка при наведении назовёт чужую дату, причём
+ *  правдоподобную — тем и опасно. Пары режем вместе.
+ */
+export function sparkSeries(
+  values: (number | null | undefined)[],
+  periods?: (string | null | undefined)[],
+): { values: number[]; periods: (string | null)[] } {
+  const out: { values: number[]; periods: (string | null)[] } = { values: [], periods: [] }
+  values.forEach((v, i) => {
+    if (v == null || !Number.isFinite(v)) return
+    out.values.push(v)
+    out.periods.push(periods?.[i] ?? null)
+  })
+  return out
+}

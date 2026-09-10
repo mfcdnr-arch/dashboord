@@ -10,9 +10,16 @@
 меньше 13, и порезанной оказалась бы форма МАХ: одна строка, 13 показателей,
 13 столбиков — ровно тот случай, ради которого вид и заводился и который
 ломать нельзя. Тест держит обе стороны.
+
+Дополнено 11.09.2026 по замечанию заказчика («столбики волосяные, опустить
+предел для двух серий»): у ЧИСЛА КАТЕГОРИЙ свой предел, отдельный от
+произведения. Место на оси под категорию — это ширина графика, делённая на их
+число, и от количества показателей она не зависит вовсе: при двух мерах
+произведение разрешало 40 отделений, то есть по 14px на категорию.
 """
 from app.modules.dashboards._widgetcalc import (
     MAX_COMPARE_BARS,
+    MAX_COMPARE_CATS,
     MIN_COMPARE_ROWS,
     _trim_compare,
 )
@@ -100,3 +107,46 @@ def test_none_values_do_not_break_volume():
     res["series"][3]["data"] = [None] * 62
     _trim_compare(res, {})
     assert len(res["categories"]) * len(res["series"]) <= MAX_COMPARE_BARS
+
+
+def test_two_indicators_do_not_earn_forty_rows():
+    """«Окна и часы»: 62 отделения × 2 меры.
+
+    Порог по произведению разрешал здесь 40 строк (40 × 2 = 80), и на карточке
+    в половину ряда на категорию оставалось 14px: столбики волосяные, а часть
+    повёрнутых подписей ECharts прятал как налезающие — то есть столбик
+    оставался вообще без имени.
+    """
+    res = _res(62, 2)
+    _trim_compare(res, {})
+    # Показатели не режем: их и так два, резать нечего.
+    assert len(res["series"]) == 2
+    assert len(res["categories"]) == MAX_COMPARE_CATS
+    assert res["hidden_rows"] == 62 - MAX_COMPARE_CATS
+    assert res["hidden_series"] == 0
+    assert res["total_rows"] == 62
+
+
+def test_category_cap_applies_even_when_the_product_fits():
+    """20 строк × 2 меры — это 40 столбиков, и порог по произведению молчит.
+
+    Но подписей на оси всё равно 20, и предел по категориям обязан сработать
+    раньше: иначе читаемость оси зависела бы от числа показателей, которое к
+    ширине места на оси отношения не имеет.
+    """
+    res = _res(20, 2)
+    _trim_compare(res, {})
+    assert len(res["categories"]) == MAX_COMPARE_CATS
+    assert res["hidden_rows"] == 20 - MAX_COMPARE_CATS
+
+
+def test_wide_form_with_many_indicators_is_not_cut_further():
+    """Предел по категориям не должен ужимать случай, где режет произведение.
+
+    У РЦО 62 × 24: произведение оставляет 6 строк и 13 показателей — это уже
+    меньше предела по категориям, и второе правило здесь молчит.
+    """
+    res = _res(62, 24)
+    _trim_compare(res, {})
+    assert len(res["categories"]) == MIN_COMPARE_ROWS
+    assert len(res["series"]) > MIN_COMPARE_ROWS

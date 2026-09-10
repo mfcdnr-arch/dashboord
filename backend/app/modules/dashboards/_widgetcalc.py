@@ -636,6 +636,22 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
 # показатели числом, оно неминуемо оказалось бы меньше 13 и порезало бы форму
 # МАХ — случай, который вид обслуживает правильно и который ломать нельзя.
 MAX_COMPARE_BARS = 80
+# Предел по ЧИСЛУ КАТЕГОРИЙ — отдельно от произведения, и одного произведения
+# здесь мало. Место на оси под категорию — это ширина области построения,
+# делённая на их число, и от количества показателей она не зависит вовсе.
+# «Окна и часы»: 62 отделения × 2 меры, порог по произведению разрешал 40
+# категорий (40 × 2 = 80 столбиков). Замер на карточке в половину ряда: область
+# построения 417px, то есть шаг категории 10,4px и столбик 3,6px — волосяная
+# линия; вдобавок повёрнутые подписи при таком шаге ECharts прячет
+# (hideOverlap), и столбик остаётся вообще без имени.
+#
+# 12 — то же число, что у столбчатого графика «по строкам» (MAX_ROW_BARS), и по
+# той же причине: столько категорий помещается в стандартную карточку графика.
+# Замер после правки: шаг 36px, столбик 12,1px, нарисованы ВСЕ 12 подписей
+# (повёрнутой под 30° подписи нужен шаг не меньше высоты строки / sin 30° =
+# 25px). Замечание заказчика 11.09: «столбики волосяные, опустить предел для
+# двух серий».
+MAX_COMPARE_CATS = 12
 # Ниже этих значений сокращать нечего: сравнение из четырёх столбиков перестаёт
 # быть сравнением.
 MIN_COMPARE_ROWS = 6
@@ -662,7 +678,7 @@ def _trim_compare(res: dict, cfg: dict) -> None:
     series = res.get("series") or []
     if not cats or not series:
         return
-    if len(cats) * len(series) <= MAX_COMPARE_BARS:
+    if len(cats) * len(series) <= MAX_COMPARE_BARS and len(cats) <= MAX_COMPARE_CATS:
         return
 
     def col_volume(i: int) -> float:
@@ -681,6 +697,10 @@ def _trim_compare(res: dict, cfg: dict) -> None:
         keep_cats = MIN_COMPARE_ROWS
         keep_series = max(MIN_COMPARE_SERIES, MAX_COMPARE_BARS // keep_cats)
 
+    # Категорий не больше предела по ширине, каким бы щедрым ни оказалось
+    # произведение: при малом числе показателей оно разрешает столько строк,
+    # что на каждую остаётся по 14px.
+    keep_cats = min(keep_cats, MAX_COMPARE_CATS)
     keep_cats, keep_series = min(keep_cats, len(cats)), min(keep_series, len(series))
     hidden_rows, hidden_series = len(cats) - keep_cats, len(series) - keep_series
     if not hidden_rows and not hidden_series:
