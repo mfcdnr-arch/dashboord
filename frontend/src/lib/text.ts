@@ -103,3 +103,79 @@ export function plural(n: number, one: string, few: string, many: string): strin
   if (last >= 2 && last <= 4) return few
   return many
 }
+
+/**
+ * Ширина строки в пикселях — тем же способом, каким её меряет сам график.
+ *
+ * ECharts считает ширину подписи через `canvas.measureText`, поэтому и мы
+ * меряем так же: проверено на подписях отделений РЦО — SVG отдаёт 160,4px,
+ * canvas 160,5px. Это и позволяет заранее знать, сколько места займёт
+ * повёрнутая подпись, вместо подобранного числа.
+ *
+ * В окружении без canvas (юнит-тесты в jsdom) возвращаем оценку по средней
+ * ширине знака — она нужна лишь чтобы функция не падала; настоящие числа
+ * даёт браузер.
+ */
+let measureCtx: CanvasRenderingContext2D | null | undefined
+export function textWidth(text: string, fontPx = 11, family = 'sans-serif'): number {
+  if (measureCtx === undefined) {
+    try {
+      measureCtx = document.createElement('canvas').getContext('2d')
+    } catch {
+      measureCtx = null
+    }
+  }
+  if (!measureCtx) return text.length * fontPx * 0.55
+  measureCtx.font = `${fontPx}px ${family}`
+  return measureCtx.measureText(text).width
+}
+
+/** Обрезает подпись (вырезая середину) так, чтобы она уложилась в `maxW` пикселей. */
+export function shrinkToWidth(text: string, maxW: number, measure: (s: string) => number): string {
+  if (measure(text) <= maxW) return text
+  let lo = 4
+  let hi = text.length
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (measure(elideMiddle(text, mid)) <= maxW) lo = mid
+    else hi = mid - 1
+  }
+  return elideMiddle(text, lo)
+}
+
+/**
+ * Полоса под ПОВЁРНУТЫМИ подписями оси — и подписи, обрезанные под эту полосу.
+ *
+ * 🔴 Раньше полоса задавалась числом (58px). Занимали же подписи столько,
+ * сколько занимали: у имён отделений РЦО повёрнутая строка занимает 96px
+ * (замер: 170px текста × sin30° + 12,5px высоты × cos30°), и подписи ложились
+ * поверх легенды — ровно то наложение, на которое пожаловался заказчик. Числом
+ * эту полосу задать нельзя в принципе: она зависит от длины ИМЕНИ, а имена
+ * приходят из формы и бывают какими угодно.
+ *
+ * Поэтому здесь два действия сразу, и второе не менее важно первого:
+ *  1. полоса считается по геометрии поворота от РЕАЛЬНОЙ ширины текста;
+ *  2. если такая полоса съедает больше отведённой доли высоты, укорачиваются
+ *     САМИ подписи, а не полоса. Подпись на оси — подсказка (полное имя есть
+ *     во всплывающей подсказке), а место под столбики отдавать нельзя.
+ *
+ * Наложение при этом невозможно по построению, а не по удачно подобранному
+ * числу: сколько подписи занимают, столько под них и зарезервировано.
+ */
+export function fitRotatedAxis(
+  labels: string[],
+  o: { fontPx: number; deg: number; maxBand: number; measure: (s: string) => number },
+): { labels: string[]; band: number } {
+  const rad = (o.deg * Math.PI) / 180
+  const sin = Math.abs(Math.sin(rad))
+  const cos = Math.abs(Math.cos(rad))
+  // Высота строки при 11px — 12,5px (замер по getBBox у ECharts).
+  const lineH = o.fontPx * 1.15
+  // ECharts отступает от оси до подписи (axisLabel.margin, по умолчанию 8).
+  const band = (w: number) => Math.ceil(w * sin + lineH * cos) + 10
+  const room = band(Math.max(0, ...labels.map(o.measure)))
+  if (room <= o.maxBand || sin < 0.01) return { labels, band: room }
+  const allowW = Math.max(24, (o.maxBand - 10 - lineH * cos) / sin)
+  const cut = labels.map((s) => shrinkToWidth(s, allowW, o.measure))
+  return { labels: cut, band: band(Math.max(0, ...cut.map(o.measure))) }
+}

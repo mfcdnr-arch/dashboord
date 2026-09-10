@@ -13,7 +13,7 @@ import { alertLook, levelLook } from '../lib/alertColors'
 import { exportWidgetXlsx } from '../api'
 import PassportDialog from './dashboards/PassportDialog'
 import { fmtNumber as fmt, heatSteps, logScaleAdvice } from '../lib/format'
-import { distinctLabels, dropCommonWords, elideMiddle, plural } from '../lib/text'
+import { distinctLabels, dropCommonWords, elideMiddle, fitRotatedAxis, plural, textWidth } from '../lib/text'
 
 // Отрисовка данных виджета: KPI/таблица/план-факт — HTML, столбцы/линия/круговая —
 // ECharts. По кнопке «подробнее» — drill (прозрачность): формула метрики + первичные строки.
@@ -43,6 +43,14 @@ function useFitHeight(base: number) {
   const box = useRef<HTMLDivElement>(null)
   const labels = useRef<HTMLDivElement>(null)
   const [h, setH] = useState(base)
+  // Потолок, при котором содержимое ТОЧНО помещалось: запоминаем его в момент
+  // каждого ужатия. Без него возврат высоты качается — вырос, переполнил,
+  // ужался, снова вырос (замер это и поймал: у соседних графиков «Динамики»
+  // высота гуляла 161/196 от прогона к прогону, а в карточке появлялась
+  // прокрутка на 12px). С потолком сходимость гарантирована: расти можно
+  // только до заведомо помещавшегося.
+  const cap = useRef(base)
+  const room = useRef(0)
 
   useLayoutEffect(() => {
     const el = box.current
@@ -57,16 +65,45 @@ function useFitHeight(base: number) {
 
     const calc = () => {
       const s = scroller as HTMLElement
+      // Карточку изменили в размере — прежний потолок больше ни о чём не говорит.
+      if (s.clientHeight !== room.current) {
+        room.current = s.clientHeight
+        cap.current = base
+      }
       const over = s.scrollHeight - s.clientHeight
-      setH((cur) => {
-        if (over > 0) return Math.max(MIN_CHART_H, cur - over)
-        if (cur < base) return Math.min(base, cur + Math.max(0, s.clientHeight - s.scrollHeight))
-        return cur
-      })
+      if (over > 0) {
+        setH((cur) => {
+          const next = Math.max(MIN_CHART_H, cur - over)
+          cap.current = next
+          return next
+        })
+        return
+      }
+      // 🔴 Свободное место `scrollHeight` показать НЕ может: он никогда не
+      // меньше clientHeight, поэтому прежнее «cur + (clientHeight -
+      // scrollHeight)» всегда прибавляло ноль — ужавшись однажды, график не
+      // возвращался никогда, даже когда место освобождалось. Замер на дашборде
+      // «РЦО: окна и часы»: содержимое 174px в контейнере 346px, а график стоял
+      // на минимуме 118px вместо своих 196. Считаем свободное место по нижнему
+      // краю самого содержимого.
+      const last = s.lastElementChild as HTMLElement | null
+      if (!last) return
+      const cs = getComputedStyle(s)
+      const free = s.getBoundingClientRect().bottom
+        - parseFloat(cs.paddingBottom || '0') - parseFloat(cs.borderBottomWidth || '0')
+        - last.getBoundingClientRect().bottom
+      // Порог и запас в 2px — чтобы график не «дышал» туда-обратно на пиксель.
+      if (free < 8) return
+      setH((cur) => (cur < cap.current ? Math.min(cap.current, cur + free - 2) : cur))
     }
     calc()
+    // Наблюдаем и сам блок графика: он меняет высоту вслед за расчётом, и без
+    // этого пересчёт после роста не запускался вовсе — график вырастал один раз
+    // «вслепую», ещё до того как отрисуется его содержимое, и мог переполнить
+    // карточку. Зацикливания нет: рост ограничен потолком `cap`.
     const ro = new ResizeObserver(calc)
     ro.observe(scroller)
+    ro.observe(el)
     if (labels.current) ro.observe(labels.current)
     return () => ro.disconnect()
   }, [base])
@@ -115,7 +152,7 @@ function fmtPeriod(p: string): string {
 
 // Палитра серий — из CSS-токенов темы (см. theme.css: --chart-*); при смене темы
 // Body перерисовывается (useThemeVersion) и графики пересобираются с новыми цветами.
-function chartOption(data: any): EChartsOption {
+function chartOption(data: any, height = 200): EChartsOption {
   const C = chartColors()
   const cats: string[] = data.categories || []
   const vals: number[] = data.values || []
@@ -141,9 +178,16 @@ function chartOption(data: any): EChartsOption {
   // роль одна и та же — «как было раньше», и язык графиков должен совпадать.
   const ghost = data.ghost
   const ghostSeries = ghost ? [ghostOpt(ghost, isLine, C)] : []
-  // Под легенду резервируем место в сетке, иначе она ложится на подписи
-  // категорий — те же грабли, что уже ловили на «Сравнении» 09.08.
-  const catsRoom = shortCats.some((c) => c.length > 6) ? 46 : 24
+  // Полоса под подписями считается по геометрии поворота от РЕАЛЬНОЙ ширины
+  // текста (`fitRotatedAxis`), а не задаётся числом: прежние 46px хватало на
+  // короткие имена, а на длинных подписи вылезали за график и ложились на то,
+  // что под ним. Тот же дефект, что закрыт на «Сравнении показателей».
+  const rotateCats = shortCats.some((c) => c.length > 6)
+  const catsFit = rotateCats
+    ? fitRotatedAxis(shortCats, { fontPx: 11, deg: 30, maxBand: Math.max(44, Math.round(height * 0.45)),
+        measure: (t: string) => textWidth(t, 11) })
+    : { labels: shortCats, band: 24 }
+  const catsRoom = catsFit.band
   // 🔴 Разворот графика, а не обрезка подписей. У формы РЦО категории — имена
   // отделений: на карточке в половину ряда (642px) слот категории 38px, а
   // подпись при 11px занимает 138px, и повёрнутые на 30° подписи давали 27
@@ -192,7 +236,7 @@ function chartOption(data: any): EChartsOption {
         return [head, ...arr.map((p: any) => `${p.marker}${p.seriesName}: <b>${fmt(p.value)}</b>`)].join('<br/>')
       } },
     legend: ghost ? { bottom: 0, itemHeight: 8, itemWidth: 14, textStyle: { fontSize: 10 } } : undefined,
-    xAxis: { type: 'category', data: shortCats, axisLabel: { interval: 0, rotate: shortCats.some((c) => c.length > 6) ? 30 : 0, fontSize: 11 } },
+    xAxis: { type: 'category', data: catsFit.labels, axisLabel: { interval: 0, rotate: rotateCats ? 30 : 0, fontSize: 11 } },
     yAxis: { type: 'value' },
     // Призрак идёт ПЕРВЫМ в списке: у столбиков с barGap:'-100%' вторая серия
     // рисуется поверх первой, поэтому «раньше» должно быть до «сейчас».
@@ -1408,8 +1452,17 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     // графике она вовсе скрывается: пунктир тренда и красные точки аномалий
     // различимы и без подписи, а места на подписи дат не остаётся.
     const showLegend = (data.trend || anomalies.length > 0) && fit.h >= 150
+    // Полосу под повёрнутыми подписями дат тоже СЧИТАЕМ, а не задаём числом:
+    // прежних 40px не хватало на «01.07.2026» (замер: подписи выходили за
+    // график на 11px), а месяц словом («сентябрь 2026») ещё шире.
+    const datesFit = fitRotatedAxis(periods.map(fmtPeriod), {
+      fontPx: 11, deg: 30, maxBand: Math.max(40, Math.round(fit.h * 0.45)),
+      measure: (t: string) => textWidth(t, 11),
+    })
+    const dynBottom = datesFit.band + (showLegend ? 22 : 0)
+    const dynPlotH = fit.h - dynBottom - 12
     const opt: EChartsOption = {
-      grid: { left: gridLeft(vals), right: 12, top: 12, bottom: showLegend ? 62 : 40 },
+      grid: { left: gridLeft(vals), right: 12, top: 12, bottom: dynBottom },
       // Под графиком помещается только последняя пара периодов, а изменение между
       // каждой парой («22.07 → 05.08») видно здесь: наводя на точку, пользователь
       // получает и значение, и прирост к предыдущему периоду.
@@ -1438,11 +1491,14 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         },
       },
       legend: showLegend ? { bottom: 0, textStyle: { fontSize: 10 }, itemHeight: 8 } : undefined,
-      xAxis: { type: 'category', data: periods.map(fmtPeriod), axisLabel: { rotate: 30, fontSize: 11 } },
+      xAxis: { type: 'category', data: datesFit.labels, axisLabel: { rotate: 30, fontSize: 11 } },
       // На ужатом по высоте графике деления оси налезают друг на друга — при
-      // малой высоте оставляем меньше делений.
-      yAxis: { type: 'value', splitNumber: fit.h < 130 ? 3 : 5,
-        ...(idxVals ? { axisLabel: { formatter: '{value} %' } } : {}) },
+      // малой высоте оставляем меньше делений. Считаем по высоте САМОЙ области
+      // построения, а не всего графика: полосу под подписями дат и легенду
+      // делениям не отдают, и раньше при высокой полосе пять делений всё равно
+      // назначались на 60px области (замер: подписи оси касались друг друга).
+      yAxis: { type: 'value', splitNumber: dynPlotH < 90 ? 2 : dynPlotH < 140 ? 3 : 5,
+        axisLabel: { hideOverlap: true, ...(idxVals ? { formatter: '{value} %' } : {}) } },
       series,
     }
     const ch = data.change
@@ -1552,11 +1608,14 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     // г. Мариуполь ул.Ленина, 107». Различает их НАЧАЛО, а elideMiddle режет
     // именно середину, и на оси оставалась одна улица — «Отделение…ль ул.Ленина,
     // 107». Отсекаем общую часть по словам, тем же приёмом, что у легенды.
-    const shortCats = distinctLabels(cats)
-    const catShort: Record<string, string> = {}
-    cats.forEach((c, i) => { catShort[c] = shortCats[i] })
+    // Тот же порядок чистки, что у столбчатого графика (08.09): сперва убираем
+    // слова, которые есть у ВСЕХ («ГБУ "МФЦ ДНР"» у всех 63 отделений и потому
+    // не различает ничего), затем общее начало и конец. До этой правки здесь
+    // работал только `distinctLabels`, и от подписи оставалось «№ 1 ГБУ "М…ль
+    // ул.Ленина, 107»: треть места занимало общее, а город выпадал.
+    const shortCats = dropCommonWords(distinctLabels(dropCommonWords(cats)))
     const singleCat = cats.length === 1
-    const rotated = cats.length > 1 && cats.some((c) => c.length > 6)
+    const rotated = cats.length > 1 && shortCats.some((c) => c.length > 6)
     // Единственная длинная подпись («Донецкая Народная Республика») шире узкой
     // карточки и вылезала за края графика — переносим её по словам.
     const wrapSingle = cats.length === 1 && cats[0].length > 14
@@ -1579,11 +1638,26 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     // (замер показал три строки там, где расчёт давал две), а ошибка в этой
     // оценке — это наложение текста поверх текста.
     const catLabelW = print ? 460 : 130
-    const catsRoom = (rotated ? 58 : wrapSingle ? 44 : 30) + (print ? 14 : 0)
+    // 🔴 Полоса под подписями считается, а не задаётся числом. Прежние 58px
+    // были подобраны на коротких именах; у отделений РЦО повёрнутая подпись
+    // занимает 96px (замер), и она ложилась поверх легенды — то самое
+    // наложение, на которое пожаловался заказчик. Полоса зависит от длины
+    // ИМЕНИ, а имена приходят из формы: числом её задать нельзя в принципе.
+    // Больше 45 % высоты подписям не отдаём — тогда `fitRotatedAxis` укоротит
+    // сами подписи, а место под столбики останется.
+    const measure = (s2: string) => textWidth(s2, 11)
+    const axisFit = rotated
+      ? fitRotatedAxis(shortCats, { fontPx: 11, deg: 30, maxBand: Math.max(44, Math.round(fit.h * 0.45)), measure })
+      : { labels: shortCats.map((c) => elideMiddle(c, 28)), band: wrapSingle ? 44 : 30 }
+    const catsRoom = axisFit.band + (print ? 14 : 0)
     const showLegend = seriesNames.length > 1 && fit.h >= 170
+    const cmpBottom = catsRoom + (print ? printLegendH : showLegend ? legendRoom : 0)
+    // Делений на оси значений — по высоте самой области построения: полоса под
+    // подписями и легенда её съедают, и считать по высоте графика неверно.
+    const cmpPlotH = fit.h - cmpBottom - 12
     const opt: EChartsOption = {
       grid: { left: gridLeft((data.series || []).flatMap((x: any) => x.data || [])), right: 12, top: 12,
-        bottom: catsRoom + (print ? printLegendH : showLegend ? legendRoom : 0) },
+        bottom: cmpBottom },
       // У столбиков подсказка — про ТОТ столбик, на который навели. При
       // trigger:'axis' ECharts вываливал список всех показателей сразу: на
       // форме из четырнадцати граф это простыня во весь экран, в которой
@@ -1607,7 +1681,9 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         axisLabel: {
           interval: 0, rotate: rotated ? 30 : 0, fontSize: 11, hideOverlap: true,
           ...(wrapSingle ? { width: catLabelW, overflow: 'break' as const } : {}),
-          formatter: (v: string) => (wrapSingle ? v : elideMiddle(catShort[v] ?? v, 28)),
+          // Подпись берём по НОМЕРУ категории, а не по её тексту: у двух
+          // отделений имя может совпасть, и словарь «имя → подпись» их склеил бы.
+          formatter: (v: string, i: number) => (wrapSingle ? v : (axisFit.labels[i] ?? v)),
         } },
       // На ужатом графике пять делений оси налезают друг на друга — оставляем меньше.
       // Логарифмическая шкала — когда показатели различаются на два порядка:
@@ -1618,10 +1694,12 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
       // оказывалось 10 000 000 000) и столбики жмутся к низу.
       yAxis: useLog
         ? {
-            type: 'log', splitNumber: fit.h < 140 ? 2 : 3,
+            type: 'log', splitNumber: cmpPlotH < 100 ? 2 : 3,
             min: logBound(allValues, 'min'), max: logBound(allValues, 'max'),
+            axisLabel: { hideOverlap: true },
           }
-        : { type: 'value', splitNumber: fit.h < 140 ? 2 : fit.h < 200 ? 3 : 5 },
+        : { type: 'value', splitNumber: cmpPlotH < 90 ? 2 : cmpPlotH < 140 ? 3 : 5,
+            axisLabel: { hideOverlap: true } },
       series: [
         ...(data.series || []).map((s: any, i: number) => ({
         name: s.name, type: data.viz === 'line' ? 'line' : 'bar', data: s.data,
@@ -2228,7 +2306,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   if ((data.categories || []).length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
   return (
     <div style={{ height: '100%' }}>
-      <EChart option={P(chartOption(data))} height={chartHeight(data)} onPick={onPick} />
+      <EChart option={P(chartOption(data, chartHeight(data)))} height={chartHeight(data)} onPick={onPick} />
       <TrimNote hidden={data.hidden_rows} shown={(data.categories || []).length} total={data.total_rows}
         folded={data.type === 'pie'} />
       {data.note && (

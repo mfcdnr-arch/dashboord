@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { distinctLabels, dropCommonWords, elideMiddle, plural } from './text'
+import { distinctLabels, dropCommonWords, elideMiddle, fitRotatedAxis, plural, shrinkToWidth } from './text'
 
 describe('elideMiddle', () => {
   it('сохраняет хвост имени — им и различаются показатели госформ', () => {
@@ -102,5 +102,67 @@ describe('dropCommonWords', () => {
 
   it('одну подпись не трогает: различать не с чем', () => {
     expect(dropCommonWords(['Отделение ГБУ "МФЦ ДНР"'])).toEqual(['Отделение ГБУ "МФЦ ДНР"'])
+  })
+})
+
+describe('fitRotatedAxis', () => {
+  // Меряем «шрифтом» в 6px на знак: тесты про ПРАВИЛО, а не про метрики шрифта —
+  // настоящую ширину даёт canvas в браузере.
+  const measure = (t: string) => t.length * 6
+  const opts = (maxBand: number) => ({ fontPx: 11, deg: 30, maxBand, measure })
+
+  it('считает полосу по геометрии поворота, а не берёт её числом', () => {
+    // Настоящий замер на дашборде РЦО: подпись шириной 170px при повороте на 30°
+    // занимает по высоте 96px (170·sin30 + 12,5·cos30). Прежние зашитые 58px
+    // занижали полосу на 38px — на столько подписи и залезали на легенду.
+    const wide = 'x'.repeat(170 / 6)
+    const { band } = fitRotatedAxis([wide], { fontPx: 11, deg: 30, maxBand: 999, measure })
+    expect(band).toBeGreaterThanOrEqual(96)
+    expect(band).toBeLessThan(112)
+  })
+
+  it('короткие подписи не трогает', () => {
+    const labels = ['Донецк', 'Горловка', 'Макеевка']
+    const res = fitRotatedAxis(labels, opts(88))
+    expect(res.labels).toEqual(labels)
+    expect(res.band).toBeLessThanOrEqual(88)
+  })
+
+  it('🔴 не влезающие подписи УКОРАЧИВАЕТ, а полосу держит в отведённом', () => {
+    // Главный инвариант: наложение невозможно по построению. Сколько подписи
+    // занимают — столько под них и зарезервировано, и не больше отведённого.
+    // Подписи приходят уже очищенными от общих слов (dropCommonWords), иначе
+    // обрезка оставила бы «Отделение…» — то есть ровно то, что не различает.
+    const labels = ['№ 3 Мариуполь ул.Нахимова, 172', '№ 2 Мариуполь ул.Орджоникидзе, 51']
+    const res = fitRotatedAxis(labels, opts(88))
+    expect(res.band).toBeLessThanOrEqual(88)
+    res.labels.forEach((l, i) => {
+      expect(l.length).toBeLessThan(labels[i].length)
+      // Обрезаем середину: и номер отделения, и дом остаются различимы.
+      expect(l).toContain('…')
+      expect(l.startsWith('№ ')).toBe(true)
+      expect(/\d+$/.test(l)).toBe(true)
+    })
+  })
+
+  it('пустой набор не роняет расчёт', () => {
+    expect(fitRotatedAxis([], opts(88)).band).toBeGreaterThan(0)
+  })
+
+  it('без поворота полоса — высота одной строки', () => {
+    const { band, labels } = fitRotatedAxis(['x'.repeat(80)], { fontPx: 11, deg: 0, maxBand: 30, measure })
+    // Резать подписи при нулевом угле бессмысленно: высота от длины не зависит.
+    expect(labels[0].length).toBe(80)
+    expect(band).toBeLessThan(30)
+  })
+})
+
+describe('shrinkToWidth', () => {
+  const measure = (t: string) => t.length * 6
+
+  it('укладывает подпись в отведённую ширину и не режет то, что и так влезает', () => {
+    const s = 'Отделение № 3 ГБУ "МФЦ ДНР" г. Мариуполь ул.Нахимова, 172'
+    expect(measure(shrinkToWidth(s, 90, measure))).toBeLessThanOrEqual(90)
+    expect(shrinkToWidth('Донецк', 90, measure)).toBe('Донецк')
   })
 })
