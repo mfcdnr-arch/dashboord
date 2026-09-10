@@ -21,6 +21,18 @@ function fmt(n: number | null | undefined): string {
   return n == null ? '—' : fmtNumber(n)
 }
 
+/** Процент по-русски: «63,8 %».
+ *
+ *  🔴 Раньше в этом разделе стоял `toFixed`, и на одном экране соседствовали
+ *  две записи одного числа: «583 636» по-русски и «63.8%» с точкой. Тот же
+ *  дефект уже чинили на дашбордах 09.08 — здесь он дожил, потому что раздел
+ *  собран отдельно от них.
+ */
+function pct(n: number | null | undefined, digits = 1): string {
+  if (n == null) return '—'
+  return `${n.toLocaleString('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits })} %`
+}
+
 function signed(n: number | null | undefined): string {
   if (n == null) return '—'
   return (n >= 0 ? '+' : '') + fmt(n)
@@ -83,6 +95,20 @@ export default function DnrStatsPage() {
 type DeptSummary = {
   code: string; name: string; prinyato: number; vydano: number; growth: number | null
   period_prev: string | null; period_now: string | null
+  /** Для сравнения ведомств между собой: конверсия, доля в объёме, охват. */
+  conversion_pct?: number | null; share_pct?: number | null
+  offices?: number; services_total?: number; services_active?: number
+}
+/** Услуга, которой нет НИ В ОДНОМ отделении. */
+type MissingService = { dept: string; service: string }
+/** Отделение, где услуга есть у соседей, а здесь её нет. */
+type OfficeGap = {
+  office: string; city: string
+  /** Стоит «нет» — услугу здесь осознанно не оказывают. */
+  refused: number
+  /** Графа пуста — про услугу здесь ничего не известно. Это НЕ то же самое. */
+  unknown: number
+  examples: string[]
 }
 type TrendPoint = { period: string; prinyato: number; vydano: number }
 type KpiRow = {
@@ -101,6 +127,9 @@ type Overview = {
   satisfaction: KpiRow | null
   wait_time: KpiRow | null
   alerts: Alert[]
+  services_missing?: MissingService[]
+  office_gaps?: OfficeGap[]
+  office_gaps_total?: number
 }
 
 function alertColor(kind: string): string {
@@ -188,19 +217,19 @@ function OverviewView({ onOpenList }: { onOpenList: () => void }) {
             <Card label={`Принято заявлений (на ${ruDate(d.as_of)})`} value={fmt(d.totals.prinyato)}
               sub={d.totals.growth != null ? `${d.totals.growth >= 0 ? '↗' : '↘'} ${signed(d.totals.growth)} за период` : undefined} />
             <Card label={`Выдано результатов (на ${ruDate(d.as_of)})`} value={fmt(d.totals.vydano)} />
-            <Card label="Конверсия выдачи" value={d.totals.conversion_pct != null ? `${d.totals.conversion_pct.toFixed(1)}%` : '—'}
+            <Card label="Конверсия выдачи" value={d.totals.conversion_pct != null ? pct(d.totals.conversion_pct) : '—'}
               sub="выдано / принято, за период" />
             <Card label="Услуг оказывается" value={`${d.services_active} из ${d.services_total}`}
-              sub={d.services_total ? `${((d.services_active / d.services_total) * 100).toFixed(1)}% перечня` : undefined} />
+              sub={d.services_total ? `${pct((d.services_active / d.services_total) * 100)} перечня` : undefined} />
             <Card label="Отделений МФЦ" value={`${d.offices_total}`} sub={`без прироста за период: ${d.offices_no_growth}`} />
             <Card label="Лидер периода по приросту" value={d.leader ? d.leader.name : '—'}
               sub={d.leader?.growth != null ? `↗ ${signed(d.leader.growth)} заявлений` : undefined} />
             {d.satisfaction && d.satisfaction.fakt != null && (
-              <Card label={`Удовлетворённость граждан (КПЭ на ${ruDate(d.kpi_as_of)})`} value={`${d.satisfaction.fakt.toFixed(2)}%`}
+              <Card label={`Удовлетворённость граждан (КПЭ на ${ruDate(d.kpi_as_of)})`} value={pct(d.satisfaction.fakt, 2)}
                 sub={d.satisfaction.plan != null ? `план ${d.satisfaction.plan}%` : undefined} />
             )}
             {d.wait_time && d.wait_time.fakt != null && (
-              <Card label="Среднее время ожидания" value={`${d.wait_time.fakt.toFixed(2)} мин`}
+              <Card label="Среднее время ожидания" value={`${d.wait_time.fakt.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} мин`}
                 sub={d.wait_time.plan != null ? `план ${d.wait_time.plan} мин` : undefined} />
             )}
           </div>
@@ -231,7 +260,112 @@ function OverviewView({ onOpenList }: { onOpenList: () => void }) {
             </div>
           )}
 
-          <div style={panelStyle}>
+          {/* Сравнение ведомств между собой. Два графика выше отвечают «кто
+              вырос» и «у кого больше», но сопоставить ведомства по НЕСКОЛЬКИМ
+              мерам сразу по ним нельзя: у каждого своя ось. Таблица ставит их
+              в один ряд — доля в объёме, конверсия и охват перечня услуг. */}
+          {d.departments.length > 1 && (
+            <div style={{ ...panelStyle, marginTop: 20 }}>
+              <div style={panelTitle}>Ведомства в сравнении (на {ruDate(d.as_of)})</div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      {['Ведомство', 'Принято', 'Доля в объёме', 'Прирост за период', 'Выдано',
+                        'Конверсия', 'Отделений', 'Услуг оказывается'].map((h, i) => (
+                        <th key={h} style={{ ...thStyle, textAlign: i === 0 ? 'left' : 'right' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...d.departments].sort((a, b) => b.prinyato - a.prinyato).map((x) => (
+                      <tr key={x.code}>
+                        <td style={{ ...tdStyle, textAlign: 'left' }}>{x.name}</td>
+                        <td style={tdStyle}>{fmt(x.prinyato)}</td>
+                        <td style={tdStyle}>{x.share_pct != null ? pct(x.share_pct) : '—'}</td>
+                        <td style={tdStyle}>{x.growth != null ? signed(x.growth) : '—'}</td>
+                        <td style={tdStyle}>{fmt(x.vydano)}</td>
+                        <td style={tdStyle}>{x.conversion_pct != null ? pct(x.conversion_pct) : '—'}</td>
+                        <td style={tdStyle}>{x.offices ?? '—'}</td>
+                        <td style={tdStyle}>
+                          {x.services_active != null ? `${x.services_active} из ${x.services_total}` : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 8 }}>
+                Конверсия выше 100 % — не ошибка: выдают и то, что приняли в прошлые периоды.
+              </div>
+            </div>
+          )}
+
+          {/* Услуги, которых нет НИ В ОДНОМ отделении — списком, а не одной
+              строкой алерта: «не оказывается 5 из 67» не говорит, каких. */}
+          {(d.services_missing || []).length > 0 && (
+            <div style={{ ...panelStyle, marginTop: 20 }}>
+              <div style={panelTitle}>
+                Не оказываются нигде: {(d.services_missing || []).length} из {d.services_total}
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {(d.services_missing || []).map((x, i) => (
+                  <li key={i} style={{ marginBottom: 4 }}>
+                    <b>{x.dept}</b> — {x.service}
+                  </li>
+                ))}
+              </ul>
+              <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 8 }}>
+                По графе «Услуга оказывается» в последнем отчёте: ни в одном отделении не отмечена.
+              </div>
+            </div>
+          )}
+
+          {/* «Кто не оказывает услугу, которая идёт у соседей». */}
+          {(d.office_gaps || []).length > 0 && (
+            <div style={{ ...panelStyle, marginTop: 20 }}>
+              <div style={panelTitle}>
+                Есть у соседей, а здесь нет: отделений {d.office_gaps_total}
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...thStyle, textAlign: 'left' }}>Отделение</th>
+                      <th style={thStyle}>Не оказывают</th>
+                      <th style={thStyle}>Не заполнено</th>
+                      <th style={{ ...thStyle, textAlign: 'left' }}>Например</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(d.office_gaps || []).map((g, i) => (
+                      <tr key={i}>
+                        <td style={{ ...tdStyle, textAlign: 'left' }}>
+                          {g.office}{g.city ? <span style={{ color: 'var(--text-muted)' }}> · {g.city}</span> : null}
+                        </td>
+                        <td style={tdStyle}>{g.refused || '—'}</td>
+                        <td style={tdStyle}>{g.unknown || '—'}</td>
+                        <td style={{ ...tdStyle, textAlign: 'left', color: 'var(--text-muted)' }}>
+                          {g.examples.join('; ')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* 🔴 Два счётчика, а не один: «нет» — это решение не оказывать
+                  услугу, пустая клетка — незаполненный отчёт. Сложи их вместе,
+                  и пробел в данных выдаётся за факт об отделении. */}
+              <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 8 }}>
+                «Не оказывают» — в графе стоит «нет». «Не заполнено» — графа пуста: про услугу
+                здесь ничего не известно, и это не то же самое.
+                {(d.office_gaps_total || 0) > (d.office_gaps || []).length
+                  && ` Показаны ${(d.office_gaps || []).length} отделений с наибольшим числом пропусков.`}
+              </div>
+            </div>
+          )}
+
+          <div style={{ ...panelStyle, marginTop: 20 }}>
             <div style={panelTitle}>Алерты ({d.alerts.length})</div>
             {d.alerts.length === 0 && <div style={{ color: 'var(--text-muted)' }}>Замечаний нет.</div>}
             {d.alerts.length > 0 && (
@@ -260,6 +394,16 @@ function Card({ label, value, sub }: { label: string; value: string; sub?: strin
 
 const panelStyle: React.CSSProperties = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, marginBottom: 20 }
 const panelTitle: React.CSSProperties = { fontWeight: 600, marginBottom: 8 }
+// Числа в таблицах сравнения — по правому краю: так разряды выстраиваются
+// друг под другом и величины сравниваются глазом, а не чтением цифр подряд.
+const thStyle: React.CSSProperties = {
+  padding: '6px 10px', borderBottom: '1px solid var(--border)', fontWeight: 600,
+  textAlign: 'right', whiteSpace: 'nowrap',
+}
+const tdStyle: React.CSSProperties = {
+  padding: '6px 10px', borderBottom: '1px solid var(--border-faint)', textAlign: 'right',
+  whiteSpace: 'nowrap',
+}
 const linkBtn: React.CSSProperties = {
   background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 12px',
   cursor: 'pointer', color: 'var(--accent)', fontSize: 13, whiteSpace: 'nowrap',
@@ -394,7 +538,7 @@ function OfficeRowView({ o, isOpen, onToggle, onOpenDept }: {
         </td>
         <td style={{ ...td, minWidth: 140 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>{o.prirost_pct != null ? `${o.prirost_pct.toFixed(1)}%` : '—'}</span>
+            <span>{o.prirost_pct != null ? pct(o.prirost_pct) : '—'}</span>
             <div style={{ flex: 1, height: 6, background: 'var(--surface-2)', borderRadius: 3, overflow: 'hidden' }}>
               <div style={{ width: `${Math.min(100, (o.prinyato_now / maxGrowth) * 100)}%`, height: '100%', background: 'var(--accent)' }} />
             </div>
@@ -456,7 +600,7 @@ function DeptBlock({ d, onOpenDashboard }: { d: DeptRow; onOpenDashboard: () => 
                   {s.prirost_prinyato != null ? signed(s.prirost_prinyato) : '—'}
                 </td>
                 <td style={{ ...tdSmall, textAlign: 'right' }}>{fmt(s.vydano_now)}</td>
-                <td style={{ ...tdSmall, textAlign: 'right' }}>{share != null ? `${share.toFixed(1)}%` : '—'}</td>
+                <td style={{ ...tdSmall, textAlign: 'right' }}>{share != null ? pct(share) : '—'}</td>
               </tr>
             )
           })}
@@ -564,7 +708,7 @@ function DeptDashboard({ office, dept, onBack, onOpenService }: {
           sub={`прирост: ${signed(d.prirost)} с ${ruDate(d.period_prev)}`} />
         <Card label={`Выдано накоп. на ${ruDate(d.period_now)}`} value={fmt(d.vydano_now)}
           sub={`прирост: ${signed(d.vydano_prirost)}`} />
-        <Card label="Конверсия выдано/принято" value={d.conversion_pct != null ? `${d.conversion_pct.toFixed(1)}%` : '—'} />
+        <Card label="Конверсия выдано/принято" value={d.conversion_pct != null ? pct(d.conversion_pct) : '—'} />
         <Card label="Предоставляемых услуг" value={`${d.active_services}`} sub={`всего в ведомстве: ${d.total_services}`} />
         <Card label="Место среди отделений" value={d.rank.place ? `${d.rank.place} из ${d.rank.total}` : '—'}
           sub={`по принятым на ${ruDate(d.period_now)}`} />
@@ -623,7 +767,7 @@ function DeptDashboard({ office, dept, onBack, onOpenService }: {
                     {s.prirost_prinyato != null ? signed(s.prirost_prinyato) : '—'}
                   </td>
                   <td style={{ ...tdSmall, textAlign: 'right' }}>{fmt(s.vydano_now)}</td>
-                  <td style={{ ...tdSmall, textAlign: 'right' }}>{share != null ? `${share.toFixed(1)}%` : '—'}</td>
+                  <td style={{ ...tdSmall, textAlign: 'right' }}>{share != null ? pct(share) : '—'}</td>
                 </tr>
               )
             })}
@@ -729,7 +873,7 @@ function ServiceDashboard({ office, dept, idx, onBack }: {
           sub={`прирост: ${signed(s.prirost_prinyato)} с ${ruDate(d.period_prev)}`} />
         <Card label={`Выдано накоп. на ${ruDate(d.period_now)}`} value={fmt(s.vydano_now)}
           sub={`прирост: ${signed(s.prirost_vydano)}`} />
-        <Card label="Конверсия выдано/принято" value={d.conversion_pct != null ? `${d.conversion_pct.toFixed(1)}%` : '—'} />
+        <Card label="Конверсия выдано/принято" value={d.conversion_pct != null ? pct(d.conversion_pct) : '—'} />
         <Card label="Приоритетная услуга" value={s.prioritet ?? '—'} />
         <Card label="Место среди отделений" value={d.rank.place ? `${d.rank.place} из ${d.rank.total}` : '—'}
           sub={`по принятым на ${ruDate(d.period_now)}`} />

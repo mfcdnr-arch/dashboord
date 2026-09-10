@@ -373,10 +373,33 @@ async def overview(conn, org_id) -> dict:
     has_growth = False
     total_services = 0
     services_total_names: list[str] = []
-    services_missing: list[str] = []
+    services_missing: list[dict] = []
+    # «Кто не оказывает услугу, которая идёт у соседей»: копим по офисам.
+    # 🔴 Состояний у графы «Услуга оказывается» ТРИ, и схлопывать их нельзя:
+    # «нет» — услуги здесь нет осознанно, ПУСТО — про неё ничего не известно,
+    # дата — оказывается с этого дня. Считаем «нет» и «пусто» РАЗДЕЛЬНО:
+    # первое это решение, второе — незаполненная клетка, и лечатся они разным.
+    office_gap: dict[str, dict] = {}
     for code, points in dept_points.items():
         dept = DEPARTMENTS[code]
         period_prev, snap_prev, period_now, snap_now = _last_two(points)
+        n_svc = len(dept["services"])
+        offered_here = [False] * n_svc
+        for row in snap_now.values():
+            for i, svc in enumerate(row["services"]):
+                if svc["okazyvaetsya"] not in (None, "", "нет"):
+                    offered_here[i] = True
+        for office_label, row in snap_now.items():
+            g = office_gap.setdefault(office_label, {"office": office_label, "city": row.get("city") or "",
+                                                     "refused": [], "unknown": []})
+            for i, svc in enumerate(row["services"]):
+                if not offered_here[i]:
+                    continue  # услуги нет НИГДЕ — это другой разговор (см. ниже)
+                st = svc["okazyvaetsya"]
+                if st == "нет":
+                    g["refused"].append({"dept": dept["name"], "service": dept["services"][i]})
+                elif st in (None, ""):
+                    g["unknown"].append({"dept": dept["name"], "service": dept["services"][i]})
         dp = dv = 0.0
         for office_label, row in snap_now.items():
             if row["prinyato"] is None:
@@ -403,17 +426,18 @@ async def overview(conn, org_id) -> dict:
             total_growth += growth_dept
             has_growth = True
 
-        n = len(dept["services"])
-        offered_anywhere = [False] * n
-        for row in snap_now.values():
-            for i, svc in enumerate(row["services"]):
-                if svc["okazyvaetsya"] not in (None, "", "нет"):
-                    offered_anywhere[i] = True
-        total_services += n
-        for i, ok in enumerate(offered_anywhere):
+        total_services += n_svc
+        for i, ok in enumerate(offered_here):
             services_total_names.append(dept["services"][i])
             if not ok:
-                services_missing.append(dept["services"][i])
+                services_missing.append({"dept": dept["name"], "service": dept["services"][i]})
+        # Свод по ведомству для таблицы сравнения: конверсия, доля, охват.
+        dept_summary[-1].update({
+            "conversion_pct": (dv / dp * 100.0) if dp else None,
+            "offices": sum(1 for r in snap_now.values() if r["prinyato"] is not None),
+            "services_total": n_svc,
+            "services_active": sum(1 for ok in offered_here if ok),
+        })
 
     dept_summary.sort(key=lambda x: -(x["growth"] or -1e18))
     leader = next((d for d in dept_summary if d["growth"] is not None), None)
@@ -435,7 +459,7 @@ async def overview(conn, org_id) -> dict:
     for label, _g in zero_growth_offices[:5]:
         alerts.append({"kind": "zero_growth", "text": f"Нулевой прирост заявлений за период: {label}"})
     if services_missing:
-        example = _service_label(services_missing[0])
+        example = _service_label(services_missing[0]["service"])
         alerts.append({
             "kind": "service_gap",
             "text": f"Не оказывается услуг: {len(services_missing)} из {total_services} (например, «{example}»)",
@@ -453,6 +477,24 @@ async def overview(conn, org_id) -> dict:
                 "text": f"Среднее время ожидания {wait_time['fakt']:.2f} мин при плане {wait_time['plan']:.0f} мин",
             })
 
+    # Сравнение ведомств между собой: доля в общем объёме приёма. Считаем
+    # здесь, а не в цикле, — общий итог известен только после него.
+    for d in dept_summary:
+        d["share_pct"] = (d["prinyato"] / total_prinyato * 100.0) if total_prinyato else None
+
+    # Офисы, где услуга есть у соседей, а здесь её нет. Сортируем по числу
+    # ОСОЗНАННЫХ отказов: незаполненная клетка — не то же самое, что решение
+    # услугу не оказывать, и складывать их в один счётчик значило бы выдать
+    # пробел в данных за факт.
+    gaps = [g for g in office_gap.values() if g["refused"] or g["unknown"]]
+    gaps.sort(key=lambda g: (-len(g["refused"]), -len(g["unknown"])))
+    office_gaps = [{
+        "office": g["office"], "city": g["city"],
+        "refused": len(g["refused"]), "unknown": len(g["unknown"]),
+        "examples": [f'{x["dept"]}: {_service_label(x["service"], 70)}'
+                     for x in (g["refused"] or g["unknown"])[:3]],
+    } for g in gaps[:15]]
+
     return {
         "as_of": trend[-1]["period"] if trend else None,
         "period_prev": trend[-2]["period"] if len(trend) >= 2 else None,
@@ -466,6 +508,13 @@ async def overview(conn, org_id) -> dict:
         "offices_no_growth": len(zero_growth_offices),
         "services_total": total_services,
         "services_active": services_active,
+        # Услуги, которых нет НИГДЕ, — списком, а не одной строкой алерта:
+        # «не оказывается 5 из 67» не говорит, каких именно.
+        "services_missing": [{"dept": x["dept"], "service": _service_label(x["service"], 90)}
+                             for x in services_missing],
+        # «Кто не оказывает услугу, которая идёт у соседей».
+        "office_gaps": office_gaps,
+        "office_gaps_total": len(gaps),
         "leader": leader,
         "departments": dept_summary,
         "trend": trend,

@@ -178,3 +178,53 @@ async def test_view_access_gating(client, admin_headers, moderator_user, viewer,
     assert r.status_code == 200
     r = await client.get("/dnr-stats/offices", headers=hdr(token))
     assert r.status_code == 200
+
+
+async def test_overview_names_the_services_offered_nowhere(client, admin_headers, dnr_object):
+    """Услуги, которых нет НИГДЕ, — списком, а не одной строкой алерта.
+
+    «Не оказывается 5 из 67» не говорит, каких именно, и разобраться по такой
+    строке нельзя. Ведомство названо рядом: услуги у ведомств одноимённые.
+    """
+    d = (await client.get("/dnr-stats/overview", headers=admin_headers)).json()
+    missing = d["services_missing"]
+    assert [x["service"] for x in missing] == ["Тестовая услуга 2"]
+    assert missing[0]["dept"] == "Тестовое ведомство"
+
+
+async def test_overview_compares_departments_side_by_side(client, admin_headers, dnr_object):
+    """Сравнение ведомств между собой: доля в объёме, конверсия, охват."""
+    d = (await client.get("/dnr-stats/overview", headers=admin_headers)).json()
+    dept = next(x for x in d["departments"] if x["code"] == DEPT_CODE)
+    # Ведомство одно — вся доля его; конверсия = выдано / принято.
+    assert round(dept["share_pct"], 1) == 100.0
+    assert round(dept["conversion_pct"], 1) == round(145 / 170 * 100, 1)
+    assert dept["offices"] == 2
+    assert dept["services_active"] == 1 and dept["services_total"] == N_SERVICES
+
+
+async def test_office_gap_separates_refusal_from_an_empty_cell(client, admin_headers, dnr_object, ids):
+    """🔴 «Нет» и ПУСТО — разные вещи, и складывать их в один счётчик нельзя.
+
+    «Нет» — услугу здесь осознанно не оказывают; пустая клетка — про услугу
+    ничего не известно. Сложи их вместе, и пробел в отчёте выдаётся за факт об
+    отделении. Проверяем на отделении, где у соседа услуга ЕСТЬ.
+    """
+    async with db.acquire() as conn:
+        object_id = await conn.fetchval("select id from objects where name=$1 and organization_id=$2",
+                                        OBJECT_NAME, ids["org"])
+        # Третья точка: у «Растущего» услуга 2 появилась, у «Застойного» стоит
+        # «нет», а у третьего отделения графа пуста вовсе.
+        await _seed_release(conn, ids["org"], object_id, "2026-01-15", ids["admin"], {
+            "Растущее": {"s1": (130, 110, "да"), "s2": (5, 4, "01.01.2026")},
+            "Застойное": {"s1": (50, 45, "да"), "s2": (0, 0, "нет")},
+            "Молчащее": {"s1": (10, 9, "да"), "s2": (0, 0, "")},
+        })
+    d = (await client.get("/dnr-stats/overview", headers=admin_headers)).json()
+    gaps = {g["office"]: g for g in d["office_gaps"]}
+    assert gaps["Застойное"]["refused"] == 1 and gaps["Застойное"]["unknown"] == 0
+    assert gaps["Молчащее"]["unknown"] == 1 and gaps["Молчащее"]["refused"] == 0
+    # У кого услуга есть — в списке пробелов его быть не должно.
+    assert "Растущее" not in gaps
+    # И услуга больше не числится «не оказываемой нигде».
+    assert d["services_missing"] == []
