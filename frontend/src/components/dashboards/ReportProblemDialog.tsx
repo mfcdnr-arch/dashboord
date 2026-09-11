@@ -142,12 +142,15 @@ const dialog: React.CSSProperties = {
   maxHeight: '86vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
 }
 const label: React.CSSProperties = { fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }
+// Рамка полными свойствами — выбранный чип меняет только её цвет, а смесь
+// `border` + `borderColor` React при перерисовке гасит с предупреждением.
 const chip: React.CSSProperties = {
   fontSize: 13, padding: '5px 12px', borderRadius: 14, cursor: 'pointer',
-  background: 'var(--surface-2)', color: 'var(--text)', border: '1px solid var(--border-faint)',
+  background: 'var(--surface-2)', color: 'var(--text)',
+  borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--border-faint)',
 }
 const chipOn: React.CSSProperties = {
-  ...chip, background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)', fontWeight: 600,
+  ...chip, background: 'var(--accent)', color: 'var(--on-accent)', borderColor: 'var(--accent)', fontWeight: 600,
 }
 const area: React.CSSProperties = {
   width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8,

@@ -411,8 +411,13 @@ const badgeNew: React.CSSProperties = {
 const crumb: React.CSSProperties = {
   border: 'none', background: 'none', color: 'var(--accent)', fontSize: 13, cursor: 'pointer', padding: 0,
 }
+// Рамка задана ПОЛНЫМИ свойствами, а не сокращением: активная вкладка
+// переопределяет только цвет рамки, а смешивать `border` с `borderColor` при
+// перерисовке React не даёт — он гасит одно из них и пишет предупреждение
+// (тот же дефект уже ловили 07.08 и 18.08 в других местах).
 const tabBtn: React.CSSProperties = {
-  padding: '6px 12px', borderRadius: 9, border: '1px solid var(--border)',
+  padding: '6px 12px', borderRadius: 9,
+  borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--border)',
   background: 'var(--surface)', color: 'var(--text)', fontSize: 13, cursor: 'pointer',
 }
 const tabActive: React.CSSProperties = { ...tabBtn, borderColor: 'var(--accent)', color: 'var(--accent)', fontWeight: 600 }
