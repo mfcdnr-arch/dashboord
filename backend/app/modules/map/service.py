@@ -22,6 +22,7 @@ import csv
 import io
 import json
 import re
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -584,4 +585,174 @@ async def link_suggested(conn, org_id, user_id, dataset_code: str, max_passes: i
         # Что осталось человеку: без этого «связано 59 из 62» выглядит как
         # потеря трёх строк, хотя это расхождения в самих данных.
         "left_manual": [u["row_label"] for u in report["unmatched"]],
+    }
+
+# --- Нагрузка отделений (режим «Руководителю») ----------------------------
+
+async def _release_field_names(conn, release_ids: list) -> dict:
+    """Коды граф → человеческие имена. Имена живут в справочнике объекта, а не
+    в выпуске: без них нечем определить, что графа измеряет."""
+    rows = await conn.fetch(
+        "select distinct drf.canonical_field_code as code, "
+        "coalesce(cf.name, drf.canonical_field_code) as name "
+        "from dataset_release_fields drf "
+        "left join dataset_releases r on r.id = drf.dataset_release_id "
+        "left join canonical_fields cf on cf.code = drf.canonical_field_code "
+        "  and cf.object_id = r.object_id "
+        "where drf.dataset_release_id = any($1::uuid[])", release_ids)
+    return {r["code"]: r["name"] for r in rows}
+
+
+def _fields_by_measure(names: dict) -> dict:
+    """Меры формы → графы, по которым считать нагрузку.
+
+    🔴 Свод и его составляющие НИКОГДА не складываются: «ИТОГО · Принято, ед.»
+    уже содержит в себе все услуги, и сумма дала бы двойной счёт. Поэтому если
+    у меры есть графа-свод — берём ТОЛЬКО её, и лишь при её отсутствии
+    складываем составляющие. Правило то же, что в сводной таблице и проверках
+    качества, и живёт оно в одном месте на систему (`_aggregate`).
+    """
+    from ..dashboards._aggregate import is_total_column, measure_of
+
+    by: dict = {}
+    for code, name in names.items():
+        m = measure_of(name)
+        if not m:
+            continue
+        slot = by.setdefault(m, {"total": [], "parts": []})
+        slot["total" if is_total_column(name) else "parts"].append(code)
+    return {m: (v["total"] or v["parts"]) for m, v in by.items() if (v["total"] or v["parts"])}
+
+
+def _fold(values: list, how: str) -> float:
+    """Свернуть ряд отчётов в одно число: сумма / последний / среднее."""
+    if not values:
+        return 0.0
+    if how == "sum":
+        return sum(values)
+    if how == "last":
+        return values[-1]
+    return sum(values) / len(values)
+
+
+async def office_load(conn, org_id, dataset_code: str,
+                      date_from: Optional[str] = None, date_to: Optional[str] = None,
+                      days: Optional[int] = None) -> dict:
+    """Сколько прошло через каждое отделение — для режима «Руководителю».
+
+    Считается по СВЯЗКЕ строки отчёта с отделением: адрес в отчёте записан
+    иначе, чем в справочнике, и сопоставление делает человек (или подсказка).
+    Несвязанные строки в нагрузку не попадают вовсе — иначе их числа осели бы
+    на чужих точках.
+
+    Отчёты за период сворачиваются ПО СМЫСЛУ МЕРЫ (`fold_of`): поток
+    складывается, накопительный итог берётся последним отчётом, доля
+    усредняется. Складывать всё подряд нельзя — на накопительной графе сумма
+    даёт число, которого не существует.
+    """
+    from ..dashboards._widgetcalc import fold_of
+
+    # 🔴 «Последняя неделя» отсчитывается от ПОСЛЕДНЕГО ОТЧЁТА, а не от
+    # сегодняшнего дня. Отчёты приходят с задержкой (на стенде последний — за
+    # 31.08 при сегодняшнем 12.09), и календарная неделя назад давала бы
+    # пустую карту со словами «за период отчётов нет» — человек решил бы, что
+    # сломана система, а не что данные просто заканчиваются раньше.
+    if days and not date_from and not date_to:
+        last = await conn.fetchval(
+            "select max(reporting_period_start) from dataset_releases "
+            "where organization_id=$1 and code=$2 and status <> 'superseded'", org_id, dataset_code)
+        if last is not None:
+            date_to = last.isoformat()
+            date_from = (last - timedelta(days=days)).isoformat()
+
+    rels = await conn.fetch(
+        "select id, reporting_period_start from dataset_releases "
+        "where organization_id=$1 and code=$2 and status <> 'superseded' "
+        "and ($3::text is null or reporting_period_start >= $3::text::date) "
+        "and ($4::text is null or reporting_period_start <= $4::text::date) "
+        "order by reporting_period_start nulls last, created_at",
+        org_id, dataset_code, date_from, date_to)
+    if not rels:
+        raise MapError("За выбранный период отчётов нет")
+    rel_ids = [r["id"] for r in rels]
+    names = await _release_field_names(conn, rel_ids)
+    by_measure = _fields_by_measure(names)
+    if not by_measure:
+        raise MapError("Форма не называет, что измеряют её графы — нагрузку посчитать не по чему")
+
+    # Значения: строка × графа × выпуск. Один запрос: выпусков за период
+    # немного, а обращение на каждый дало бы десятки round-trip.
+    rows = await conn.fetch(
+        "select dataset_release_id as rel, row_label, canonical_field_code as code, value_number "
+        "from dataset_values where dataset_release_id = any($1::uuid[]) "
+        "and row_label is not null and value_number is not null", rel_ids)
+
+    code_measure = {c: m for m, codes in by_measure.items() for c in codes}
+    # строка → мера → выпуск → сумма по графам этой меры
+    acc: dict = {}
+    for r in rows:
+        m = code_measure.get(r["code"])
+        if m is None:
+            continue
+        acc.setdefault(r["row_label"], {}).setdefault(m, {}).setdefault(r["rel"], 0.0)
+        acc[r["row_label"]][m][r["rel"]] += float(r["value_number"])
+
+    offices = await list_offices(conn, org_id)
+    linked = {o["row_label"]: o for o in offices if o["row_label"]}
+    # 🔴 Мера без чисел мерой не является. Имя графы своего типа не знает:
+    # у формы РЦО «Наименование отдела МФЦ» устроено так же, как «Принято,
+    # ед.», и попадало в переключатель пунктом, по которому нечего показать.
+    # Смотрим на сами значения — тот же урок, что в мастере ступеней лестницы.
+    with_numbers = {m for per in acc.values() for m, series in per.items() if series}
+    measures = sorted(m for m in by_measure if m in with_numbers)
+    # 🔴 Свёртку периода определяет ПОЛНОЕ имя графы, а не мера: у «Принято,
+    # ед.» разреза нет вовсе, и разбор принимал его за накопительный итог —
+    # за 53 отчёта показывалось значение последнего дня вместо суммы.
+    folds = {m: fold_of(names.get(by_measure[m][0], m)) for m in measures}
+
+    items = []
+    # 🔴 Строки отчёта БЕЗ отделения считаем отдельно и называем числом: их
+    # нагрузка на карту не попадает, и сумма точек оказывается меньше отчёта.
+    # Молчаливая недостача — это ровно то, из-за чего потом спорят о цифрах.
+    unlinked_rows = 0
+    unlinked_vals: dict[str, float] = {}
+    for row_label, per_measure in acc.items():
+        office = linked.get(row_label)
+        if office is None:
+            unlinked_rows += 1
+            for m in measures:
+                series = per_measure.get(m)
+                if series:
+                    unlinked_vals[m] = unlinked_vals.get(m, 0.0) + _fold(
+                        [series[r["id"]] for r in rels if r["id"] in series], folds[m])
+            continue
+        vals = {}
+        for m in measures:
+            series = per_measure.get(m)
+            if not series:
+                continue
+            ordered = [series[r["id"]] for r in rels if r["id"] in series]
+            if not ordered:
+                continue
+            vals[m] = _fold(ordered, folds[m])
+        if vals:
+            items.append({"office_id": office["id"], "name": office["name"],
+                          "row_label": row_label, "values": vals})
+
+    return {
+        "dataset_code": dataset_code,
+        "period_from": rels[0]["reporting_period_start"].isoformat() if rels[0]["reporting_period_start"] else None,
+        "period_to": rels[-1]["reporting_period_start"].isoformat() if rels[-1]["reporting_period_start"] else None,
+        "releases": len(rels),
+        "measures": measures,
+        # Как свёрнут период по каждой мере — чтобы на карте было сказано
+        # «сложено за 5 отчётов», а не «непонятно что за число».
+        "folds": folds,
+        "items": items,
+        # Что не показано на карте и почему.
+        "unlinked": {"rows": unlinked_rows,
+                     "values": {m: round(v, 2) for m, v in unlinked_vals.items()}},
+        # Сколько отделений осталось без цифр: связка есть не у всех, и
+        # молчаливый пропуск читался бы как «там ничего не принимали».
+        "offices_without_link": sum(1 for o in offices if o["is_active"] and not o["row_label"]),
     }

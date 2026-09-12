@@ -268,3 +268,125 @@ def test_ambiguous_match_gets_no_suggestion():
         {"id": "2", "name": "МФЦ Горловка", "address": "г. Горловка, ул. Ленина, 1"},
     ]
     assert suggest_office('Отделение ГБУ "МФЦ ДНР" г. Горловка ул. Ленина, 1', twins) is None
+
+# --- Нагрузка отделений (режим «Руководителю») ----------------------------
+
+LOAD_CODE = "ztest_load_ds"
+
+
+@pytest.fixture
+async def load_dataset(ids):
+    """Форма с ТЕМ ЖЕ устройством, что у отчёта РЦО: свод «ИТОГО» рядом со
+    своими составляющими, текстовая графа и два отчёта разных дней."""
+    fields = {
+        "ztest_itogo_prinyato": "ИТОГО · Принято, ед.",
+        "ztest_rosreestr_prinyato": "Росреестр · Принято, ед.",
+        "ztest_esia_prinyato": "ЕСИА · Принято, ед.",
+        "ztest_name": "Наименование отдела МФЦ",
+    }
+    rows = {"ztest_строка А": {"ztest_itogo_prinyato": 10, "ztest_rosreestr_prinyato": 6, "ztest_esia_prinyato": 4},
+            "ztest_строка Б": {"ztest_itogo_prinyato": 100, "ztest_rosreestr_prinyato": 60, "ztest_esia_prinyato": 40}}
+    async with db.acquire() as conn:
+        await conn.execute("delete from dataset_values where dataset_release_id in "
+                           "(select id from dataset_releases where code=$1)", LOAD_CODE)
+        await conn.execute("delete from dataset_releases where code=$1", LOAD_CODE)
+        obj = await conn.fetchval("select id from objects where name='t_obj' and organization_id=$1", ids["org"])
+        for code, name in fields.items():
+            await conn.execute(
+                "insert into canonical_fields(object_id, code, name, data_type) values($1,$2,$3,'number') "
+                "on conflict (object_id, code) do update set name=excluded.name", obj, code, name)
+        rel_ids = []
+        for day in ("2026-03-01", "2026-03-02"):
+            rel = await conn.fetchval(
+                "insert into dataset_releases(organization_id,code,name,status,reporting_period_start,created_by,object_id) "
+                "values($1,$2,'Тест нагрузки','released',$3::text::date,$4,$5) returning id",
+                ids["org"], LOAD_CODE, day, ids["admin"], obj)
+            rel_ids.append(rel)
+            for code in fields:
+                await conn.execute(
+                    "insert into dataset_release_fields(dataset_release_id, canonical_field_code) values($1,$2)", rel, code)
+            for i, (label, vals) in enumerate(rows.items()):
+                for code, v in vals.items():
+                    await conn.execute(
+                        "insert into dataset_values(dataset_release_id,row_index,row_label,canonical_field_code,value_number) "
+                        "values($1,$2,$3,$4,$5)", rel, i, label, code, v)
+    yield {"code": LOAD_CODE, "rows": list(rows)}
+    async with db.acquire() as conn:
+        await conn.execute("delete from dataset_values where dataset_release_id = any($1::uuid[])", rel_ids)
+        await conn.execute("delete from dataset_releases where id = any($1::uuid[])", rel_ids)
+        await conn.execute("delete from canonical_fields where object_id=$1 and code like 'ztest_%'", obj)
+
+
+async def test_load_uses_the_total_column_and_never_sums_it_with_parts(client, admin_headers, load_dataset, clean):
+    """Нагрузка берёт графу-свод, а не складывает её с составляющими.
+
+    «ИТОГО · Принято» уже содержит в себе все услуги: сложение дало бы двойной
+    счёт — 20 вместо 10. Правило то же, что в сводной таблице.
+    """
+    o = (await client.post("/map/offices", headers=admin_headers,
+                           json={"name": PREFIX + " А", "row_label": load_dataset["rows"][0]})).json()
+    r = await client.get("/map/offices/load", headers=admin_headers,
+                         params={"dataset_code": load_dataset["code"]})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    mine = next(i for i in d["items"] if i["office_id"] == o["id"])
+    # два отчёта по 10 → 20 (поток складывается), а НЕ 40 (свод + части).
+    assert mine["values"]["Принято, ед."] == 20
+    # Текстовая графа мерой не является: показать по ней нечего.
+    assert "Наименование отдела МФЦ" not in d["measures"]
+    assert d["folds"]["Принято, ед."] == "sum"
+
+
+async def test_load_names_what_did_not_reach_the_map(client, admin_headers, load_dataset, clean):
+    """Строки отчёта без отделения считаются отдельно и называются числом.
+
+    Иначе сумма точек на карте молча меньше отчёта — и об этом узнают уже в
+    споре о цифрах.
+    """
+    await client.post("/map/offices", headers=admin_headers,
+                      json={"name": PREFIX + " А", "row_label": load_dataset["rows"][0]})
+    d = (await client.get("/map/offices/load", headers=admin_headers,
+                          params={"dataset_code": load_dataset["code"]})).json()
+    # Вторая строка ни с кем не связана: её 200 не на карте, и это сказано.
+    assert d["unlinked"]["rows"] == 1
+    assert d["unlinked"]["values"]["Принято, ед."] == 200
+    on_map = sum(i["values"]["Принято, ед."] for i in d["items"])
+    assert on_map + d["unlinked"]["values"]["Принято, ед."] == 220  # весь отчёт
+
+
+async def test_load_period_counts_back_from_the_last_report(client, admin_headers, load_dataset, clean):
+    """«Последняя неделя» отсчитывается от последнего ОТЧЁТА, а не от сегодня.
+
+    Отчёты приходят с задержкой; календарная неделя назад давала бы пустую
+    карту, и человек решил бы, что сломана система.
+    """
+    await client.post("/map/offices", headers=admin_headers,
+                      json={"name": PREFIX + " А", "row_label": load_dataset["rows"][0]})
+    # Отчёты датированы мартом, «сегодня» далеко впереди: по календарю окно в
+    # неделю не поймало бы ни одного отчёта.
+    wide = (await client.get("/map/offices/load", headers=admin_headers,
+                             params={"dataset_code": load_dataset["code"], "days": 7})).json()
+    assert wide["releases"] == 2
+    assert wide["period_to"] == "2026-03-02" and wide["period_from"] == "2026-03-01"
+
+    # Окно в один день отсекает более ранний отчёт — период действительно
+    # считается, а не игнорируется.
+    narrow = (await client.get("/map/offices/load", headers=admin_headers,
+                               params={"dataset_code": load_dataset["code"], "days": 1})).json()
+    assert narrow["releases"] == 2  # 01 и 02 марта укладываются в сутки разницы
+
+    # Явно заданный период сильнее: берём только второй отчёт.
+    exact = (await client.get("/map/offices/load", headers=admin_headers,
+                              params={"dataset_code": load_dataset["code"],
+                                      "from": "2026-03-02", "to": "2026-03-02"})).json()
+    assert exact["releases"] == 1
+    mine = exact["items"][0]
+    assert mine["values"]["Принято, ед."] == 10  # один отчёт, без сложения
+
+
+async def test_load_is_closed_for_viewer(client, viewer, load_dataset, clean):
+    """Нагрузка — служебный разрез: обычному человеку карта показывает адрес и
+    режим работы, а не то, сколько где принято."""
+    r = await client.get("/map/offices/load", headers=viewer["headers"],
+                         params={"dataset_code": load_dataset["code"]})
+    assert r.status_code == 403

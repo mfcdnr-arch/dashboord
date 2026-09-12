@@ -150,6 +150,24 @@ async def link_suggested(dataset_code: Optional[str] = None, user: dict = Depend
                 raise _bad(e)
 
 
+@router.get("/offices/load")
+async def office_load(dataset_code: Optional[str] = None, date_from: Optional[str] = Query(None, alias="from"),
+                      date_to: Optional[str] = Query(None, alias="to"),
+                      days: Optional[int] = Query(None, ge=1, le=3650),
+                      user: dict = Depends(manage)):
+    """Нагрузка отделений за период — режим «Руководителю» на карте."""
+    async with db.get_pool().acquire() as conn:
+        code = dataset_code or (await settings_service.get_org_settings(
+            conn, user["organization_id"])).get("map_dataset_code")
+        if not code:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                "Сначала выберите отчёт на вкладке «Отделения»")
+        try:
+            return await service.office_load(conn, user["organization_id"], code, date_from, date_to, days)
+        except MapError as e:
+            raise _bad(e)
+
+
 @router.get("/offices/{office_id}")
 async def get_office(office_id: str, user: dict = Depends(get_current_user)):
     async with db.get_pool().acquire() as conn:

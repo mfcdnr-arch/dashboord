@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { getGeoBase, type GeoBase, type Office } from '../../api'
+import { getGeoBase, officeLoad, type GeoBase, type Office, type OfficeLoad } from '../../api'
+import { fmtNumber, heatSteps } from '../../lib/format'
 import { boundsOf, esc, px, py, ringPath, shortName, textWidth, type Rect } from './projection'
 
 // Карта отделений МФЦ.
@@ -18,7 +19,21 @@ import { boundsOf, esc, px, py, ringPath, shortName, textWidth, type Rect } from
 //  • подпись крепится к МАРКЕРУ, а не к точке под ним — иначе у города с
 //    отделением она пропадает при приближении.
 
+const HEAT = ['var(--chart-heat-1)', 'var(--chart-heat-2)', 'var(--chart-heat-3)',
+  'var(--chart-heat-4)', 'var(--chart-heat-5)']
+
+function fmtPeriod(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const [y, m, d] = iso.split('-')
+  return `${d}.${m}.${y}`
+}
+
 const DRAG_SLOP = 4 // пикселей: дальше этого — перетаскивание, ближе — выбор
+
+function median(v: number[]): number {
+  const s = [...v].sort((a, b) => a - b)
+  return s.length ? s[Math.floor(s.length / 2)] : 0
+}
 
 export default function MapView({ offices, onEdit, canManage }: {
   offices: Office[]
@@ -30,6 +45,13 @@ export default function MapView({ offices, onEdit, canManage }: {
   const [layer, setLayer] = useState<'adm' | 'none'>('adm')
   const [sel, setSel] = useState<Office | null>(null)
   const [q, setQ] = useState('')
+  // Режим «Руководителю» — вторая заказанная версия карты: та же сеть, но
+  // точка говорит не «где это», а «сколько через неё прошло».
+  const [mode, setMode] = useState<'user' | 'chief'>('user')
+  const [load, setLoad] = useState<OfficeLoad | null>(null)
+  const [loadErr, setLoadErr] = useState<string | null>(null)
+  const [days, setDays] = useState(7)
+  const [measure, setMeasure] = useState('')
   const svgRef = useRef<SVGSVGElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<Rect>({ x: 0, y: 0, w: 1, h: 1 })
@@ -37,6 +59,22 @@ export default function MapView({ offices, onEdit, canManage }: {
   const [tick, setTick] = useState(0) // перерисовать после изменения вида
 
   useEffect(() => { getGeoBase().then(setGeo).catch((e) => setError((e as Error).message)) }, [])
+
+  // Нагрузка тянется только в режиме «Руководителю»: это отдельный расчёт по
+  // всем выпускам периода, и справочной карте он не нужен.
+  useEffect(() => {
+    if (mode !== 'chief' || !canManage) return
+    setLoadErr(null)
+    // Период отсчитывает СЕРВЕР — от последнего отчёта, а не от сегодняшнего
+    // дня: отчёты приходят с задержкой, и календарная неделя назад давала бы
+    // пустую карту.
+    officeLoad(days > 0 ? { days } : {})
+      .then((r) => {
+        setLoad(r)
+        setMeasure((m) => (m && r.measures.includes(m) ? m : r.measures[0] || ''))
+      })
+      .catch((e) => { setLoad(null); setLoadErr((e as Error).message) })
+  }, [mode, days, canManage])
 
   const pts = useMemo(() => offices.filter((o) => o.is_active && o.lat != null && o.lon != null), [offices])
 
@@ -84,6 +122,34 @@ export default function MapView({ offices, onEdit, canManage }: {
     return () => ro.disconnect()
   }, [])
 
+  // Шкала нагрузки.
+  //
+  // 🔴 Цвета НЕ сигнальные: «мало обращений» — это не «плохо», и красить малую
+  // нагрузку красным значило бы приписать данным оценку, которой в них нет.
+  // Берём последовательную шкалу величины — ту же, что у тепловой карты.
+  //
+  // Ступени — по КВАНТИЛЯМ (общая `heatSteps`): распределение длиннохвостое
+  // (у РЦО медиана в разы меньше максимума), и на равномерной шкале почти все
+  // точки слились бы в один оттенок. Если разброс мал, `heatSteps` молчит —
+  // тогда равномерные ступени понятнее.
+  const scale = useMemo(() => {
+    if (mode !== 'chief' || !load || !measure) return null
+    const byId = new Map<string, number>()
+    load.items.forEach((i) => { const v = i.values[measure]; if (v != null) byId.set(i.office_id, v) })
+    const vals = [...byId.values()]
+    if (!vals.length) return null
+    const max = Math.max(...vals)
+    const steps = heatSteps(vals, HEAT)
+    const bounds = steps
+      ? steps.pieces.map((p) => p.lt).filter((b): b is number => b != null)
+      : [0.2, 0.4, 0.6, 0.8].map((f) => max * f)
+    const colorOf = (v: number) => {
+      const i = bounds.findIndex((b) => v < b)
+      return HEAT[i < 0 ? bounds.length : i]
+    }
+    return { byId, max, bounds, colorOf, quantile: !!steps, spread: steps?.spread ?? max / Math.max(1, median(vals)) }
+  }, [mode, load, measure]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const draw = useCallback(() => {
     const svg = svgRef.current
     if (!svg || !shapes) return
@@ -113,7 +179,15 @@ export default function MapView({ offices, onEdit, canManage }: {
         g.y = (g.y * (g.items.length - 1) + y) / g.items.length
       } else groups.push({ x, y, items: [o], r: 0 })
     }
-    groups.forEach((g) => { g.r = g.items.length > 1 ? 13 * k : 5 * k })
+    // Размер точки — по величине, но по КОРНЮ: глаз сравнивает площадь, и
+    // прямая пропорция радиуса раздувала бы крупные отделения вчетверо.
+    const radiusOf = (o: Office) => {
+      if (!scale) return 5 * k
+      const v = scale.byId.get(o.id)
+      if (v == null) return 3.5 * k
+      return (4 + 7 * Math.sqrt(Math.max(0, v) / (scale.max || 1))) * k
+    }
+    groups.forEach((g) => { g.r = g.items.length > 1 ? 13 * k : radiusOf(g.items[0]) })
 
     // 2. Подписи. Предела по числу НЕТ: место освобождает сам масштаб, поэтому
     //    при приближении названий становится больше, а не меньше.
@@ -192,13 +266,17 @@ export default function MapView({ offices, onEdit, canManage }: {
           `<text x="${g.x.toFixed(1)}" y="${g.y.toFixed(1)}" style="font-size:${(11 * k).toFixed(2)}px">${g.items.length}</text></g>`)
       } else {
         const b = g.items[0]
-        out.push(`<g class="mv-pt${sel && sel.id === b.id ? ' mv-on' : ''}" data-id="${esc(b.id)}" tabindex="0" role="button" aria-label="${esc(b.name)}">` +
-          `<circle cx="${g.x.toFixed(1)}" cy="${g.y.toFixed(1)}" r="${g.r.toFixed(1)}" stroke-width="${(1.4 * k).toFixed(2)}"/></g>`)
+        const v = scale?.byId.get(b.id)
+        const fill = scale ? (v == null ? 'var(--text-faint)' : scale.colorOf(v)) : ''
+        const label = scale && v != null ? `${b.name}: ${fmtNumber(v)}` : b.name
+        out.push(`<g class="mv-pt${sel && sel.id === b.id ? ' mv-on' : ''}" data-id="${esc(b.id)}" tabindex="0" role="button" aria-label="${esc(label)}">` +
+          `<circle cx="${g.x.toFixed(1)}" cy="${g.y.toFixed(1)}" r="${g.r.toFixed(1)}" stroke-width="${(1.4 * k).toFixed(2)}"` +
+          `${fill ? ` fill="${fill}"` : ''}/></g>`)
       }
     })
     svg.innerHTML = out.join('')
     ;(svg as unknown as { __groups: Group[] }).__groups = groups
-  }, [shapes, pts, layer, sel, aspect])
+  }, [shapes, pts, layer, sel, aspect, scale])
 
   useEffect(() => { draw() }, [draw, tick])
 
@@ -322,6 +400,13 @@ export default function MapView({ offices, onEdit, canManage }: {
           onKeyDown={(e) => { if (e.key === 'Enter') find(q) }} />
         <button style={btnGhost} onClick={() => find(q)}>Найти</button>
         <div style={{ flex: 1 }} />
+        {canManage && (
+          <button style={{ ...btnGhost, ...(mode === 'chief' ? pressed : null) }} aria-pressed={mode === 'chief'}
+            onClick={() => setMode(mode === 'chief' ? 'user' : 'chief')}
+            title="Показать на точках нагрузку: сколько прошло через отделение за период">
+            {mode === 'chief' ? '📊 Нагрузка показана' : '📊 Показать нагрузку'}
+          </button>
+        )}
         <button style={btnGhost} aria-pressed={layer === 'adm'} onClick={() => setLayer(layer === 'adm' ? 'none' : 'adm')}>
           {layer === 'adm' ? '▦ Районы показаны' : '▫ Районы скрыты'}
         </button>
@@ -329,6 +414,55 @@ export default function MapView({ offices, onEdit, canManage }: {
         <button style={btnGhost} onClick={() => zoomTo(viewRef.current.x + viewRef.current.w / 2, viewRef.current.y + viewRef.current.h / 2, viewRef.current.w * 1.4)} aria-label="Отдалить">－</button>
         <button style={btnGhost} onClick={resetView}>Вся республика</button>
       </div>
+
+      {mode === 'chief' && (
+        <div style={loadBar}>
+          {loadErr ? <span style={{ color: 'var(--danger)', fontSize: 13 }}>{loadErr}</span> : !load ? (
+            <span style={{ fontSize: 13, color: 'var(--text-faint)' }}>Считаем нагрузку…</span>
+          ) : (
+            <>
+              <label style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                мера{' '}
+                <select style={sel2} value={measure} onChange={(e) => setMeasure(e.target.value)} aria-label="Показатель нагрузки">
+                  {load.measures.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </label>
+              <label style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                период{' '}
+                <select style={sel2} value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Период нагрузки">
+                  <option value={7}>неделя</option>
+                  <option value={30}>месяц</option>
+                  <option value={90}>три месяца</option>
+                  <option value={0}>все отчёты</option>
+                </select>
+              </label>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                {fmtPeriod(load.period_from)} → {fmtPeriod(load.period_to)} · отчётов {load.releases}
+                {load.folds[measure] === 'sum' ? ' · сложено' : load.folds[measure] === 'last' ? ' · по последнему отчёту' : ' · усреднено'}
+              </span>
+              {scale && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                  {['мало', ...scale.bounds.map((b) => fmtNumber(Math.round(b))), 'много'].map((t, i) => (
+                    <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                      {i > 0 && i <= scale.bounds.length && (
+                        <span style={{ width: 12, height: 12, borderRadius: 3, background: HEAT[i - 1], display: 'inline-block' }} />
+                      )}
+                      <span style={{ color: 'var(--text-muted)' }}>{t}</span>
+                    </span>
+                  ))}
+                  <span style={{ width: 12, height: 12, borderRadius: 3, background: HEAT[scale.bounds.length], display: 'inline-block' }} />
+                </span>
+              )}
+              {load.unlinked.rows > 0 && (
+                <span style={{ fontSize: 12, color: 'var(--danger)' }}
+                  title="Строка отчёта не связана ни с одним отделением — свяжите её на вкладке «Отделения»">
+                  ⚠ не на карте: {load.unlinked.rows} стр. ({fmtNumber(load.unlinked.values[measure] || 0)})
+                </span>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' }}>
         <div ref={wrapRef} style={{ flex: '1 1 460px', minWidth: 0 }}>
@@ -341,13 +475,19 @@ export default function MapView({ offices, onEdit, canManage }: {
             {pts.length < offices.length && <> · на карте {pts.length} из {offices.length}: у остальных нет координат или они не действуют.</>}
           </div>
         </div>
-        <OfficeCard office={sel} onClose={() => setSel(null)} onEdit={canManage ? onEdit : undefined} />
+        <OfficeCard office={sel} onClose={() => setSel(null)} onEdit={canManage ? onEdit : undefined}
+          load={mode === 'chief' ? load?.items.find((i) => i.office_id === sel?.id) || null : null}
+          folds={load?.folds} />
       </div>
     </div>
   )
 }
 
-function OfficeCard({ office, onClose, onEdit }: { office: Office | null; onClose: () => void; onEdit?: (o: Office) => void }) {
+function OfficeCard({ office, onClose, onEdit, load, folds }: {
+  office: Office | null; onClose: () => void; onEdit?: (o: Office) => void
+  load?: { values: Record<string, number> } | null
+  folds?: Record<string, string>
+}) {
   if (!office) {
     return (
       <div style={card}>
@@ -382,6 +522,17 @@ function OfficeCard({ office, onClose, onEdit }: { office: Office | null; onClos
           })}
         </div>
       </div>
+      {load && (
+        <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border-faint)' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>За выбранный период</div>
+          {Object.entries(load.values).map(([m, v]) => (
+            <div key={m} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13 }}>
+              <span style={{ color: 'var(--text-muted)' }}>{m}</span>
+              <b>{fmtNumber(v)}{folds?.[m] === 'avg' ? ' ⌀' : ''}</b>
+            </div>
+          ))}
+        </div>
+      )}
       {office.note && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>{office.note}</div>}
       <Row k="Почта" v={office.email} />
       {office.website && (
@@ -406,6 +557,9 @@ function Row({ k, v }: { k: string; v: string | null }) {
 
 const inp: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', width: 240, background: 'var(--surface)', color: 'var(--text)' }
 const btnGhost: React.CSSProperties = { height: 34, padding: '0 12px', borderRadius: 8, background: 'transparent', color: 'var(--text)', border: '1px solid var(--border-strong)', fontSize: 13, cursor: 'pointer' }
+const pressed: React.CSSProperties = { background: 'var(--accent)', color: 'var(--on-accent)', borderColor: 'var(--accent)' }
+const sel2: React.CSSProperties = { height: 28, borderRadius: 6, border: '1px solid var(--border-strong)', fontSize: 12, background: 'var(--surface)', color: 'var(--text)' }
+const loadBar: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', padding: '8px 10px', marginBottom: 8, border: '1px solid var(--border-faint)', borderRadius: 8, background: 'var(--surface-2)', boxSizing: 'border-box' }
 const card: React.CSSProperties = { flex: '0 1 320px', minWidth: 260, border: '1px solid var(--border-faint)', borderRadius: 10, padding: 12, background: 'var(--surface-2)', boxSizing: 'border-box' }
 const xBtn: React.CSSProperties = { border: 'none', background: 'none', fontSize: 15, cursor: 'pointer', color: 'var(--text-muted)' }
 

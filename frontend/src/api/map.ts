@@ -178,3 +178,29 @@ export async function getGeoBase(): Promise<GeoBase> {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// --- Нагрузка отделений (режим «Руководителю») ---
+export interface LoadItem { office_id: string; name: string; row_label: string; values: Record<string, number> }
+export interface OfficeLoad {
+  dataset_code: string
+  period_from: string | null
+  period_to: string | null
+  releases: number
+  measures: string[]
+  /** Как свёрнут период по каждой мере: sum | last | avg. */
+  folds: Record<string, string>
+  items: LoadItem[]
+  /** Что НЕ попало на карту: строки отчёта без отделения. */
+  unlinked: { rows: number; values: Record<string, number> }
+  offices_without_link: number
+}
+export async function officeLoad(params: { dataset_code?: string; from?: string; to?: string; days?: number } = {}): Promise<OfficeLoad> {
+  const qs = new URLSearchParams()
+  if (params.dataset_code) qs.set('dataset_code', params.dataset_code)
+  if (params.from) qs.set('from', params.from)
+  if (params.to) qs.set('to', params.to)
+  if (params.days) qs.set('days', String(params.days))
+  const res = await fetch(`/map/offices/load${qs.toString() ? `?${qs}` : ''}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
