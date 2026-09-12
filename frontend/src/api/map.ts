@@ -162,3 +162,19 @@ export async function linkSuggested(datasetCode?: string): Promise<LinkSuggested
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// --- Геометрия карты ---
+export interface GeoPlace { n: string; lat: number; lon: number; k: string | null; pop: number; o: number }
+export interface GeoDistrict { n: string; s: string | null; col: number; rings: number[][][] }
+export interface GeoBase {
+  contour: { type: string; properties: { name: string }; geometry: { type: string; coordinates: number[][][] } }
+  districts: GeoDistrict[]
+  places: GeoPlace[]
+}
+/** Вся неизменная геометрия одним запросом: карта без любой из частей неполна,
+ *  а три запроса дали бы три момента, когда она наполовину нарисована. */
+export async function getGeoBase(): Promise<GeoBase> {
+  const res = await fetch('/map/geo/base', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

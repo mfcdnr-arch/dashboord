@@ -159,6 +159,21 @@ def contour() -> dict:
 
 
 @lru_cache(maxsize=1)
+def places() -> list:
+    """Населённые пункты (OSM): опорные подписи карты. Отделения без них висят
+    в пустоте — по одному контуру человек не понимает, куда смотрит."""
+    return json.loads((CONTOUR_PATH.parent / "places.json").read_text(encoding="utf-8"))
+
+
+@lru_cache(maxsize=1)
+def districts() -> list:
+    """Муниципальные образования. Раскраска (соседние — разного цвета)
+    посчитана при подготовке файла: в прототипе она вычислялась в браузере
+    перебором общих точек границ у 64 районов на каждой загрузке."""
+    return json.loads((CONTOUR_PATH.parent / "districts.json").read_text(encoding="utf-8"))
+
+
+@lru_cache(maxsize=1)
 def _rings() -> list:
     g = contour()["geometry"]
     return [g["coordinates"][0]] if g["type"] == "Polygon" else [p[0] for p in g["coordinates"]]

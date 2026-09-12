@@ -6,6 +6,7 @@ import {
 } from '../../api'
 import { plural } from '../../lib/text'
 import { useConfirm } from '../dashboards/ConfirmDialog'
+import MapView from './MapView'
 import OfficeForm from './OfficeForm'
 
 // Раздел «Карта» → справочник отделений.
@@ -29,6 +30,9 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
   const [imp, setImp] = useState<ImportResult | null>(null)
   const [updateExisting, setUpdateExisting] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Карта — первая вкладка: раздел заводится ради неё, а справочник это то,
+  // из чего она строится.
+  const [tab, setTab] = useState<'map' | 'offices'>('map')
   const [linkRes, setLinkRes] = useState<LinkSuggestedResult | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -99,14 +103,29 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
     <div>
       {confirmNode}
       <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Карта</h2>
-      <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
-        Справочник отделений — сведения, которые карта показывает на точке: адрес, телефон, режим работы.
-        {canManage ? ' Правка здесь сразу меняет то, что видит человек.' : ' Правка — у администратора.'}
+      <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+        Отделения МФЦ на карте и их сведения: адрес, телефон, режим работы.
+        {canManage ? ' Карта строится по справочнику — правка сведений сразу меняет то, что видно на точке.' : ' Правка — у администратора.'}
+      </div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: '1px solid var(--border-faint)' }}>
+        {([['map', '🗺 Карта'], ['offices', `📋 Отделения (${items.length})`]] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setTab(k)} aria-pressed={tab === k}
+            style={{
+              border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, padding: '8px 12px',
+              color: tab === k ? 'var(--accent)' : 'var(--text-muted)',
+              fontWeight: tab === k ? 700 : 400,
+              borderBottom: tab === k ? '2px solid var(--accent)' : '2px solid transparent',
+            }}>{label}</button>
+        ))}
       </div>
       {error && <div style={errBox}>{error}</div>}
 
+      {tab === 'map' && (
+        <MapView offices={items} canManage={canManage} onEdit={(o) => { setTab('offices'); setEdit(o) }} />
+      )}
+
       {/* Сверка с отчётом: без неё новое отделение попадает в цифры, но не на карту. */}
-      {canManage && (
+      {tab === 'offices' && canManage && (
         <div style={card}>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: report?.unmatched?.length ? 10 : 0 }}>
             <b style={{ fontSize: 13 }}>Сверка с отчётом</b>
@@ -159,6 +178,7 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
         </div>
       )}
 
+      {tab === 'offices' && <>
       {/* Панель управления списком */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 10 }}>
         <input style={{ ...inp, width: 260 }} value={q} onChange={(e) => setQ(e.target.value)}
@@ -281,6 +301,8 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
           </table>
         </div>
       )}
+
+      </>}
 
       {edit !== undefined && (
         <OfficeForm office={edit} rowOptions={rowOptions}

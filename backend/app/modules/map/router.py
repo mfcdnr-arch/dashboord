@@ -72,6 +72,17 @@ class MapSettingsIn(BaseModel):
 
 # --- Геометрия ------------------------------------------------------------
 
+@router.get("/geo/base")
+async def geo_base(user: dict = Depends(get_current_user)):
+    """Вся неизменная геометрия карты одним запросом: контур, районы,
+    населённые пункты. Одним — потому что карта без любой из частей неполна, а
+    три запроса дали бы три момента, когда она наполовину нарисована.
+    Данные не меняются, поэтому кэшируются на сутки."""
+    return JSONResponse(
+        {"contour": service.contour(), "districts": service.districts(), "places": service.places()},
+        headers={"Cache-Control": "public, max-age=86400"})
+
+
 @router.get("/geo/contour")
 async def geo_contour(user: dict = Depends(get_current_user)):
     """Контур республики. Лежит в бэкенде, чтобы проверка координат и отрисовка

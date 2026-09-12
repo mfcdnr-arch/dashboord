@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { clearToken, getAppealsStats, getHealth, getMe, getSetupStatus, getToken, type Health, type Me } from './api'
+import { clearToken, getAppealsStats, getHealth, getMe, getSetupStatus, getToken, type Health, type Me, listServices, listRefDocs } from './api'
 import Login from './components/Login'
 import ChangePassword from './components/ChangePassword'
 import ObjectsPage from './components/ObjectsPage'
@@ -129,7 +129,11 @@ const NAV = [
   { key: 'archive', label: 'Архив', ready: true, archiveGate: true },
   { key: 'moderation', label: 'Модерация', ready: true, modOnly: true },
   { key: 'appeals', label: 'Обращения', ready: true, modOnly: true },
-  { key: 'catalog', label: 'Справочники', ready: true, modOnly: true },
+  // Справочники (услуги, служебные документы) заполняет АДМИНИСТРАТОР, поэтому
+  // у него пункт есть всегда — иначе пустой раздел нечем было бы наполнить в
+  // первый раз. Модератору он показывается, только когда там есть записи:
+  // пустой раздел в меню выглядит недоделкой и ничего ему не даёт.
+  { key: 'catalog', label: 'Справочники', ready: true, modOnly: true, catalogGate: true },
   { key: 'users', label: 'Пользователи', ready: true, adminOnly: true },
   { key: 'audit', label: 'Аудит', ready: true, adminOnly: true },
   { key: 'reports', label: 'Отчёты', ready: true, adminOnly: true },
@@ -246,6 +250,16 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     if (canManage) return
     listFeatured().then((r) => setFeaturedOk(r.items.length > 0)).catch(() => setFeaturedOk(false))
   }, [canManage])
+  // «Справочники»: у администратора всегда (он их и заполняет), у модератора —
+  // когда там есть хоть что-то. Пустой раздел, в который никто не заходит, в
+  // меню только мешает; при первой же записи пункт вернётся сам.
+  const [catalogOk, setCatalogOk] = useState(false)
+  useEffect(() => {
+    if (!canModerate || isAdmin) return
+    Promise.all([listServices(), listRefDocs()])
+      .then(([sv, dc]) => setCatalogOk(sv.length > 0 || dc.length > 0))
+      .catch(() => setCatalogOk(false))
+  }, [canModerate, isAdmin])
   // Значок «сколько обращений ждут ответа» у пункта «Обращения» (только staff).
   // Best-effort, не real-time (полноценный push через WebSocket/SSE был бы
   // избыточен для масштаба МФЦ) — но обновляется часто и по актуальным поводам:
@@ -272,7 +286,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     && (!(n as { featuredGate?: boolean }).featuredGate || canManage || (me.show_featured && featuredOk))
     // «Статистика услуг»: та же галочка, без доп. проверки «есть ли что
     // показать» — раздел не пуст, пока размечено хоть одно ведомство.
-    && (!(n as { dnrStatsGate?: boolean }).dnrStatsGate || canManage || me.show_featured))
+    && (!(n as { dnrStatsGate?: boolean }).dnrStatsGate || canManage || me.show_featured)
+    && (!(n as { catalogGate?: boolean }).catalogGate || isAdmin || catalogOk))
 
   // Быстрый поиск (п. 9, Ctrl+K): выбор результата ведёт либо через ОБЩИЙ
   // механизм навигации (раздел/отчёт/страница/виджет — тот же `goTo`, что и
