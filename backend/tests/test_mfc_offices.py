@@ -187,6 +187,54 @@ async def test_office_outside_contour_is_flagged_not_blocked(client, admin_heade
                              json={"name": PREFIX + " половина", "lat": 48.0})
     assert half.status_code == 400
 
+async def test_bulk_link_converges_and_leaves_the_doubtful(client, admin_headers, seed_dataset, clean):
+    """«Связать все» доводит дело до конца за ОДНО нажатие и не трогает спорное.
+
+    Подсказка молчит при неоднозначности, а неоднозначность спадает по мере
+    того, как конкуренты разбираются, — поэтому проходов несколько. Иначе
+    второе нажатие той же кнопки давало бы другой результат, чем первое.
+    """
+    for name, addr in [(PREFIX + " Паспорт", "г. Донецк, ул. Паспорт, 1"),
+                       (PREFIX + " ИНН", "г. Донецк, ул. ИНН, 2"),
+                       (PREFIX + " СНИЛС", "г. Донецк, ул. СНИЛС, 3")]:
+        await client.post("/map/offices", headers=admin_headers, json={"name": name, "address": addr})
+
+    r = await client.post("/map/offices/link-suggested", headers=admin_headers,
+                          params={"dataset_code": "t_ds"})
+    assert r.status_code == 200, r.text
+    res = r.json()
+    assert res["linked"] >= 3
+    linked = {i["row_label"]: i["office"] for i in res["items"]}
+    assert linked.get("Паспорт") == PREFIX + " Паспорт"
+    assert linked.get("ИНН") == PREFIX + " ИНН"
+    # Одно отделение не может достаться двум строкам.
+    assert len(set(linked.values())) == len(linked)
+
+    # Повтор ничего не меняет: набор сошёлся.
+    again = (await client.post("/map/offices/link-suggested", headers=admin_headers,
+                               params={"dataset_code": "t_ds"})).json()
+    assert again["linked"] == 0
+
+    # Уже связанное вручную не перезаписывается.
+    items = (await client.get("/map/offices", headers=admin_headers, params={"q": PREFIX})).json()
+    snils = next(o for o in items if o["name"] == PREFIX + " СНИЛС")
+    assert snils["row_label"] == "СНИЛС"
+
+
+async def test_bulk_link_needs_a_chosen_report(client, admin_headers, clean):
+    """Без выбранного отчёта связывать не с чем — честный отказ вместо пустого
+    ответа, из которого непонятно, сработало ли."""
+    # Настройка общая на организацию: снимаем её на время проверки и
+    # возвращаем, иначе тест молча ломает рабочую конфигурацию стенда.
+    saved = (await client.get("/map/settings", headers=admin_headers)).json()["map_dataset_code"]
+    try:
+        await client.put("/map/settings", headers=admin_headers, json={"map_dataset_code": None})
+        r = await client.post("/map/offices/link-suggested", headers=admin_headers)
+        assert r.status_code == 400 and "выберите отчёт" in r.json()["detail"]
+    finally:
+        await client.put("/map/settings", headers=admin_headers, json={"map_dataset_code": saved})
+
+
 def test_tosp_is_never_suggested_as_the_head_office():
     """Обособленное подразделение (ТОСП) не сопоставляется с головным.
 

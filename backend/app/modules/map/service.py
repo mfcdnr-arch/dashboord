@@ -514,3 +514,59 @@ async def unmatched(conn, org_id, dataset_code: str) -> dict:
         "unmatched": new_rows,
         "offices_without_row": [{"id": o["id"], "name": o["name"], "city": o["city"]} for o in free],
     }
+
+async def link_suggested(conn, org_id, user_id, dataset_code: str, max_passes: int = 5) -> dict:
+    """Связать разом все строки отчёта, в которых подсказка однозначна.
+
+    Ручное связывание шести десятков отделений — это шесть десятков нажатий на
+    одно и то же; при этом каждая связка обратима, а подсказка выдаётся только
+    при однозначном совпадении. Поэтому массовая операция допустима — но с
+    тремя ограничениями, и каждое существенно:
+
+    1. **Подсказки считаются ЗДЕСЬ, а не приходят с экрана.** Иначе связка
+       опиралась бы на то, что человек видел минуту назад, — а за это время
+       отделение могли завести, переименовать или связать из другой вкладки.
+    2. **Идём от самых уверенных к менее уверенным и занятое не перезаписываем.**
+       Две строки отчёта могут указывать на одно отделение; молча связать
+       последнюю значило бы отдать ей чужую нагрузку.
+    3. **Повторяем проходы, пока связывается хоть что-то.** Подсказка молчит
+       при неоднозначности, а неоднозначность спадает по мере того, как
+       конкуренты разбираются: «Отделение № 3 … пр-т Ильича» и «ТОСП … № 9»
+       находятся только вторым проходом, когда соседние номера уже заняты
+       (проверено на настоящих данных). Без цикла второе нажатие той же кнопки
+       давало бы иной результат, чем первое, — поведение, которое человек
+       справедливо считает случайным.
+    """
+    linked: list[dict] = []
+    conflicts: list[dict] = []
+    for _ in range(max_passes):
+        report = await unmatched(conn, org_id, dataset_code)
+        pairs = [(u["suggestion"]["score"], u["row_label"], u["suggestion"])
+                 for u in report["unmatched"] if u["suggestion"]]
+        if not pairs:
+            break
+        pairs.sort(key=lambda x: -x[0])
+        taken: set = set()
+        before = len(linked)
+        for _score, row_label, sug in pairs:
+            if sug["id"] in taken:
+                continue  # разберётся следующим проходом, когда станет виднее
+            try:
+                await update_office(conn, org_id, user_id, sug["id"], {"row_label": row_label})
+            except MapError as e:
+                conflicts.append({"row_label": row_label, "office": sug["name"], "reason": str(e)})
+                continue
+            taken.add(sug["id"])
+            linked.append({"row_label": row_label, "office": sug["name"]})
+        if len(linked) == before:
+            break
+
+    report = await unmatched(conn, org_id, dataset_code)
+    return {
+        "linked": len(linked),
+        "items": linked,
+        "conflicts": conflicts,
+        # Что осталось человеку: без этого «связано 59 из 62» выглядит как
+        # потеря трёх строк, хотя это расхождения в самих данных.
+        "left_manual": [u["row_label"] for u in report["unmatched"]],
+    }

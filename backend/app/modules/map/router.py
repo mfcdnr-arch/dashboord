@@ -123,6 +123,22 @@ async def unmatched(dataset_code: Optional[str] = None, user: dict = Depends(man
             raise _bad(e)
 
 
+@router.post("/offices/link-suggested")
+async def link_suggested(dataset_code: Optional[str] = None, user: dict = Depends(manage)):
+    """Связать разом все строки отчёта с однозначной подсказкой."""
+    async with db.get_pool().acquire() as conn:
+        code = dataset_code or (await settings_service.get_org_settings(
+            conn, user["organization_id"])).get("map_dataset_code")
+        if not code:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                "Сначала выберите отчёт, по которому сверяются отделения")
+        async with conn.transaction():
+            try:
+                return await service.link_suggested(conn, user["organization_id"], user["id"], code)
+            except MapError as e:
+                raise _bad(e)
+
+
 @router.get("/offices/{office_id}")
 async def get_office(office_id: str, user: dict = Depends(get_current_user)):
     async with db.get_pool().acquire() as conn:

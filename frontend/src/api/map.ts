@@ -147,3 +147,18 @@ export function hoursSummary(h: Hours | null | undefined): string {
   const same = work.every((d) => h[d.key]!.from === first.from && h[d.key]!.to === first.to)
   return same ? `${parts.join(', ')} · ${first.from}–${first.to}` : `${parts.join(', ')} · по-разному`
 }
+
+export interface LinkSuggestedResult {
+  linked: number
+  items: { row_label: string; office: string }[]
+  conflicts: { row_label: string; office: string; reason: string }[]
+  left_manual: string[]
+}
+/** Связать разом все строки отчёта, где подсказка однозначна. Подсказки
+ *  пересчитываются на сервере — экран мог устареть. */
+export async function linkSuggested(datasetCode?: string): Promise<LinkSuggestedResult> {
+  const qs = datasetCode ? `?dataset_code=${encodeURIComponent(datasetCode)}` : ''
+  const res = await fetch(`/map/offices/link-suggested${qs}`, { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

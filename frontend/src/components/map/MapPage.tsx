@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   deleteOffice, getDataSources, getMapSettings, hoursSummary, importOffices, listOffices,
-  saveMapSettings, unmatchedRows, updateOffice,
-  type DataSet, type ImportResult, type Office, type UnmatchedReport,
+  linkSuggested, saveMapSettings, unmatchedRows, updateOffice,
+  type DataSet, type ImportResult, type LinkSuggestedResult, type Office, type UnmatchedReport,
 } from '../../api'
+import { plural } from '../../lib/text'
 import { useConfirm } from '../dashboards/ConfirmDialog'
 import OfficeForm from './OfficeForm'
 
@@ -28,6 +29,7 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
   const [imp, setImp] = useState<ImportResult | null>(null)
   const [updateExisting, setUpdateExisting] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [linkRes, setLinkRes] = useState<LinkSuggestedResult | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const fail = (e: unknown) => setError((e as Error).message)
@@ -55,6 +57,24 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
       setImp(await importOffices(file, updateExisting))
       reload(); if (dsCode) refreshReport(dsCode)
     } catch (e) { fail(e) } finally { setBusy(false); if (fileRef.current) fileRef.current.value = '' }
+  }
+
+  async function linkAll() {
+    const sure = (report?.unmatched || []).filter((u) => u.suggestion).length
+    if (!await ask({
+      title: `Связать ${sure} ${plural(sure, 'строку', 'строки', 'строк')} отчёта с отделениями?`,
+      message: 'Система свяжет только те строки, где совпадение однозначно, и не тронет остальные. '
+        + 'Любую связку можно снять в карточке отделения.',
+      confirmLabel: 'Связать',
+      busyLabel: 'Связывание…',
+      // Связка обратима — красная кнопка читалась бы как угроза.
+      tone: 'accent',
+    })) return
+    setBusy(true); setError(null)
+    try {
+      setLinkRes(await linkSuggested(dsCode))
+      reload(); refreshReport(dsCode)
+    } catch (e) { fail(e) } finally { setBusy(false) }
   }
 
   async function link(officeId: string, rowLabel: string) {
@@ -106,8 +126,15 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
           </div>}
           {report && report.unmatched.length > 0 && (
             <div>
-              <div style={{ fontSize: 13, marginBottom: 6 }}>
-                ⚠ В отчёте есть отделения, которых нет на карте: <b>{report.unmatched.length}</b>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 13 }}>
+                  ⚠ В отчёте есть отделения, которых нет на карте: <b>{report.unmatched.length}</b>
+                </span>
+                {report.unmatched.some((u) => u.suggestion) && (
+                  <button style={btnGhost} disabled={busy} onClick={linkAll}>
+                    🔗 Связать все, где система уверена ({report.unmatched.filter((u) => u.suggestion).length})
+                  </button>
+                )}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
                 {report.unmatched.map((u) => (
@@ -155,6 +182,30 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
           <button style={btn} onClick={() => setEdit(null)}>＋ Отделение</button>
         </>}
       </div>
+
+      {linkRes && (
+        <div style={card}>
+          <b style={{ fontSize: 13 }}>Связывание по подсказкам</b>
+          <div style={{ fontSize: 13, marginTop: 4 }}>
+            Связано отделений: <b>{linkRes.linked}</b>
+            {linkRes.left_manual.length > 0 && <> · осталось вручную: {linkRes.left_manual.length}</>}
+          </div>
+          {linkRes.left_manual.length > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+              Подходящего отделения система не нашла — это расхождение в самих данных, решать вам:
+              <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                {linkRes.left_manual.map((r) => <li key={r}>{r}</li>)}
+              </ul>
+            </div>
+          )}
+          {linkRes.conflicts.length > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 4 }}>
+              Не связано (одно отделение на две строки): {linkRes.conflicts.map((c) => `${c.row_label} → ${c.office}`).join('; ')}
+            </div>
+          )}
+          <button style={{ ...linkBtn, marginTop: 6 }} onClick={() => setLinkRes(null)}>скрыть</button>
+        </div>
+      )}
 
       {imp && (
         <div style={card}>
