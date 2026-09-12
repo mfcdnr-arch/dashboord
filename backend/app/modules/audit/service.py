@@ -25,6 +25,7 @@ ENTITY_LABELS = {
     "dataset_release": "Выпуск данных",
     "history": "История (очистка журналов)",
     "announcement": "Объявление",
+    "mfc_office": "Отделение МФЦ",
 }
 # Все значения enum audit_action (порядок — для фасета фильтра).
 ACTIONS = ["create", "update", "delete", "publish", "grant_access", "revoke_access", "view",

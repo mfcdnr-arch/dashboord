@@ -27,7 +27,7 @@ SYSTEM_DEFAULTS = {
     "ram_warn": 80.0, "ram_crit": 92.0,
     "disk_warn": 80.0, "disk_crit": 92.0,
 }
-ORG_KEYS = ("stale_days", "retention_months", "appeal_response_hours")
+ORG_KEYS = ("stale_days", "retention_months", "appeal_response_hours", "map_dataset_code")
 ORG_DEFAULTS = {
     "stale_days": env_settings.stale_days,
     "retention_months": env_settings.retention_months,
@@ -36,6 +36,10 @@ ORG_DEFAULTS = {
     # просто лежит в очереди, и понять, что оно там залежалось, можно только
     # вручную сверив даты. Сутки — рабочее умолчание, меняется в «Настройках».
     "appeal_response_hours": 24,
+    # Набор данных, по которому раздел «Карта» сверяет отделения: не появилось
+    # ли в отчёте отделение, которого нет в справочнике. Пусто — сверка не
+    # ведётся (на новой установке отчётов ещё нет).
+    "map_dataset_code": "",
 }
 
 _PAIRS = (("cpu_warn", "cpu_crit"), ("ram_warn", "ram_crit"), ("disk_warn", "disk_crit"))

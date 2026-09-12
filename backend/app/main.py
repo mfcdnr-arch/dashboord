@@ -25,6 +25,7 @@ from .modules.home.router import router as home_router
 from .modules.ingestion import queue as ingestion_queue
 from .modules.ingestion.router import router as ingestion_router
 from .modules.maintenance.router import router as maintenance_router
+from .modules.map.router import router as map_router
 from .modules.metrics.router import router as metrics_router
 from .modules.moderation.router import router as moderation_router
 from .modules.notifications.router import router as notifications_router
@@ -111,6 +112,7 @@ app.include_router(documents_router)
 app.include_router(uploads_router)
 app.include_router(ingestion_router)
 app.include_router(metrics_router)
+app.include_router(map_router)
 app.include_router(dashboards_router)
 app.include_router(moderation_router)
 app.include_router(home_router)

@@ -83,6 +83,8 @@ export default defineConfig({
       '/search': 'http://localhost:8080',
       '/dnr-stats': 'http://localhost:8080',
       '/quick-links': 'http://localhost:8080',
+      // Раздел «Карта»: справочник отделений + контур республики.
+      '/map': 'http://localhost:8080',
     },
   },
 })

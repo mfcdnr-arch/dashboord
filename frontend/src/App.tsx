@@ -16,6 +16,7 @@ import ReportsPage from './components/ReportsPage'
 import AuditPage from './components/AuditPage'
 import ModerationPage from './components/ModerationPage'
 import CatalogPage from './components/CatalogPage'
+import MapPage from './components/map/MapPage'
 import SettingsPage from './components/SettingsPage'
 import ProfilePage from './components/ProfilePage'
 import ShowcasesPage from './components/ShowcasesPage'
@@ -84,7 +85,7 @@ export default function App() {
 // Разделы, которым узкая колонка (900px) мала: плотная сетка виджетов либо
 // широкая таблица. У «Загрузки» журнал импорта из шести колонок — в 900px он
 // обрезался на 213px, и колонки «Состояние» и «Загрузил» не было видно вовсе.
-const WIDE_SECTIONS = new Set(['dashboards', 'showcases', 'archive', 'objects', 'dnrstats', 'uploads'])
+const WIDE_SECTIONS = new Set(['dashboards', 'showcases', 'archive', 'objects', 'dnrstats', 'uploads', 'map'])
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (
@@ -121,6 +122,10 @@ const NAV = [
   // «Обзор» наверху этого раздела нужен и руководству, поэтому видимость —
   // как у «Руководителю» (staff всегда, остальным — по той же галочке).
   { key: 'dnrstats', label: 'Статистика услуг', ready: true, dnrStatsGate: true },
+  // Карта отделений. Справочник внутри полезен и без карты — это ответ на
+  // «где ближайшее отделение, когда работает и куда звонить», поэтому раздел
+  // виден всем; правка сведений — у администратора.
+  { key: 'map', label: 'Карта', ready: true },
   { key: 'archive', label: 'Архив', ready: true, archiveGate: true },
   { key: 'moderation', label: 'Модерация', ready: true, modOnly: true },
   { key: 'appeals', label: 'Обращения', ready: true, modOnly: true },
@@ -394,6 +399,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <ShowcasesPage canManage={canManage} onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }} />
           ) : section === 'dnrstats' ? (
             <DnrStatsPage />
+          ) : section === 'map' ? (
+            <MapPage me={me} />
           ) : section === 'users' ? (
             <UsersPage me={me} />
           ) : section === 'reports' ? (
