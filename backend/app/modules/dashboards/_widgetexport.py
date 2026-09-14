@@ -304,10 +304,25 @@ def _dump_widget(wb, summary, sheet_name, wid: str, t: str, name: str, data: dic
     return wrote_summary
 
 
-async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
+async def export_page_xlsx(conn, org_id, user: dict, page_id: str,
+                           from_date=None, to_date=None, row=None, level_path=None) -> bytes:
     """Экспорт данных всех виджетов страницы в .xlsx (openpyxl).
+
     KPI/план-факт — на лист «Сводка», датасетные виджеты — по листу на виджет.
-    Аннотации (text/image) пропускаются. RLS: проверяется доступ к дашборду."""
+    Аннотации (text/image) пропускаются.
+
+    Данные считаются С ТЕМИ ЖЕ фильтрами, что стоят на странице (период,
+    строка, ветка лестницы) — правило «файл не может расходиться с тем, что
+    человек видел на экране». До 14.09 фильтры сюда не доходили вовсе: человек
+    отфильтровывал страницу на одно отделение за июль, выгружал Excel и получал
+    цифры по всей республике за последний отчёт, без единой оговорки в файле.
+
+    RLS: доступ к дашборду и whitelist виджетов проверяются здесь, а `user`
+    передаётся дальше в расчёт — от него зависят ПОСТРОЧНЫЕ права
+    (`allowed_rows_for_dataset`). Без `user` набор разрешённых строк не
+    вычисляется вовсе, и выгрузка отдавала бы все строки формы тому, кому
+    разрешена одна: `skip_acl` пропускает только ПОВТОРНУЮ проверку дашборда.
+    """
     import io
 
     from openpyxl import Workbook
@@ -358,7 +373,8 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
         if t in ("text", "image"):
             continue
         try:
-            data = await compute_widget_data(conn, org_id, wid, skip_acl=True)
+            data = await compute_widget_data(conn, org_id, wid, from_date, to_date, row,
+                                             user=user, skip_acl=True, level_path=level_path)
         except DashboardError:
             continue
         if _dump_widget(wb, summary, sheet_name, wid, t, name, data):
@@ -372,6 +388,17 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str) -> bytes:
     # сокращении. Ставим первым листом, чтобы файл открывался на нём.
     if made:
         toc = wb.create_sheet("Содержание", 0)
+        if from_date or to_date or row or level_path:
+            # Шапка с фильтрами идёт ПЕРЕД перечнем листов: человек, открывший
+            # файл, должен увидеть оговорку раньше цифр, а не после них.
+            toc.append(["Фильтры, действовавшие при выгрузке", ""])
+            if from_date or to_date:
+                toc.append(["Период", f"{_ru_date(from_date) or '…'} — {_ru_date(to_date) or '…'}"])
+            if row:
+                toc.append(["Строка", row])
+            if level_path:
+                toc.append(["Ветка", " → ".join(level_path)])
+            toc.append(["", ""])
         toc.append(["Лист", "Виджет"])
         for title, full in made:
             toc.append([title, full])

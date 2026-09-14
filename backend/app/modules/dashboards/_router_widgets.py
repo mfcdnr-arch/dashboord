@@ -105,10 +105,18 @@ async def export_widget_xlsx(widget_id: str, user: dict = Depends(get_current_us
 
 
 @router.get("/dashboard-pages/{page_id}/export.xlsx")
-async def export_page_xlsx(page_id: str, user: dict = Depends(get_current_user)):
+async def export_page_xlsx(page_id: str, user: dict = Depends(get_current_user),
+                           from_: Optional[str] = Query(None, alias="from"),
+                           to: Optional[str] = Query(None),
+                           row: Optional[str] = Query(None),
+                           level: Optional[List[str]] = Query(None)):
+    """Выгрузка страницы. Набор параметров ТОТ ЖЕ, что у `/data`: файл обязан
+    совпадать с тем, что человек видел на экране, — иначе отфильтрованную
+    страницу выгружают и получают цифры по всей форме за другой период."""
     async with db.acquire(user["id"]) as conn:
         try:
-            data = await service.export_page_xlsx(conn, user["organization_id"], user, page_id)
+            data = await service.export_page_xlsx(conn, user["organization_id"], user, page_id,
+                                                  from_, to, row, level)
         except DashboardError as e:
             raise _bad(e)
         # Для отчёта активности пользователя (волна B) — кто что выгружал.

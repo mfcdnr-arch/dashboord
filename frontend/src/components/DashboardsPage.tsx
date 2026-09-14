@@ -974,7 +974,7 @@ export default function DashboardsPage({
     if (!sel || !page) return
     setExporting(true)
     try {
-      const blob = await exportPageXlsx(page.id)
+      const blob = await exportPageXlsx(page.id, pFrom || undefined, pTo || undefined, crossRow || undefined, levelPath)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url; a.download = `${sel.dashboard.name} — ${page.name}.xlsx`; a.click()

@@ -481,8 +481,18 @@ export async function previewWidget(body: { widget_type: string; name?: string; 
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
-export async function exportPageXlsx(pageId: string): Promise<Blob> {
-  const res = await fetch(`/dashboard-pages/${pageId}/export.xlsx`, { headers: authH() })
+// Выгрузка страницы. Параметры ТЕ ЖЕ, что у getPageData: файл обязан совпадать
+// с тем, что человек видел на экране, иначе отфильтрованную страницу выгружают
+// и получают цифры по всей форме за другой период.
+export async function exportPageXlsx(pageId: string, from?: string, to?: string, row?: string,
+                                     levelPath?: string[]): Promise<Blob> {
+  const p = new URLSearchParams()
+  if (from) p.set('from', from)
+  if (to) p.set('to', to)
+  if (row) p.set('row', row)
+  for (const seg of levelPath || []) p.append('level', seg)
+  const qs = p.toString()
+  const res = await fetch(`/dashboard-pages/${pageId}/export.xlsx${qs ? '?' + qs : ''}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.blob()
 }
