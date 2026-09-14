@@ -276,7 +276,7 @@ async def confirm_levels(object_id: str, body: LevelsIn, user: dict = Depends(ma
 
 
 @router.get("/{object_id}/folders")
-async def list_folders(object_id: str, user: dict = Depends(get_current_user)):
+async def list_folders(object_id: str, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         obj = await conn.fetchval(
             "select 1 from objects where id=$1::uuid and organization_id=$2",

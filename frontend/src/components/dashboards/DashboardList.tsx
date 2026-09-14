@@ -17,7 +17,6 @@ const ruDate = (iso?: string | null): string =>
 
 /** С какого числа отчётов зрителю имеет смысл показывать фильтр по папкам:
  *  при двух-трёх он лишний ряд управления над списком. */
-const FOLDER_FILTER_FROM = 8
 
 export function DashboardList({
   canManage, objects, templates,
@@ -141,7 +140,7 @@ export function DashboardList({
         {/* Фильтр по папкам зрителю показываем, только когда отчётов
             действительно много: при двух-трёх он лишний ряд управления над
             списком, в котором и так всё видно. */}
-        {objects.length > 0 && (canManage || dashTotal > FOLDER_FILTER_FROM) && (
+        {canManage && objects.length > 0 && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>📁 Папка:</span>
             <select style={{ ...input, height: 32 }} value={filterObjId}

@@ -12,12 +12,12 @@ import json
 from datetime import date
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ... import db
 from ..audit import service as audit_svc
-from ..auth.deps import get_current_user, require_roles
+from ..auth.deps import require_roles
 from . import analyze, impact, mapping, queue, service
 
 router = APIRouter(tags=["ingestion"])
@@ -153,7 +153,7 @@ async def _job_payload(conn, job_id: str) -> dict:
 
 
 @router.get("/extraction-jobs/{job_id}")
-async def get_job(job_id: str, user: dict = Depends(get_current_user)):
+async def get_job(job_id: str, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         owns = await conn.fetchval(
             "select 1 from extraction_jobs ej "
@@ -168,7 +168,7 @@ async def get_job(job_id: str, user: dict = Depends(get_current_user)):
 
 
 @router.get("/document-versions/{version_id}/extraction")
-async def get_latest_for_version(version_id: str, user: dict = Depends(get_current_user)):
+async def get_latest_for_version(version_id: str, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         if not await _version_in_org(conn, version_id, user["organization_id"]):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Версия документа не найдена")
@@ -406,7 +406,7 @@ async def create_release(job_id: str, body: ReleaseIn, user: dict = Depends(mana
 
 
 @router.get("/objects/{object_id}/canonical-fields")
-async def list_canonical_fields(object_id: str, user: dict = Depends(get_current_user)):
+async def list_canonical_fields(object_id: str, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         if not await _object_in_org(conn, object_id, user["organization_id"]):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
@@ -479,7 +479,7 @@ async def create_releases_by_sheet(job_id: str, body: ReleaseBySheetIn,
 
 
 @router.get("/objects/{object_id}/dataset-releases")
-async def list_releases(object_id: str, user: dict = Depends(get_current_user)):
+async def list_releases(object_id: str, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         if not await _object_in_org(conn, object_id, user["organization_id"]):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
@@ -494,7 +494,9 @@ async def list_releases(object_id: str, user: dict = Depends(get_current_user)):
 
 
 @router.get("/dataset-releases/{release_id}")
-async def get_release(release_id: str, limit: int = 200, user: dict = Depends(get_current_user)):
+async def get_release(release_id: str,
+                      limit: int = Query(200, ge=1, le=5000),
+                      user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         rel = await conn.fetchrow(
             "select id, code, name, status, object_id, reporting_period_start, reporting_period_end, "
@@ -641,7 +643,7 @@ async def delete_release(release_id: str, user: dict = Depends(require_roles("su
 
 
 @router.get("/document-versions/{version_id}/dataset-releases")
-async def list_version_releases(version_id: str, user: dict = Depends(get_current_user)):
+async def list_version_releases(version_id: str, user: dict = Depends(manage)):
     """Выпуски, сделанные из этой версии документа — чтобы человек видел их
     там же, где смотрит сам файл, и мог снять ошибочный с использования."""
     async with db.get_pool().acquire() as conn:

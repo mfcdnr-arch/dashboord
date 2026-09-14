@@ -93,7 +93,7 @@ async def add_metric(body: MetricIn, user: dict = Depends(manage)):
 
 
 @router.get("")
-async def list_metrics(user: dict = Depends(get_current_user), q: Optional[str] = None,
+async def list_metrics(user: dict = Depends(manage), q: Optional[str] = None,
                        limit: int = Query(50, ge=1, le=500), offset: int = Query(0, ge=0)):
     """Постранично: {total, limit, offset, items}. q — поиск по коду/названию (ilike).
     Пикеры (напр. выбор KPI на «Главной») запрашивают большой limit и читают items."""
@@ -201,7 +201,7 @@ async def metrics_bulk_status(body: BulkStatusIn, user: dict = Depends(manage)):
 
 
 @router.get("/values")
-async def metric_values(user: dict = Depends(get_current_user)):
+async def metric_values(user: dict = Depends(manage)):
     """Что показатели считают прямо сейчас — по лучшей версии формулы.
 
     Отдельным запросом, а не внутри списка: расчёт формул стоит заметно дороже

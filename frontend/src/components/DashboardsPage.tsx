@@ -358,14 +358,17 @@ export default function DashboardsPage({
   useEffect(() => { const t = setTimeout(() => loadDashboards(query, favOnly), 250); return () => clearTimeout(t) }, [query, favOnly, dashFrom, dashTo, folderFilter, docFilter]) // eslint-disable-line react-hooks/exhaustive-deps
   // Папки фильтра зависят от выбранного объекта.
   useEffect(() => {
-    if (!filterObjId) { setFilterFolders([]); return }
+    // Папки и файлы — экраны конвейера, закрытые зависимостью manage: у зрителя
+    // фильтра «Папка» нет вовсе (DashboardList), поэтому и запроса быть не должно —
+    // иначе это лишний 403 в логах при каждом открытии раздела.
+    if (!canManage || !filterObjId) { setFilterFolders([]); return }
     listFolders(filterObjId).then(setFilterFolders).catch(() => setFilterFolders([]))
   }, [filterObjId])
   // Файлы выбранной папки — третий уровень фильтра. Сбрасываем выбранный
   // отчёт при смене папки: иначе список фильтровался бы по файлу из другой.
   useEffect(() => {
     setDocFilter('')
-    if (!folderFilter || folderFilter === 'none') { setFilterDocs([]); return }
+    if (!canManage || !folderFilter || folderFilter === 'none') { setFilterDocs([]); return }
     listDocuments(folderFilter, 100, 0).then((r) => setFilterDocs(r.items)).catch(() => setFilterDocs([]))
   }, [folderFilter])
   useEffect(() => {
