@@ -116,6 +116,16 @@ services:
       # Число процессов uvicorn (см. backend/Dockerfile). 2 — по умолчанию;
       # на машине с 8+ ГБ ОЗУ и 4+ ядрами разумно 4.
       API_WORKERS: ${API_WORKERS:-2}
+      # Парольная политика. Единственная настройка из .env, у которой НЕТ
+      # экрана: остальные пороги (ретенция, свежесть, блокировка входа)
+      # редактируются в «Настройках» и хранятся в БД, поэтому из .env их
+      # убрали — там значение из БД всё равно победило бы, и переменная
+      # молча ничего не делала бы. Здесь же config.py — единственный
+      # источник, поэтому переменную надо пробросить, иначе правка
+      # .env.prod не даёт ничего (дефект, найденный аудитом 14.09).
+      PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-8}
+      PASSWORD_REQUIRE_COMPLEXITY: ${PASSWORD_REQUIRE_COMPLEXITY:-true}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-720}
     depends_on:
       migrate:
         condition: service_completed_successfully

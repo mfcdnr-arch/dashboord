@@ -165,6 +165,13 @@ services:
       - ./backend/pytest.ini:/app/pytest.ini:ro
       - ./backend/pyproject.toml:/app/pyproject.toml:ro
       - ./frontend:/frontend:ro
+      # Файлы поставки — их проверяет test_env_template_honest: шаблон .env
+      # не должен обещать переменных, которые не доезжают до контейнера
+      # (из-за такого обещания «RETENTION_MONTHS=0» не выключал удаление данных).
+      - ./.env.prod.example:/deploy/.env.prod.example:ro
+      - ./docker-compose.prod.yml:/deploy/docker-compose.prod.yml:ro
+      - ./docker-compose.tls.yml:/deploy/docker-compose.tls.yml:ro
+      - ./docker-compose.monitoring.yml:/deploy/docker-compose.monitoring.yml:ro
     depends_on: *backend_deps
     command: python -m pytest -q
 
