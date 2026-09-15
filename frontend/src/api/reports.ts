@@ -25,8 +25,12 @@ export interface SystemReport {
   // detail/state/queued приходят у фонового воркера: сам чип отвечает «жив ли»,
   // а очередь и пояснение — «что именно не так», без них красный кружок
   // не говорит, чинить воркер или Redis.
+  // autorestart — итог хостового сторожа (worker-guard.sh): перезапускал ли он
+  // воркер и чем это кончилось. Приходит и когда воркер так и не поднялся —
+  // это единственный канал, работающий без живого воркера.
   services: { name: string; ok: boolean; latency_ms?: number; state?: string; detail?: string;
-              queued?: number; failed?: number; ongoing?: number }[]
+              queued?: number; failed?: number; ongoing?: number;
+              autorestart?: { ts: string; state: string; ok: boolean; message: string } }[]
 }
 export interface AttendanceReport {
   period?: PeriodInfo

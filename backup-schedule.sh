@@ -65,13 +65,18 @@ cron_line() {
   echo "$MM $HH * * * cd $REPO && BACKUP_KEEP=$KEEP BACKUP_DIR=$BACKUP_DIR ./backup.sh >> $BACKUP_DIR/cron.log 2>&1"
 }
 
-# Наблюдатель триггера «Запустить сейчас» из UI (см. ops-trigger-watch.sh):
+# Наблюдатель: раз в минуту делает ДВЕ вещи (см. ops-trigger-watch.sh) —
+# сторожит фоновый воркер (worker-guard.sh поднимает его, если он перестал
+# отмечаться) и выполняет заявку «Запустить бэкап сейчас» из UI.
+# 🔴 Имя юнита оставлено прежним (dashbord-backup-watch) намеренно: на уже
+# развёрнутых серверах он установлен под этим именем, и переименование
+# оставило бы там два таймера, делающих одно и то же.
 # API кладёт файл на общий том, этот процесс проверяет его раз в минуту и
 # гонит обычный backup.sh — без docker.sock и прав root у контейнера API.
 watch_service_unit() {
   cat <<EOF
 [Unit]
-Description=Dashboard: наблюдатель триггера "Запустить бэкап сейчас" из UI
+Description=Dashboard: сторож фонового воркера + триггер "Запустить бэкап сейчас"
 After=docker.service
 Wants=docker.service
 

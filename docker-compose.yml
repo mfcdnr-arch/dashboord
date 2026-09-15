@@ -184,6 +184,11 @@ services:
       - ./docker-compose.prod.yml:/deploy/docker-compose.prod.yml:ro
       - ./docker-compose.tls.yml:/deploy/docker-compose.tls.yml:ro
       - ./docker-compose.monitoring.yml:/deploy/docker-compose.monitoring.yml:ro
+      # Хостовые скрипты — их проверяет test_worker_guard: перезапуск упавшего
+      # воркера живёт на хосте (у контейнера нет доступа к docker.sock), и
+      # проверять там нечего, кроме настоящего поведения самого скрипта.
+      - ./worker-guard.sh:/deploy/worker-guard.sh:ro
+      - ./ops-trigger-watch.sh:/deploy/ops-trigger-watch.sh:ro
     depends_on: *backend_deps
     command: python -m pytest -q
 

@@ -15,6 +15,7 @@ import time
 from datetime import date, timedelta
 from typing import Optional
 
+from ... import db
 from ...config import settings
 from ..audit import service as audit
 from ..documents import storage
@@ -108,6 +109,51 @@ async def notify_degraded(conn, org_id, heal_result: dict) -> None:
         conn, org_id, "system.degraded", "organization", str(org_id),
         {"actions": heal_result["actions"], "status_after": heal_result["status_after"]},
         recipients)
+
+
+async def notify_worker_restarts() -> int:
+    """Сообщить управляющим о перезапусках фонового воркера, о которых ещё не сообщали.
+
+    Перезапуск делает хостовой сторож `worker-guard.sh` — из контейнера его не
+    выполнить (доступа к docker.sock нет и не будет). Уведомление рассылает уже
+    сторожевой cron, потому что пока воркер мёртв, рассылать некому: сам он и
+    есть тот, кто шлёт уведомления.
+
+    🔴 Отбираем по `status_before='worker_down'`, а не по `triggered_by='auto'`:
+    авто-починку сторож пишет при каждом degraded, то есть каждые 10 минут, и
+    рассылка по «авто» заполнила бы колокольчик за час. `worker_down` в статусе
+    «до» ставит только хостовой сторож.
+
+    Возвращает число разосланных событий (0 — обычный случай).
+    """
+    async with db.get_pool().acquire() as conn:
+        rows = await conn.fetch(
+            "select id, status_after, healthy, actions, created_at from system_heal_log "
+            "where status_before = 'worker_down' and notified_at is null "
+            "order by created_at limit 20")
+        if not rows:
+            return 0
+        orgs = [r["id"] for r in await conn.fetch("select id from organizations")]
+        sent = 0
+        for r in rows:
+            actions = json.loads(r["actions"]) if isinstance(r["actions"], str) else r["actions"]
+            payload = {
+                "healthy": r["healthy"],
+                "status_after": r["status_after"],
+                "actions": actions,
+                "happened_at": r["created_at"].isoformat(),
+            }
+            for org_id in orgs:
+                recipients = await notif.management_user_ids(conn, org_id)
+                if not recipients:
+                    continue
+                await notif.notify(
+                    conn, org_id, "system.worker_restarted", "system", str(r["id"]),
+                    payload, recipients)
+            await conn.execute(
+                "update system_heal_log set notified_at = now() where id = $1", r["id"])
+            sent += 1
+        return sent
 
 
 async def check_freshness(conn, org_id, stale_days: int | None = None) -> dict:

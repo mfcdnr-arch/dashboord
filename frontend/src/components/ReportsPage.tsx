@@ -157,6 +157,27 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
                 ))}
               </span>
             </div>
+            {/* Итог хостового сторожа. Отдельной строкой, а не подсказкой у чипа:
+                «автоперезапуск приостановлен» — сообщение, ради которого экран и
+                открывают, и прятать его под наведение нельзя. */}
+            {(() => {
+              const ar = sys.services.find((x) => x.autorestart)?.autorestart
+              if (!ar) return null
+              const bad = !ar.ok
+              return (
+                <div style={{
+                  marginTop: 10, padding: '8px 12px', borderRadius: 10, fontSize: 13,
+                  border: '1px solid ' + (bad ? 'var(--danger)' : 'var(--border)'),
+                  background: bad ? 'var(--danger-bg)' : 'var(--surface-2)',
+                  color: bad ? 'var(--danger)' : 'var(--text-2)',
+                }}>
+                  {/* Заголовок различается: при беде само сообщение начинается со
+                      слова «Автоперезапуск», и общий заголовок дал бы повтор. */}
+                  <b>{bad ? '⚠ Фоновый воркер.' : '🤖 Автоперезапуск воркера.'}</b> {ar.message}
+                  <span style={{ color: 'var(--text-faint)' }}> · {fmtDt(ar.ts)}</span>
+                </div>
+              )
+            })()}
             {heal && (
               <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface-2)' }}>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Результат починки {heal.healthy ? '✓' : '⚠'}</div>
@@ -168,8 +189,8 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
               </div>
             )}
             <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 8 }}>
-              Автопочинка — уровень приложения (бакет MinIO, связь с Redis). Авто-рестарт упавших контейнеров выполняет Docker (restart: unless-stopped).
-              Сторожевой процесс сам проверяет статус каждые 10 мин и чинит при деградации — не только по кнопке.
+              Автопочинка — уровень приложения (бакет MinIO, связь с Redis). Сторожевой процесс сам проверяет статус каждые 10 мин и чинит при деградации — не только по кнопке.
+              Упавший контейнер Docker поднимает сам, но по «нездоров» (unhealthy) — нет: замерший фоновый воркер он оставил бы стоять. Поэтому воркер отдельно стережёт хостовой сторож — раз в минуту, не больше 3 перезапусков в час, каждый попадает в историю починок.
             </div>
             {healHist && healHist.length > 0 && (
               <div style={{ marginTop: 14 }}>
@@ -183,6 +204,14 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
                       </span>
                       <span>{h.status_before} → {h.status_after}</span>
                       <span style={{ color: h.healthy ? 'var(--success)' : 'var(--danger)' }}>{h.healthy ? '✓ починено' : '⚠ остались проблемы'}</span>
+                      {/* Что именно чинили: без этого строка сообщает об итоге,
+                          умалчивая о действии, — а разбирают как раз действие. */}
+                      {!!h.actions?.length && (
+                        <span style={{ color: 'var(--text-faint)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                              title={h.actions.map((a) => `${a.name}: ${a.result}`).join('\n')}>
+                          {h.actions.map((a) => a.name).join(', ')}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>

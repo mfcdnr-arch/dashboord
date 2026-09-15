@@ -150,6 +150,16 @@ async def system_health(conn) -> dict:
     for k in ("queued", "failed", "ongoing"):
         if w.get(k) is not None:
             wsvc[k] = w[k]
+    # Итог хостового сторожа: перезапускал ли он воркер и чем это кончилось.
+    # Стоит здесь, а не отдельным блоком, потому что отвечает на тот же вопрос,
+    # что и строка воркера, — и читается вместе с ней.
+    try:
+        from ..maintenance import backup_service as _bs
+        guard = _bs.worker_guard_status()
+        if guard:
+            wsvc["autorestart"] = guard
+    except Exception:
+        pass
     services.append(wsvc)
 
     # Общий статус: degraded, если любой сервис недоступен или ресурс в danger.

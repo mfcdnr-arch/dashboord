@@ -31,6 +31,11 @@ function message(n: NotificationItem): string {
   if (n.event_type === 'data.retention') return `Ретенция: удалено релизов — ${p.deleted_releases} (окно ${p.window_months} мес.).`
   if (n.event_type === 'widget.created.no_explicit_access') return `Новый виджет без явных прав: ${p.widget_name ?? ''}`
   if (n.event_type === 'system.degraded') return `Автопочинка не устранила все проблемы (статус: ${p.status_after ?? 'degraded'}). Посмотрите раздел «Отчёты» → «Здоровье системы».`
+  // Воркер перезапущен хостовым сторожем. Сообщаем ОБЯЗАТЕЛЬНО, в том числе об
+  // удачном перезапуске: молчание скрыло бы, что воркер падает регулярно.
+  if (n.event_type === 'system.worker_restarted') return p.healthy
+    ? 'Фоновый воркер не отмечался и был перезапущен автоматически — конвейер данных снова работает. Если это повторяется, стоит разобраться с причиной: «Отчёты» → «Здоровье системы».'
+    : 'Фоновый воркер перезапущен автоматически, но так и не отметился: загрузка файлов, выпуск данных и уведомления остановлены. Нужен разбор причины — «Отчёты» → «Здоровье системы».'
   if (n.event_type === 'appeal.created' || n.event_type === 'appeal.message') return `${p.author ?? ''}: ${p.snippet ?? ''}`
   if (n.event_type === 'appeal.replied') return `${p.author ?? 'Администратор'} ответил на ваше обращение: ${p.snippet ?? ''}`
   if (n.event_type === 'data.auto_released') {
@@ -70,6 +75,7 @@ function targetOf(n: NotificationItem, staff: boolean): NotifyTarget | null {
   }
   if (n.event_type === 'data.retention') return { section: 'settings' }
   if (n.event_type === 'system.degraded') return { section: 'reports' }
+  if (n.event_type === 'system.worker_restarted') return { section: 'reports' }
   return null
 }
 
