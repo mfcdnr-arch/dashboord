@@ -14,6 +14,7 @@ import { plural } from '../lib/text'
 import EChart from './EChart'
 import { chartColors, useThemeVersion } from '../theme'
 
+import { RowPickCell, RowToggleCell } from './TableParts'
 function ruDate(iso: string | null | undefined): string {
   return iso ? iso.split('-').reverse().join('.') : '—'
 }
@@ -540,7 +541,10 @@ function OfficeRowView({ o, isOpen, onToggle, onOpenDept }: {
   return (
     <>
       <tr onClick={onToggle} style={{ cursor: 'pointer' }} title="Показать ведомства и услуги этого отделения">
-        <td style={{ ...td, color: 'var(--accent)' }}>{isOpen ? '▾ ' : '▸ '}{o.office}</td>
+        <RowToggleCell
+          onToggle={onToggle} expanded={isOpen} style={td}
+          title="Показать ведомства и услуги этого отделения"
+        >{isOpen ? '▾ ' : '▸ '}{o.office}</RowToggleCell>
         <td style={td}>{o.city}</td>
         <td style={{ ...td, textAlign: 'right' }}>{fmt(o.prinyato_prev)}</td>
         <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmt(o.prinyato_now)}</td>
@@ -769,7 +773,10 @@ function DeptDashboard({ office, dept, onBack, onOpenService }: {
               return (
                 <tr key={i} style={{ cursor: 'pointer', ...(inactive ? { color: 'var(--text-faint)' } : {}) }}
                   onClick={() => onOpenService(i + 1)} title="Открыть дашборд этой услуги">
-                  <td style={{ ...tdSmall, color: 'var(--accent)' }}>{s.name}</td>
+                  <RowPickCell
+                    label={s.name} onPick={() => onOpenService(i + 1)} style={tdSmall}
+                    title="Открыть дашборд этой услуги"
+                  />
                   <td style={tdSmall}>{s.prioritet ?? '—'}</td>
                   <td style={{ ...tdSmall, color: inactive ? 'var(--danger)' : undefined }}>{s.okazyvaetsya ?? '—'}</td>
                   <td style={{ ...tdSmall, textAlign: 'right' }}>{fmt(s.prinyato_prev)}</td>

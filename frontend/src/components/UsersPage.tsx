@@ -11,6 +11,7 @@ import {
 } from '../api'
 import { Modal, ModalTitle } from './Modal'
 
+import { RowToggleCell } from './TableParts'
 function fmtDt(iso: string | null): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -326,7 +327,11 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
                         title="Показать журнал только по этому пользователю"
                         style={{ opacity: s.is_active ? 1 : 0.55, cursor: 'pointer',
                           background: s.user_id === logUser ? 'var(--accent-weak-bg)' : undefined }}>
-                        <td style={{ ...td, fontWeight: 600 }}>{s.login}</td>
+                        <RowToggleCell
+                          onToggle={() => setLogUser(s.user_id === logUser ? '' : s.user_id)}
+                          pressed={s.user_id === logUser} style={td}
+                          title="Показать журнал только по этому пользователю"
+                        >{s.login}</RowToggleCell>
                         <td style={td}>{s.logins}</td>
                         <td style={{ ...td, color: s.failed ? 'var(--danger)' : undefined }}>{s.failed}</td>
                         <td style={td}>{fmtDt(s.last_login)}</td>

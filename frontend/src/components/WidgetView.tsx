@@ -17,6 +17,7 @@ import { fmtNumber as fmt, heatSteps, logScaleAdvice, sparkSeries } from '../lib
 import { distinctLabels, dropCommonWords, elideMiddle, fitRotatedAxis, plural, textWidth } from '../lib/text'
 import { Modal, ModalTitle } from './Modal'
 
+import { RowPickCell, SORT_HINT, SortableTh } from './TableParts'
 // Отрисовка данных виджета: KPI/таблица/план-факт — HTML, столбцы/линия/круговая —
 // ECharts. По кнопке «подробнее» — drill (прозрачность): формула метрики + первичные строки.
 
@@ -731,14 +732,10 @@ function sortRows<T extends Record<string, unknown>>(rows: T[], sort: SortState,
 function toggleSort(setSort: (f: (s: SortState) => SortState) => void, col: string) {
   setSort((s) => (s && s.col === col ? (s.dir === 1 ? { col, dir: -1 } : null) : { col, dir: 1 }))
 }
-function sortArrow(sort: SortState, col: string): string {
-  return sort?.col === col ? (sort.dir === 1 ? ' ▲' : ' ▼') : ''
-}
 const searchInput: React.CSSProperties = {
   height: 30, padding: '0 10px', borderRadius: 6, border: '1px solid var(--border)',
   background: 'var(--surface)', color: 'var(--text)', fontSize: 12, width: 220, marginBottom: 8,
 }
-const sortableTh: React.CSSProperties = { cursor: 'pointer', userSelect: 'none' }
 // Первый столбец (названия строк) не уезжает при горизонтальной прокрутке —
 // иначе после сдвига непонятно, к какой строке относится число.
 const stickyCol: React.CSSProperties = {
@@ -750,7 +747,6 @@ const stickyCol: React.CSSProperties = {
 const stickyHead: React.CSSProperties = { zIndex: 3, background: 'var(--surface-2)' }
 // Значок ▲/▼ у заголовка ничего не объясняет сам по себе — подсказка при наведении
 // говорит, что это сортировка и что делает повторный клик.
-const SORT_HINT = 'Сортировать по этому столбцу: ▲ по возрастанию, ▼ по убыванию, третий клик — сброс'
 
 /** Прогноз даты достижения плана (plan_fact). Всегда честен: вместо
  *  выдуманной даты говорит, почему её нет. */
@@ -1476,15 +1472,19 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
           <thead><tr>
             {/* Названия строк закреплены слева: при прокрутке вправо уезжали и
                 они, и было не понять, к какой строке относятся числа. */}
-            <th style={{ ...th, ...sortableTh, ...stickyCol, ...stickyHead, ...(virtOn ? { width: VCOL_FIRST_W } : {}) }} title={SORT_HINT} onClick={() => toggleSort(setTableSort, '__row')}>Строка{sortArrow(tableSort, '__row')}</th>
+            <SortableTh
+              sort={tableSort} col="__row" onSort={(c) => toggleSort(setTableSort, c)}
+              style={{ ...th, ...stickyCol, ...stickyHead, ...(virtOn ? { width: VCOL_FIRST_W } : {}) }}
+            >Строка</SortableTh>
             {virtOn && vcols.range.padBefore > 0 && <th style={{ ...th, width: vcols.range.padBefore, padding: 0 }} aria-hidden />}
             {/* Заголовок — человеческое имя показателя; код остаётся ключом
                 данных и подсказкой, чтобы можно было сверить с формулой. */}
             {cols.slice(vcols.range.start, vcols.range.end).map((c: string) => (
-              <th key={c} style={{ ...th, ...sortableTh, ...(virtOn ? { width: VCOL_W } : {}) }} title={`${SORT_HINT}\nКод столбца: ${c}`}
-                onClick={() => toggleSort(setTableSort, c)}>
-                {(data.column_titles?.[c] as string) || c}{sortArrow(tableSort, c)}
-              </th>
+              <SortableTh
+                key={c} sort={tableSort} col={c} onSort={(x) => toggleSort(setTableSort, x)}
+                style={{ ...th, ...(virtOn ? { width: VCOL_W } : {}) }}
+                title={`${SORT_HINT}\nКод столбца: ${c}`}
+              >{(data.column_titles?.[c] as string) || c}</SortableTh>
             ))}
             {virtOn && vcols.range.padAfter > 0 && <th style={{ ...th, width: vcols.range.padAfter, padding: 0 }} aria-hidden />}
           </tr></thead>
@@ -1498,8 +1498,10 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
               <tr key={i} onClick={onPick && !print ? () => onPick(String(r.row)) : undefined}
                 style={onPick && !print ? { cursor: 'pointer' } : undefined}
                 title={onPick && !print ? `Показать всю страницу по строке «${r.row}»` : undefined}>
-                <td style={{ ...td, fontWeight: 600, ...stickyCol,
-                  ...(onPick && !print ? { color: 'var(--accent)' } : {}) }}>{r.row}</td>
+                <RowPickCell
+                  label={String(r.row)} onPick={onPick && !print ? onPick : undefined}
+                  style={{ ...td, ...stickyCol }}
+                />
                 {virtOn && vcols.range.padBefore > 0 && <td style={{ padding: 0 }} aria-hidden />}
                 {cols.slice(vcols.range.start, vcols.range.end).map((c: string) => (
                   <td key={c} style={{ ...td, ...cellStyle(r, c) }}
@@ -2086,17 +2088,23 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         <div style={{ overflowX: print ? 'visible' : 'auto', width: '100%', maxWidth: '100%' }}>
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
           <thead><tr>
-            <th style={{ ...th, ...sortableTh, ...stickyCol, ...stickyHead }} title={SORT_HINT}
-              onClick={() => toggleSort(setMatrixSort, '__row')}>{byFields ? 'Показатель' : 'Строка'}{sortArrow(matrixSort, '__row')}</th>
+            <SortableTh
+               sort={matrixSort} col="__row" onSort={(c) => toggleSort(setMatrixSort, c)}
+               style={{ ...th, ...stickyCol, ...stickyHead }}
+             >{byFields ? 'Показатель' : 'Строка'}</SortableTh>
             {periods.map((p, i) => (
-              <th key={p + i} style={{ ...th, ...sortableTh, textAlign: 'right' }} title={SORT_HINT}
-                onClick={() => toggleSort(setMatrixSort, String(i))}>{fmtPeriod(p)}{sortArrow(matrixSort, String(i))}</th>
+              <SortableTh
+                 key={p + i} sort={matrixSort} col={String(i)} onSort={(c) => toggleSort(setMatrixSort, c)}
+                 style={{ ...th, textAlign: 'right' }}
+               >{fmtPeriod(p)}</SortableTh>
             ))}
             {/* При одном отчёте «за период» дало бы ноль в каждой строке —
                 колонку не рисуем вовсе. */}
             {periods.length > 1 && (
-              <th style={{ ...th, ...sortableTh, textAlign: 'right', color: 'var(--accent)' }} title={SORT_HINT}
-                onClick={() => toggleSort(setMatrixSort, '__chg')}>За период{sortArrow(matrixSort, '__chg')}</th>
+              <SortableTh
+                 sort={matrixSort} col="__chg" onSort={(c) => toggleSort(setMatrixSort, c)}
+                 style={{ ...th, textAlign: 'right', color: 'var(--accent)' }}
+               >За период</SortableTh>
             )}
           </tr></thead>
           <tbody>
@@ -2104,11 +2112,10 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
               <tr key={i} onClick={pickRow && !print ? () => pickRow(String(r.row)) : undefined}
                 style={pickRow && !print ? { cursor: 'pointer' } : undefined}
                 title={pickRow && !print ? `Показать всю страницу по строке «${r.row}»` : undefined}>
-                <td style={{ ...td, fontWeight: 600, ...stickyCol,
-                  ...(pickRow && !print ? { color: 'var(--accent)' } : {}) }}
-                  title={`${r.row}${r.aggregate === 'avg' ? '\nДоля: строки формы усредняются, а не складываются' : ''}`}>
-                  {labelOf(r)}{r.aggregate === 'avg' ? ' ⌀' : ''}
-                </td>
+                <RowPickCell
+                  label={String(r.row)} onPick={pickRow && !print ? pickRow : undefined}
+                  style={{ ...td, ...stickyCol }}
+                >{labelOf(r)}{r.aggregate === 'avg' ? ' ⌀' : ''}</RowPickCell>
                 {periods.map((_p, ci) => {
                   const v = r.values[ci]
                   const d = r.deltas?.[ci]
@@ -2187,18 +2194,28 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         <div style={{ overflowX: print ? 'visible' : 'auto', width: '100%', maxWidth: '100%' }}>
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
           <thead><tr>
-            <th style={{ ...th, ...sortableTh, ...stickyCol, ...stickyHead }} title={SORT_HINT} onClick={() => toggleSort(setPivotSort, '__row')}>Строка{sortArrow(pivotSort, '__row')}</th>
+            <SortableTh
+              sort={pivotSort} col="__row" onSort={(c) => toggleSort(setPivotSort, c)}
+              style={{ ...th, ...stickyCol, ...stickyHead }}
+            >Строка</SortableTh>
             {cols.map((c, ci) => (
-              <th key={c} style={{ ...th, ...sortableTh }}
+              <SortableTh
+                key={c} sort={pivotSort} col={String(ci)} onSort={(x) => toggleSort(setPivotSort, x)}
+                style={{ ...th }}
                 title={totalCols.includes(ci) ? `${c} — свод: в «Итого» по строке не входит, иначе обращение считалось бы дважды`
                   : shareCols.includes(ci) ? `${c} — доля: в сумму не входит, её итог — среднее`
                   : SORT_HINT}
-                onClick={() => toggleSort(setPivotSort, String(ci))}>
+              >
                 {totalCols.includes(ci) && <span style={{ color: 'var(--muted)', marginRight: 4 }}>Σ</span>}
-                {c}{sortArrow(pivotSort, String(ci))}
-              </th>
+                {c}
+              </SortableTh>
             ))}
-            {rowTotal && <th style={{ ...th, ...sortableTh, color: 'var(--accent)' }} title={SORT_HINT} onClick={() => toggleSort(setPivotSort, '__total')}>Итого{sortArrow(pivotSort, '__total')}</th>}
+            {rowTotal && (
+              <SortableTh
+                sort={pivotSort} col="__total" onSort={(c) => toggleSort(setPivotSort, c)}
+                style={{ ...th, color: 'var(--accent)' }}
+              >Итого</SortableTh>
+            )}
           </tr></thead>
           <tbody>
             {rows.length === 0 && <tr><td style={td} colSpan={cols.length + (rowTotal ? 2 : 1)}>Ничего не найдено</td></tr>}
@@ -2207,8 +2224,10 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
               <tr key={i} onClick={onPick && !print ? () => onPick(String(r.row)) : undefined}
                 style={onPick && !print ? { cursor: 'pointer' } : undefined}
                 title={onPick && !print ? `Показать всю страницу по строке «${r.row}»` : undefined}>
-                <td style={{ ...td, fontWeight: 600, ...stickyCol,
-                  ...(onPick && !print ? { color: 'var(--accent)' } : {}) }}>{r.row}</td>
+                <RowPickCell
+                  label={String(r.row)} onPick={onPick && !print ? onPick : undefined}
+                  style={{ ...td, ...stickyCol }}
+                />
                 {cols.map((_, ci) => <td key={ci} style={{ ...td, textAlign: 'right' }}>{typeof r.values[ci] === 'number' ? fmt(r.values[ci]) : '—'}</td>)}
                 {rowTotal && <td style={{ ...totCell, textAlign: 'right' }}>{fmt(r.total)}</td>}
               </tr>
