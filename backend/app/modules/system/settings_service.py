@@ -19,6 +19,10 @@ from ...config import settings as env_settings
 SYSTEM_KEYS = (
     "login_max_attempts", "login_lockout_minutes",
     "cpu_warn", "cpu_crit", "ram_warn", "ram_crit", "disk_warn", "disk_crit",
+    # Сколько раз в час хостовой сторож вправе поднять молчащий воркер. Дальше
+    # он останавливается с названной причиной: бесконечная карусель прятала бы
+    # причину падения. Сколько попыток допустимо — решение эксплуатации.
+    "worker_restart_max_per_hour",
 )
 SYSTEM_DEFAULTS = {
     "login_max_attempts": env_settings.login_max_attempts,
@@ -26,6 +30,7 @@ SYSTEM_DEFAULTS = {
     "cpu_warn": 70.0, "cpu_crit": 90.0,
     "ram_warn": 80.0, "ram_crit": 92.0,
     "disk_warn": 80.0, "disk_crit": 92.0,
+    "worker_restart_max_per_hour": 3,
 }
 ORG_KEYS = ("stale_days", "retention_months", "appeal_response_hours", "map_dataset_code")
 ORG_DEFAULTS = {

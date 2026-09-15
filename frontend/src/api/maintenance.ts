@@ -61,6 +61,44 @@ export async function runBackupNow(): Promise<{ requested: boolean }> {
   return res.json()
 }
 
+// Сторож фонового воркера. Перезапуск делает ХОСТ (worker-guard.sh) — у API
+// нет доступа к docker.sock; отсюда доступно то, что должно быть под рукой у
+// человека: видеть, работает ли сторож вообще, приостановить его на время
+// обслуживания и сбросить счётчик попыток, когда причина устранена.
+export interface WorkerGuardState {
+  // never — сторож ни разу не отмечался (возможно, его таймер не установлен);
+  // stale — перестал отмечаться; ok — работает. Отсутствие отметки и «всё
+  // хорошо» — разные вещи, поэтому три состояния, а не два.
+  watcher: 'never' | 'stale' | 'ok'
+  watcher_seen_at: string | null
+  watcher_hint: string | null
+  paused: boolean
+  paused_by: string | null
+  attempts_last_hour: number
+  last_result?: { ts: string; state: string; ok: boolean; message: string } | null
+}
+
+export async function getWorkerGuard(): Promise<WorkerGuardState> {
+  const res = await fetch('/maintenance/worker-guard', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function pauseWorkerGuard(paused: boolean): Promise<WorkerGuardState> {
+  const res = await fetch('/maintenance/worker-guard/pause', {
+    method: 'POST', headers: { ...authH(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paused }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function resetWorkerGuard(): Promise<WorkerGuardState & { cleared: number }> {
+  const res = await fetch('/maintenance/worker-guard/reset', { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 // Ретенция (окно хранения данных). Удаление НЕОБРАТИМО, поэтому в UI сначала
 // предпросмотр: что именно уйдёт и какие дашборды останутся без данных.
 export interface RetentionItem {

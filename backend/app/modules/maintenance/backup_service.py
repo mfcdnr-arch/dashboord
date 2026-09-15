@@ -55,28 +55,6 @@ def get_status() -> dict:
     }
 
 
-WORKER_RESULT_FILE = TRIGGER_DIR / "worker.result"
-
-
-def worker_guard_status() -> dict | None:
-    """Итог работы хостового сторожа воркера (`worker-guard.sh`), если он срабатывал.
-
-    Отдельный канал помимо уведомлений нужен ровно для худшего случая: когда
-    воркер так и не поднялся, рассылать уведомление некому — их шлёт он сам.
-    Файл на общем томе от живости воркера не зависит.
-
-    None — сторож ещё не срабатывал; выдумывать «всё хорошо» нельзя, это разные
-    вещи. Битый файл (обрыв записи) тоже даёт None: экран здоровья важнее.
-    """
-    if not WORKER_RESULT_FILE.exists():
-        return None
-    try:
-        data = json.loads(WORKER_RESULT_FILE.read_text())
-    except (json.JSONDecodeError, OSError):
-        return None
-    return data if isinstance(data, dict) else None
-
-
 def is_pending() -> bool:
     return TRIGGER_FILE.exists()
 

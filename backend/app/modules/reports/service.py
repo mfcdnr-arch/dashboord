@@ -154,10 +154,13 @@ async def system_health(conn) -> dict:
     # Стоит здесь, а не отдельным блоком, потому что отвечает на тот же вопрос,
     # что и строка воркера, — и читается вместе с ней.
     try:
-        from ..maintenance import backup_service as _bs
-        guard = _bs.worker_guard_status()
-        if guard:
-            wsvc["autorestart"] = guard
+        from ..maintenance import worker_guard_service as _wg
+        g = _wg.status()
+        if g.get("last_result"):
+            wsvc["autorestart"] = g["last_result"]
+        # Самонаблюдение сторожа: остановись его таймер, автоматика перестала бы
+        # работать молча — тот же дефект, против которого она и заведена.
+        wsvc["guard"] = {k: v for k, v in g.items() if k != "last_result"}
     except Exception:
         pass
     services.append(wsvc)

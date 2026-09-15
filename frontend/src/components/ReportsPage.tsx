@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import {
   exportReport, getArchiveRunStatus, getAttendanceReport, getBackupStatus, getBusinessReport, getDashboardViewers, getDataQualityReport, getHealHistory, getHistoryStats, getLogs, getModerationReport, getPopularityReport, getSystemReport, healSystem, purgeHistory, runArchiveNow, runBackupNow,
   type ArchiveRunStatus, type AttendanceReport, type BackupStatus, type BusinessReport, type DashboardViewers, type DataQualityReport, type Gauge, type HealHistoryEntry, type HealResult, type HistoryStats, type LogsResult, type ModerationReport, type PopularityReport, type ReportKind, type SystemReport,
+  pauseWorkerGuard, resetWorkerGuard,
 } from '../api'
 import { useConfirm } from './dashboards/ConfirmDialog'
 import EChart from './EChartLazy'
 import { plural } from '../lib/text'
+import { timeAgo } from '../lib/time'
 import UserCard from './users/UserCard'
 import AttendanceChart from './reports/AttendanceChart'
 import { fmtNumber as num } from '../lib/format'
@@ -92,6 +94,19 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
     try { setLogs(await getLogs(logsService, logsMinutes, 200, logsQuery || undefined)) }
     catch (e) { setError((e as Error).message) } finally { setLogsLoading(false) }
   }
+  // Управление сторожем воркера. Перезапуск делает хост, но пауза на время
+  // обслуживания и сброс счётчика должны быть под рукой, а не в консоли по ssh.
+  const [guardBusy, setGuardBusy] = useState(false)
+  async function doGuardPause(paused: boolean) {
+    setGuardBusy(true); setError(null)
+    try { await pauseWorkerGuard(paused); await loadSys() }
+    catch (e) { setError((e as Error).message) } finally { setGuardBusy(false) }
+  }
+  async function doGuardReset() {
+    setGuardBusy(true); setError(null)
+    try { await resetWorkerGuard(); await loadSys() }
+    catch (e) { setError((e as Error).message) } finally { setGuardBusy(false) }
+  }
   const loadBackup = () => getBackupStatus().then(setBackup).catch((e) => setError((e as Error).message))
   const loadArchiveStat = () => getArchiveRunStatus().then(setArchiveStat).catch((e) => setError((e as Error).message))
   async function doBackupNow() {
@@ -157,24 +172,62 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
                 ))}
               </span>
             </div>
-            {/* Итог хостового сторожа. Отдельной строкой, а не подсказкой у чипа:
-                «автоперезапуск приостановлен» — сообщение, ради которого экран и
-                открывают, и прятать его под наведение нельзя. */}
+            {/* Сторож воркера — отдельной строкой, а не подсказкой у чипа:
+                «приостановлен» и «сторож не отмечается» — сообщения, ради
+                которых экран и открывают, и прятать их под наведение нельзя.
+                Показываем ВСЕГДА: то, что автоматика есть и работает, — тоже
+                ответ, а её отсутствие иначе неотличимо от нормы. */}
             {(() => {
-              const ar = sys.services.find((x) => x.autorestart)?.autorestart
-              if (!ar) return null
-              const bad = !ar.ok
+              const w = sys.services.find((x) => x.name === 'Фоновый воркер')
+              const g = w?.guard
+              const ar = w?.autorestart
+              if (!g) return null
+              // Тон по худшему из состояний: сторож не работает → беда; пауза и
+              // неудачный перезапуск → предупреждение; остальное — спокойно.
+              const bad = g.watcher === 'stale' || (ar ? !ar.ok : false)
+              const warn = !bad && (g.watcher === 'never' || g.paused)
+              const tone = bad ? 'var(--danger)' : warn ? 'var(--warn)' : 'var(--border)'
+              const head = g.paused ? '⏸ Автоперезапуск воркера приостановлен'
+                : g.watcher === 'stale' ? '⚠ Сторож воркера не отмечается'
+                : g.watcher === 'never' ? '⚠ Сторож воркера ни разу не отмечался'
+                : '🤖 Автоперезапуск воркера включён'
               return (
                 <div style={{
                   marginTop: 10, padding: '8px 12px', borderRadius: 10, fontSize: 13,
-                  border: '1px solid ' + (bad ? 'var(--danger)' : 'var(--border)'),
-                  background: bad ? 'var(--danger-bg)' : 'var(--surface-2)',
+                  display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap',
+                  border: '1px solid ' + tone,
+                  background: bad ? 'var(--danger-bg)' : warn ? 'var(--warn-bg)' : 'var(--surface-2)',
                   color: bad ? 'var(--danger)' : 'var(--text-2)',
                 }}>
-                  {/* Заголовок различается: при беде само сообщение начинается со
-                      слова «Автоперезапуск», и общий заголовок дал бы повтор. */}
-                  <b>{bad ? '⚠ Фоновый воркер.' : '🤖 Автоперезапуск воркера.'}</b> {ar.message}
-                  <span style={{ color: 'var(--text-faint)' }}> · {fmtDt(ar.ts)}</span>
+                  <span style={{ flex: 1, minWidth: 220 }}>
+                    <b>{head}.</b>{' '}
+                    {g.paused && g.paused_by ? `Приостановил: ${g.paused_by}. ` : ''}
+                    {/* Подсказку про таймер показываем, только когда паузы нет:
+                        приостановил человек сам — значит сейчас речь о его
+                        решении, а не об установке сторожа. */}
+                    {!g.paused && g.watcher_hint ? g.watcher_hint + '. ' : ''}
+                    {ar ? ar.message + ' ' : ''}
+                    {g.watcher === 'ok' && (
+                      <span style={{ color: 'var(--text-faint)' }}>
+                        Сторож проверял {timeAgo(g.watcher_seen_at)}
+                        {g.attempts_last_hour > 0 && ` · перезапусков за час: ${g.attempts_last_hour}`}
+                      </span>
+                    )}
+                  </span>
+                  {/* Счётчик сбрасывается только временем — без кнопки админ,
+                      починивший причину, ждал бы конца часа или правил файл. */}
+                  {g.attempts_last_hour > 0 && (
+                    <button style={btnGhost} disabled={guardBusy} onClick={doGuardReset}
+                            title="Сбросить счётчик попыток: причина устранена, ждать конца часа незачем">
+                      ↻ Попробовать снова
+                    </button>
+                  )}
+                  <button style={btnGhost} disabled={guardBusy} onClick={() => doGuardPause(!g.paused)}
+                          title={g.paused
+                            ? 'Вернуть автоперезапуск воркера'
+                            : 'Плановое обслуживание: не поднимать воркер, остановленный вручную'}>
+                    {g.paused ? '▶ Возобновить' : '⏸ Приостановить'}
+                  </button>
                 </div>
               )
             })()}

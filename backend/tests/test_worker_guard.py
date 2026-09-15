@@ -33,6 +33,10 @@ case "$*" in
   *"inspect -f {{.State.Running}}"*) echo "${STUB_RUNNING:-true}" ;;
   *"redis-cli ping"*)   [ "${STUB_REDIS:-up}" = up ] && echo PONG || exit 1 ;;
   *"redis-cli exists"*) echo "${STUB_KEY:-0}" ;;
+  # 🔴 Запрос потолка разбирается ДО «restart»: в имени колонки
+  # worker_restart_max_per_hour есть подстрока «restart», и обратный порядок
+  # отдавал бы SQL-запрос ветке перезапуска (наступили при написании теста).
+  *worker_restart_max_per_hour*) echo "${STUB_MAX:-}" ;;
   *"restart"*)          [ "${STUB_RESTART:-ok}" = ok ] || exit 1 ;;
   *psql*)               exit 0 ;;
 esac
@@ -199,3 +203,51 @@ def test_dva_ekzemplyara_ne_perezapuskayut_naperegonki(tmp_path):
 
     got = restarts(calls.read_text().splitlines())
     assert len(got) == 1, f"второй сторож перезапустил воркер повторно: {got}"
+
+
+def test_storozh_otmechaet_kazhdyy_svoy_zapusk(tmp_path):
+    """🔴 Самонаблюдение: сторож обязан отмечаться, даже когда всё в порядке.
+
+    Остановись его systemd-таймер — автоматика перестала бы работать МОЛЧА,
+    то есть повторила бы ровно тот дефект, против которого заведена. Отметка
+    при каждом запуске (а не только при перезапуске) — единственный способ
+    отличить «сторож работает, вмешиваться не во что» от «сторожа нет».
+    """
+    p, calls, trig = run_guard(tmp_path, STUB_KEY="1")  # воркер жив, делать нечего
+    alive = trig / "worker-guard.alive"
+    assert alive.exists(), "сторож не отметился при здоровом воркере"
+    assert int(alive.read_text().strip()) > 0
+
+
+def test_otmetka_stavitsya_dazhe_na_pauze(tmp_path):
+    """На паузе сторож всё равно запускается — и это надо отличать от «его нет»."""
+    trig = tmp_path / "ops-triggers"
+    trig.mkdir(exist_ok=True)
+    (trig / "worker-autorestart.off").write_text('{"by":"admin"}')
+    p, calls, _ = run_guard(tmp_path, STUB_KEY="0")
+    assert (trig / "worker-guard.alive").exists(), "на паузе сторож не отметился"
+    assert restarts(calls) == [], "на паузе перезапускать нельзя"
+
+
+def test_potolok_beretsya_iz_nastroek_a_ne_iz_koda(tmp_path):
+    """Потолок правится мышью в «Настройках»: скрипт читает его из БД.
+
+    Зашитое число расходилось бы с тем, что показывает экран, и администратор
+    менял бы настройку впустую.
+    """
+    # В настройках 5 — значит пятая попытка ещё проходит, шестая нет.
+    seen = []
+    for _ in range(6):
+        p, calls, trig = run_guard(tmp_path, STUB_KEY="0", STUB_MAX="5")
+        seen.append(len(restarts(calls)))
+    assert seen[:5] == [1] * 5, f"потолок из настроек не применился: {seen}"
+    assert seen[5] == 0, "шестая попытка сверх настроенного потолка"
+
+
+def test_bez_dostupa_k_nastroykam_rabotaet_umolchanie(tmp_path):
+    """БД недоступна — сторож не должен вставать: перезапускает по умолчанию 3 раза."""
+    seen = []
+    for _ in range(4):
+        p, calls, trig = run_guard(tmp_path, STUB_KEY="0", STUB_MAX="")
+        seen.append(len(restarts(calls)))
+    assert seen == [1, 1, 1, 0], f"умолчание не сработало: {seen}"

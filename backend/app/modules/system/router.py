@@ -80,6 +80,10 @@ class SystemSettingsIn(BaseModel):
     ram_crit: Optional[float] = Field(None, gt=0, le=100)
     disk_warn: Optional[float] = Field(None, gt=0, lt=100)
     disk_crit: Optional[float] = Field(None, gt=0, le=100)
+    # Ноль не разрешён намеренно: «совсем не перезапускать» — это пауза, и у
+    # неё своя кнопка. Два способа выключить одно и то же однажды разошлись бы,
+    # и человек не понимал бы, почему воркер не поднимается.
+    worker_restart_max_per_hour: Optional[int] = Field(None, ge=1, le=10)
 
 
 class OrgSettingsIn(BaseModel):

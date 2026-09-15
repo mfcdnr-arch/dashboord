@@ -40,13 +40,18 @@ HEALTH_KEY="${GUARD_HEALTH_KEY:-arq:queue:health-check}"
 
 # Потолок попыток. Без него циклически падающий воркер перезапускался бы вечно,
 # и автоматика прятала бы причину падения — ровно то, чего мы избегаем.
-MAX_RESTARTS="${GUARD_MAX_RESTARTS:-3}"
+# Значение живёт в «Настройках» (system_settings), а не в коде: сколько попыток
+# допустимо — решение эксплуатации. Зашитое число расходилось бы с тем, что
+# показывает экран, и администратор менял бы настройку впустую.
+# Порядок: переменная окружения (отладка) → настройки → умолчание 3.
+MAX_RESTARTS_DEFAULT=3
 WINDOW_SEC="${GUARD_WINDOW_SEC:-3600}"
 # Ждём подтверждения: успех объявляем, только увидев ключ снова, а не по факту
 # того, что `docker restart` не дал ошибку.
 WAIT_SEC="${GUARD_WAIT_SEC:-90}"
 POLL_SEC="${GUARD_POLL_SEC:-5}"
 
+ALIVE_FILE="$TRIGGER_DIR/worker-guard.alive"
 OFF_FILE="$TRIGGER_DIR/worker-autorestart.off"
 LOG_FILE="$TRIGGER_DIR/worker-restarts.log"
 RESULT="$TRIGGER_DIR/worker.result"
@@ -77,6 +82,23 @@ write_result() {  # $1 state, $2 message, $3 ok(true/false)
 health_key_present() {
   [ "$(docker exec "$REDIS_CONTAINER" redis-cli exists "$HEALTH_KEY" 2>/dev/null | tr -d '\r\n ')" = "1" ]
 }
+
+# 🔴 Самоотметка — ПЕРВЫМ делом, до замка, паузы и любых проверок. Сторож
+# должен отмечаться при КАЖДОМ запуске, в том числе когда вмешиваться не во
+# что: иначе остановку его собственного таймера нельзя отличить от «всё
+# хорошо», и автоматика перестала бы работать молча — ровно тот дефект, против
+# которого она заведена. Читает отметку API («Здоровье системы»).
+date +%s > "$ALIVE_FILE" 2>/dev/null || true
+
+# Потолок из настроек. Недоступна БД — работаем по умолчанию: сторож не должен
+# вставать из-за того, что не смог прочитать настройку.
+if [ -z "${GUARD_MAX_RESTARTS:-}" ]; then
+  MAX_RESTARTS="$(docker exec -i "$PG_CONTAINER" psql -U "$PGUSER" -d "$PGDB" -tAc \
+    "select worker_restart_max_per_hour from system_settings where id=1" 2>/dev/null | tr -d '\r\n ' || true)"
+  case "$MAX_RESTARTS" in (''|*[!0-9]*) MAX_RESTARTS="$MAX_RESTARTS_DEFAULT" ;; esac
+else
+  MAX_RESTARTS="$GUARD_MAX_RESTARTS"
+fi
 
 # Один экземпляр за раз: наблюдатель запускается раз в минуту, а ожидание
 # подтверждения длится дольше — без блокировки два сторожа перезапускали бы

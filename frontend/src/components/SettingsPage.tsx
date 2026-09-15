@@ -16,6 +16,7 @@ function sysToForm(v: SystemThresholds): SysForm {
     cpu_warn: String(v.cpu_warn), cpu_crit: String(v.cpu_crit),
     ram_warn: String(v.ram_warn), ram_crit: String(v.ram_crit),
     disk_warn: String(v.disk_warn), disk_crit: String(v.disk_crit),
+    worker_restart_max_per_hour: String(v.worker_restart_max_per_hour),
   }
 }
 function orgToForm(v: OrgThresholds): OrgForm {
@@ -138,9 +139,16 @@ export default function SettingsPage({ me }: { me: { roles: string[] } }) {
             <input style={inp} type="number" min={1} max={100} value={sysForm.disk_crit}
               onChange={(e) => setSysForm({ ...sysForm, disk_crit: e.target.value })} />
           </Field>
+          <Field label="Перезапусков воркера в час, не больше">
+            <input style={inp} type="number" min={1} max={10} value={sysForm.worker_restart_max_per_hour}
+              onChange={(e) => setSysForm({ ...sysForm, worker_restart_max_per_hour: e.target.value })} />
+          </Field>
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4, marginBottom: 12 }}>
           При «критично» — статус «Здоровье системы» становится degraded, сторожевой процесс пытается починить.
+          Замерший фоновый воркер поднимает хостовой сторож; после исчерпания попыток он останавливается и говорит об этом
+          в «Отчётах» → «Здоровье системы» — чтобы повторные падения не прятались за автоматикой. Приостановить автоперезапуск
+          на время обслуживания можно там же, кнопкой.
         </div>
         <button style={btn} disabled={savingSys} onClick={saveSys}>{savingSys ? 'Сохранение…' : 'Сохранить'}</button>
       </Section>

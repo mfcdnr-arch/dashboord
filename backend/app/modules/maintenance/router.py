@@ -9,11 +9,13 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
+from pydantic import BaseModel
 
 from ... import db
 from ..auth.deps import require_roles
 from . import backup_service as backup_svc
 from . import service
+from . import worker_guard_service as worker_guard
 
 router = APIRouter(prefix="/maintenance", tags=["maintenance"])
 admin = require_roles("admin", "superadmin")
@@ -72,6 +74,35 @@ async def backup_run_now(user: dict = Depends(admin)):
         raise HTTPException(http_status.HTTP_409_CONFLICT, "Запрос на бэкап уже ожидает обработки хостом.")
     backup_svc.request_now(user["login"])
     return {"requested": True}
+
+
+@router.get("/worker-guard")
+async def worker_guard_state(user: dict = Depends(admin)):
+    """Состояние хостового сторожа воркера: отмечался ли он вообще, приостановлен
+    ли, сколько попыток сделал за час и чем кончилась последняя."""
+    return worker_guard.status()
+
+
+class WorkerGuardPause(BaseModel):
+    paused: bool
+
+
+@router.post("/worker-guard/pause")
+async def worker_guard_pause(body: WorkerGuardPause, user: dict = Depends(admin)):
+    """Приостановить автоперезапуск на время обслуживания — или вернуть его.
+
+    Без этого воркер, остановленный человеком намеренно, автоматика поднимала бы
+    обратно, и выключить её можно было бы только файлом по ssh.
+    """
+    worker_guard.set_paused(body.paused, user["login"])
+    return worker_guard.status()
+
+
+@router.post("/worker-guard/reset")
+async def worker_guard_reset(user: dict = Depends(admin)):
+    """Сбросить счётчик попыток: причину устранили, ждать окончания часа незачем."""
+    cleared = worker_guard.reset_attempts(user["login"])
+    return {"cleared": cleared, **worker_guard.status()}
 
 
 @router.post("/archive/run-now")

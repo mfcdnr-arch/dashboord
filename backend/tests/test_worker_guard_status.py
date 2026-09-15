@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from app.modules.maintenance import backup_service
+from app.modules.maintenance import worker_guard_service
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -37,7 +37,7 @@ async def test_priostanovka_vidna_na_ekrane():
     try:
         _write({"ts": "2026-09-15T10:00:00Z", "state": "suspended", "ok": False,
                 "message": "Автоперезапуск приостановлен: 3 попытки за час не помогли"})
-        st = backup_service.worker_guard_status()
+        st = worker_guard_service.last_result()
         assert st is not None, "итог работы сторожа не доехал до API"
         assert st["state"] == "suspended"
         assert "приостанов" in st["message"].lower()
@@ -48,7 +48,7 @@ async def test_priostanovka_vidna_na_ekrane():
 async def test_bez_fayla_nichego_ne_vydumyvaem():
     """Сторож ещё не срабатывал — это не повод показывать что-либо."""
     _clear()
-    assert backup_service.worker_guard_status() is None
+    assert worker_guard_service.last_result() is None
 
 
 async def test_bitiy_fayl_ne_ronyaet_ekran():
@@ -56,7 +56,7 @@ async def test_bitiy_fayl_ne_ronyaet_ekran():
     try:
         TRIG.mkdir(parents=True, exist_ok=True)
         (TRIG / "worker.result").write_text("{битый")
-        assert backup_service.worker_guard_status() is None
+        assert worker_guard_service.last_result() is None
     finally:
         _clear()
 

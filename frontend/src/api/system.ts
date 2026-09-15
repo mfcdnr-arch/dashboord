@@ -35,6 +35,10 @@ export interface SystemThresholds {
   ram_crit: number
   disk_warn: number
   disk_crit: number
+  /** Сколько раз в час хостовой сторож вправе поднять молчащий фоновый воркер.
+   *  Дальше он останавливается с названной причиной: бесконечная карусель
+   *  прятала бы причину падения. Выключается не нулём, а кнопкой паузы. */
+  worker_restart_max_per_hour: number
 }
 export interface OrgThresholds {
   stale_days: number

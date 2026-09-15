@@ -30,7 +30,10 @@ export interface SystemReport {
   // это единственный канал, работающий без живого воркера.
   services: { name: string; ok: boolean; latency_ms?: number; state?: string; detail?: string;
               queued?: number; failed?: number; ongoing?: number;
-              autorestart?: { ts: string; state: string; ok: boolean; message: string } }[]
+              autorestart?: { ts: string; state: string; ok: boolean; message: string };
+              guard?: { watcher: 'never' | 'stale' | 'ok'; watcher_seen_at: string | null;
+                        watcher_hint: string | null; paused: boolean; paused_by: string | null;
+                        attempts_last_hour: number } }[]
 }
 export interface AttendanceReport {
   period?: PeriodInfo
