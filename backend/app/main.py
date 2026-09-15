@@ -136,11 +136,22 @@ async def health():
         db_ok = await db.check_db()
     except Exception:
         db_ok = False
+    # Живость фонового воркера сообщаем отдельным полем, а НЕ через `status`.
+    # `status` отвечает на вопрос «может ли этот процесс обслуживать запросы» —
+    # по нему healthcheck контейнера решает, не перезапустить ли API. Упавший
+    # воркер к работоспособности API отношения не имеет, и смешивать их значило
+    # бы чинить не то: перезапускать исправный API вместо мёртвого воркера.
+    try:
+        from .modules.system import worker_health
+        w = (await worker_health.read())["state"]
+    except Exception:
+        w = "unknown"
     return {
         "status": "ok" if db_ok else "degraded",
         "service": settings.app_name,
         "env": settings.app_env,
         "db": "ok" if db_ok else "unavailable",
+        "worker": w,
     }
 
 

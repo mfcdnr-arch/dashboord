@@ -22,7 +22,11 @@ export interface SystemReport {
   status?: 'ok' | 'degraded'
   cpu: Gauge; memory: Gauge; disk: Gauge
   load: number[] | null; cores: number; uptime_sec: number; db_size: number | null
-  services: { name: string; ok: boolean; latency_ms?: number }[]
+  // detail/state/queued приходят у фонового воркера: сам чип отвечает «жив ли»,
+  // а очередь и пояснение — «что именно не так», без них красный кружок
+  // не говорит, чинить воркер или Redis.
+  services: { name: string; ok: boolean; latency_ms?: number; state?: string; detail?: string;
+              queued?: number; failed?: number; ongoing?: number }[]
 }
 export interface AttendanceReport {
   period?: PeriodInfo

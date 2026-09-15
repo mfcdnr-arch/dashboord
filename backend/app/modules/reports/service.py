@@ -134,6 +134,24 @@ async def system_health(conn) -> dict:
         minio_ok = False
     services.append({"name": "MinIO", "ok": minio_ok, "latency_ms": round((time.perf_counter() - t0) * 1000, 1)})
 
+    # Фоновый воркер. Без этой строки его остановка не видна НИГДЕ: дашборды
+    # показывают прежние цифры, а конвейер стоит. Сторож самодиагностики живёт
+    # внутри воркера и о собственной смерти сообщить не может — значит заметить
+    # её способна только сторона API, то есть этот экран.
+    t0 = time.perf_counter()
+    try:
+        from ..system import worker_health
+        w = await worker_health.read()
+    except Exception:
+        w = {"state": "unknown", "ok": False, "detail": "не удалось проверить"}
+    wsvc = {"name": "Фоновый воркер", "ok": w["ok"],
+            "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
+            "state": w["state"], "detail": w.get("detail")}
+    for k in ("queued", "failed", "ongoing"):
+        if w.get(k) is not None:
+            wsvc[k] = w[k]
+    services.append(wsvc)
+
     # Общий статус: degraded, если любой сервис недоступен или ресурс в danger.
     # Пороги настраиваются в UI «Настройки» (system_settings), а не только в .env.
     res_danger = any((

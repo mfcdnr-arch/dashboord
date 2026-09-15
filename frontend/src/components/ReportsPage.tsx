@@ -148,8 +148,11 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
               <span>Размер БД: <b>{fmtBytes(sys.db_size)}</b></span>
               <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>Сервисы:
                 {sys.services.map((s) => (
-                  <span key={s.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10, background: s.ok ? '#e8f5f0' : 'var(--danger-bg)', color: s.ok ? 'var(--success)' : 'var(--danger)' }}>
+                  <span key={s.name} title={s.detail || undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10, background: s.ok ? '#e8f5f0' : 'var(--danger-bg)', color: s.ok ? 'var(--success)' : 'var(--danger)' }}>
                     {s.ok ? '●' : '○'} {s.name}{s.latency_ms != null && <span style={{ color: 'var(--text-faint)' }}>· {s.latency_ms} мс</span>}
+                    {/* Очередь показываем только когда она непуста: живой воркер с растущей
+                        очередью — тоже повод вмешаться, а «очередь 0» это шум. */}
+                    {!!s.queued && <span style={{ color: 'var(--warn)' }}>· в очереди {s.queued}</span>}
                   </span>
                 ))}
               </span>

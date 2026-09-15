@@ -43,6 +43,22 @@ async def get(key: str) -> str | None:
         return None
 
 
+async def get_checked(key: str) -> tuple[bool, str | None]:
+    """(доступен ли Redis, значение ключа).
+
+    Отличается от `get` тем, что РАЗЛИЧАЕТ две причины пустоты: Redis недоступен
+    и ключа нет. Для кэша разницы нет — обе означают «считай из БД», — а для
+    проверки живости воркера она принципиальна: «воркер молчит» и «мы не смогли
+    это выяснить» требуют от человека разных действий.
+    """
+    if _redis is None:
+        return False, None
+    try:
+        return True, await _redis.get(key)
+    except Exception:
+        return False, None
+
+
 async def set(key: str, value: str, ttl: int) -> None:
     if _redis is None:
         return

@@ -128,6 +128,18 @@ services:
     volumes:
       - ./backend/app:/app/app
     depends_on: *backend_deps
+    # Та же проверка живости, что в прод-конфигурации: воркер раз в 60 с пишет
+    # health-ключ в Redis (health_check_interval в WorkerSettings), `arq --check`
+    # его читает. В деве это нужно не меньше: упавший воркер тихо останавливает
+    # весь конвейер, и без healthcheck его смерть замечают через день.
+    # start_period здесь больше прод-значения: `--watch` перезапускает воркер на
+    # каждой правке кода, и без запаса он мигал бы unhealthy при обычной работе.
+    healthcheck:
+      test: ["CMD", "arq", "--check", "app.modules.ingestion.worker.WorkerSettings"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
     restart: unless-stopped
 
   # 🔴 ПРОГОН ТЕСТОВ. Запуск:
