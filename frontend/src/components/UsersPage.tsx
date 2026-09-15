@@ -9,7 +9,7 @@ import {
   revokeAuditAccess, setUserActive, updateUser,
   type AppUser, type AuditAccessRow, type Department, type LoginEventsReport, type PasswordPolicy, type Role,
 } from '../api'
-import { Modal } from './Modal'
+import { Modal, ModalTitle } from './Modal'
 
 function fmtDt(iso: string | null): string {
   if (!iso) return '—'
@@ -412,9 +412,9 @@ function UserEditor({ user, depts, roles, canGrantSuper, onClose, onSaved }: {
   }
 
   return (
-    <Modal label={isNew ? "Новый пользователь" : `Изменить: ${user!.login}`} onClose={onClose} width={560}>
+    <Modal onClose={onClose} width={560}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>{isNew ? 'Новый пользователь' : `Изменить: ${user!.login}`}</div>
+        <ModalTitle>{isNew ? 'Новый пользователь' : `Изменить: ${user!.login}`}</ModalTitle>
         <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -478,11 +478,11 @@ function UserActivityPanel({ user, onClose }: { user: AppUser; onClose: () => vo
   // означал бы, что администратор без гранта аудита не доберётся и до доступов.
   const [tab, setTab] = useState<'activity' | 'access'>('activity')
   return (
-    <Modal label={`Кабинет: ${user.login}`} onClose={onClose} width={760}>
+    <Modal onClose={onClose} width={760}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>
+        <ModalTitle>
           📊 Кабинет: {user.login}{user.full_name ? ` (${user.full_name})` : ''}
-        </div>
+        </ModalTitle>
         <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>

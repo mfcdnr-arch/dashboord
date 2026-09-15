@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { updateWidget, type Widget } from '../../api'
 import { F, btn, btnGhost, muted, rmBtn, sel } from './shared'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 // ── Редактор порогов KPI-алерта (условное форматирование) ──────────────────
 type AlertRule = { level: string; op: string; value: string; value2?: string; label?: string }
@@ -73,9 +73,9 @@ export function AlertEditor({ widget, onClose, onSaved }: { widget: Widget; onCl
   }
 
   return (
-    <Modal label={`Подсветка по порогам: ${widget.name}`} onClose={onClose} width={640}>
+    <Modal onClose={onClose} width={640}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>⚠ Подсветка по порогам: {widget.name}</div>
+        <ModalTitle>⚠ Подсветка по порогам: {widget.name}</ModalTitle>
         <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>

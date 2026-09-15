@@ -6,7 +6,7 @@ import {
 import { fmtNumber } from '../../lib/format'
 import ArrivalCalendar from './ArrivalCalendar'
 
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 const ru = (iso?: string | null) => (iso ? iso.split('-').reverse().join('.') : '—')
 
 // Аналитика по папке (п. 8 списка заказчика). Папка — это одна форма, которая
@@ -307,12 +307,11 @@ function AddMissingDialog(
 
   return (
     <Modal
-      label="Добавить показатели на дашборд"
       onClose={onClose}
       style={{ width: 560, padding: 20, maxHeight: '86vh' }}
     >
       <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: 10 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>Добавить показатели на дашборд</div>
+        <ModalTitle>Добавить показатели на дашборд</ModalTitle>
         <button style={{ ...closeBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
       {err && <div style={errBox}>{err}</div>}

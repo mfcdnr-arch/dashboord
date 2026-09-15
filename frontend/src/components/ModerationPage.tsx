@@ -3,7 +3,7 @@ import {
   getModerationQueue, getReasonCodes, moderateDashboard,
   type ModerationQueueItem, type ReasonCode,
 } from '../api'
-import { Modal } from './Modal'
+import { Modal, ModalTitle } from './Modal'
 
 // Раздел «Модерация» (модератор/старший модератор/админ): очередь дашбордов,
 // отправленных на проверку. Одна ступень: одобрение = публикация. Конфликт
@@ -123,9 +123,9 @@ function ReviewModal({ item, reasons, onClose, onDone, onError }: {
   const hasFail = Object.values(checks).some((s) => s === 'failed')
 
   return (
-    <Modal label={`Проверка: ${item.name}`} onClose={onClose} width={560}>
+    <Modal onClose={onClose} width={560}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>Проверка: {item.name}</div>
+        <ModalTitle>Проверка: {item.name}</ModalTitle>
         <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>Отправил: {item.requester} · {fmtDt(item.requested_at)}</div>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { templateBinding, type TemplateBinding } from '../../api/dashboards'
 import type { Obj } from '../../api'
 import { btnGhost, rmBtn } from './shared'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 /**
  * Тиражирование дашборда на другой объект.
@@ -50,13 +50,12 @@ export function TemplateCloneDialog(
 
   return (
     <Modal
-      label={`Тиражировать «${templateName}»`}
       onClose={onClose}
       width={620}
       style={{ maxHeight: '84vh', display: 'flex', flexDirection: 'column' }}
     >
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>Тиражировать «{templateName}»</div>
+        <ModalTitle>Тиражировать «{templateName}»</ModalTitle>
         <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
       </div>
       <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 12 }}>

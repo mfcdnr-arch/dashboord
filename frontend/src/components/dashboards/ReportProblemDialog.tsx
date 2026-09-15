@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { reportWidgetProblem, widgetProblemKinds, type ProblemKind } from '../../api'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 // «Сообщить о проблеме» прямо с виджета (п. 15 списка заказчика — обратная
 // связь пользователь → администратор).
@@ -58,10 +58,10 @@ export default function ReportProblemDialog(
   }
 
   return (
-    <Modal label="Сообщить о проблеме" onClose={onClose} width={520}>
+    <Modal onClose={onClose} width={520}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
         <div>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>Сообщить о проблеме</div>
+          <ModalTitle>Сообщить о проблеме</ModalTitle>
           {widgetName && (
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{widgetName}</div>
           )}

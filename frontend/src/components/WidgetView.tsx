@@ -15,7 +15,7 @@ import { exportWidgetXlsx } from '../api'
 import PassportDialog from './dashboards/PassportDialog'
 import { fmtNumber as fmt, heatSteps, logScaleAdvice, sparkSeries } from '../lib/format'
 import { distinctLabels, dropCommonWords, elideMiddle, fitRotatedAxis, plural, textWidth } from '../lib/text'
-import { Modal } from './Modal'
+import { Modal, ModalTitle } from './Modal'
 
 // Отрисовка данных виджета: KPI/таблица/план-факт — HTML, столбцы/линия/круговая —
 // ECharts. По кнопке «подробнее» — drill (прозрачность): формула метрики + первичные строки.
@@ -2488,9 +2488,9 @@ function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
   // оказывалось внутри карточки, обрезалось её overflow:hidden — вместе с
   // крестиком, и закрыть его было нечем.
   return (
-    <Modal label={`Из чего собран: ${drill.widget}`} onClose={onClose} width={560}>
+    <Modal onClose={onClose} width={560}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>Из чего собран: {drill.widget}</div>
+        <ModalTitle>Из чего собран: {drill.widget}</ModalTitle>
         <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
 

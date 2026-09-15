@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { addComment, deleteComment, listComments, type DashComment } from '../../api'
 
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 const ru = (iso?: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('.') : '')
 const when = (iso: string) => new Date(iso).toLocaleString('ru-RU',
   { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -65,14 +65,13 @@ export default function WidgetComments(
 
   return (
     <Modal
-      label="Замечания к цифре"
       onClose={onClose}
       style={{ width: 'min(560px, 94vw)', padding: 16, maxHeight: '86vh' }}
     >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <div style={{ fontSize: 15, fontWeight: 600, flex: 1, minWidth: 0 }}>
+        <ModalTitle style={{ fontSize: 15, flex: 1, minWidth: 0 }}>
           💬 Замечания к цифре
-        </div>
+        </ModalTitle>
         <button type="button" onClick={onClose} style={xBtn} title="Закрыть">✕</button>
       </div>
       <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>

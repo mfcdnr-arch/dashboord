@@ -5,7 +5,7 @@ import {
 } from '../api'
 import UserAccessPanel from './users/UserAccessPanel'
 
-import { Modal } from './Modal'
+import { Modal, ModalTitle } from './Modal'
 // Переиспользуемая панель обращений: 'mine' — личный кабинет (создание + свои
 // заявки), 'all' — раздел «Обращения» для staff (фильтр по статусу + ответ +
 // закрытие). Логика прав — на бэкенде (appeals/service.py), здесь только UI.
@@ -209,12 +209,11 @@ export default function AppealsPanel(
             разделе «Пользователи», — второго экрана выдачи прав не заводим. */}
         {accessFor && (
           <Modal
-            label="Доступ к отчётам"
             onClose={() => setAccessFor(null)}
             style={{ width: 860, padding: 18 }}
           >
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>Доступ к отчётам · {detail.author}</div>
+              <ModalTitle style={{ fontSize: 15, fontWeight: 600 }}>Доступ к отчётам · {detail.author}</ModalTitle>
               <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={() => setAccessFor(null)}>Закрыть</button>
             </div>
             <UserAccessPanel userId={accessFor} />

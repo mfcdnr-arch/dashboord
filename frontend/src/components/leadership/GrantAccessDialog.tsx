@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getFeaturedAccess, grantFeaturedAccess, type FeaturedAccess } from '../../api'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 // «Предоставить доступ» к отчётам подборки (запрос заказчика: выбрали отчёты
 // для руководителя — значит открываем их ему).
@@ -48,9 +48,9 @@ export default function GrantAccessDialog({ onClose, onDone }: { onClose: () => 
   }
 
   return (
-    <Modal label="Доступ к отчётам подборки" onClose={onClose} width={680}>
+    <Modal onClose={onClose} width={680}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>Доступ к отчётам подборки</div>
+        <ModalTitle>Доступ к отчётам подборки</ModalTitle>
         <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
       </div>
       <div style={{ ...muted, marginBottom: 10 }}>

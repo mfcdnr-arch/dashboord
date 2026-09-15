@@ -10,7 +10,7 @@ import { listUsers, AppUser } from '../api/users'
 import WidgetView from './WidgetView'
 import { useConfirm } from './dashboards/ConfirmDialog'
 import { btn, btnGhost, crumb, errBox, input, linkDanger, muted, sel, widgetCard, wtBadge } from './dashboards/shared'
-import { Modal } from './Modal'
+import { Modal, ModalTitle } from './Modal'
 
 const MONTHS_RU = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
 export function monthLabel(m: string): string {
@@ -193,9 +193,9 @@ function AccessDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => { reload(); listUsers('', 500, 0).then((p) => setUsers(p.items)).catch(() => {}) }, [])
   const free = users.filter((u) => !rows.some((r) => r.user_id === u.id))
   return (
-    <Modal label="Доступ к архиву" onClose={onClose} width={520}>
+    <Modal onClose={onClose} width={520}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
-        <b style={{ fontSize: 16 }}>🔑 Доступ к архиву</b>
+        <ModalTitle>🔑 Доступ к архиву</ModalTitle>
         <button style={{ marginLeft: 'auto', ...btnGhost, height: 30 }} onClick={onClose}>✕</button>
       </div>
       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>

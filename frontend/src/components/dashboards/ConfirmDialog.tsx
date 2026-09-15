@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { btnGhost, rmBtn } from './shared'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 /**
  * Подтверждение необратимого действия — вместо системного `confirm()`.
@@ -34,9 +34,9 @@ export function ConfirmDialog(
   },
 ) {
   return (
-    <Modal label={title} onClose={onClose} width={480}>
+    <Modal onClose={onClose} width={480}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>{title}</div>
+        <ModalTitle>{title}</ModalTitle>
         <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
       </div>
       <div style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.5, whiteSpace: 'pre-line' }}>{message}</div>

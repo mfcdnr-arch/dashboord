@@ -22,6 +22,7 @@ if not FRONT.exists():  # локальный прогон вне контейн�
 
 MODAL = FRONT / "components" / "Modal.tsx"
 TRAP = FRONT / "lib" / "focusTrap.ts"
+PALETTE = FRONT / "components" / "CommandPalette.tsx"
 
 # Полноэкранный режим витрины (слайд-шоу страниц на ТВ) — не диалог: из него
 # выходят кнопкой и Escape, а «фона», к которому надо вернуться, у него нет.
@@ -108,16 +109,74 @@ def test_no_dialog_builds_its_own_overlay() -> None:
 
 
 def test_every_window_names_itself() -> None:
-    """У окна должно быть имя: без него диктор объявит безымянный диалог."""
+    """У окна должно быть имя: без него диктор объявит безымянный диалог.
+
+    Имя даётся одним из двух способов: <ModalTitle> с видимым заголовком
+    (предпочтительно — текст пишется один раз) либо проп `label` там, где
+    видимого заголовка нет вовсе (меню действий, окно из одних кнопок).
+    """
     nameless: list[str] = []
     total = 0
     for path in tsx_files():
+        if path.name.endswith(".test.tsx"):
+            continue
         src = path.read_text(encoding="utf-8")
         for m in re.finditer(r"<Modal\b", src):
             total += 1
-            tail = src[m.end(): m.end() + 400]
-            if not re.match(r"[\s\S]{0,200}?label=", tail):
+            # тело окна: от открывающего тега до его закрытия
+            end = src.find("</Modal>", m.end())
+            body = src[m.end(): end if end > 0 else m.end() + 600]
+            head = src[m.end(): m.end() + 400]
+            has_label = re.match(r"[\s\S]{0,300}?\blabel=", head)
+            has_title = "<ModalTitle" in body
+            if not (has_label or has_title):
                 nameless.append(f"{path.relative_to(FRONT)}:{src[: m.start()].count(chr(10)) + 1}")
-    assert not nameless, "окна без имени: " + ", ".join(nameless)
+    assert not nameless, (
+        "окна без имени — диктор объявит безымянный диалог: " + ", ".join(nameless)
+    )
     # Защита от вырождения теста: если окна вдруг «исчезли», проверять нечего.
     assert total >= 30, f"окон найдено {total} — тест перестал что-либо проверять"
+
+
+def test_title_is_not_duplicated_as_aria_label() -> None:
+    """Имя и видимый заголовок — одна строка, а не две копии.
+
+    Пока текст стоит и в `aria-label`, и в разметке, правка одного оставляет
+    второй позади — и расходится ровно то, что читает диктор.
+    """
+    modal = MODAL.read_text(encoding="utf-8")
+    assert "'aria-labelledby': titleId" in modal
+    assert "hasTitle ?" in modal, "при наличии заголовка label использоваться не должен"
+    assert "export function ModalTitle" in modal
+    assert "<h2" in modal, "заголовок окна должен быть заголовком, а не div"
+
+
+def test_background_is_frozen_while_a_window_is_open() -> None:
+    """Фон под окном недоступен ни Tab, ни диктору в режиме чтения.
+
+    Замораживается то, что лежало в body на момент открытия, — не body
+    целиком: подсказки ⓘ и облачка графиков рисуются порталами тоже в body,
+    и открытые ИЗ окна появляются позже, под заморозку не попадая.
+    """
+    modal = MODAL.read_text(encoding="utf-8")
+    assert "setAttribute('inert'" in modal
+    assert "removeAttribute('inert')" in modal
+    assert "!el.hasAttribute('inert')" in modal, (
+        "чужую заморозку снимать нельзя: у вложенных окон каждое отвечает за своё"
+    )
+
+
+def test_command_palette_is_a_list_not_just_a_window() -> None:
+    """Быстрый поиск: диктор должен читать выбранную строку, а не молчать.
+
+    Фокус в палитре остаётся в поле ввода (иначе стрелки и Tab спорят за
+    управление), поэтому выбранную строку диктору сообщает
+    `aria-activedescendant`, а сам список размечен как listbox.
+    """
+    src = PALETTE.read_text(encoding="utf-8")
+    assert 'role="combobox"' in src
+    assert 'role="listbox"' in src
+    assert 'role="option"' in src
+    assert "aria-activedescendant" in src, "иначе диктор не назовёт выбранную строку"
+    assert "aria-selected" in src
+    assert 'aria-live="polite"' in src, "число найденного надо сообщать вслух"

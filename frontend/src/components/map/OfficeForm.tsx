@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DAYS, createOffice, updateOffice, type DayKey, type Hours, type Office, type OfficeInput } from '../../api'
 
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 // Карточка отделения: то, что человек видит на точке карты, и то, что
 // администратор правит, когда график или телефон изменились.
 //
@@ -66,12 +66,11 @@ export default function OfficeForm({ office, rowOptions, onClose, onSaved }: {
 
   return (
     <Modal
-      label={office ? 'Сведения об отделении' : 'Новое отделение'}
       onClose={onClose}
       style={{ width: 'min(620px, 100%)', maxHeight: '90vh', padding: 0, borderRadius: 12, display: 'flex', flexDirection: 'column' }}
     >
       <div style={head}>
-        <b style={{ fontSize: 15 }}>{office ? 'Сведения об отделении' : 'Новое отделение'}</b>
+        <ModalTitle style={{ fontSize: 15 }}>{office ? 'Сведения об отделении' : 'Новое отделение'}</ModalTitle>
         <button style={xBtn} onClick={onClose} title="Закрыть">✕</button>
       </div>
       <div style={body}>

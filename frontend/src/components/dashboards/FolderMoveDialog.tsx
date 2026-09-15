@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { listFolders, type Folder, type Obj } from '../../api'
 import { folderLabel, folderTree } from '../../lib/folderTree'
 import { btn, btnGhost, input, linkDanger, rmBtn } from './shared'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 export function FolderMoveDialog({ target, objects, onClose, onMove, onClear }: {
   target: { ids: string[]; label: string; currentPath?: string | null }; objects: Obj[]; onClose: () => void
@@ -18,11 +18,11 @@ export function FolderMoveDialog({ target, objects, onClose, onMove, onClear }: 
   }, [objId])
   const bulk = target.ids.length > 1
   return (
-    <Modal label="Папка дашборда" onClose={onClose} width={420}>
+    <Modal onClose={onClose} width={420}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>
+        <ModalTitle>
           📁 {bulk ? `Папка для ${target.label}` : `Папка дашборда «${target.label}»`}
-        </div>
+        </ModalTitle>
         <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
       <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 14px' }}>

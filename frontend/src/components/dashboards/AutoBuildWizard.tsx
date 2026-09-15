@@ -8,7 +8,7 @@ import {
 import { fmtNumber } from '../../lib/format'
 import { plural } from '../../lib/text'
 
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 /**
  * Мастер авто-сборки: что нашли в объекте и что из этого собрать.
  *
@@ -254,11 +254,10 @@ export default function AutoBuildWizard(
   if (dup) {
     return (
       <Modal
-        label="Дашборд с таким названием уже есть"
         onClose={() => setDup(null)}
         style={{ maxWidth: 560, padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}
       >
-          <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>Дашборд с таким названием уже есть</h3>
+          <ModalTitle style={{ marginBottom: 8 }}>Дашборд с таким названием уже есть</ModalTitle>
           <div style={{ fontSize: 13.5, lineHeight: 1.45, marginBottom: 14 }}>{dup}</div>
           <div style={{ ...muted, fontSize: 12.5, marginBottom: 14 }}>
             Обычно нужно не второй дашборд, а пересобрать существующий: закройте это окно
@@ -277,12 +276,11 @@ export default function AutoBuildWizard(
 
   return (
     <Modal
-      label={`Собрать дашборд по объекту «${objectName}»`}
       onClose={onClose}
       style={{ width: 'min(720px, 100%)', padding: 18, maxHeight: '86vh', display: 'flex', flexDirection: 'column', gap: 10 }}
     >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <h3 style={{ margin: 0, fontSize: 16 }}>Собрать дашборд по объекту «{objectName}»</h3>
+        <ModalTitle>Собрать дашборд по объекту «{objectName}»</ModalTitle>
         <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
 

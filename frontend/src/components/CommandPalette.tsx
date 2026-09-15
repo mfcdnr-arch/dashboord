@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { globalSearch, type SearchResults } from '../api'
 
 import { Modal } from './Modal'
@@ -42,6 +42,7 @@ export default function CommandPalette(
   const [results, setResults] = useState<SearchResults>(EMPTY)
   const [loading, setLoading] = useState(false)
   const [active, setActive] = useState(0)
+  const listId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const seq = useRef(0)
 
@@ -137,9 +138,21 @@ export default function CommandPalette(
       initialFocus={false}
       style={{ width: 'min(680px, 94vw)', padding: 0, borderRadius: 12, overflow: 'hidden' }}
     >
-        <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKeyDown}
-          placeholder="Искать дашборд, страницу, показатель, объект…" style={input} />
-        <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+        {/* Схема «поле + список»: фокус остаётся в поле, а диктор читает
+            выбранную строку через aria-activedescendant. Так устроены палитры команд:
+            переносить фокус на строки нельзя — Tab и стрелки тогда спорят. */}
+        <input
+          ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKeyDown}
+          placeholder="Искать дашборд, страницу, показатель, объект…" style={input}
+          role="combobox"
+          aria-expanded={rows.length > 0}
+          aria-controls={listId}
+          aria-activedescendant={rows[active] ? `${listId}-${active}` : undefined}
+          aria-autocomplete="list"
+          aria-label="Искать дашборд, страницу, показатель, объект"
+        />
+        <div style={{ maxHeight: 360, overflowY: 'auto' }} id={listId} role="listbox"
+          aria-label="Результаты поиска">
           {q.trim().length > 0 && q.trim().length < 2 && (
             <div style={hintRow}>Ещё символ — и начнём искать</div>
           )}
@@ -147,8 +160,9 @@ export default function CommandPalette(
           {q.trim().length >= 2 && !loading && rows.length === 0 && <div style={hintRow}>Ничего не найдено</div>}
           {rows.map((r, i) => (
             <div key={r.key} onClick={() => choose(r)} onMouseEnter={() => setActive(i)}
+              id={`${listId}-${i}`} role="option" aria-selected={i === active}
               style={{ ...row, background: i === active ? 'var(--accent-weak-bg)' : undefined }}>
-              <span style={{ width: 20, textAlign: 'center', flexShrink: 0 }}>{r.icon}</span>
+              <span style={{ width: 20, textAlign: 'center', flexShrink: 0 }} aria-hidden="true">{r.icon}</span>
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {r.label}
               </span>
@@ -156,6 +170,11 @@ export default function CommandPalette(
             </div>
           ))}
         </div>
+        {/* Сколько найдено — вслух: при поиске меняется только список, и без
+            этого диктор молчит, а человек не знает, есть ли что выбирать. */}
+        <span aria-live="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
+          {q.trim().length >= 2 && !loading ? (rows.length ? `Найдено: ${rows.length}` : 'Ничего не найдено') : ''}
+        </span>
       <div style={footer}>↑↓ выбор · Enter открыть · Esc закрыть</div>
     </Modal>
   )

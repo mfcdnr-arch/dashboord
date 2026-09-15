@@ -4,7 +4,7 @@ import {
   type Dashboard, type DashPage, type MetricValue,
 } from '../../api'
 import { btnGhost, rmBtn } from '../dashboards/shared'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 /**
  * Разместить уже заведённые показатели на дашборде.
@@ -72,13 +72,12 @@ export function PlaceMetricsDialog(
 
   return (
     <Modal
-      label="Разместить показатели на дашборде"
       onClose={onClose}
       width={660}
       style={{ maxHeight: '84vh', display: 'flex', flexDirection: 'column' }}
     >
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>Разместить показатели на дашборде</div>
+        <ModalTitle>Разместить показатели на дашборде</ModalTitle>
         <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
       </div>
       <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 12 }}>

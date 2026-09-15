@@ -1,4 +1,4 @@
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 // Виджет-пикер: визуальная галерея типов виджетов с мини-превью, сгруппированная
 // по 4 категориям. Заменяет прежний select «Тип» — как в Power BI/Superset.
 
@@ -124,9 +124,9 @@ function Card({ m, active, onPick }: { m: Meta; active: boolean; onPick: (v: str
 // Галерея выбора типа виджета. Открывается из формы виджета.
 export function WidgetPicker({ value, onPick, onClose }: { value: string; onPick: (v: string) => void; onClose: () => void }) {
   return (
-    <Modal label="Выберите тип виджета" onClose={onClose} width={720}>
+    <Modal onClose={onClose} width={720}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
-        <div style={{ fontSize: 17, fontWeight: 700 }}>Выберите тип виджета</div>
+        <ModalTitle style={{ fontSize: 17, fontWeight: 700 }}>Выберите тип виджета</ModalTitle>
         <button type="button" style={closeBtn} onClick={onClose}>✕</button>
       </div>
       {WIDGET_GROUPS.map((g) => (

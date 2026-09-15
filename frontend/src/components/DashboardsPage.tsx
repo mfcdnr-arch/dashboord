@@ -43,7 +43,7 @@ import { TemplateCloneDialog } from './dashboards/TemplateCloneDialog'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
 import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
 import { crumb, editHint, errBox, linkDanger, muted, rmBtn } from './dashboards/shared'
-import { Modal } from './Modal'
+import { Modal, ModalTitle } from './Modal'
 
 const DASH_PAGE = 50
 
@@ -1359,9 +1359,9 @@ export default function DashboardsPage({
           onSaved={async () => { setAlertWidget(null); await reloadPage(); setReloadKey((k) => k + 1) }} />
       )}
       {editWidget && sources && (
-        <Modal label={`Изменить виджет: ${editWidget.name}`} onClose={() => setEditWidget(null)} width={680}>
+        <Modal onClose={() => setEditWidget(null)} width={680}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-            <div style={{ fontSize: 16, fontWeight: 600 }}>✎ Изменить виджет: {editWidget.name}</div>
+            <ModalTitle>✎ Изменить виджет: {editWidget.name}</ModalTitle>
             <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={() => setEditWidget(null)}>✕</button>
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>

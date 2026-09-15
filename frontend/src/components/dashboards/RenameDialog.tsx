@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { btn, btnGhost, input, rmBtn } from './shared'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 /**
  * Ввод одной строки — вместо системного `prompt()`.
@@ -24,9 +24,9 @@ export function RenameDialog(
   const [value, setValue] = useState(initial)
   const ok = value.trim().length > 0
   return (
-    <Modal label={title} onClose={onClose} width={460}>
+    <Modal onClose={onClose} width={460}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>{title}</div>
+        <ModalTitle>{title}</ModalTitle>
         <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>

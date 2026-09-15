@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { addComment, deleteComment, listComments, type Dashboard, type DashComment } from '../../api'
 import { btn, btnAuto, muted, rmBtn } from './shared'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 const PAGE = 50
 
@@ -43,13 +43,12 @@ export function Comments({ dashboard, onClose }: { dashboard: Dashboard; onClose
 
   return (
     <Modal
-      label={`Обсуждение: ${dashboard.name}`}
       onClose={onClose}
       width={560}
       style={{ display: 'flex', flexDirection: 'column' }}
     >
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>💬 Обсуждение: {dashboard.name}</div>
+        <ModalTitle>💬 Обсуждение: {dashboard.name}</ModalTitle>
         <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>

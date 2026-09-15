@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { btnGhost, rmBtn } from './shared'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 export type MissingField = { code: string; name: string; dataset_code: string }
 
@@ -33,13 +33,12 @@ export function MissingFieldsDialog(
 
   return (
     <Modal
-      label="Добавить показатели на дашборд"
       onClose={onClose}
       width={620}
       style={{ maxHeight: '82vh', display: 'flex', flexDirection: 'column' }}
     >
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>Добавить показатели на дашборд</div>
+        <ModalTitle>Добавить показатели на дашборд</ModalTitle>
         <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
       </div>
       <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 10 }}>

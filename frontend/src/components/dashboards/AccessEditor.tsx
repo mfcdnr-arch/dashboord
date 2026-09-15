@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { addDashboardGrant, listDashboardGrants, removeDashboardGrant, type Dashboard, type DashGrant, type GrantTargets, type GrantWidget } from '../../api'
 import { F, btn, muted, rmBtn, sel } from './shared'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 export function AccessEditor({ dashboard, onClose }: { dashboard: Dashboard; onClose: () => void }) {
   const [grants, setGrants] = useState<DashGrant[]>([])
@@ -48,9 +48,9 @@ export function AccessEditor({ dashboard, onClose }: { dashboard: Dashboard; onC
   )
 
   return (
-    <Modal label={`Доступ: ${dashboard.name}`} onClose={onClose} width={560}>
+    <Modal onClose={onClose} width={560}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>🔒 Доступ: {dashboard.name}</div>
+        <ModalTitle>🔒 Доступ: {dashboard.name}</ModalTitle>
         <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>

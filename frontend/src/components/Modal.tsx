@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from 'react'
+import { createContext, useContext, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { focusablesIn, nextIndex } from '../lib/focusTrap'
 import { dialog, overlay } from './dashboards/shared'
@@ -7,7 +7,7 @@ import { dialog, overlay } from './dashboards/shared'
  * Модальное окно: одна обёртка на все окна системы.
  *
  * До неё каждое окно писалось заново — портал, затемнение, остановка клика, —
- * и доступность с клавиатуры получалась случайно: из 38 окон `role="dialog"`
+ * и доступность с клавиатуры получалась случайно: из 40 окон `role="dialog"`
  * стоял у одного, ловушки фокуса не было ни у одного, Escape не закрывал 26.
  * Человек, работающий с клавиатуры, и диктор экрана в окно попадали, но выйти
  * и понять, где они, не могли.
@@ -15,26 +15,47 @@ import { dialog, overlay } from './dashboards/shared'
  * Что берёт на себя:
  *  - портал в body — окно не обрезается карточкой виджета и не искажается
  *    трансформацией сетки дашборда (ровно ради этого порталы и заводились);
- *  - `role="dialog"` + `aria-modal` + имя окна — диктор объявляет, куда попал;
- *  - ловушка фокуса: Tab ходит по кругу внутри окна, а не уводит в интерфейс
- *    под ним, до которого всё равно не дотянуться мышью;
- *  - Escape и клик по затемнению — закрыть;
+ *  - `role="dialog"` + `aria-modal` + имя окна;
+ *  - ловушку фокуса: Tab ходит по кругу внутри окна;
+ *  - заморозку фона (`inert`) — см. ниже;
+ *  - Escape и клик по затемнению;
  *  - возврат фокуса на кнопку, которой окно открыли.
  *
- * Чего НЕ делает и почему: фон не помечается `inert`/`aria-hidden`. В body
- * живут и другие порталы (подсказки ⓘ, облачка графиков), и пометить их
- * скопом значило бы погасить то, что окну не мешает. Дикторы понимают
- * `aria-modal`, а Tab за окно не уходит благодаря ловушке.
+ * Имя окна берётся из [ModalTitle], если он есть внутри, и только иначе — из
+ * пропа `label`. Так текст заголовка пишется ОДИН раз: `aria-label` рядом с
+ * видимым заголовком — это две копии одной строки, и при правке одной вторая
+ * молча отстаёт, а расходится именно то, что читает диктор.
  */
 
 /** Стек открытых окон: клавиши обрабатывает только верхнее.
  *  Иначе один Escape закрыл бы и подтверждение, и окно под ним. */
 const stack: string[] = []
 
+/** id заголовка окна — [ModalTitle] кладёт его сюда, окно читает. */
+const TitleCtx = createContext<{ id: string; register: (has: boolean) => void } | null>(null)
+
+/**
+ * Заголовок окна. Даёт диктору имя диалога и структуру страницы.
+ *
+ * Это `<h2>`, а не `div`: по заголовкам листают страницу, а окно без единого
+ * заголовка выглядит для диктора сплошным полотном.
+ */
+export function ModalTitle({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  const ctx = useContext(TitleCtx)
+  useEffect(() => {
+    ctx?.register(true)
+    return () => ctx?.register(false)
+  }, [ctx])
+  return (
+    <h2 id={ctx?.id} style={{ margin: 0, fontSize: 16, fontWeight: 600, ...style }}>{children}</h2>
+  )
+}
+
 export function Modal(
   { label, onClose, width, style, onSubmit, children, initialFocus = true, closeOnBackdrop = true }: {
-    /** Имя окна для диктора. Обычно совпадает с видимым заголовком. */
-    label: string
+    /** Имя окна для диктора — на случай, когда видимого заголовка нет.
+     *  Если внутри есть [ModalTitle], имя берётся у него. */
+    label?: string
     onClose: () => void
     width?: number | string
     /** Дополнительные стили окна (маскирует `dialog`): флекс-колонка, своя высота. */
@@ -53,7 +74,10 @@ export function Modal(
   },
 ) {
   const id = useId()
+  const titleId = `${id}-title`
+  const [hasTitle, setHasTitle] = useState(false)
   const boxRef = useRef<HTMLDivElement | HTMLFormElement | null>(null)
+  const hostRef = useRef<HTMLDivElement | null>(null)
   // Кого вернуть фокус при закрытии — запоминаем ДО того, как окно его заберёт.
   const openerRef = useRef<HTMLElement | null>(
     typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null,
@@ -79,6 +103,24 @@ export function Modal(
     }
   }, [id, initialFocus])
 
+  /**
+   * Заморозка фона: пока окно открыто, всё под ним недоступно ни Tab, ни
+   * диктору в режиме чтения.
+   *
+   * Замораживаем то, что лежало в body НА МОМЕНТ открытия, а не body целиком.
+   * Это принципиально: подсказки ⓘ и облачка графиков рисуются порталами тоже
+   * в body, и открытые ИЗ окна появляются позже — под заморозку они не
+   * попадают и продолжают читаться. Чужую заморозку не снимаем: у вложенных
+   * окон каждое отвечает только за то, что заморозило само.
+   */
+  useEffect(() => {
+    const host = hostRef.current
+    const frozen = Array.from(document.body.children)
+      .filter((el) => el !== host && !el.hasAttribute('inert')) as HTMLElement[]
+    frozen.forEach((el) => el.setAttribute('inert', ''))
+    return () => frozen.forEach((el) => el.removeAttribute('inert'))
+  }, [])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (stack[stack.length - 1] !== id) return
@@ -92,7 +134,6 @@ export function Modal(
       const to = nextIndex(items.length, cur, e.shiftKey)
       // Внутри цикла Tab отдаём браузеру — он ведёт по своему порядку;
       // перехватываем только переход через край, ради которого ловушка и нужна.
-      if (cur >= 0 && to !== 0 && to !== items.length - 1) return
       if (cur >= 0 && ((e.shiftKey && cur !== 0) || (!e.shiftKey && cur !== items.length - 1))) return
       e.preventDefault()
       items[to].focus()
@@ -106,16 +147,18 @@ export function Modal(
     style: boxStyle,
     role: 'dialog' as const,
     'aria-modal': true,
-    'aria-label': label,
+    ...(hasTitle ? { 'aria-labelledby': titleId } : { 'aria-label': label }),
     tabIndex: -1,
     onClick: (e: React.MouseEvent) => e.stopPropagation(),
   }
 
   return createPortal((
-    <div style={overlay} onClick={closeOnBackdrop ? onClose : undefined}>
-      {onSubmit
-        ? <form {...common} ref={boxRef as React.Ref<HTMLFormElement>} onSubmit={onSubmit}>{children}</form>
-        : <div {...common} ref={boxRef as React.Ref<HTMLDivElement>}>{children}</div>}
+    <div ref={hostRef} style={overlay} onClick={closeOnBackdrop ? onClose : undefined}>
+      <TitleCtx.Provider value={{ id: titleId, register: setHasTitle }}>
+        {onSubmit
+          ? <form {...common} ref={boxRef as React.Ref<HTMLFormElement>} onSubmit={onSubmit}>{children}</form>
+          : <div {...common} ref={boxRef as React.Ref<HTMLDivElement>}>{children}</div>}
+      </TitleCtx.Provider>
     </div>
   ), document.body)
 }

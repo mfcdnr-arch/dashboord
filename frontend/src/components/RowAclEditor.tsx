@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getRowAcl, setRowAcl, type Obj, type RowAcl } from '../api'
-import { Modal } from './Modal'
+import { Modal, ModalTitle } from './Modal'
 
 // Редактор row-level RLS: какие строки данных (row_label) объекта видит какое
 // подразделение. Пока ни для одного отдела нет правил — строки видят все.
@@ -31,9 +31,9 @@ export default function RowAclEditor({ object, onClose }: { object: Obj; onClose
   }
 
   return (
-    <Modal label={`Доступ к строкам: ${object.name}`} onClose={onClose} width={520}>
+    <Modal onClose={onClose} width={520}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>🔐 Доступ к строкам: {object.name}</div>
+        <ModalTitle>🔐 Доступ к строкам: {object.name}</ModalTitle>
         <button style={xBtn} onClick={onClose}>✕</button>
       </div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>

@@ -2,7 +2,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { archiveTopics } from '../../api/archive'
 import { btn, btnGhost, input } from './shared'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 export default function ArchiveDialog({ name, onClose, onSubmit }:
   { name: string; onClose: () => void; onSubmit: (topic: string, note: string) => void }) {
@@ -13,8 +13,8 @@ export default function ArchiveDialog({ name, onClose, onSubmit }:
 
   const submit = (e: FormEvent) => { e.preventDefault(); onSubmit(topic.trim(), note.trim()) }
   return (
-    <Modal label="Отправить в архив" onClose={onClose} width={460} onSubmit={submit}>
-      <b style={{ fontSize: 16 }}>📦 Отправить в архив</b>
+    <Modal onClose={onClose} width={460} onSubmit={submit}>
+      <ModalTitle>📦 Отправить в архив</ModalTitle>
       <div style={{ fontSize: 13, color: 'var(--text-muted)', margin: '8px 0 14px' }}>
         Система сохранит <b>слепок данных</b> дашборда «{name}» в папку текущего месяца — данные в
         архиве зафиксируются и не изменятся. Дашборд уйдёт из основного списка (вернуть можно из архива).

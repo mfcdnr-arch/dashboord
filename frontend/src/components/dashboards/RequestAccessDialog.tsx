@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { requestDashboardAccess } from '../../api'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 // «Мне нужен отчёт, которого я не вижу» (п. 15, последняя из трёх идей).
 //
@@ -41,9 +41,9 @@ export default function RequestAccessDialog(
   }
 
   return (
-    <Modal label="Нужен отчёт, которого здесь нет" onClose={onClose} width={520}>
+    <Modal onClose={onClose} width={520}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>Нужен отчёт, которого здесь нет</div>
+        <ModalTitle>Нужен отчёт, которого здесь нет</ModalTitle>
         <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
       </div>
 

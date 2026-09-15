@@ -14,7 +14,7 @@ import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
 import AutoBuildWizard from './dashboards/AutoBuildWizard'
 import { getBuildSuggestion, type BuildSuggestion } from '../api/objects'
 import { listDashboards, type Dashboard } from '../api/dashboards'
-import { Modal } from './Modal'
+import { Modal, ModalTitle } from './Modal'
 
 const DOCS_PAGE = 50
 
@@ -687,8 +687,8 @@ function EditDialog(
   const nameEmpty = !(vals.name ?? '').trim()
 
   return (
-    <Modal label={title} onClose={onClose} width={480}>
-      <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>{title}</h3>
+    <Modal onClose={onClose} width={480}>
+      <ModalTitle style={{ marginBottom: 16 }}>{title}</ModalTitle>
       {fields.map((f) => (
         <label key={f.key} style={{ display: 'block', marginBottom: 12 }}>
           <span style={{ display: 'block', fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>{f.label}</span>

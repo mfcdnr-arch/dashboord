@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getWidgetRelated, type RelatedWidgetRef, type WidgetRelated } from '../../api'
 import { plural } from '../../lib/text'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 const TYPE_RU: Record<string, string> = {
   kpi: 'карточка', gauge: 'спидометр', bar: 'столбцы', line: 'линия', pie: 'круговая',
@@ -61,10 +61,10 @@ export default function RelatedMenu(
   }
 
   return (
-    <Modal label="Куда посмотреть дальше" onClose={onClose} width={620}>
+    <Modal onClose={onClose} width={620}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
         <div>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>Куда посмотреть дальше</div>
+          <ModalTitle>Куда посмотреть дальше</ModalTitle>
           {data?.subject?.name && (
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
               {data.subject.kind === 'metric' ? 'Показатель' : 'Графа формы'}: {data.subject.name}

@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 import { WT, btn, btnGhost, input, rmBtn } from './shared'
 import type { Dashboard, DashPage, Widget } from '../../api'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 /**
  * Правка самого дашборда: название и описание.
@@ -23,9 +23,9 @@ export function EditDashboardDialog(
   const [description, setDescription] = useState(initial.description)
   const [drafting, setDrafting] = useState(false)
   return (
-    <Modal label="Изменить дашборд" onClose={onClose} width={520}>
+    <Modal onClose={onClose} width={520}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>✎ Дашборд</div>
+        <ModalTitle>✎ Дашборд</ModalTitle>
         <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
       <label style={lbl}>Название
@@ -93,9 +93,9 @@ export function AboutDashboard(
   const typeName = (t: string) => WT.find((x) => x.v === t)?.t || t
 
   return (
-    <Modal label={`О дашборде: ${dashboard.name}`} onClose={onClose} width={600}>
+    <Modal onClose={onClose} width={600}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>О дашборде: {dashboard.name}</div>
+        <ModalTitle>О дашборде: {dashboard.name}</ModalTitle>
         <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
 

@@ -4,7 +4,7 @@ import {
   dismissSetup, getSetupStatus, listDepartments, listFolders, listObjects, listRoles, uploadDocument,
   type Department, type Folder, type Obj, type Role, type SetupStatus,
 } from '../api'
-import { Modal } from './Modal'
+import { Modal, ModalTitle } from './Modal'
 
 // Мастер первичной настройки: проводит администратора через заведение отделов,
 // пользователей, первого объекта, ЗАГРУЗКУ ДАННЫХ и СБОРКУ ДАШБОРДА — целиком
@@ -53,9 +53,9 @@ export default function SetupWizard({ onClose, onNavigate }: {
   const doneCount = checks.filter((c) => c.ok).length
 
   return (
-    <Modal label="Мастер настройки" onClose={close} width={640} closeOnBackdrop={false}>
+    <Modal onClose={close} width={640} closeOnBackdrop={false}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-        <div style={{ fontSize: 18, fontWeight: 700 }}>🧭 Мастер настройки</div>
+        <ModalTitle style={{ fontSize: 18, fontWeight: 700 }}>🧭 Мастер настройки</ModalTitle>
         <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={close} title="Закрыть (больше не всплывёт; открыть можно кнопкой 🧭)">✕</button>
       </div>
       <div style={{ display: 'flex', gap: 5, marginBottom: 16 }}>

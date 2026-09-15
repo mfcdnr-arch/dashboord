@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react'
 import { widgetPassport, type PassportRow } from '../../api'
 import { fmtNumber } from '../../lib/format'
 import { errBox, muted } from './shared'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 const ruDate = (iso?: string | null): string =>
   (iso && /^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10).split('-').reverse().join('.') : '—')
@@ -30,9 +30,9 @@ export default function PassportDialog(
   // содержимое (`overflow: hidden`), и окно внутри неё срезалось бы вместе с
   // крестиком.
   return (
-    <Modal label="Паспорт цифры" onClose={onClose} width={860}>
+    <Modal onClose={onClose} width={860}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-        <h3 style={{ margin: 0, fontSize: 16 }}>📇 Паспорт цифры</h3>
+        <ModalTitle>📇 Паспорт цифры</ModalTitle>
         <button style={{ marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer', fontSize: 16 }}
           onClick={onClose} title="Закрыть">✕</button>
       </div>

@@ -2,7 +2,7 @@
 // текущего контекста (если их нет — иначе виджеты дадут ошибку). Отсутствующие
 // коды подсвечены; для каждого — выбор из доступных или «оставить как есть».
 import { btn, btnGhost, input, rmBtn } from './shared'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 export type RebindState = {
   templateId: string; name: string
@@ -35,9 +35,9 @@ export function RebindModal({ rebind, setRebind, onConfirm, busy }: {
     </div>
   )
   return (
-    <Modal label="Перепривязка шаблона" onClose={() => setRebind(null)} width={560}>
+    <Modal onClose={() => setRebind(null)} width={560}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>Перепривязка шаблона</div>
+        <ModalTitle>Перепривязка шаблона</ModalTitle>
         <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={() => setRebind(null)}>✕</button>
       </div>
       <p style={{ fontSize: 13, color: 'var(--text-2)', margin: '0 0 12px' }}>

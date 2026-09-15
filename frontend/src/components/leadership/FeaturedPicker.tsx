@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listFeaturedCandidates, setFeaturedBulk, type FeaturedCandidate } from '../../api'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 // Настройка состава подборки «Руководителю» (пп. 2–3 запроса заказчика).
 //
@@ -70,9 +70,9 @@ export default function FeaturedPicker({ onClose, onSaved }: { onClose: () => vo
   const recommended = (items || []).filter((i) => i.recommended).length
 
   return (
-    <Modal label="Состав подборки «Руководителю»" onClose={onClose} width={720}>
+    <Modal onClose={onClose} width={720}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>Состав подборки «Руководителю»</div>
+        <ModalTitle>Состав подборки «Руководителю»</ModalTitle>
         <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
       </div>
       <div style={{ ...muted, marginBottom: 10 }}>

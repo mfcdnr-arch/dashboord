@@ -3,7 +3,7 @@ import {
   exportAudit, getAuditEvent, listAudit,
   type AuditDetail, type AuditItem, type AuditList, type AuditQuery,
 } from '../api'
-import { Modal } from './Modal'
+import { Modal, ModalTitle } from './Modal'
 
 // Раздел «Аудит действий» (только admin): журнал изменений сущностей
 // (дашборды/виджеты/права). Наполняется триггерами БД, автор — из сессии.
@@ -191,11 +191,11 @@ function DetailModal({ d, onClose }: { d: AuditDetail; onClose: () => void }) {
   const et = d.entity_type === 'dashboard' ? 'Дашборд' : d.entity_type === 'widget' ? 'Виджет' : d.entity_type === 'object_acl' ? 'Права доступа' : d.entity_type === 'appeal' ? 'Обращение' : d.entity_type
   const changed = d.diff.filter((f) => f.changed)
   return (
-    <Modal label="Событие журнала" onClose={onClose} width={640}>
+    <Modal onClose={onClose} width={640}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>
+        <ModalTitle>
           <span style={{ color: ACTION_COLOR[d.action] }}>{ACTION_LABEL[d.action] || d.action}</span> · {et}
-        </div>
+        </ModalTitle>
         <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>{d.entity_name || d.entity_id}</div>

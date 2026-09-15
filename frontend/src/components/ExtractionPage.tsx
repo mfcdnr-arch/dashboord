@@ -13,7 +13,7 @@ import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
 import { buildReleaseFields } from '../lib/releaseFields'
 import { cancelRelease, deleteRelease, listVersionReleases, restoreRelease, type ReleaseBySheetResult, type ReleaseImpact, type SheetOutcome, type VersionRelease } from '../api/ingestion'
 import ImpactPanel from './ingestion/ImpactPanel'
-import { Modal } from './Modal'
+import { Modal, ModalTitle } from './Modal'
 
 const TYPES = [
   { v: 'number', t: 'Число' },
@@ -1052,10 +1052,10 @@ function ConflictDialog({ conflict, busy, onSupersede, onCancel }: {
   onSupersede: () => void; onCancel: () => void
 }) {
   return (
-    <Modal label="Выпуск за этот период уже существует" onClose={onCancel} width={440}>
-      <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>
+    <Modal onClose={onCancel} width={440}>
+      <ModalTitle style={{ fontSize: 15, marginBottom: 8 }}>
         {conflict.auto ? 'Данные за этот период уже выпущены автоматически' : 'Выпуск за этот период уже существует'}
-      </div>
+      </ModalTitle>
       <div style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: 16 }}>
         {conflict.auto && (
           <>Форма в точности совпала с прошлым отчётом, и замечаний к данным не было —

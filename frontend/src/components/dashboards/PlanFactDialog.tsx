@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { buildPlanFact, DuplicateError, planFactPreview, type PlanFactPlan } from '../../api'
-import { Modal } from '../Modal'
+import { Modal, ModalTitle } from '../Modal'
 
 // Сводный дашборд «План/факт» по ВСЕМ объектам и папкам.
 //
@@ -54,9 +54,9 @@ export default function PlanFactDialog(
   const nothing = plan && plan.widgets === 0
 
   return (
-    <Modal label="Сводная страница «План/факт»" onClose={onClose} width={560}>
+    <Modal onClose={onClose} width={560}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 4 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>🎯 Сводная страница «План/факт»</div>
+        <ModalTitle>🎯 Сводная страница «План/факт»</ModalTitle>
         <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
       </div>
       <div style={{ ...muted, marginBottom: 14 }}>

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { Modal } from './Modal'
+import { Modal, ModalTitle } from './Modal'
 
 const tab = (shift = false) => fireEvent.keyDown(document.activeElement ?? document, { key: 'Tab', shiftKey: shift })
 const esc = () => fireEvent.keyDown(document.activeElement ?? document, { key: 'Escape' })
@@ -131,5 +131,64 @@ describe('Modal — форма', () => {
     expect(screen.getByRole('dialog').tagName).toBe('FORM')
     fireEvent.submit(screen.getByRole('dialog'))
     expect(onSubmit).toHaveBeenCalled()
+  })
+})
+
+describe('Modal — имя окна берётся у видимого заголовка', () => {
+  it('ModalTitle даёт имя через aria-labelledby, а не второй копией строки', () => {
+    render(
+      <Modal onClose={() => {}}>
+        <ModalTitle>Доступ: КПЭ МФЦ ДНР</ModalTitle>
+        <button>Отмена</button>
+      </Modal>,
+    )
+    const box = screen.getByRole('dialog')
+    expect(box).toHaveAccessibleName('Доступ: КПЭ МФЦ ДНР')
+    // Именно ссылка на заголовок: aria-label дублировал бы текст, и при
+    // правке одного второй молча отставал бы.
+    expect(box).toHaveAttribute('aria-labelledby')
+    expect(box).not.toHaveAttribute('aria-label')
+  })
+
+  it('заголовок окна — h2: по заголовкам листают страницу', () => {
+    render(<Modal onClose={() => {}}><ModalTitle>Архив</ModalTitle></Modal>)
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Архив')
+  })
+
+  it('без видимого заголовка имя берётся из label', () => {
+    render(<Modal label="Действия виджета" onClose={() => {}}><button>Выгрузить</button></Modal>)
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('Действия виджета')
+  })
+})
+
+describe('Modal — заморозка фона', () => {
+  it('фон помечается inert, а после закрытия отпускается', () => {
+    const page = document.createElement('div')
+    page.id = 'app-root'
+    document.body.appendChild(page)
+    const { unmount } = render(<Modal label="Окно" onClose={() => {}}><button>Ок</button></Modal>)
+    expect(page).toHaveAttribute('inert')
+    unmount()
+    expect(page).not.toHaveAttribute('inert')
+    page.remove()
+  })
+
+  it('вложенное окно не размораживает фон, замороженный нижним', () => {
+    const page = document.createElement('div')
+    document.body.appendChild(page)
+    const { unmount: closeOuter } = render(<Modal label="Нижнее" onClose={() => {}}><button>Низ</button></Modal>)
+    const { unmount: closeInner } = render(<Modal label="Верхнее" onClose={() => {}}><button>Верх</button></Modal>)
+    closeInner()
+    // Нижнее окно ещё открыто — страница под ним обязана остаться замороженной.
+    expect(page).toHaveAttribute('inert')
+    closeOuter()
+    expect(page).not.toHaveAttribute('inert')
+    page.remove()
+  })
+
+  it('само окно не замораживает себя', () => {
+    render(<Modal label="Окно" onClose={() => {}}><button>Ок</button></Modal>)
+    const host = screen.getByRole('dialog').parentElement!.parentElement!
+    expect(host).not.toHaveAttribute('inert')
   })
 })
