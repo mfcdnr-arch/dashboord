@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { reportWidgetProblem, widgetProblemKinds, type ProblemKind } from '../../api'
+import { Modal } from '../Modal'
 
 // «Сообщить о проблеме» прямо с виджета (п. 15 списка заказчика — обратная
 // связь пользователь → администратор).
@@ -57,90 +57,79 @@ export default function ReportProblemDialog(
     }
   }
 
-  return createPortal(
-    <div style={overlay} onClick={onClose}>
-      <div style={dialog} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 600 }}>Сообщить о проблеме</div>
-            {widgetName && (
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{widgetName}</div>
-            )}
-          </div>
-          <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
+  return (
+    <Modal label="Сообщить о проблеме" onClose={onClose} width={520}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>Сообщить о проблеме</div>
+          {widgetName && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{widgetName}</div>
+          )}
         </div>
-
-        {done ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={okBox}>
-              {done.appended
-                ? '✓ Дописано в ваше открытое обращение по этому виджету — второе заводить не стали.'
-                : done.owner_name
-                  ? `✓ Обращение отправлено. За этот показатель отвечает ${done.owner_name} — уведомление ушло и ему.`
-                  : '✓ Обращение отправлено администратору.'}
-            </div>
-            <div style={muted}>
-              Что именно вы видели на экране — дашборд, страницу, показатель и его значение —
-              система приложила сама. Ответ придёт уведомлением, переписка — в разделе «Кабинет».
-            </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              {onOpenAppeals && (
-                <button style={ghostBtn} onClick={() => { onClose(); onOpenAppeals() }}>Мои обращения</button>
-              )}
-              <button style={primaryBtn} onClick={onClose}>Закрыть</button>
-            </div>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div>
-              <div style={label}>Что не так</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {kinds.map((k) => (
-                  <button key={k.code} style={kind === k.code ? chipOn : chip} onClick={() => setKind(k.code)}>
-                    {k.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <div style={label}>Подробнее (необязательно)</div>
-              <textarea
-                value={comment} onChange={(e) => setComment(e.target.value)} rows={4} maxLength={2000}
-                placeholder="Например: цифра не изменилась после нового отчёта"
-                style={area}
-              />
-            </div>
-
-            <div style={muted}>
-              Указывать, где вы это увидели, не нужно: название отчёта, страницы, показателя и
-              значение на экране приложатся к обращению автоматически.
-            </div>
-
-            {err && <div style={errBox}>{err}</div>}
-
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button style={ghostBtn} onClick={onClose} disabled={busy}>Отмена</button>
-              <button style={primaryBtn} onClick={send} disabled={busy}>
-                {busy ? 'Отправка…' : 'Отправить'}
-              </button>
-            </div>
-          </div>
-        )}
+        <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
       </div>
-    </div>,
-    document.body,
+
+      {done ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={okBox}>
+            {done.appended
+              ? '✓ Дописано в ваше открытое обращение по этому виджету — второе заводить не стали.'
+              : done.owner_name
+                ? `✓ Обращение отправлено. За этот показатель отвечает ${done.owner_name} — уведомление ушло и ему.`
+                : '✓ Обращение отправлено администратору.'}
+          </div>
+          <div style={muted}>
+            Что именно вы видели на экране — дашборд, страницу, показатель и его значение —
+            система приложила сама. Ответ придёт уведомлением, переписка — в разделе «Кабинет».
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            {onOpenAppeals && (
+              <button style={ghostBtn} onClick={() => { onClose(); onOpenAppeals() }}>Мои обращения</button>
+            )}
+            <button style={primaryBtn} onClick={onClose}>Закрыть</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <div style={label}>Что не так</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {kinds.map((k) => (
+                <button key={k.code} style={kind === k.code ? chipOn : chip} onClick={() => setKind(k.code)}>
+                  {k.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div style={label}>Подробнее (необязательно)</div>
+            <textarea
+              value={comment} onChange={(e) => setComment(e.target.value)} rows={4} maxLength={2000}
+              placeholder="Например: цифра не изменилась после нового отчёта"
+              style={area}
+            />
+          </div>
+
+          <div style={muted}>
+            Указывать, где вы это увидели, не нужно: название отчёта, страницы, показателя и
+            значение на экране приложатся к обращению автоматически.
+          </div>
+
+          {err && <div style={errBox}>{err}</div>}
+
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button style={ghostBtn} onClick={onClose} disabled={busy}>Отмена</button>
+            <button style={primaryBtn} onClick={send} disabled={busy}>
+              {busy ? 'Отправка…' : 'Отправить'}
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
   )
 }
 
-const overlay: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex',
-  alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16,
-}
-const dialog: React.CSSProperties = {
-  background: 'var(--surface)', borderRadius: 14, padding: 20, width: 520, maxWidth: '94vw',
-  maxHeight: '86vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
-}
 const label: React.CSSProperties = { fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }
 // Рамка полными свойствами — выбранный чип меняет только её цвет, а смесь
 // `border` + `borderColor` React при перерисовке гасит с предупреждением.

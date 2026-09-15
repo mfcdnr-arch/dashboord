@@ -4,6 +4,7 @@ import {
   dismissSetup, getSetupStatus, listDepartments, listFolders, listObjects, listRoles, uploadDocument,
   type Department, type Folder, type Obj, type Role, type SetupStatus,
 } from '../api'
+import { Modal } from './Modal'
 
 // Мастер первичной настройки: проводит администратора через заведение отделов,
 // пользователей, первого объекта, ЗАГРУЗКУ ДАННЫХ и СБОРКУ ДАШБОРДА — целиком
@@ -52,88 +53,86 @@ export default function SetupWizard({ onClose, onNavigate }: {
   const doneCount = checks.filter((c) => c.ok).length
 
   return (
-    <div style={overlay}>
-      <div style={dialog}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>🧭 Мастер настройки</div>
-          <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={close} title="Закрыть (больше не всплывёт; открыть можно кнопкой 🧭)">✕</button>
+    <Modal label="Мастер настройки" onClose={close} width={640} closeOnBackdrop={false}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>🧭 Мастер настройки</div>
+        <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={close} title="Закрыть (больше не всплывёт; открыть можно кнопкой 🧭)">✕</button>
+      </div>
+      <div style={{ display: 'flex', gap: 5, marginBottom: 16 }}>
+        {STEPS.map((s, idx) => (
+          <div key={s} style={{ flex: 1, height: 4, borderRadius: 2, background: idx <= i ? 'var(--accent)' : 'var(--surface-3)' }} />
+        ))}
+      </div>
+
+      {err && <div style={errBox}>{err}</div>}
+
+      {step === 'welcome' && (
+        <div>
+          <p style={p}>Добро пожаловать в аналитический портал ГБУ «МФЦ ДНР». Мастер поможет
+            подготовить систему к работе за несколько шагов — прямо здесь, не покидая окна.
+            Всё можно изменить позже в разделах.</p>
+          <div style={card}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Готовность ({doneCount}/5)</div>
+            {checks.map((c) => (
+              <div key={c.t} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '3px 0' }}>
+                <span style={{ color: c.ok ? 'var(--success)' : 'var(--text-faint)' }}>{c.ok ? '✓' : '○'}</span>
+                <span style={{ color: c.ok ? 'var(--text)' : 'var(--text-muted)' }}>{c.t}</span>
+              </div>
+            ))}
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 5, marginBottom: 16 }}>
-          {STEPS.map((s, idx) => (
-            <div key={s} style={{ flex: 1, height: 4, borderRadius: 2, background: idx <= i ? 'var(--accent)' : 'var(--surface-3)' }} />
-          ))}
+      )}
+
+      {step === 'departments' && (
+        <StepDepartments depts={depts} onAdd={(name) => run(() => createDepartment(name))} />
+      )}
+
+      {step === 'users' && (
+        <StepUsers roles={roles} depts={depts} usersCount={status?.users ?? 0}
+          onGoto={() => goto('users')}
+          onAdd={(b) => run(() => createUser(b))} />
+      )}
+
+      {step === 'object' && (
+        <StepObject objectsCount={status?.objects ?? 0}
+          onAdd={(name) => run(() => createObject(name))} />
+      )}
+
+      {step === 'data' && (
+        <StepData objects={objects} docsCount={status?.documents ?? 0}
+          onCreateFolder={(objId, name) => createFolder(objId, name)}
+          onUpload={(folderId, file, date) => run(() => uploadDocument(folderId, file, date))}
+          onGoto={() => goto('objects')} />
+      )}
+
+      {step === 'dashboard' && (
+        <StepDashboard objects={objects} dashCount={status?.dashboards ?? 0}
+          onAuto={(objId) => run(() => autoBuildDashboard(objId))}
+          onCreateEmpty={(name) => run(() => createDashboard(name))}
+          onGoto={() => goto('dashboards')} />
+      )}
+
+      {step === 'done' && (
+        <div>
+          <p style={p}>Готово! Настройка завершена ({doneCount}/5). Открыть можно снова кнопкой
+            «🧭 Настройка» в шапке. Приятной работы!</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button style={btnWide} onClick={() => goto('home')}>🏠 На главную (витрина показателей)</button>
+            <button style={btnWide} onClick={() => goto('dashboards')}>📊 К дашбордам</button>
+          </div>
         </div>
+      )}
 
-        {err && <div style={errBox}>{err}</div>}
-
-        {step === 'welcome' && (
-          <div>
-            <p style={p}>Добро пожаловать в аналитический портал ГБУ «МФЦ ДНР». Мастер поможет
-              подготовить систему к работе за несколько шагов — прямо здесь, не покидая окна.
-              Всё можно изменить позже в разделах.</p>
-            <div style={card}>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Готовность ({doneCount}/5)</div>
-              {checks.map((c) => (
-                <div key={c.t} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '3px 0' }}>
-                  <span style={{ color: c.ok ? 'var(--success)' : 'var(--text-faint)' }}>{c.ok ? '✓' : '○'}</span>
-                  <span style={{ color: c.ok ? 'var(--text)' : 'var(--text-muted)' }}>{c.t}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {step === 'departments' && (
-          <StepDepartments depts={depts} onAdd={(name) => run(() => createDepartment(name))} />
-        )}
-
-        {step === 'users' && (
-          <StepUsers roles={roles} depts={depts} usersCount={status?.users ?? 0}
-            onGoto={() => goto('users')}
-            onAdd={(b) => run(() => createUser(b))} />
-        )}
-
-        {step === 'object' && (
-          <StepObject objectsCount={status?.objects ?? 0}
-            onAdd={(name) => run(() => createObject(name))} />
-        )}
-
-        {step === 'data' && (
-          <StepData objects={objects} docsCount={status?.documents ?? 0}
-            onCreateFolder={(objId, name) => createFolder(objId, name)}
-            onUpload={(folderId, file, date) => run(() => uploadDocument(folderId, file, date))}
-            onGoto={() => goto('objects')} />
-        )}
-
-        {step === 'dashboard' && (
-          <StepDashboard objects={objects} dashCount={status?.dashboards ?? 0}
-            onAuto={(objId) => run(() => autoBuildDashboard(objId))}
-            onCreateEmpty={(name) => run(() => createDashboard(name))}
-            onGoto={() => goto('dashboards')} />
-        )}
-
-        {step === 'done' && (
-          <div>
-            <p style={p}>Готово! Настройка завершена ({doneCount}/5). Открыть можно снова кнопкой
-              «🧭 Настройка» в шапке. Приятной работы!</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <button style={btnWide} onClick={() => goto('home')}>🏠 На главную (витрина показателей)</button>
-              <button style={btnWide} onClick={() => goto('dashboards')}>📊 К дашбордам</button>
-            </div>
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: 8, marginTop: 20, alignItems: 'center' }}>
-          {i > 0 && <button style={btnGhost} onClick={back}>← Назад</button>}
-          <button style={{ ...btnGhost, color: 'var(--text-muted)' }} onClick={close}>Пропустить настройку</button>
-          <div style={{ marginLeft: 'auto' }}>
-            {step === 'done'
-              ? <button style={btn} onClick={close}>Завершить</button>
-              : <button style={btn} onClick={next}>Далее →</button>}
-          </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 20, alignItems: 'center' }}>
+        {i > 0 && <button style={btnGhost} onClick={back}>← Назад</button>}
+        <button style={{ ...btnGhost, color: 'var(--text-muted)' }} onClick={close}>Пропустить настройку</button>
+        <div style={{ marginLeft: 'auto' }}>
+          {step === 'done'
+            ? <button style={btn} onClick={close}>Завершить</button>
+            : <button style={btn} onClick={next}>Далее →</button>}
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -332,8 +331,6 @@ function L({ t, children }: { t: string; children: React.ReactNode }) {
   return <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: 'var(--text-muted)' }}>{t}{children}</label>
 }
 
-const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 80, padding: 20 }
-const dialog: React.CSSProperties = { background: 'var(--surface)', borderRadius: 16, padding: 24, width: 640, maxWidth: '96vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 12px 48px rgba(0,0,0,0.25)' }
 const card: React.CSSProperties = { border: '1px solid var(--border)', borderRadius: 12, padding: 14, background: 'var(--surface-2)' }
 const p: React.CSSProperties = { fontSize: 14, color: 'var(--text-2)', lineHeight: 1.5, margin: '0 0 14px' }
 const h3: React.CSSProperties = { fontSize: 16, margin: '0 0 8px' }

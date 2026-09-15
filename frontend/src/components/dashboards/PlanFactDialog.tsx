@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { buildPlanFact, DuplicateError, planFactPreview, type PlanFactPlan } from '../../api'
+import { Modal } from '../Modal'
 
 // Сводный дашборд «План/факт» по ВСЕМ объектам и папкам.
 //
@@ -53,97 +53,94 @@ export default function PlanFactDialog(
 
   const nothing = plan && plan.widgets === 0
 
-  return createPortal(
-    <div style={overlay} onClick={onClose}>
-      <div style={dialog} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 4 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>🎯 Сводная страница «План/факт»</div>
-          <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
-        </div>
-        <div style={{ ...muted, marginBottom: 14 }}>
-          Собирается по всем объектам и папкам. Факт берётся за последний отчёт каждой формы —
-          когда придёт новый файл, цифры обновятся сами.
-        </div>
-
-        <div style={scale}>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Цвет полосы:</span>
-          <span style={{ ...band, background: '#fcebeb', color: '#a32d2d' }}>до 50 %</span>
-          <span style={{ ...band, background: '#fdf0e3', color: '#b35309' }}>50–70 %</span>
-          <span style={{ ...band, background: '#fff4e0', color: '#9a6a00' }}>70–85 %</span>
-          <span style={{ ...band, background: '#eaf5f0', color: '#0f6e56' }}>от 85 %</span>
-        </div>
-
-        {err && <div style={errBox}>{err}</div>}
-        {dup && (
-          <div style={{ ...errBox, background: 'var(--accent-weak-bg)', color: 'var(--text)' }}>
-            <div style={{ marginBottom: 8 }}>{dup}</div>
-            <div style={{ ...muted, fontSize: 12.5, marginBottom: 8 }}>
-              Обычно нужно пересобрать существующий «План/факт», а не заводить второй:
-              при пересборке права доступа и обсуждение сохраняются.
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button style={ghostBtn} onClick={() => setDup(null)} disabled={busy}>Отмена</button>
-              <button style={primaryBtn} onClick={() => build(true)} disabled={busy}>Всё равно создать</button>
-            </div>
-          </div>
-        )}
-        {!plan && !err && <div style={muted}>Ищу пары «План + Факт»…</div>}
-
-        {plan && !nothing && (
-          <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 13, marginBottom: 8 }}>
-              Будет собрано <strong>{plan.widgets}</strong>{' '}
-              {plural(plan.widgets, 'показатель', 'показателя', 'показателей')}
-              {plan.objects.length > 1 ? ` из ${plan.objects.length} объектов` : ''}:
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 280, overflowY: 'auto' }}>
-              {plan.objects.map((o) => (
-                <div key={o.name}>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>📁 {o.name}</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    {o.indicators.map((n) => (
-                      <div key={n} style={row}>{n}</div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {nothing && (
-          <div style={{ ...muted, marginTop: 12 }}>
-            Пар «План + Факт» не нашлось. Такая пара собирается из двух граф одной формы:
-            одна с ролью «План», вторая — «Факт» в основном разрезе (нарастающим итогом).
-            Проверьте, что в загруженных формах есть графы плана.
-          </div>
-        )}
-
-        {!nothing && (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Название дашборда</div>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="План/факт"
-              style={{
-                width: '100%', boxSizing: 'border-box', padding: '7px 10px', fontSize: 13,
-                border: '1px solid var(--border-strong)', borderRadius: 8,
-                background: 'var(--surface)', color: 'var(--text)',
-              }} />
-            <div style={{ ...muted, fontSize: 12, marginTop: 5 }}>
-              Так дашборд будет называться в списке и в отчётах. Если такой уже есть,
-              система переспросит.
-            </div>
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-          <button style={ghostBtn} onClick={onClose} disabled={busy}>Отмена</button>
-          <button style={primaryBtn} onClick={() => build()} disabled={busy || !plan || !!nothing}>
-            {busy ? 'Собираю…' : 'Собрать'}
-          </button>
-        </div>
+  return (
+    <Modal label="Сводная страница «План/факт»" onClose={onClose} width={560}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 4 }}>
+        <div style={{ fontSize: 16, fontWeight: 600 }}>🎯 Сводная страница «План/факт»</div>
+        <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
       </div>
-    </div>,
-    document.body,
+      <div style={{ ...muted, marginBottom: 14 }}>
+        Собирается по всем объектам и папкам. Факт берётся за последний отчёт каждой формы —
+        когда придёт новый файл, цифры обновятся сами.
+      </div>
+
+      <div style={scale}>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Цвет полосы:</span>
+        <span style={{ ...band, background: '#fcebeb', color: '#a32d2d' }}>до 50 %</span>
+        <span style={{ ...band, background: '#fdf0e3', color: '#b35309' }}>50–70 %</span>
+        <span style={{ ...band, background: '#fff4e0', color: '#9a6a00' }}>70–85 %</span>
+        <span style={{ ...band, background: '#eaf5f0', color: '#0f6e56' }}>от 85 %</span>
+      </div>
+
+      {err && <div style={errBox}>{err}</div>}
+      {dup && (
+        <div style={{ ...errBox, background: 'var(--accent-weak-bg)', color: 'var(--text)' }}>
+          <div style={{ marginBottom: 8 }}>{dup}</div>
+          <div style={{ ...muted, fontSize: 12.5, marginBottom: 8 }}>
+            Обычно нужно пересобрать существующий «План/факт», а не заводить второй:
+            при пересборке права доступа и обсуждение сохраняются.
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button style={ghostBtn} onClick={() => setDup(null)} disabled={busy}>Отмена</button>
+            <button style={primaryBtn} onClick={() => build(true)} disabled={busy}>Всё равно создать</button>
+          </div>
+        </div>
+      )}
+      {!plan && !err && <div style={muted}>Ищу пары «План + Факт»…</div>}
+
+      {plan && !nothing && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 13, marginBottom: 8 }}>
+            Будет собрано <strong>{plan.widgets}</strong>{' '}
+            {plural(plan.widgets, 'показатель', 'показателя', 'показателей')}
+            {plan.objects.length > 1 ? ` из ${plan.objects.length} объектов` : ''}:
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 280, overflowY: 'auto' }}>
+            {plan.objects.map((o) => (
+              <div key={o.name}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>📁 {o.name}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {o.indicators.map((n) => (
+                    <div key={n} style={row}>{n}</div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {nothing && (
+        <div style={{ ...muted, marginTop: 12 }}>
+          Пар «План + Факт» не нашлось. Такая пара собирается из двух граф одной формы:
+          одна с ролью «План», вторая — «Факт» в основном разрезе (нарастающим итогом).
+          Проверьте, что в загруженных формах есть графы плана.
+        </div>
+      )}
+
+      {!nothing && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Название дашборда</div>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="План/факт"
+            style={{
+              width: '100%', boxSizing: 'border-box', padding: '7px 10px', fontSize: 13,
+              border: '1px solid var(--border-strong)', borderRadius: 8,
+              background: 'var(--surface)', color: 'var(--text)',
+            }} />
+          <div style={{ ...muted, fontSize: 12, marginTop: 5 }}>
+            Так дашборд будет называться в списке и в отчётах. Если такой уже есть,
+            система переспросит.
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+        <button style={ghostBtn} onClick={onClose} disabled={busy}>Отмена</button>
+        <button style={primaryBtn} onClick={() => build()} disabled={busy || !plan || !!nothing}>
+          {busy ? 'Собираю…' : 'Собрать'}
+        </button>
+      </div>
+    </Modal>
   )
 }
 
@@ -156,14 +153,6 @@ function plural(n: number, one: string, few: string, many: string): string {
   return many
 }
 
-const overlay: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex',
-  alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16,
-}
-const dialog: React.CSSProperties = {
-  background: 'var(--surface)', borderRadius: 14, padding: 20, width: 560, maxWidth: '94vw',
-  maxHeight: '86vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
-}
 const scale: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
   padding: '8px 10px', borderRadius: 10, background: 'var(--surface-2)',

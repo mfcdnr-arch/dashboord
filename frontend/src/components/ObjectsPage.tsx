@@ -14,6 +14,7 @@ import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
 import AutoBuildWizard from './dashboards/AutoBuildWizard'
 import { getBuildSuggestion, type BuildSuggestion } from '../api/objects'
 import { listDashboards, type Dashboard } from '../api/dashboards'
+import { Modal } from './Modal'
 
 const DOCS_PAGE = 50
 
@@ -686,41 +687,37 @@ function EditDialog(
   const nameEmpty = !(vals.name ?? '').trim()
 
   return (
-    <div style={overlay} onClick={onClose}>
-      <div style={dialog} onClick={(e) => e.stopPropagation()}>
-        <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>{title}</h3>
-        {fields.map((f) => (
-          <label key={f.key} style={{ display: 'block', marginBottom: 12 }}>
-            <span style={{ display: 'block', fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>{f.label}</span>
-            {f.multiline ? (
-              <textarea
-                style={{ ...input, width: '100%', height: 72, padding: 8, resize: 'vertical' }}
-                value={vals[f.key]} placeholder={f.placeholder}
-                onChange={(e) => setVals((p) => ({ ...p, [f.key]: e.target.value }))}
-              />
-            ) : (
-              <input
-                style={{ ...input, width: '100%' }} value={vals[f.key]} placeholder={f.placeholder}
-                onChange={(e) => setVals((p) => ({ ...p, [f.key]: e.target.value }))}
-              />
-            )}
-          </label>
-        ))}
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
-          <button type="button" style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent)' }} onClick={onClose}>
-            Отмена
-          </button>
-          <button type="button" style={btn} disabled={busy || nameEmpty} onClick={() => onSave(vals)}>
-            Сохранить
-          </button>
-        </div>
+    <Modal label={title} onClose={onClose} width={480}>
+      <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>{title}</h3>
+      {fields.map((f) => (
+        <label key={f.key} style={{ display: 'block', marginBottom: 12 }}>
+          <span style={{ display: 'block', fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>{f.label}</span>
+          {f.multiline ? (
+            <textarea
+              style={{ ...input, width: '100%', height: 72, padding: 8, resize: 'vertical' }}
+              value={vals[f.key]} placeholder={f.placeholder}
+              onChange={(e) => setVals((p) => ({ ...p, [f.key]: e.target.value }))}
+            />
+          ) : (
+            <input
+              style={{ ...input, width: '100%' }} value={vals[f.key]} placeholder={f.placeholder}
+              onChange={(e) => setVals((p) => ({ ...p, [f.key]: e.target.value }))}
+            />
+          )}
+        </label>
+      ))}
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
+        <button type="button" style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent)' }} onClick={onClose}>
+          Отмена
+        </button>
+        <button type="button" style={btn} disabled={busy || nameEmpty} onClick={() => onSave(vals)}>
+          Сохранить
+        </button>
       </div>
-    </div>
+    </Modal>
   )
 }
 
-const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }
-const dialog: React.CSSProperties = { background: 'var(--surface)', borderRadius: 14, padding: 22, width: 480, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }
 
 function fmtSize(n: number | null): string {
   if (n == null) return '—'

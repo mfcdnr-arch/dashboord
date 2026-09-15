@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { addComment, deleteComment, listComments, type DashComment } from '../../api'
 
+import { Modal } from '../Modal'
 const ru = (iso?: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('.') : '')
 const when = (iso: string) => new Date(iso).toLocaleString('ru-RU',
   { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -63,83 +63,75 @@ export default function WidgetComments(
     catch (e) { setErr((e as Error).message) }
   }
 
-  return createPortal(
-    <div style={backdrop} onClick={onClose}>
-      <div style={modal} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, flex: 1, minWidth: 0 }}>
-            💬 Замечания к цифре
-          </div>
-          <button type="button" onClick={onClose} style={xBtn} title="Закрыть">✕</button>
+  return (
+    <Modal
+      label="Замечания к цифре"
+      onClose={onClose}
+      style={{ width: 'min(560px, 94vw)', padding: 16, maxHeight: '86vh' }}
+    >
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, flex: 1, minWidth: 0 }}>
+          💬 Замечания к цифре
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>
-          {widgetName}
-          {rowLabel && <> · строка «{rowLabel}»</>}
-          {period && <> · данные на {ru(period)}</>}
-        </div>
-
-        <div style={{ maxHeight: 300, overflowY: 'auto', margin: '10px 0' }}>
-          {items.length === 0 && (
-            <div style={{ fontSize: 12.5, color: 'var(--text-2)' }}>
-              Замечаний к этой цифре пока нет. Напишите, если значение выглядит неверным
-              или требует пояснения — это увидят все, кому доступен отчёт.
-            </div>
-          )}
-          {items.map((c) => {
-            // Замечание про ДРУГУЮ отчётную дату: цифра с тех пор изменилась,
-            // и молчать об этом нельзя — иначе старый текст читается как
-            // сказанный про то, что на экране сейчас.
-            const stale = !!c.period && !!period && c.period !== period
-            return (
-              <div key={c.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--border-faint)' }}>
-                <div style={{ fontSize: 11.5, color: 'var(--text-2)' }}>
-                  <b>{c.author}</b> · {when(c.created_at)}
-                  {c.row_label && <> · строка «{c.row_label}»</>}
-                  {c.can_delete && (
-                    <button type="button" onClick={() => remove(c.id)} style={linkBtn} title="Удалить">
-                      удалить
-                    </button>
-                  )}
-                </div>
-                {stale && (
-                  <div style={{ fontSize: 11, color: 'var(--alert-warn)' }}>
-                    ⌛ о цифре за {ru(c.period)} — сейчас на экране данные на {ru(period)}
-                  </div>
-                )}
-                <div style={{ fontSize: 13, whiteSpace: 'pre-wrap', marginTop: 2 }}>{c.body}</div>
-              </div>
-            )
-          })}
-        </div>
-
-        {err && <div style={errBox}>{err}</div>}
-        <textarea ref={box} value={text} onChange={(e) => setText(e.target.value)}
-          rows={3} placeholder="Например: значение занижено — отделение переезжало"
-          style={area} />
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
-          <button type="button" onClick={send} disabled={busy || !text.trim()} style={btn}>
-            {busy ? 'Отправка…' : 'Отправить'}
-          </button>
-          <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-            Замечание сохранит отчётную дату{period ? ` (${ru(period)})` : ''} — через неделю будет
-            видно, о какой цифре шла речь.
-          </span>
-        </div>
+        <button type="button" onClick={onClose} style={xBtn} title="Закрыть">✕</button>
       </div>
-    </div>,
-    document.body,
+      <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>
+        {widgetName}
+        {rowLabel && <> · строка «{rowLabel}»</>}
+        {period && <> · данные на {ru(period)}</>}
+      </div>
+
+      <div style={{ maxHeight: 300, overflowY: 'auto', margin: '10px 0' }}>
+        {items.length === 0 && (
+          <div style={{ fontSize: 12.5, color: 'var(--text-2)' }}>
+            Замечаний к этой цифре пока нет. Напишите, если значение выглядит неверным
+            или требует пояснения — это увидят все, кому доступен отчёт.
+          </div>
+        )}
+        {items.map((c) => {
+          // Замечание про ДРУГУЮ отчётную дату: цифра с тех пор изменилась,
+          // и молчать об этом нельзя — иначе старый текст читается как
+          // сказанный про то, что на экране сейчас.
+          const stale = !!c.period && !!period && c.period !== period
+          return (
+            <div key={c.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--border-faint)' }}>
+              <div style={{ fontSize: 11.5, color: 'var(--text-2)' }}>
+                <b>{c.author}</b> · {when(c.created_at)}
+                {c.row_label && <> · строка «{c.row_label}»</>}
+                {c.can_delete && (
+                  <button type="button" onClick={() => remove(c.id)} style={linkBtn} title="Удалить">
+                    удалить
+                  </button>
+                )}
+              </div>
+              {stale && (
+                <div style={{ fontSize: 11, color: 'var(--alert-warn)' }}>
+                  ⌛ о цифре за {ru(c.period)} — сейчас на экране данные на {ru(period)}
+                </div>
+              )}
+              <div style={{ fontSize: 13, whiteSpace: 'pre-wrap', marginTop: 2 }}>{c.body}</div>
+            </div>
+          )
+        })}
+      </div>
+
+      {err && <div style={errBox}>{err}</div>}
+      <textarea ref={box} value={text} onChange={(e) => setText(e.target.value)}
+        rows={3} placeholder="Например: значение занижено — отделение переезжало"
+        style={area} />
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+        <button type="button" onClick={send} disabled={busy || !text.trim()} style={btn}>
+          {busy ? 'Отправка…' : 'Отправить'}
+        </button>
+        <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+          Замечание сохранит отчётную дату{period ? ` (${ru(period)})` : ''} — через неделю будет
+          видно, о какой цифре шла речь.
+        </span>
+      </div>
+    </Modal>
   )
 }
 
-const backdrop: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)',
-  display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-}
-const modal: React.CSSProperties = {
-  background: 'var(--surface)', color: 'var(--text)', borderRadius: 10, padding: 16,
-  width: 'min(560px, 94vw)', maxHeight: '86vh', overflowY: 'auto',
-  boxShadow: '0 10px 40px rgba(0,0,0,.25)',
-}
 const area: React.CSSProperties = {
   width: '100%', boxSizing: 'border-box', padding: 8, borderRadius: 6, fontSize: 13,
   border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text)',

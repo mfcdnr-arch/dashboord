@@ -9,7 +9,8 @@ import {
 import { listUsers, AppUser } from '../api/users'
 import WidgetView from './WidgetView'
 import { useConfirm } from './dashboards/ConfirmDialog'
-import { btn, btnGhost, crumb, dialog, errBox, input, linkDanger, muted, overlay, sel, widgetCard, wtBadge } from './dashboards/shared'
+import { btn, btnGhost, crumb, errBox, input, linkDanger, muted, sel, widgetCard, wtBadge } from './dashboards/shared'
+import { Modal } from './Modal'
 
 const MONTHS_RU = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
 export function monthLabel(m: string): string {
@@ -192,32 +193,30 @@ function AccessDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => { reload(); listUsers('', 500, 0).then((p) => setUsers(p.items)).catch(() => {}) }, [])
   const free = users.filter((u) => !rows.some((r) => r.user_id === u.id))
   return (
-    <div style={overlay} onClick={onClose}>
-      <div style={{ ...dialog, width: 520 }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
-          <b style={{ fontSize: 16 }}>🔑 Доступ к архиву</b>
-          <button style={{ marginLeft: 'auto', ...btnGhost, height: 30 }} onClick={onClose}>✕</button>
-        </div>
-        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
-          Администраторы и модераторы видят архив всегда. Ниже — обычные пользователи, которым выдан допуск
-          (они видят весь архив: слепки содержат полные данные).
-        </div>
-        {err && <div style={errBox}>{err}</div>}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <select style={{ ...sel, flex: 1 }} value={uid} onChange={(e) => setUid(e.target.value)}>
-            <option value="">— выберите пользователя —</option>
-            {free.map((u) => <option key={u.id} value={u.id}>{u.full_name || u.login} ({u.login})</option>)}
-          </select>
-          <button style={btn} disabled={!uid} onClick={() => addArchiveAccess(uid).then(() => { setUid(''); reload() }).catch((e) => setErr((e as Error).message))}>Выдать</button>
-        </div>
-        {rows.length === 0 ? <div style={muted}>Допусков пока нет.</div> : rows.map((r) => (
-          <div key={r.user_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
-            <span style={{ fontSize: 14 }}>{r.full_name || r.login}</span>
-            <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>({r.login})</span>
-            <button style={{ ...linkDanger, marginLeft: 'auto' }} onClick={() => removeArchiveAccess(r.user_id).then(reload).catch((e) => setErr((e as Error).message))}>отозвать</button>
-          </div>
-        ))}
+    <Modal label="Доступ к архиву" onClose={onClose} width={520}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+        <b style={{ fontSize: 16 }}>🔑 Доступ к архиву</b>
+        <button style={{ marginLeft: 'auto', ...btnGhost, height: 30 }} onClick={onClose}>✕</button>
       </div>
-    </div>
+      <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+        Администраторы и модераторы видят архив всегда. Ниже — обычные пользователи, которым выдан допуск
+        (они видят весь архив: слепки содержат полные данные).
+      </div>
+      {err && <div style={errBox}>{err}</div>}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <select style={{ ...sel, flex: 1 }} value={uid} onChange={(e) => setUid(e.target.value)}>
+          <option value="">— выберите пользователя —</option>
+          {free.map((u) => <option key={u.id} value={u.id}>{u.full_name || u.login} ({u.login})</option>)}
+        </select>
+        <button style={btn} disabled={!uid} onClick={() => addArchiveAccess(uid).then(() => { setUid(''); reload() }).catch((e) => setErr((e as Error).message))}>Выдать</button>
+      </div>
+      {rows.length === 0 ? <div style={muted}>Допусков пока нет.</div> : rows.map((r) => (
+        <div key={r.user_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+          <span style={{ fontSize: 14 }}>{r.full_name || r.login}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>({r.login})</span>
+          <button style={{ ...linkDanger, marginLeft: 'auto' }} onClick={() => removeArchiveAccess(r.user_id).then(reload).catch((e) => setErr((e as Error).message))}>отозвать</button>
+        </div>
+      ))}
+    </Modal>
   )
 }

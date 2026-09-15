@@ -13,6 +13,7 @@ import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
 import { buildReleaseFields } from '../lib/releaseFields'
 import { cancelRelease, deleteRelease, listVersionReleases, restoreRelease, type ReleaseBySheetResult, type ReleaseImpact, type SheetOutcome, type VersionRelease } from '../api/ingestion'
 import ImpactPanel from './ingestion/ImpactPanel'
+import { Modal } from './Modal'
 
 const TYPES = [
   { v: 'number', t: 'Число' },
@@ -1051,25 +1052,23 @@ function ConflictDialog({ conflict, busy, onSupersede, onCancel }: {
   onSupersede: () => void; onCancel: () => void
 }) {
   return (
-    <div style={overlay} onClick={onCancel}>
-      <div style={dialog} onClick={(e) => e.stopPropagation()}>
-        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>
-          {conflict.auto ? 'Данные за этот период уже выпущены автоматически' : 'Выпуск за этот период уже существует'}
-        </div>
-        <div style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: 16 }}>
-          {conflict.auto && (
-            <>Форма в точности совпала с прошлым отчётом, и замечаний к данным не было —
-            система выпустила их сама, поэтому период занят.<br /></>
-          )}
-          Активный выпуск: «{conflict.name}» от {new Date(conflict.created_at).toLocaleString('ru-RU')}.<br />
-          Заместить его новыми данными? Прежний сохранится в истории как замещённый.
-        </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button style={btnGhost} onClick={onCancel} disabled={busy}>Отмена</button>
-          <button style={btnDanger} onClick={onSupersede} disabled={busy}>{busy ? 'Замещение…' : 'Заместить'}</button>
-        </div>
+    <Modal label="Выпуск за этот период уже существует" onClose={onCancel} width={440}>
+      <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>
+        {conflict.auto ? 'Данные за этот период уже выпущены автоматически' : 'Выпуск за этот период уже существует'}
       </div>
-    </div>
+      <div style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: 16 }}>
+        {conflict.auto && (
+          <>Форма в точности совпала с прошлым отчётом, и замечаний к данным не было —
+          система выпустила их сама, поэтому период занят.<br /></>
+        )}
+        Активный выпуск: «{conflict.name}» от {new Date(conflict.created_at).toLocaleString('ru-RU')}.<br />
+        Заместить его новыми данными? Прежний сохранится в истории как замещённый.
+      </div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button style={btnGhost} onClick={onCancel} disabled={busy}>Отмена</button>
+        <button style={btnDanger} onClick={onSupersede} disabled={busy}>{busy ? 'Замещение…' : 'Заместить'}</button>
+      </div>
+    </Modal>
   )
 }
 
@@ -1106,7 +1105,6 @@ function SheetReport({ res }: { res: ReleaseBySheetResult }) {
     </div>
   )
 }
-
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -1156,8 +1154,6 @@ const outCell: React.CSSProperties = {
 }
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 const warnBox: React.CSSProperties = { background: 'var(--warn-bg)', color: 'var(--warn)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 8 }
-const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }
-const dialog: React.CSSProperties = { background: 'var(--surface)', borderRadius: 14, padding: 24, width: 440, maxWidth: '90vw', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }
 
 /**
  * Выпуски, сделанные из этого файла.

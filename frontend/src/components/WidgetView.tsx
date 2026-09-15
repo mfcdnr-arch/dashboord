@@ -15,10 +15,10 @@ import { exportWidgetXlsx } from '../api'
 import PassportDialog from './dashboards/PassportDialog'
 import { fmtNumber as fmt, heatSteps, logScaleAdvice, sparkSeries } from '../lib/format'
 import { distinctLabels, dropCommonWords, elideMiddle, fitRotatedAxis, plural, textWidth } from '../lib/text'
+import { Modal } from './Modal'
 
 // Отрисовка данных виджета: KPI/таблица/план-факт — HTML, столбцы/линия/круговая —
 // ECharts. По кнопке «подробнее» — drill (прозрачность): формула метрики + первичные строки.
-
 
 // Дата актуальности данных (as_of) в формате ДД.ММ.ГГГГ.
 function fmtAsOf(iso: string): string {
@@ -559,18 +559,13 @@ function WidgetSkeleton() {
  * кнопки пришлось бы поджимать и переворачивать, а список из трёх пунктов от
  * этого читается не лучше. */
 function ActionsMenu({ items, onClose }: { items: { label: string; run: () => void }[]; onClose: () => void }) {
-  useEffect(() => {
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', esc)
-    return () => window.removeEventListener('keydown', esc)
-  }, [onClose])
-  return createPortal(
-    <div style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'rgba(0,0,0,0.28)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()}
-        style={{ background: 'var(--surface)', borderRadius: 12, padding: 8, minWidth: 240, maxWidth: '92vw',
-          boxShadow: '0 10px 40px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+  return (
+    <Modal
+      label="Действия виджета"
+      onClose={onClose}
+      style={{ borderRadius: 12, padding: 8, minWidth: 240, width: 'auto', maxWidth: '92vw',
+        display: 'flex', flexDirection: 'column', gap: 2 }}
+    >
         {items.map((it) => (
           <button key={it.label} onClick={() => { onClose(); it.run() }}
             style={{ textAlign: 'left', padding: '9px 12px', borderRadius: 8, border: 'none',
@@ -578,9 +573,7 @@ function ActionsMenu({ items, onClose }: { items: { label: string; run: () => vo
             {it.label}
           </button>
         ))}
-      </div>
-    </div>,
-    document.body,
+    </Modal>
   )
 }
 
@@ -758,7 +751,6 @@ const stickyHead: React.CSSProperties = { zIndex: 3, background: 'var(--surface-
 // Значок ▲/▼ у заголовка ничего не объясняет сам по себе — подсказка при наведении
 // говорит, что это сортировка и что делает повторный клик.
 const SORT_HINT = 'Сортировать по этому столбцу: ▲ по возрастанию, ▼ по убыванию, третий клик — сброс'
-
 
 /** Прогноз даты достижения плана (plan_fact). Всегда честен: вместо
  *  выдуманной даты говорит, почему её нет. */
@@ -2495,66 +2487,64 @@ function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
   // position:fixed отсчитывается от НЕГО, а не от окна. Окно «подробнее»
   // оказывалось внутри карточки, обрезалось её overflow:hidden — вместе с
   // крестиком, и закрыть его было нечем.
-  return createPortal((
-    <div style={overlay} onClick={onClose}>
-      <div style={dialog} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>Из чего собран: {drill.widget}</div>
-          <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
-        </div>
-
-        {drill.metrics?.length > 0 && (
-          <div style={{ marginBottom: 14 }}>
-            <div style={secH}>Формулы метрик</div>
-            {drill.metrics.map((m: any) => (
-              <div key={m.code} style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{m.name} <span style={{ color: '#9aa4b2', fontWeight: 400 }}>({m.code} · v{m.version_no} · {m.status})</span></div>
-                {/* Ответственный за показатель (п. 11): разбор отвечает «из чего
-                    это собрано», и «с кого спросить» — часть того же ответа. */}
-                {m.owner_name && (
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>👤 Ответственный: {m.owner_name}</div>
-                )}
-                <div style={mono}>{m.formula}</div>
-                {/* Расширенная информация по показателю (FR-5.9): текст модератора или заглушка */}
-                {'info_text' in m && (
-                  <div style={{ fontSize: 12, marginTop: 4, padding: '6px 8px', borderRadius: 6, background: m.info_text ? '#f4f7fb' : '#fafafa', color: m.info_text ? '#374151' : '#9aa4b2', whiteSpace: 'pre-wrap' }}>
-                    {m.info_text ? m.info_text : 'Информации нет, в разработке.'}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div style={secH}>Первичные данные {drill.datasets?.length ? `(датасеты: ${drill.datasets.join(', ')})` : ''}</div>
-        {(drill.datasets || []).length === 0 && <div style={muted}>Источники-датасеты не заданы.</div>}
-        {(drill.datasets || []).map((dc: string) => {
-          const t = drill.tables[dc]
-          return (
-            <div key={dc} style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Датасет «{dc}»</div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
-                  <thead><tr><th style={th}>Строка</th>
-                    {t.columns.map((c: string) => (
-                      <th key={c} style={th} title={c}>{t.column_titles?.[c] || c}</th>
-                    ))}
-                  </tr></thead>
-                  <tbody>
-                    {t.rows.map((r: any, i: number) => (
-                      <tr key={i}><td style={{ ...td, fontWeight: 600 }}>{r.row}</td>
-                        {t.columns.map((c: string) => <td key={c} style={td}>{typeof r[c] === 'number' ? fmt(r[c]) : (r[c] ?? '—')}</td>)}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )
-        })}
+  return (
+    <Modal label={`Из чего собран: ${drill.widget}`} onClose={onClose} width={560}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 16, fontWeight: 600 }}>Из чего собран: {drill.widget}</div>
+        <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
-    </div>
-  ), document.body)
+
+      {drill.metrics?.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={secH}>Формулы метрик</div>
+          {drill.metrics.map((m: any) => (
+            <div key={m.code} style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{m.name} <span style={{ color: '#9aa4b2', fontWeight: 400 }}>({m.code} · v{m.version_no} · {m.status})</span></div>
+              {/* Ответственный за показатель (п. 11): разбор отвечает «из чего
+                  это собрано», и «с кого спросить» — часть того же ответа. */}
+              {m.owner_name && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>👤 Ответственный: {m.owner_name}</div>
+              )}
+              <div style={mono}>{m.formula}</div>
+              {/* Расширенная информация по показателю (FR-5.9): текст модератора или заглушка */}
+              {'info_text' in m && (
+                <div style={{ fontSize: 12, marginTop: 4, padding: '6px 8px', borderRadius: 6, background: m.info_text ? '#f4f7fb' : '#fafafa', color: m.info_text ? '#374151' : '#9aa4b2', whiteSpace: 'pre-wrap' }}>
+                  {m.info_text ? m.info_text : 'Информации нет, в разработке.'}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={secH}>Первичные данные {drill.datasets?.length ? `(датасеты: ${drill.datasets.join(', ')})` : ''}</div>
+      {(drill.datasets || []).length === 0 && <div style={muted}>Источники-датасеты не заданы.</div>}
+      {(drill.datasets || []).map((dc: string) => {
+        const t = drill.tables[dc]
+        return (
+          <div key={dc} style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Датасет «{dc}»</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
+                <thead><tr><th style={th}>Строка</th>
+                  {t.columns.map((c: string) => (
+                    <th key={c} style={th} title={c}>{t.column_titles?.[c] || c}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {t.rows.map((r: any, i: number) => (
+                    <tr key={i}><td style={{ ...td, fontWeight: 600 }}>{r.row}</td>
+                      {t.columns.map((c: string) => <td key={c} style={td}>{typeof r[c] === 'number' ? fmt(r[c]) : (r[c] ?? '—')}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })}
+    </Modal>
+  )
 }
 
 const muted: React.CSSProperties = { fontSize: 11, color: 'var(--text-faint)' }
@@ -2562,8 +2552,6 @@ const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'va
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '4px 8px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '4px 8px' }
 const drillBtn: React.CSSProperties = { marginTop: 8, border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: 0 }
-const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }
-const dialog: React.CSSProperties = { background: 'var(--surface)', borderRadius: 14, padding: 22, width: 560, maxWidth: '92vw', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }
 const secH: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--accent)', marginBottom: 6 }
 const mono: React.CSSProperties = { fontFamily: 'ui-monospace, monospace', fontSize: 12, background: 'var(--surface-2)', padding: '6px 8px', borderRadius: 6, overflowX: 'auto' }
 const rmBtn: React.CSSProperties = { width: 26, height: 26, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--text-muted)' }

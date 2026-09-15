@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { updateWidget, type Widget } from '../../api'
-import { F, btn, btnGhost, dialog, muted, overlay, rmBtn, sel } from './shared'
+import { F, btn, btnGhost, muted, rmBtn, sel } from './shared'
+import { Modal } from '../Modal'
 
 // ── Редактор порогов KPI-алерта (условное форматирование) ──────────────────
 type AlertRule = { level: string; op: string; value: string; value2?: string; label?: string }
@@ -72,61 +73,59 @@ export function AlertEditor({ widget, onClose, onSaved }: { widget: Widget; onCl
   }
 
   return (
-    <div style={overlay} onClick={onClose}>
-      <div style={{ ...dialog, width: 640 }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>⚠ Подсветка по порогам: {widget.name}</div>
-          <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-          Виджет красится, когда значение переходит заданную границу: красным — когда всё плохо,
-          жёлтым — когда близко, зелёным — когда норма достигнута. Правила проверяются сверху
-          вниз, срабатывает первое подходящее.
-        </div>
-
-        {onOpts && (
-          <div style={{ marginBottom: 12 }}>
-            <F t="Сравнивать по">
-              <select style={sel} value={alertOn} onChange={(e) => setAlertOn(e.target.value)}>
-                {onOpts.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
-              </select>
-            </F>
-          </div>
-        )}
-
-        {rules.length === 0 && (
-          <div style={{ ...muted, marginBottom: 10 }}>
-            Порогов пока нет — виджет всегда одного цвета.
-            {planPresetFits && (
-              <>
-                {' '}Если это выполнение плана, подставьте готовую норму:{' '}
-                <button style={{ ...btnGhost, height: 26, padding: '0 8px', fontSize: 12 }}
-                  onClick={() => setRules(PLAN_PRESET.map((r) => ({ ...r })))}>
-                  90 / 100 %
-                </button>
-              </>
-            )}
-          </div>
-        )}
-        {rules.map((r, i) => (
-          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 8, borderBottom: '1px solid var(--surface-2)', paddingBottom: 8 }}>
-            <F t="Уровень"><select style={sel} value={r.level} onChange={(e) => set(i, { level: e.target.value })}>{LEVELS.map((l) => <option key={l.v} value={l.v}>{l.t}</option>)}</select></F>
-            <F t="Условие"><select style={sel} value={r.op} onChange={(e) => set(i, { op: e.target.value })}>{OPS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}</select></F>
-            <F t="Значение"><input style={{ ...sel, width: 90 }} type="number" value={r.value} onChange={(e) => set(i, { value: e.target.value })} /></F>
-            {(r.op === 'between' || r.op === 'outside') && (
-              <F t="…до"><input style={{ ...sel, width: 90 }} type="number" value={r.value2} onChange={(e) => set(i, { value2: e.target.value })} /></F>
-            )}
-            <F t="Подпись (необяз.)"><input style={{ ...sel, width: 150 }} placeholder="напр. План не выполнен" value={r.label} onChange={(e) => set(i, { label: e.target.value })} /></F>
-            <button style={rmBtn} onClick={() => del(i)} title="Удалить правило">✕</button>
-          </div>
-        ))}
-
-        {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 6 }}>{err}</div>}
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <button style={btnGhost} onClick={add}>+ Правило</button>
-          <button style={{ ...btn, marginLeft: 'auto' }} disabled={busy} onClick={save}>{busy ? 'Сохранение…' : 'Сохранить'}</button>
-        </div>
+    <Modal label={`Подсветка по порогам: ${widget.name}`} onClose={onClose} width={640}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+        <div style={{ fontSize: 16, fontWeight: 600 }}>⚠ Подсветка по порогам: {widget.name}</div>
+        <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
-    </div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+        Виджет красится, когда значение переходит заданную границу: красным — когда всё плохо,
+        жёлтым — когда близко, зелёным — когда норма достигнута. Правила проверяются сверху
+        вниз, срабатывает первое подходящее.
+      </div>
+
+      {onOpts && (
+        <div style={{ marginBottom: 12 }}>
+          <F t="Сравнивать по">
+            <select style={sel} value={alertOn} onChange={(e) => setAlertOn(e.target.value)}>
+              {onOpts.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
+            </select>
+          </F>
+        </div>
+      )}
+
+      {rules.length === 0 && (
+        <div style={{ ...muted, marginBottom: 10 }}>
+          Порогов пока нет — виджет всегда одного цвета.
+          {planPresetFits && (
+            <>
+              {' '}Если это выполнение плана, подставьте готовую норму:{' '}
+              <button style={{ ...btnGhost, height: 26, padding: '0 8px', fontSize: 12 }}
+                onClick={() => setRules(PLAN_PRESET.map((r) => ({ ...r })))}>
+                90 / 100 %
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {rules.map((r, i) => (
+        <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 8, borderBottom: '1px solid var(--surface-2)', paddingBottom: 8 }}>
+          <F t="Уровень"><select style={sel} value={r.level} onChange={(e) => set(i, { level: e.target.value })}>{LEVELS.map((l) => <option key={l.v} value={l.v}>{l.t}</option>)}</select></F>
+          <F t="Условие"><select style={sel} value={r.op} onChange={(e) => set(i, { op: e.target.value })}>{OPS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}</select></F>
+          <F t="Значение"><input style={{ ...sel, width: 90 }} type="number" value={r.value} onChange={(e) => set(i, { value: e.target.value })} /></F>
+          {(r.op === 'between' || r.op === 'outside') && (
+            <F t="…до"><input style={{ ...sel, width: 90 }} type="number" value={r.value2} onChange={(e) => set(i, { value2: e.target.value })} /></F>
+          )}
+          <F t="Подпись (необяз.)"><input style={{ ...sel, width: 150 }} placeholder="напр. План не выполнен" value={r.label} onChange={(e) => set(i, { label: e.target.value })} /></F>
+          <button style={rmBtn} onClick={() => del(i)} title="Удалить правило">✕</button>
+        </div>
+      ))}
+
+      {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 6 }}>{err}</div>}
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button style={btnGhost} onClick={add}>+ Правило</button>
+        <button style={{ ...btn, marginLeft: 'auto' }} disabled={busy} onClick={save}>{busy ? 'Сохранение…' : 'Сохранить'}</button>
+      </div>
+    </Modal>
   )
 }

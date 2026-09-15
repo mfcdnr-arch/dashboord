@@ -1,6 +1,6 @@
+import { Modal } from '../Modal'
 // Виджет-пикер: визуальная галерея типов виджетов с мини-превью, сгруппированная
 // по 4 категориям. Заменяет прежний select «Тип» — как в Power BI/Superset.
-import { overlay, dialog } from './shared'
 
 // ── Мини-превью (лёгкие SVG-иконки, без данных) ──────────────────────────────
 const C1 = '#e04e39', C2 = '#e0885f', C3 = '#c39367', GREEN = '#2f8f6b', GOLD = '#8a5a1a'
@@ -124,25 +124,23 @@ function Card({ m, active, onPick }: { m: Meta; active: boolean; onPick: (v: str
 // Галерея выбора типа виджета. Открывается из формы виджета.
 export function WidgetPicker({ value, onPick, onClose }: { value: string; onPick: (v: string) => void; onClose: () => void }) {
   return (
-    <div style={overlay} onClick={onClose}>
-      <div style={{ ...dialog, width: 720 }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>Выберите тип виджета</div>
-          <button type="button" style={closeBtn} onClick={onClose}>✕</button>
-        </div>
-        {WIDGET_GROUPS.map((g) => (
-          <div key={g.key} style={{ marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{g.title}</span>
-              <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{g.note}</span>
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-              {g.items.map((m) => <Card key={m.v} m={m} active={m.v === value} onPick={(v) => { onPick(v); onClose() }} />)}
-            </div>
-          </div>
-        ))}
+    <Modal label="Выберите тип виджета" onClose={onClose} width={720}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
+        <div style={{ fontSize: 17, fontWeight: 700 }}>Выберите тип виджета</div>
+        <button type="button" style={closeBtn} onClick={onClose}>✕</button>
       </div>
-    </div>
+      {WIDGET_GROUPS.map((g) => (
+        <div key={g.key} style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{g.title}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{g.note}</span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {g.items.map((m) => <Card key={m.v} m={m} active={m.v === value} onPick={(v) => { onPick(v); onClose() }} />)}
+          </div>
+        </div>
+      ))}
+    </Modal>
   )
 }
 

@@ -3,6 +3,7 @@ import {
   exportAudit, getAuditEvent, listAudit,
   type AuditDetail, type AuditItem, type AuditList, type AuditQuery,
 } from '../api'
+import { Modal } from './Modal'
 
 // Раздел «Аудит действий» (только admin): журнал изменений сущностей
 // (дашборды/виджеты/права). Наполняется триггерами БД, автор — из сессии.
@@ -190,62 +191,60 @@ function DetailModal({ d, onClose }: { d: AuditDetail; onClose: () => void }) {
   const et = d.entity_type === 'dashboard' ? 'Дашборд' : d.entity_type === 'widget' ? 'Виджет' : d.entity_type === 'object_acl' ? 'Права доступа' : d.entity_type === 'appeal' ? 'Обращение' : d.entity_type
   const changed = d.diff.filter((f) => f.changed)
   return (
-    <div style={overlay} onClick={onClose}>
-      <div style={dialog} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>
-            <span style={{ color: ACTION_COLOR[d.action] }}>{ACTION_LABEL[d.action] || d.action}</span> · {et}
-          </div>
-          <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
+    <Modal label="Событие журнала" onClose={onClose} width={640}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 16, fontWeight: 600 }}>
+          <span style={{ color: ACTION_COLOR[d.action] }}>{ACTION_LABEL[d.action] || d.action}</span> · {et}
         </div>
-        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>{d.entity_name || d.entity_id}</div>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
-          <span>Автор: <b style={{ color: 'var(--text)' }}>{actorText(d)}</b></span>
-          <span>Время: {fmtDt(d.created_at)}</span>
-          {d.ip_address && <span>IP: {d.ip_address}</span>}
-        </div>
+        <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>{d.entity_name || d.entity_id}</div>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
+        <span>Автор: <b style={{ color: 'var(--text)' }}>{actorText(d)}</b></span>
+        <span>Время: {fmtDt(d.created_at)}</span>
+        {d.ip_address && <span>IP: {d.ip_address}</span>}
+      </div>
 
-        {d.action === 'update' ? (
-          changed.length === 0 ? <div style={muted}>Содержательных изменений полей нет.</div> : (
-            <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
-              <thead><tr>{['Поле', 'Было', 'Стало'].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
-              <tbody>
-                {changed.map((f) => (
-                  <tr key={f.field}>
-                    <td style={{ ...td, fontWeight: 600, whiteSpace: 'nowrap' }}>{f.field}</td>
-                    <td style={{ ...td, color: 'var(--danger)', maxWidth: 260, wordBreak: 'break-word' }}>{fmtVal(f.old)}</td>
-                    <td style={{ ...td, color: 'var(--success)', maxWidth: 260, wordBreak: 'break-word' }}>{fmtVal(f.new)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )
-        ) : (
-          // create/publish/grant — снимок new; delete/revoke — снимок old (что было снято)
-          (() => {
-            const useOld = d.action === 'delete' || d.action === 'revoke_access'
-            const colTitle = d.action === 'delete' ? 'Значение (до удаления)' : d.action === 'revoke_access' ? 'Значение (снято)' : 'Значение'
-            const rows = d.diff.filter((f) => (useOld ? f.old : f.new) !== null && (useOld ? f.old : f.new) !== undefined)
-            return (
+      {d.action === 'update' ? (
+        changed.length === 0 ? <div style={muted}>Содержательных изменений полей нет.</div> : (
           <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
-            <thead><tr>{['Поле', colTitle].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+            <thead><tr>{['Поле', 'Было', 'Стало'].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
             <tbody>
-              {rows.map((f) => {
-                const v = useOld ? f.old : f.new
-                return (
-                  <tr key={f.field}>
-                    <td style={{ ...td, fontWeight: 600, whiteSpace: 'nowrap' }}>{f.field}</td>
-                    <td style={{ ...td, maxWidth: 420, wordBreak: 'break-word' }}>{fmtVal(v)}</td>
-                  </tr>
-                )
-              })}
+              {changed.map((f) => (
+                <tr key={f.field}>
+                  <td style={{ ...td, fontWeight: 600, whiteSpace: 'nowrap' }}>{f.field}</td>
+                  <td style={{ ...td, color: 'var(--danger)', maxWidth: 260, wordBreak: 'break-word' }}>{fmtVal(f.old)}</td>
+                  <td style={{ ...td, color: 'var(--success)', maxWidth: 260, wordBreak: 'break-word' }}>{fmtVal(f.new)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
-            )
-          })()
-        )}
-      </div>
-    </div>
+        )
+      ) : (
+        // create/publish/grant — снимок new; delete/revoke — снимок old (что было снято)
+        (() => {
+          const useOld = d.action === 'delete' || d.action === 'revoke_access'
+          const colTitle = d.action === 'delete' ? 'Значение (до удаления)' : d.action === 'revoke_access' ? 'Значение (снято)' : 'Значение'
+          const rows = d.diff.filter((f) => (useOld ? f.old : f.new) !== null && (useOld ? f.old : f.new) !== undefined)
+          return (
+        <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
+          <thead><tr>{['Поле', colTitle].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {rows.map((f) => {
+              const v = useOld ? f.old : f.new
+              return (
+                <tr key={f.field}>
+                  <td style={{ ...td, fontWeight: 600, whiteSpace: 'nowrap' }}>{f.field}</td>
+                  <td style={{ ...td, maxWidth: 420, wordBreak: 'break-word' }}>{fmtVal(v)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+          )
+        })()
+      )}
+    </Modal>
   )
 }
 
@@ -262,5 +261,3 @@ const th: React.CSSProperties = { border: '1px solid var(--border-faint)', paddi
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', verticalAlign: 'top' }
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
-const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }
-const dialog: React.CSSProperties = { background: 'var(--surface)', borderRadius: 14, padding: 22, width: 640, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }

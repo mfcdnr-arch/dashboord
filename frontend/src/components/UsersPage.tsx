@@ -9,6 +9,7 @@ import {
   revokeAuditAccess, setUserActive, updateUser,
   type AppUser, type AuditAccessRow, type Department, type LoginEventsReport, type PasswordPolicy, type Role,
 } from '../api'
+import { Modal } from './Modal'
 
 function fmtDt(iso: string | null): string {
   if (!iso) return '—'
@@ -411,63 +412,60 @@ function UserEditor({ user, depts, roles, canGrantSuper, onClose, onSaved }: {
   }
 
   return (
-    <div style={overlay} onClick={onClose}>
-      <div style={dialog} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>{isNew ? 'Новый пользователь' : `Изменить: ${user!.login}`}</div>
-          <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          {isNew && <L t="Логин *"><input style={input} value={login} onChange={(e) => setLogin(e.target.value)} /></L>}
-          {isNew && <L t="Временный пароль *"><input style={{ ...input, borderColor: pwErr ? '#d99' : undefined }} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={`минимум ${policy.min_length}, буквы+цифры`} /></L>}
-          {isNew && <div style={{ gridColumn: '1 / -1', fontSize: 12, color: pwErr ? 'var(--danger)' : 'var(--text-muted)', marginTop: -4 }}>{pwErr || passwordHint(policy)}</div>}
-          <L t="Фамилия"><input style={input} value={last} onChange={(e) => setLast(e.target.value)} /></L>
-          <L t="Имя"><input style={input} value={first} onChange={(e) => setFirst(e.target.value)} /></L>
-          <L t="Отчество"><input style={input} value={middle} onChange={(e) => setMiddle(e.target.value)} /></L>
-          <L t="Email"><input style={input} value={email} onChange={(e) => setEmail(e.target.value)} /></L>
-          <L t="Отдел"><select style={input} value={deptId} onChange={(e) => setDeptId(e.target.value)}>
-            <option value="">— без отдела —</option>
-            {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select></L>
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13 }}>
-            <input type="checkbox" checked={showFeatured} style={{ marginTop: 2 }}
-              onChange={(e) => setShowFeatured(e.target.checked)} />
-            <span>
-              Показывать раздел «Руководителю»
-              <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)' }}>
-                Подборка отчётов для руководства. Доступ к самим отчётам она НЕ выдаёт —
-                это отдельное действие; галочка лишь показывает раздел в меню.
-              </span>
+    <Modal label={isNew ? "Новый пользователь" : `Изменить: ${user!.login}`} onClose={onClose} width={560}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 16, fontWeight: 600 }}>{isNew ? 'Новый пользователь' : `Изменить: ${user!.login}`}</div>
+        <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        {isNew && <L t="Логин *"><input style={input} value={login} onChange={(e) => setLogin(e.target.value)} /></L>}
+        {isNew && <L t="Временный пароль *"><input style={{ ...input, borderColor: pwErr ? '#d99' : undefined }} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={`минимум ${policy.min_length}, буквы+цифры`} /></L>}
+        {isNew && <div style={{ gridColumn: '1 / -1', fontSize: 12, color: pwErr ? 'var(--danger)' : 'var(--text-muted)', marginTop: -4 }}>{pwErr || passwordHint(policy)}</div>}
+        <L t="Фамилия"><input style={input} value={last} onChange={(e) => setLast(e.target.value)} /></L>
+        <L t="Имя"><input style={input} value={first} onChange={(e) => setFirst(e.target.value)} /></L>
+        <L t="Отчество"><input style={input} value={middle} onChange={(e) => setMiddle(e.target.value)} /></L>
+        <L t="Email"><input style={input} value={email} onChange={(e) => setEmail(e.target.value)} /></L>
+        <L t="Отдел"><select style={input} value={deptId} onChange={(e) => setDeptId(e.target.value)}>
+          <option value="">— без отдела —</option>
+          {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select></L>
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13 }}>
+          <input type="checkbox" checked={showFeatured} style={{ marginTop: 2 }}
+            onChange={(e) => setShowFeatured(e.target.checked)} />
+          <span>
+            Показывать раздел «Руководителю»
+            <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)' }}>
+              Подборка отчётов для руководства. Доступ к самим отчётам она НЕ выдаёт —
+              это отдельное действие; галочка лишь показывает раздел в меню.
             </span>
-          </label>
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Роли</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {shownRoles.map((r) => (
-              <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}
-                title={r.code === 'superadmin' ? 'Полный доступ ко всем пользователям, включая администраторов' : undefined}>
-                <input type="checkbox" checked={roleIds.has(r.id)} onChange={() => toggle(r.id)} />{r.name}
-              </label>
-            ))}
-          </div>
-        </div>
-        {isNew && <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 8 }}>Пользователь сменит временный пароль при первом входе.</div>}
-        {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 8 }}>{err}</div>}
-        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-          <button style={{ ...btn, marginLeft: 'auto' }} disabled={busy} onClick={save}>{busy ? 'Сохранение…' : 'Сохранить'}</button>
+          </span>
+        </label>
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Роли</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {shownRoles.map((r) => (
+            <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}
+              title={r.code === 'superadmin' ? 'Полный доступ ко всем пользователям, включая администраторов' : undefined}>
+              <input type="checkbox" checked={roleIds.has(r.id)} onChange={() => toggle(r.id)} />{r.name}
+            </label>
+          ))}
         </div>
       </div>
-    </div>
+      {isNew && <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 8 }}>Пользователь сменит временный пароль при первом входе.</div>}
+      {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 8 }}>{err}</div>}
+      <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+        <button style={{ ...btn, marginLeft: 'auto' }} disabled={busy} onClick={save}>{busy ? 'Сохранение…' : 'Сохранить'}</button>
+      </div>
+    </Modal>
   )
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return <div style={{ marginBottom: 24 }}><h3 style={{ fontSize: 15, margin: '0 0 10px' }}>{title}</h3>{children}</div>
 }
-
 
 // «Личный кабинет» пользователя (волна B): входы, действия из аудита и
 // комментарии в одном месте — вместо трёх разных экранов. Доступ как у
@@ -480,21 +478,19 @@ function UserActivityPanel({ user, onClose }: { user: AppUser; onClose: () => vo
   // означал бы, что администратор без гранта аудита не доберётся и до доступов.
   const [tab, setTab] = useState<'activity' | 'access'>('activity')
   return (
-    <div style={overlay} onClick={onClose}>
-      <div style={{ ...dialog, width: 760 }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>
-            📊 Кабинет: {user.login}{user.full_name ? ` (${user.full_name})` : ''}
-          </div>
-          <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
+    <Modal label={`Кабинет: ${user.login}`} onClose={onClose} width={760}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 16, fontWeight: 600 }}>
+          📊 Кабинет: {user.login}{user.full_name ? ` (${user.full_name})` : ''}
         </div>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-          <button style={tab === 'activity' ? tabOn : tabOff} onClick={() => setTab('activity')}>Активность</button>
-          <button style={tab === 'access' ? tabOn : tabOff} onClick={() => setTab('access')}>🔒 Доступ к дашбордам</button>
-        </div>
-        {tab === 'activity' ? <UserCard userId={user.id} /> : <UserAccessPanel userId={user.id} />}
+        <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
-    </div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+        <button style={tab === 'activity' ? tabOn : tabOff} onClick={() => setTab('activity')}>Активность</button>
+        <button style={tab === 'access' ? tabOn : tabOff} onClick={() => setTab('access')}>🔒 Доступ к дашбордам</button>
+      </div>
+      {tab === 'activity' ? <UserCard userId={user.id} /> : <UserAccessPanel userId={user.id} />}
+    </Modal>
   )
 }
 
@@ -521,5 +517,3 @@ const th: React.CSSProperties = { border: '1px solid var(--border-faint)', paddi
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px' }
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
-const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }
-const dialog: React.CSSProperties = { background: 'var(--surface)', borderRadius: 14, padding: 22, width: 560, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }

@@ -1,7 +1,8 @@
 // Перепривязка шаблона: сопоставить коды датасетов/метрик шаблона с кодами
 // текущего контекста (если их нет — иначе виджеты дадут ошибку). Отсутствующие
 // коды подсвечены; для каждого — выбор из доступных или «оставить как есть».
-import { btn, btnGhost, dialog, input, overlay, rmBtn } from './shared'
+import { btn, btnGhost, input, rmBtn } from './shared'
+import { Modal } from '../Modal'
 
 export type RebindState = {
   templateId: string; name: string
@@ -34,28 +35,26 @@ export function RebindModal({ rebind, setRebind, onConfirm, busy }: {
     </div>
   )
   return (
-    <div style={overlay} onClick={() => setRebind(null)}>
-      <div style={{ ...dialog, width: 560 }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>Перепривязка шаблона</div>
-          <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={() => setRebind(null)}>✕</button>
-        </div>
-        <p style={{ fontSize: 13, color: 'var(--text-2)', margin: '0 0 12px' }}>
-          Шаблон ссылается на коды, которых нет в текущем контексте (⚠). Сопоставьте их с существующими
-          датасетами/метриками — иначе виджеты дадут ошибку. Совпадающие (✓) можно не трогать.
-        </p>
-        {rebind.datasets.length > 0 && <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', margin: '6px 0 2px' }}>Датасеты</div>}
-        {rebind.datasets.map((d) => row('d', d.code, d.missing, rebind.datasetMap[d.code] || '', rebind.availDatasets, setD))}
-        {rebind.metrics.length > 0 && <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', margin: '10px 0 2px' }}>Метрики</div>}
-        {rebind.metrics.map((m) => row('m', m.code, m.missing, rebind.metricMap[m.code] || '', rebind.availMetrics, setM))}
-        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-          <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={() => setRebind(null)}>Отмена</button>
-          <button style={btn} disabled={busy || missingUnmapped} onClick={onConfirm}
-            title={missingUnmapped ? 'Сначала сопоставьте все отсутствующие коды (⚠)' : ''}>
-            {busy ? 'Создание…' : 'Создать дашборд'}
-          </button>
-        </div>
+    <Modal label="Перепривязка шаблона" onClose={() => setRebind(null)} width={560}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ fontSize: 16, fontWeight: 600 }}>Перепривязка шаблона</div>
+        <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={() => setRebind(null)}>✕</button>
       </div>
-    </div>
+      <p style={{ fontSize: 13, color: 'var(--text-2)', margin: '0 0 12px' }}>
+        Шаблон ссылается на коды, которых нет в текущем контексте (⚠). Сопоставьте их с существующими
+        датасетами/метриками — иначе виджеты дадут ошибку. Совпадающие (✓) можно не трогать.
+      </p>
+      {rebind.datasets.length > 0 && <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', margin: '6px 0 2px' }}>Датасеты</div>}
+      {rebind.datasets.map((d) => row('d', d.code, d.missing, rebind.datasetMap[d.code] || '', rebind.availDatasets, setD))}
+      {rebind.metrics.length > 0 && <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', margin: '10px 0 2px' }}>Метрики</div>}
+      {rebind.metrics.map((m) => row('m', m.code, m.missing, rebind.metricMap[m.code] || '', rebind.availMetrics, setM))}
+      <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+        <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={() => setRebind(null)}>Отмена</button>
+        <button style={btn} disabled={busy || missingUnmapped} onClick={onConfirm}
+          title={missingUnmapped ? 'Сначала сопоставьте все отсутствующие коды (⚠)' : ''}>
+          {busy ? 'Создание…' : 'Создать дашборд'}
+        </button>
+      </div>
+    </Modal>
   )
 }

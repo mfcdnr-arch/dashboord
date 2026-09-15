@@ -3,6 +3,7 @@ import {
   getModerationQueue, getReasonCodes, moderateDashboard,
   type ModerationQueueItem, type ReasonCode,
 } from '../api'
+import { Modal } from './Modal'
 
 // Раздел «Модерация» (модератор/старший модератор/админ): очередь дашбордов,
 // отправленных на проверку. Одна ступень: одобрение = публикация. Конфликт
@@ -122,50 +123,48 @@ function ReviewModal({ item, reasons, onClose, onDone, onError }: {
   const hasFail = Object.values(checks).some((s) => s === 'failed')
 
   return (
-    <div style={overlay} onClick={onClose}>
-      <div style={dialog} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>Проверка: {item.name}</div>
-          <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>Отправил: {item.requester} · {fmtDt(item.requested_at)}</div>
-
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Чек-лист проверки</div>
-        <div style={{ display: 'grid', gap: 8, marginBottom: 16 }}>
-          {CHECK_BLOCKS.map((b) => (
-            <div key={b.code} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ width: 110, fontSize: 13 }}>{b.label}</span>
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                {CHECK_OPTIONS.map((o) => (
-                  <button key={o.code} onClick={() => setChecks((s) => ({ ...s, [b.code]: o.code }))}
-                    style={{
-                      fontSize: 12, padding: '2px 8px', borderRadius: 8, cursor: 'pointer',
-                      border: `1px solid ${checks[b.code] === o.code ? o.color : 'var(--border-strong)'}`,
-                      background: checks[b.code] === o.code ? o.color : 'var(--on-accent)',
-                      color: checks[b.code] === o.code ? 'var(--on-accent)' : 'var(--text-2)',
-                    }}>{o.label}</button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Причина возврата (если возвращаете)</div>
-        <select style={{ ...input, width: '100%', marginBottom: 8 }} value={reason} onChange={(e) => setReason(e.target.value)}>
-          <option value="">— не выбрана —</option>
-          {reasons.map((r) => <option key={r.code} value={r.code}>{r.label}</option>)}
-        </select>
-        <textarea style={{ ...input, width: '100%', height: 56, padding: 8, resize: 'vertical' }}
-          placeholder="Комментарий (обязателен для причины «Иная»)" value={comment} onChange={(e) => setComment(e.target.value)} />
-
-        {hasFail && <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 8 }}>⚠ Есть непройденные блоки — обычно такой дашборд возвращают на доработку.</div>}
-
-        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-          <button style={{ ...btnGhost, marginLeft: 'auto' }} disabled={busy} onClick={() => act('return')}>↩ Вернуть на доработку</button>
-          <button style={btn} disabled={busy} onClick={() => act('approve')}>✓ Одобрить и опубликовать</button>
-        </div>
+    <Modal label={`Проверка: ${item.name}`} onClose={onClose} width={560}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+        <div style={{ fontSize: 16, fontWeight: 600 }}>Проверка: {item.name}</div>
+        <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
-    </div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>Отправил: {item.requester} · {fmtDt(item.requested_at)}</div>
+
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Чек-лист проверки</div>
+      <div style={{ display: 'grid', gap: 8, marginBottom: 16 }}>
+        {CHECK_BLOCKS.map((b) => (
+          <div key={b.code} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 110, fontSize: 13 }}>{b.label}</span>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {CHECK_OPTIONS.map((o) => (
+                <button key={o.code} onClick={() => setChecks((s) => ({ ...s, [b.code]: o.code }))}
+                  style={{
+                    fontSize: 12, padding: '2px 8px', borderRadius: 8, cursor: 'pointer',
+                    border: `1px solid ${checks[b.code] === o.code ? o.color : 'var(--border-strong)'}`,
+                    background: checks[b.code] === o.code ? o.color : 'var(--on-accent)',
+                    color: checks[b.code] === o.code ? 'var(--on-accent)' : 'var(--text-2)',
+                  }}>{o.label}</button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Причина возврата (если возвращаете)</div>
+      <select style={{ ...input, width: '100%', marginBottom: 8 }} value={reason} onChange={(e) => setReason(e.target.value)}>
+        <option value="">— не выбрана —</option>
+        {reasons.map((r) => <option key={r.code} value={r.code}>{r.label}</option>)}
+      </select>
+      <textarea style={{ ...input, width: '100%', height: 56, padding: 8, resize: 'vertical' }}
+        placeholder="Комментарий (обязателен для причины «Иная»)" value={comment} onChange={(e) => setComment(e.target.value)} />
+
+      {hasFail && <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 8 }}>⚠ Есть непройденные блоки — обычно такой дашборд возвращают на доработку.</div>}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+        <button style={{ ...btnGhost, marginLeft: 'auto' }} disabled={busy} onClick={() => act('return')}>↩ Вернуть на доработку</button>
+        <button style={btn} disabled={busy} onClick={() => act('approve')}>✓ Одобрить и опубликовать</button>
+      </div>
+    </Modal>
   )
 }
 
@@ -178,5 +177,3 @@ const th: React.CSSProperties = { border: '1px solid var(--border-faint)', paddi
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px' }
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
-const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }
-const dialog: React.CSSProperties = { background: 'var(--surface)', borderRadius: 14, padding: 22, width: 560, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }

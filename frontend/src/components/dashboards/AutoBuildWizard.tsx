@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import {
   autoBuildDashboard, autoBuildPlan, DuplicateError, listDocuments, listFolders,
   type AutoPlan, type DatasetPick, type Dashboard, type Doc, type Folder,
@@ -9,6 +8,7 @@ import {
 import { fmtNumber } from '../../lib/format'
 import { plural } from '../../lib/text'
 
+import { Modal } from '../Modal'
 /**
  * Мастер авто-сборки: что нашли в объекте и что из этого собрать.
  *
@@ -252,9 +252,12 @@ export default function AutoBuildWizard(
   }
 
   if (dup) {
-    return createPortal(
-      <div style={backdrop} onClick={() => setDup(null)}>
-        <div style={{ ...card, maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+    return (
+      <Modal
+        label="Дашборд с таким названием уже есть"
+        onClose={() => setDup(null)}
+        style={{ maxWidth: 560, padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}
+      >
           <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>Дашборд с таким названием уже есть</h3>
           <div style={{ fontSize: 13.5, lineHeight: 1.45, marginBottom: 14 }}>{dup}</div>
           <div style={{ ...muted, fontSize: 12.5, marginBottom: 14 }}>
@@ -268,289 +271,290 @@ export default function AutoBuildWizard(
               Всё равно создать
             </button>
           </div>
-        </div>
-      </div>, document.body)
+      </Modal>
+    )
   }
 
-  return createPortal(
-    <div style={backdrop} onClick={onClose}>
-      <div style={card} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <h3 style={{ margin: 0, fontSize: 16 }}>Собрать дашборд по объекту «{objectName}»</h3>
-          <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={onClose}>✕</button>
-        </div>
+  return (
+    <Modal
+      label={`Собрать дашборд по объекту «${objectName}»`}
+      onClose={onClose}
+      style={{ width: 'min(720px, 100%)', padding: 18, maxHeight: '86vh', display: 'flex', flexDirection: 'column', gap: 10 }}
+    >
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <h3 style={{ margin: 0, fontSize: 16 }}>Собрать дашборд по объекту «{objectName}»</h3>
+        <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={onClose}>✕</button>
+      </div>
 
-        {loadErr && <div style={errBox}>{loadErr}</div>}
-        {!plan && !loadErr && <div style={muted}>Смотрим, что есть в объекте…</div>}
+      {loadErr && <div style={errBox}>{loadErr}</div>}
+      {!plan && !loadErr && <div style={muted}>Смотрим, что есть в объекте…</div>}
 
-        {plan && sel && (
-          <>
-            {restored && (
-              <div style={{ ...muted, fontSize: 12.5, marginBottom: 10 }}>
-                ↩ Восстановлен выбор прошлой сборки — поменяйте, если нужно иначе.
-              </div>
-            )}
-            {plan.warnings.map((w, i) => <div key={i} style={warnBox}>⚠ {w}</div>)}
+      {plan && sel && (
+        <>
+          {restored && (
+            <div style={{ ...muted, fontSize: 12.5, marginBottom: 10 }}>
+              ↩ Восстановлен выбор прошлой сборки — поменяйте, если нужно иначе.
+            </div>
+          )}
+          {plan.warnings.map((w, i) => <div key={i} style={warnBox}>⚠ {w}</div>)}
 
-            {plan.datasets.map((d) => {
-              const pick = sel[d.code] || {}
-              const allFields = d.fields.map((f) => f.code)
-              const on = pick.fields || []
-              return (
-                <div key={d.code} style={block}>
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>{d.name}</div>
-                  <div style={{ ...muted, fontSize: 12.5, marginBottom: 8 }}>
-                    код {d.code} · периодов: {d.periods} · показателей: {d.fields.length}
-                    {d.periods > 1 && ' · динамика строится по всем периодам'}
-                  </div>
-
-                  <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Что показать</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-                    {plan.blocks.map((b) => (
-                      <label key={b} style={chk}>
-                        <input type="checkbox" checked={(pick.blocks || []).includes(b)}
-                          onChange={() => toggleBlock(d.code, b)} />
-                        {BLOCK_LABELS[b] || b}
-                      </label>
-                    ))}
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>Показатели ({on.length} из {d.fields.length})</span>
-                    <button style={linkBtn} onClick={() => setAllFields(d.code, allFields, true)}>все</button>
-                    <button style={linkBtn} onClick={() => setAllFields(d.code, allFields, false)}>снять</button>
-                  </div>
-                  <div style={fieldBox}>
-                    {d.fields.map((f) => (
-                      <div key={f.code} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <label style={{ ...chk, flex: 1, minWidth: 0 }} title={f.name}>
-                          <input type="checkbox" checked={on.includes(f.code)}
-                            onChange={() => toggleField(d.code, f.code)} />
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                        </label>
-                        <select
-                          style={viewSel} value={(pick.views || {})[f.code] || 'kpi'}
-                          disabled={!on.includes(f.code)}
-                          title="Как показать этот показатель"
-                          onChange={(e) => setView(d.code, f.code, e.target.value)}
-                        >
-                          {VIEW_LABELS.filter((v) => d.periods > 1 || v.v === 'kpi' || v.v === 'none')
-                            .map((v) => <option key={v.v} value={v.v}>{v.t}</option>)}
-                        </select>
-                      </div>
-                    ))}
-                  </div>
-                  {(d.period_dates || []).length > 1 && (
-                    <>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '12px 0 4px', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 12.5, fontWeight: 600 }}>
-                          Отдельные страницы по отчётам ({(pick.periods || []).length} из {MAX_PERIODS})
-                        </span>
-                        {(pick.periods || []).length > 0 && (
-                          <button type="button" style={linkBtn}
-                            onClick={() => setSel((st) => (st ? { ...st, [d.code]: { ...st[d.code], periods: [] } } : st))}>
-                            снять все
-                          </button>
-                        )}
-                      </div>
-                      <div style={{ ...muted, fontSize: 12, marginBottom: 6 }}>
-                        Страницы выше — сводные: они показывают последний отчёт и обновляются сами,
-                        когда приходит новый. Страница за конкретную дату — снимок: её цифры
-                        привязаны к этой дате и не меняются. Отметьте недели, которые нужно
-                        сохранить отдельно (не больше восьми).
-                      </div>
-                      {(pick.periods || []).length >= MAX_PERIODS && (
-                        // Без этой строки недоступные галочки выглядят поломкой:
-                        // человек жмёт по неделе, ничего не происходит, и почему —
-                        // не сказано. Особенно когда выбор восстановлен из прошлой
-                        // сборки и занят старыми неделями, а нужны свежие.
-                        <div style={{ fontSize: 12, color: 'var(--accent)', marginBottom: 6 }}>
-                          Отмечено максимум ({MAX_PERIODS}). Чтобы отметить другую неделю,
-                          снимите лишнюю — или нажмите «снять все» и выберите заново.
-                        </div>
-                      )}
-                      <div style={{ ...fieldBox, maxHeight: 110 }}>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                          {(d.period_dates || []).map((p) => {
-                            const on = (pick.periods || []).includes(p)
-                            const blocked = !on && (pick.periods || []).length >= MAX_PERIODS
-                            return (
-                              <label key={p} style={{ ...chk, opacity: blocked ? 0.45 : 1 }}
-                                title={blocked
-                                  ? `Уже отмечено ${MAX_PERIODS} ${plural(MAX_PERIODS, 'неделя', 'недели', 'недель')} — это максимум. `
-                                    + 'Снимите любую другую, чтобы выбрать эту.'
-                                  : 'Отдельная страница-снимок за эту неделю'}>
-                                <input type="checkbox" checked={on} disabled={blocked}
-                                  onChange={() => togglePeriod(d.code, p)} />
-                                {ruDate(p)}
-                              </label>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    </>
-                  )}
+          {plan.datasets.map((d) => {
+            const pick = sel[d.code] || {}
+            const allFields = d.fields.map((f) => f.code)
+            const on = pick.fields || []
+            return (
+              <div key={d.code} style={block}>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>{d.name}</div>
+                <div style={{ ...muted, fontSize: 12.5, marginBottom: 8 }}>
+                  код {d.code} · периодов: {d.periods} · показателей: {d.fields.length}
+                  {d.periods > 1 && ' · динамика строится по всем периодам'}
                 </div>
-              )
-            })}
 
-            {(plan.metrics || []).length > 0 && (
-              <div style={block}>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>
-                  Расчётные показатели ({metricPicks.size} из {(plan.metrics || []).length})
-                </div>
-                <div style={{ ...muted, fontSize: 12, margin: '4px 0 8px' }}>
-                  Система нашла их по самим данным и проверила расчётом. Отмеченные будут
-                  заведены черновиками и сразу показаны на дашборде — согласование формулы
-                  идёт обычным порядком, на дашборде число видно уже сейчас.
-                  Проценты показываются спидометром (⏱ рядом с названием): на шкале
-                  сразу видно, близко ли к 100 %, — остальные карточкой.
-                </div>
-                <div style={{ ...fieldBox, maxHeight: 190 }}>
-                  {(plan.metrics || []).map((m) => (
-                    <label key={m.code} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5 }}>
-                      <input type="checkbox" checked={metricPicks.has(m.code)}
-                        style={{ marginTop: 3 }}
-                        onChange={() => setMetricPicks((s2) => {
-                          const n = new Set(s2)
-                          if (n.has(m.code)) n.delete(m.code); else n.add(m.code)
-                          return n
-                        })} />
-                      <span style={{ minWidth: 0 }}>
-                        {(m.unit || '').includes('%') && (
-                          <span title="Будет показан спидометром">⏱ </span>
-                        )}
-                        <span style={{ overflowWrap: 'anywhere' }}>{m.name}</span>
-                        {m.preview_value != null && (
-                          <span style={{ color: 'var(--accent)' }}> = {fmtNumber(m.preview_value)}
-                            {m.unit ? ` ${m.unit}` : ''}</span>
-                        )}
-                        {m.why && <span style={{ ...muted, display: 'block', fontSize: 11.5 }}>{m.why}</span>}
-                      </span>
+                <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Что показать</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+                  {plan.blocks.map((b) => (
+                    <label key={b} style={chk}>
+                      <input type="checkbox" checked={(pick.blocks || []).includes(b)}
+                        onChange={() => toggleBlock(d.code, b)} />
+                      {BLOCK_LABELS[b] || b}
                     </label>
                   ))}
                 </div>
-              </div>
-            )}
 
-            <div style={block}>
-              <label style={{ ...chk, fontWeight: 600 }}>
-                <input type="checkbox" checked={alerts} onChange={() => setAlerts((v) => !v)} />
-                🚦 Подсвечивать невыполнение плана
-              </label>
-              <div style={{ ...muted, fontSize: 12, marginTop: 4 }}>
-                Полоса «план и факт» и спидометр «выполнение плана, %» будут краснеть
-                ниже 90 % и желтеть ниже 100 %, а от 100 % — зеленеть. Норма здесь не
-                выдумана: 100 % — это сам план. У показателей без известной нормы
-                (например, доля доставленных) порогов не будет. Пороги любого виджета
-                потом правятся кнопкой ⚠ в режиме «Двигать и менять размер».
-              </div>
-            </div>
-
-            {/* Что берём: весь объект или ОДИН отчёт. Выбор файла отвечает на
-                запрос «объект → папка → файл»: дашборд собирается по данным
-                конкретного отчёта, а не по всему, что накопилось в объекте. */}
-            <div style={block}>
-              <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Что берём</div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <select style={input} value={folderId} onChange={(e) => setFolderId(e.target.value)}>
-                  <option value="">весь объект «{objectName}»</option>
-                  {folders.map((f) => <option key={f.id} value={f.id}>📁 {f.name}</option>)}
-                </select>
-                {folderId && (
-                  <select style={input} value={docId} onChange={(e) => setDocId(e.target.value)}>
-                    <option value="">все отчёты папки</option>
-                    {docs.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {ruDate(d.reporting_period_start)} · {d.original_filename}
-                      </option>
-                    ))}
-                  </select>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>Показатели ({on.length} из {d.fields.length})</span>
+                  <button style={linkBtn} onClick={() => setAllFields(d.code, allFields, true)}>все</button>
+                  <button style={linkBtn} onClick={() => setAllFields(d.code, allFields, false)}>снять</button>
+                </div>
+                <div style={fieldBox}>
+                  {d.fields.map((f) => (
+                    <div key={f.code} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <label style={{ ...chk, flex: 1, minWidth: 0 }} title={f.name}>
+                        <input type="checkbox" checked={on.includes(f.code)}
+                          onChange={() => toggleField(d.code, f.code)} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                      </label>
+                      <select
+                        style={viewSel} value={(pick.views || {})[f.code] || 'kpi'}
+                        disabled={!on.includes(f.code)}
+                        title="Как показать этот показатель"
+                        onChange={(e) => setView(d.code, f.code, e.target.value)}
+                      >
+                        {VIEW_LABELS.filter((v) => d.periods > 1 || v.v === 'kpi' || v.v === 'none')
+                          .map((v) => <option key={v.v} value={v.v}>{v.t}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+                {(d.period_dates || []).length > 1 && (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '12px 0 4px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600 }}>
+                        Отдельные страницы по отчётам ({(pick.periods || []).length} из {MAX_PERIODS})
+                      </span>
+                      {(pick.periods || []).length > 0 && (
+                        <button type="button" style={linkBtn}
+                          onClick={() => setSel((st) => (st ? { ...st, [d.code]: { ...st[d.code], periods: [] } } : st))}>
+                          снять все
+                        </button>
+                      )}
+                    </div>
+                    <div style={{ ...muted, fontSize: 12, marginBottom: 6 }}>
+                      Страницы выше — сводные: они показывают последний отчёт и обновляются сами,
+                      когда приходит новый. Страница за конкретную дату — снимок: её цифры
+                      привязаны к этой дате и не меняются. Отметьте недели, которые нужно
+                      сохранить отдельно (не больше восьми).
+                    </div>
+                    {(pick.periods || []).length >= MAX_PERIODS && (
+                      // Без этой строки недоступные галочки выглядят поломкой:
+                      // человек жмёт по неделе, ничего не происходит, и почему —
+                      // не сказано. Особенно когда выбор восстановлен из прошлой
+                      // сборки и занят старыми неделями, а нужны свежие.
+                      <div style={{ fontSize: 12, color: 'var(--accent)', marginBottom: 6 }}>
+                        Отмечено максимум ({MAX_PERIODS}). Чтобы отметить другую неделю,
+                        снимите лишнюю — или нажмите «снять все» и выберите заново.
+                      </div>
+                    )}
+                    <div style={{ ...fieldBox, maxHeight: 110 }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                        {(d.period_dates || []).map((p) => {
+                          const on = (pick.periods || []).includes(p)
+                          const blocked = !on && (pick.periods || []).length >= MAX_PERIODS
+                          return (
+                            <label key={p} style={{ ...chk, opacity: blocked ? 0.45 : 1 }}
+                              title={blocked
+                                ? `Уже отмечено ${MAX_PERIODS} ${plural(MAX_PERIODS, 'неделя', 'недели', 'недель')} — это максимум. `
+                                  + 'Снимите любую другую, чтобы выбрать эту.'
+                                : 'Отдельная страница-снимок за эту неделю'}>
+                              <input type="checkbox" checked={on} disabled={blocked}
+                                onChange={() => togglePeriod(d.code, p)} />
+                              {ruDate(p)}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
-              {docId && (
-                <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 8, fontSize: 12.5 }}>
-                  <input type="checkbox" checked={lockPeriod} style={{ marginTop: 3 }}
-                    onChange={(e) => setLockPeriod(e.target.checked)} />
-                  <span>
-                    Закрепить дашборд за этим отчётом
-                    <span style={{ ...muted, display: 'block' }}>
-                      Виджеты будут показывать данные выбранного отчёта и не изменятся, когда придёт
-                      следующий: вы указали конкретный файл. Снимите галочку, если нужен состав этого
-                      отчёта, но с обновляемыми данными.
-                    </span>
-                  </span>
-                </label>
-              )}
-              {folderId && !docId && (
-                <div style={{ ...muted, fontSize: 12.5, marginTop: 6 }}>
-                  Выберите отчёт, чтобы собрать дашборд по нему одному, или оставьте «все отчёты папки».
-                </div>
-              )}
-            </div>
+            )
+          })}
 
+          {(plan.metrics || []).length > 0 && (
             <div style={block}>
-              <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Куда собрать</div>
-              <select style={input} value={target} onChange={(e) => setTarget(e.target.value)}>
-                <option value="">Новый дашборд</option>
-                {dashboards.map((d) => <option key={d.id} value={d.id}>Пересобрать «{d.name}»</option>)}
+              <div style={{ fontSize: 14, fontWeight: 600 }}>
+                Расчётные показатели ({metricPicks.size} из {(plan.metrics || []).length})
+              </div>
+              <div style={{ ...muted, fontSize: 12, margin: '4px 0 8px' }}>
+                Система нашла их по самим данным и проверила расчётом. Отмеченные будут
+                заведены черновиками и сразу показаны на дашборде — согласование формулы
+                идёт обычным порядком, на дашборде число видно уже сейчас.
+                Проценты показываются спидометром (⏱ рядом с названием): на шкале
+                сразу видно, близко ли к 100 %, — остальные карточкой.
+              </div>
+              <div style={{ ...fieldBox, maxHeight: 190 }}>
+                {(plan.metrics || []).map((m) => (
+                  <label key={m.code} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5 }}>
+                    <input type="checkbox" checked={metricPicks.has(m.code)}
+                      style={{ marginTop: 3 }}
+                      onChange={() => setMetricPicks((s2) => {
+                        const n = new Set(s2)
+                        if (n.has(m.code)) n.delete(m.code); else n.add(m.code)
+                        return n
+                      })} />
+                    <span style={{ minWidth: 0 }}>
+                      {(m.unit || '').includes('%') && (
+                        <span title="Будет показан спидометром">⏱ </span>
+                      )}
+                      <span style={{ overflowWrap: 'anywhere' }}>{m.name}</span>
+                      {m.preview_value != null && (
+                        <span style={{ color: 'var(--accent)' }}> = {fmtNumber(m.preview_value)}
+                          {m.unit ? ` ${m.unit}` : ''}</span>
+                      )}
+                      {m.why && <span style={{ ...muted, display: 'block', fontSize: 11.5 }}>{m.why}</span>}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={block}>
+            <label style={{ ...chk, fontWeight: 600 }}>
+              <input type="checkbox" checked={alerts} onChange={() => setAlerts((v) => !v)} />
+              🚦 Подсвечивать невыполнение плана
+            </label>
+            <div style={{ ...muted, fontSize: 12, marginTop: 4 }}>
+              Полоса «план и факт» и спидометр «выполнение плана, %» будут краснеть
+              ниже 90 % и желтеть ниже 100 %, а от 100 % — зеленеть. Норма здесь не
+              выдумана: 100 % — это сам план. У показателей без известной нормы
+              (например, доля доставленных) порогов не будет. Пороги любого виджета
+              потом правятся кнопкой ⚠ в режиме «Двигать и менять размер».
+            </div>
+          </div>
+
+          {/* Что берём: весь объект или ОДИН отчёт. Выбор файла отвечает на
+              запрос «объект → папка → файл»: дашборд собирается по данным
+              конкретного отчёта, а не по всему, что накопилось в объекте. */}
+          <div style={block}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Что берём</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <select style={input} value={folderId} onChange={(e) => setFolderId(e.target.value)}>
+                <option value="">весь объект «{objectName}»</option>
+                {folders.map((f) => <option key={f.id} value={f.id}>📁 {f.name}</option>)}
               </select>
-              {target ? (
-                <div style={{ ...muted, fontSize: 12.5, marginTop: 6 }}>
-                  Страницы и виджеты будут заменены. Права доступа, обсуждение и история версий останутся.
-                  Название дашборда не меняется.
-                </div>
-              ) : (
-                <div style={{ marginTop: 8 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Название</div>
-                  <input style={input} value={name} onChange={(e) => setName(e.target.value)}
-                    placeholder={`Дашборд «${objectName}»`} />
-                  {nameTaken ? (
-                    // Предупреждаем ДО нажатия: отказ после сборки человек уже
-                    // воспримет как сбой, а тут он просто правит поле.
-                    <div style={{ fontSize: 12.5, color: 'var(--accent)', marginTop: 5 }}>
-                      Дашборд с таким названием уже есть. Измените название — иначе в списке будут
-                      два неразличимых, — или выберите его выше в «Пересобрать».{' '}
-                      <button type="button" style={linkBtn} onClick={() => setName(uniqueName)}>
-                        сделать уникальным
-                      </button>
-                    </div>
-                  ) : (
-                    <div style={{ ...muted, fontSize: 12, marginTop: 5 }}>
-                      Так дашборд будет называться в списке и в отчётах.
-                    </div>
-                  )}
-                </div>
+              {folderId && (
+                <select style={input} value={docId} onChange={(e) => setDocId(e.target.value)}>
+                  <option value="">все отчёты папки</option>
+                  {docs.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {ruDate(d.reporting_period_start)} · {d.original_filename}
+                    </option>
+                  ))}
+                </select>
               )}
             </div>
-
-            <div style={total}>
-              Будет создано: <b>{plan.pages?.length || 0}</b> {pagePlural(plan.pages?.length || 0)}
-              {' · '}<b>{plan.widgets}</b> {plural(plan.widgets, 'виджет', 'виджета', 'виджетов')}
-              {(plan.pages || []).length > 0 && (
-                <div style={{ color: 'var(--text-muted)', marginTop: 3 }}>
-                  {plan.pages.map((p) => `${p.name}: ${p.widgets}`).join(' · ')}
-                </div>
-              )}
-              {plan.widgets > 0 && (
-                <span style={{ color: 'var(--text-muted)' }}>
-                  {' '}({Object.entries(plan.by_type).filter(([, n]) => n > 0)
-                    .map(([t, n]) => `${WIDGET_LABELS[t] || BLOCK_LABELS[t] || t}: ${n}`).join(', ')})
+            {docId && (
+              <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 8, fontSize: 12.5 }}>
+                <input type="checkbox" checked={lockPeriod} style={{ marginTop: 3 }}
+                  onChange={(e) => setLockPeriod(e.target.checked)} />
+                <span>
+                  Закрепить дашборд за этим отчётом
+                  <span style={{ ...muted, display: 'block' }}>
+                    Виджеты будут показывать данные выбранного отчёта и не изменятся, когда придёт
+                    следующий: вы указали конкретный файл. Снимите галочку, если нужен состав этого
+                    отчёта, но с обновляемыми данными.
+                  </span>
                 </span>
-              )}
-            </div>
+              </label>
+            )}
+            {folderId && !docId && (
+              <div style={{ ...muted, fontSize: 12.5, marginTop: 6 }}>
+                Выберите отчёт, чтобы собрать дашборд по нему одному, или оставьте «все отчёты папки».
+              </div>
+            )}
+          </div>
 
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
-              <button style={btnGhost} onClick={onClose}>Отмена</button>
-              <button style={btn} disabled={busy || plan.widgets === 0} onClick={() => build()}>
-                {busy ? 'Собираем…' : target ? 'Пересобрать' : 'Собрать'}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>,
-    document.body,
+          <div style={block}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Куда собрать</div>
+            <select style={input} value={target} onChange={(e) => setTarget(e.target.value)}>
+              <option value="">Новый дашборд</option>
+              {dashboards.map((d) => <option key={d.id} value={d.id}>Пересобрать «{d.name}»</option>)}
+            </select>
+            {target ? (
+              <div style={{ ...muted, fontSize: 12.5, marginTop: 6 }}>
+                Страницы и виджеты будут заменены. Права доступа, обсуждение и история версий останутся.
+                Название дашборда не меняется.
+              </div>
+            ) : (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Название</div>
+                <input style={input} value={name} onChange={(e) => setName(e.target.value)}
+                  placeholder={`Дашборд «${objectName}»`} />
+                {nameTaken ? (
+                  // Предупреждаем ДО нажатия: отказ после сборки человек уже
+                  // воспримет как сбой, а тут он просто правит поле.
+                  <div style={{ fontSize: 12.5, color: 'var(--accent)', marginTop: 5 }}>
+                    Дашборд с таким названием уже есть. Измените название — иначе в списке будут
+                    два неразличимых, — или выберите его выше в «Пересобрать».{' '}
+                    <button type="button" style={linkBtn} onClick={() => setName(uniqueName)}>
+                      сделать уникальным
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ ...muted, fontSize: 12, marginTop: 5 }}>
+                    Так дашборд будет называться в списке и в отчётах.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div style={total}>
+            Будет создано: <b>{plan.pages?.length || 0}</b> {pagePlural(plan.pages?.length || 0)}
+            {' · '}<b>{plan.widgets}</b> {plural(plan.widgets, 'виджет', 'виджета', 'виджетов')}
+            {(plan.pages || []).length > 0 && (
+              <div style={{ color: 'var(--text-muted)', marginTop: 3 }}>
+                {plan.pages.map((p) => `${p.name}: ${p.widgets}`).join(' · ')}
+              </div>
+            )}
+            {plan.widgets > 0 && (
+              <span style={{ color: 'var(--text-muted)' }}>
+                {' '}({Object.entries(plan.by_type).filter(([, n]) => n > 0)
+                  .map(([t, n]) => `${WIDGET_LABELS[t] || BLOCK_LABELS[t] || t}: ${n}`).join(', ')})
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+            <button style={btnGhost} onClick={onClose}>Отмена</button>
+            <button style={btn} disabled={busy || plan.widgets === 0} onClick={() => build()}>
+              {busy ? 'Собираем…' : target ? 'Пересобрать' : 'Собрать'}
+            </button>
+          </div>
+        </>
+      )}
+    </Modal>
   )
 }
 
@@ -564,16 +568,6 @@ function pagePlural(n: number): string {
   }
 }
 
-
-const backdrop: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(20,20,20,0.45)',
-  display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16,
-}
-const card: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14,
-  padding: 18, width: 'min(720px, 100%)', maxHeight: '86vh', overflowY: 'auto',
-  display: 'flex', flexDirection: 'column', gap: 10,
-}
 const block: React.CSSProperties = {
   border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px',
 }

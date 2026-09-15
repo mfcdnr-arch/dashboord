@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { getFeaturedAccess, grantFeaturedAccess, type FeaturedAccess } from '../../api'
+import { Modal } from '../Modal'
 
 // «Предоставить доступ» к отчётам подборки (запрос заказчика: выбрали отчёты
 // для руководителя — значит открываем их ему).
@@ -47,105 +47,95 @@ export default function GrantAccessDialog({ onClose, onDone }: { onClose: () => 
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
 
-  return createPortal((
-    <div style={overlay} onClick={onClose}>
-      <div style={dialog} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>Доступ к отчётам подборки</div>
-          <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
-        </div>
-        <div style={{ ...muted, marginBottom: 10 }}>
-          Доступ будет выдан сразу ко всем отчётам подборки ({total}). Снять его можно на самом
-          дашборде или в карточке сотрудника — здесь только выдача.
-        </div>
-
-        {err && <div style={errBox}>{err}</div>}
-        {msg && <div style={okBox}>{msg}</div>}
-        {!d && !err && <div style={muted}>Загрузка…</div>}
-
-        {d && total === 0 && (
-          <div style={noteBox}>
-            В подборке пока нет отчётов. Сначала отметьте их кнопкой «⚙ Настроить подборку».
-          </div>
-        )}
-
-        {d && total > 0 && (
-          <>
-            {drafts.length > 0 && (
-              <div style={warnBox}>
-                Не опубликовано отчётов: {drafts.length}. Доступ к ним выдастся, но зритель увидит
-                их только после публикации — это модерационное правило, а не ошибка выдачи.
-              </div>
-            )}
-
-            <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-              overflowY: 'auto', flex: 1, minHeight: 0 }}>
-              <div>
-                <div style={head}>Сотрудники</div>
-                {d.users.map((u) => (
-                  <label key={u.id} style={row} title={u.privileged
-                    ? 'Роль администратора или модератора и так открывает все отчёты организации'
-                    : undefined}>
-                    <input type="checkbox" checked={!!users[u.id]} disabled={u.privileged}
-                      onChange={(e) => setUsers((c) => ({ ...c, [u.id]: e.target.checked }))} />
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      {u.full_name || u.login}
-                      {u.full_name && <span style={muted}> · {u.login}</span>}
-                    </span>
-                    <span style={u.privileged ? badge : u.has === total ? okBadge : muted}>
-                      {u.privileged ? 'видит всё по роли'
-                        : u.has === 0 ? 'нет доступа'
-                          : u.has === total ? 'открыта вся подборка' : `открыто ${u.has} из ${total}`}
-                    </span>
-                  </label>
-                ))}
-              </div>
-
-              <div>
-                <div style={head}>Роли</div>
-                <div style={{ ...muted, marginBottom: 6 }}>
-                  Доступ роли получают все её носители — и те, кого примут в неё позже.
-                </div>
-                {d.roles.filter((r) => r.members > 0).map((r) => (
-                  <label key={r.id} style={row}>
-                    <input type="checkbox" checked={!!roles[r.id]}
-                      onChange={(e) => setRoles((c) => ({ ...c, [r.id]: e.target.checked }))} />
-                    <span style={{ flex: 1, minWidth: 0 }}>{r.name}<span style={muted}> · {r.members} чел.</span></span>
-                    <span style={r.has === total ? okBadge : muted}>
-                      {r.has === 0 ? 'нет доступа'
-                        : r.has === total ? 'открыта вся подборка' : `открыто ${r.has} из ${total}`}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
-              <button style={{ ...btn, opacity: (chosen.users.length + chosen.roles.length) === 0 || busy ? 0.5 : 1 }}
-                disabled={(chosen.users.length + chosen.roles.length) === 0 || busy} onClick={grant}>
-                {busy ? 'Выдача…' : 'Предоставить доступ'}
-              </button>
-              <span style={muted}>
-                {chosen.users.length + chosen.roles.length === 0
-                  ? 'Выберите сотрудников или роли.'
-                  : `Выбрано: сотрудников ${chosen.users.length}, ролей ${chosen.roles.length}.`}
-              </span>
-            </div>
-          </>
-        )}
+  return (
+    <Modal label="Доступ к отчётам подборки" onClose={onClose} width={680}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
+        <div style={{ fontSize: 16, fontWeight: 600 }}>Доступ к отчётам подборки</div>
+        <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
       </div>
-    </div>
-  ), document.body)
+      <div style={{ ...muted, marginBottom: 10 }}>
+        Доступ будет выдан сразу ко всем отчётам подборки ({total}). Снять его можно на самом
+        дашборде или в карточке сотрудника — здесь только выдача.
+      </div>
+
+      {err && <div style={errBox}>{err}</div>}
+      {msg && <div style={okBox}>{msg}</div>}
+      {!d && !err && <div style={muted}>Загрузка…</div>}
+
+      {d && total === 0 && (
+        <div style={noteBox}>
+          В подборке пока нет отчётов. Сначала отметьте их кнопкой «⚙ Настроить подборку».
+        </div>
+      )}
+
+      {d && total > 0 && (
+        <>
+          {drafts.length > 0 && (
+            <div style={warnBox}>
+              Не опубликовано отчётов: {drafts.length}. Доступ к ним выдастся, но зритель увидит
+              их только после публикации — это модерационное правило, а не ошибка выдачи.
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            overflowY: 'auto', flex: 1, minHeight: 0 }}>
+            <div>
+              <div style={head}>Сотрудники</div>
+              {d.users.map((u) => (
+                <label key={u.id} style={row} title={u.privileged
+                  ? 'Роль администратора или модератора и так открывает все отчёты организации'
+                  : undefined}>
+                  <input type="checkbox" checked={!!users[u.id]} disabled={u.privileged}
+                    onChange={(e) => setUsers((c) => ({ ...c, [u.id]: e.target.checked }))} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    {u.full_name || u.login}
+                    {u.full_name && <span style={muted}> · {u.login}</span>}
+                  </span>
+                  <span style={u.privileged ? badge : u.has === total ? okBadge : muted}>
+                    {u.privileged ? 'видит всё по роли'
+                      : u.has === 0 ? 'нет доступа'
+                        : u.has === total ? 'открыта вся подборка' : `открыто ${u.has} из ${total}`}
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            <div>
+              <div style={head}>Роли</div>
+              <div style={{ ...muted, marginBottom: 6 }}>
+                Доступ роли получают все её носители — и те, кого примут в неё позже.
+              </div>
+              {d.roles.filter((r) => r.members > 0).map((r) => (
+                <label key={r.id} style={row}>
+                  <input type="checkbox" checked={!!roles[r.id]}
+                    onChange={(e) => setRoles((c) => ({ ...c, [r.id]: e.target.checked }))} />
+                  <span style={{ flex: 1, minWidth: 0 }}>{r.name}<span style={muted}> · {r.members} чел.</span></span>
+                  <span style={r.has === total ? okBadge : muted}>
+                    {r.has === 0 ? 'нет доступа'
+                      : r.has === total ? 'открыта вся подборка' : `открыто ${r.has} из ${total}`}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
+            <button style={{ ...btn, opacity: (chosen.users.length + chosen.roles.length) === 0 || busy ? 0.5 : 1 }}
+              disabled={(chosen.users.length + chosen.roles.length) === 0 || busy} onClick={grant}>
+              {busy ? 'Выдача…' : 'Предоставить доступ'}
+            </button>
+            <span style={muted}>
+              {chosen.users.length + chosen.roles.length === 0
+                ? 'Выберите сотрудников или роли.'
+                : `Выбрано: сотрудников ${chosen.users.length}, ролей ${chosen.roles.length}.`}
+            </span>
+          </div>
+        </>
+      )}
+    </Modal>
+  )
 }
 
-const overlay: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex',
-  alignItems: 'center', justifyContent: 'center', zIndex: 70, padding: 20,
-}
-const dialog: React.CSSProperties = {
-  background: 'var(--surface)', borderRadius: 14, padding: 20, width: 680, maxWidth: '94vw',
-  maxHeight: '86vh', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
-}
 const row: React.CSSProperties = {
   display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, padding: '4px 2px',
 }

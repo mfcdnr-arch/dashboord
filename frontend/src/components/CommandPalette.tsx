@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { globalSearch, type SearchResults } from '../api'
 
+import { Modal } from './Modal'
 /** Куда ведёт выбор результата — App.tsx решает, как это открыть. Раздел и
  *  отчёт/страница/виджет используют один и тот же механизм навигации, что и
  *  ссылка (п. 6); объект и показатель — свои собственные `initial*`-пропы. */
@@ -129,9 +129,14 @@ export default function CommandPalette(
 
   if (!open) return null
 
-  return createPortal(
-    <div style={backdrop} onClick={close}>
-      <div style={box} onClick={(e) => e.stopPropagation()}>
+  return (
+    <Modal
+      label="Быстрый поиск по системе"
+      onClose={close}
+      // Фокус ставит сама — в поле ввода через ref; перехват сбил бы курсор.
+      initialFocus={false}
+      style={{ width: 'min(680px, 94vw)', padding: 0, borderRadius: 12, overflow: 'hidden' }}
+    >
         <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKeyDown}
           placeholder="Искать дашборд, страницу, показатель, объект…" style={input} />
         <div style={{ maxHeight: 360, overflowY: 'auto' }}>
@@ -151,21 +156,11 @@ export default function CommandPalette(
             </div>
           ))}
         </div>
-        <div style={footer}>↑↓ выбор · Enter открыть · Esc закрыть</div>
-      </div>
-    </div>,
-    document.body,
+      <div style={footer}>↑↓ выбор · Enter открыть · Esc закрыть</div>
+    </Modal>
   )
 }
 
-const backdrop: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)',
-  display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '12vh', zIndex: 1100,
-}
-const box: React.CSSProperties = {
-  width: 'min(560px, 92vw)', background: 'var(--surface)', color: 'var(--text)',
-  borderRadius: 10, boxShadow: '0 12px 44px rgba(0,0,0,.3)', overflow: 'hidden',
-}
 const input: React.CSSProperties = {
   width: '100%', boxSizing: 'border-box', padding: '14px 16px', fontSize: 15,
   border: 'none', borderBottom: '1px solid var(--border)', outline: 'none',

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { btnGhost, dialog, overlay, rmBtn } from './shared'
+import { useCallback, useState } from 'react'
+import { btnGhost, rmBtn } from './shared'
+import { Modal } from '../Modal'
 
 /**
  * Подтверждение необратимого действия — вместо системного `confirm()`.
@@ -11,7 +11,7 @@ import { btnGhost, dialog, overlay, rmBtn } from './shared'
  * false — кнопка выглядит сломанной. Для удаления это опаснее всего: человек
  * жмёт ещё раз, решив, что не сработало.
  *
- * Портал в body — чтобы окно не обрезалось карточкой или сеткой дашборда.
+ * Портал в body, Escape и ловушка фокуса — на общей обёртке [Modal].
  */
 export function ConfirmDialog(
   { title, message, confirmLabel = 'Удалить', busyLabel = 'Удаление…', tone = 'danger',
@@ -33,45 +33,37 @@ export function ConfirmDialog(
     extraAction?: { label: string; onClick: () => void }
   },
 ) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  return createPortal((
-    <div style={overlay} onClick={onClose}>
-      <div style={{ ...dialog, width: 480 }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>{title}</div>
-          <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
-        </div>
-        <div style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.5, whiteSpace: 'pre-line' }}>{message}</div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18, flexWrap: 'wrap' }}>
-          <button style={btnGhost} onClick={onClose}>Отмена</button>
-          {extraAction && (
-            <button
-              disabled={busy} onClick={extraAction.onClick}
-              style={{
-                height: 36, padding: '0 14px', border: '1px solid var(--danger)', borderRadius: 8,
-                background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 14,
-                cursor: 'pointer', opacity: busy ? 0.6 : 1,
-              }}
-            >{extraAction.label}</button>
-          )}
-          <button
-            autoFocus={false} disabled={busy} onClick={onConfirm}
-            style={{
-              height: 36, padding: '0 14px',
-              border: `1px solid var(--${tone})`, borderRadius: 8,
-              background: `var(--${tone})`, color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer',
-              opacity: busy ? 0.6 : 1,
-            }}
-          >{busy ? busyLabel : confirmLabel}</button>
-        </div>
+  return (
+    <Modal label={title} onClose={onClose} width={480}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 16, fontWeight: 600 }}>{title}</div>
+        <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
       </div>
-    </div>
-  ), document.body)
+      <div style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.5, whiteSpace: 'pre-line' }}>{message}</div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18, flexWrap: 'wrap' }}>
+        <button style={btnGhost} onClick={onClose}>Отмена</button>
+        {extraAction && (
+          <button
+            disabled={busy} onClick={extraAction.onClick}
+            style={{
+              height: 36, padding: '0 14px', border: '1px solid var(--danger)', borderRadius: 8,
+              background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 14,
+              cursor: 'pointer', opacity: busy ? 0.6 : 1,
+            }}
+          >{extraAction.label}</button>
+        )}
+        <button
+          autoFocus={false} disabled={busy} onClick={onConfirm}
+          style={{
+            height: 36, padding: '0 14px',
+            border: `1px solid var(--${tone})`, borderRadius: 8,
+            background: `var(--${tone})`, color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer',
+            opacity: busy ? 0.6 : 1,
+          }}
+        >{busy ? busyLabel : confirmLabel}</button>
+      </div>
+    </Modal>
+  )
 }
 
 type ConfirmOpts = {

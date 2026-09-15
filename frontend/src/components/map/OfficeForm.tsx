@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { DAYS, createOffice, updateOffice, type DayKey, type Hours, type Office, type OfficeInput } from '../../api'
 
+import { Modal } from '../Modal'
 // Карточка отделения: то, что человек видит на точке карты, и то, что
 // администратор правит, когда график или телефон изменились.
 //
@@ -64,108 +64,111 @@ export default function OfficeForm({ office, rowOptions, onClose, onSaved }: {
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
 
-  return createPortal(
-    <div style={backdrop} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={win} role="dialog" aria-label={office ? 'Сведения об отделении' : 'Новое отделение'}>
-        <div style={head}>
-          <b style={{ fontSize: 15 }}>{office ? 'Сведения об отделении' : 'Новое отделение'}</b>
-          <button style={xBtn} onClick={onClose} title="Закрыть">✕</button>
-        </div>
-        <div style={body}>
-          {error && <div style={errBox}>{error}</div>}
-
-          <Row label="Название" required>
-            <input style={inp} value={f.name || ''} onChange={(e) => set('name', e.target.value)}
-              placeholder="например: МФЦ №1 по городу Донецк" />
-          </Row>
-          <Row label="Адрес">
-            <input style={inp} value={f.address || ''} onChange={(e) => set('address', e.target.value)}
-              placeholder="например: г. Донецк, ул. Челюскинцев, 167" />
-          </Row>
-          <Row label="Населённый пункт" hint="Заполняется из адреса; правится, если прочитано неверно">
-            <input style={inp} value={f.city || ''} onChange={(e) => set('city', e.target.value)} placeholder="например: Донецк" />
-          </Row>
-          <Row label="Телефон">
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input style={{ ...inp, flex: 1 }} value={f.phone || ''} onChange={(e) => set('phone', e.target.value)} placeholder="например: 119" />
-              <input style={{ ...inp, flex: 1 }} value={f.phone2 || ''} onChange={(e) => set('phone2', e.target.value)} placeholder="доп. телефон" />
-            </div>
-          </Row>
-          <Row label="Почта и сайт">
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input style={{ ...inp, flex: 1 }} value={f.email || ''} onChange={(e) => set('email', e.target.value)} placeholder="например: mfc@example.ru" />
-              <input style={{ ...inp, flex: 1 }} value={f.website || ''} onChange={(e) => set('website', e.target.value)} placeholder="https://…" />
-            </div>
-          </Row>
-
-          <div style={{ ...blockTitle, marginTop: 14 }}>Режим работы</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10 }}>
-            {DAYS.map((d) => {
-              const v = hours[d.key] || null
-              return (
-                <div key={d.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, width: 150, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={!!v}
-                      onChange={(e) => setDay(d.key, e.target.checked ? { from: '08:00', to: '17:00' } : null)} />
-                    {d.full}
-                  </label>
-                  {v ? (
-                    <>
-                      <input style={{ ...inp, width: 90 }} value={v.from} aria-label={`${d.full}: с`}
-                        onChange={(e) => setDay(d.key, { ...v, from: e.target.value })} placeholder="08:00" />
-                      <span style={{ color: 'var(--text-muted)' }}>–</span>
-                      <input style={{ ...inp, width: 90 }} value={v.to} aria-label={`${d.full}: по`}
-                        onChange={(e) => setDay(d.key, { ...v, to: e.target.value })} placeholder="17:00" />
-                    </>
-                  ) : <span style={{ color: 'var(--text-faint)' }}>выходной</span>}
-                </div>
-              )
-            })}
-          </div>
-          <Row label="Примечание" hint="Обед, особые дни — всё, что не укладывается в часы по дням">
-            <input style={inp} value={f.note || ''} onChange={(e) => set('note', e.target.value)} placeholder="например: обед 13:00–14:00" />
-          </Row>
-
-          <div style={{ ...blockTitle, marginTop: 14 }}>Место на карте</div>
-          <Row label="Координаты" hint="Пара из шаблона целиком — широта, долгота">
-            <input style={inp} value={pair} onChange={(e) => applyPair(e.target.value)} placeholder="например: 48.009964,37.808141" />
-          </Row>
-          <Row label="Широта и долгота">
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input style={{ ...inp, flex: 1 }} value={f.lat ?? ''} aria-label="Широта"
-                onChange={(e) => set('lat', e.target.value === '' ? null : Number(e.target.value))} placeholder="широта" />
-              <input style={{ ...inp, flex: 1 }} value={f.lon ?? ''} aria-label="Долгота"
-                onChange={(e) => set('lon', e.target.value === '' ? null : Number(e.target.value))} placeholder="долгота" />
-            </div>
-          </Row>
-          {insideHint && <div style={warnBox}>⚠ {insideHint}</div>}
-          {f.lat == null && (
-            <div style={hintBox}>
-              Без координат отделение останется в справочнике, но не появится на карте.
-            </div>
-          )}
-
-          <div style={{ ...blockTitle, marginTop: 14 }}>Связь с отчётом</div>
-          <Row label="Строка отчёта" hint="Нужна, чтобы на точке показывалась нагрузка. В отчёте адрес записан иначе, чем в справочнике">
-            <select style={inp} value={f.row_label || ''} onChange={(e) => set('row_label', e.target.value || null)}>
-              <option value="">— не связано —</option>
-              {f.row_label && !rowOptions.includes(f.row_label) && <option value={f.row_label}>{f.row_label}</option>}
-              {rowOptions.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </Row>
-
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginTop: 12, cursor: 'pointer' }}>
-            <input type="checkbox" checked={f.is_active !== false} onChange={(e) => set('is_active', e.target.checked)} />
-            Отделение действует
-            <span style={{ color: 'var(--text-faint)' }}>— снятая отметка убирает точку с карты, история цифр остаётся</span>
-          </label>
-        </div>
-        <div style={foot}>
-          <button style={btnGhost} onClick={onClose}>Отмена</button>
-          <button style={btn} onClick={save} disabled={busy}>{busy ? 'Сохранение…' : 'Сохранить'}</button>
-        </div>
+  return (
+    <Modal
+      label={office ? 'Сведения об отделении' : 'Новое отделение'}
+      onClose={onClose}
+      style={{ width: 'min(620px, 100%)', maxHeight: '90vh', padding: 0, borderRadius: 12, display: 'flex', flexDirection: 'column' }}
+    >
+      <div style={head}>
+        <b style={{ fontSize: 15 }}>{office ? 'Сведения об отделении' : 'Новое отделение'}</b>
+        <button style={xBtn} onClick={onClose} title="Закрыть">✕</button>
       </div>
-    </div>, document.body)
+      <div style={body}>
+        {error && <div style={errBox}>{error}</div>}
+
+        <Row label="Название" required>
+          <input style={inp} value={f.name || ''} onChange={(e) => set('name', e.target.value)}
+            placeholder="например: МФЦ №1 по городу Донецк" />
+        </Row>
+        <Row label="Адрес">
+          <input style={inp} value={f.address || ''} onChange={(e) => set('address', e.target.value)}
+            placeholder="например: г. Донецк, ул. Челюскинцев, 167" />
+        </Row>
+        <Row label="Населённый пункт" hint="Заполняется из адреса; правится, если прочитано неверно">
+          <input style={inp} value={f.city || ''} onChange={(e) => set('city', e.target.value)} placeholder="например: Донецк" />
+        </Row>
+        <Row label="Телефон">
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input style={{ ...inp, flex: 1 }} value={f.phone || ''} onChange={(e) => set('phone', e.target.value)} placeholder="например: 119" />
+            <input style={{ ...inp, flex: 1 }} value={f.phone2 || ''} onChange={(e) => set('phone2', e.target.value)} placeholder="доп. телефон" />
+          </div>
+        </Row>
+        <Row label="Почта и сайт">
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input style={{ ...inp, flex: 1 }} value={f.email || ''} onChange={(e) => set('email', e.target.value)} placeholder="например: mfc@example.ru" />
+            <input style={{ ...inp, flex: 1 }} value={f.website || ''} onChange={(e) => set('website', e.target.value)} placeholder="https://…" />
+          </div>
+        </Row>
+
+        <div style={{ ...blockTitle, marginTop: 14 }}>Режим работы</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10 }}>
+          {DAYS.map((d) => {
+            const v = hours[d.key] || null
+            return (
+              <div key={d.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, width: 150, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={!!v}
+                    onChange={(e) => setDay(d.key, e.target.checked ? { from: '08:00', to: '17:00' } : null)} />
+                  {d.full}
+                </label>
+                {v ? (
+                  <>
+                    <input style={{ ...inp, width: 90 }} value={v.from} aria-label={`${d.full}: с`}
+                      onChange={(e) => setDay(d.key, { ...v, from: e.target.value })} placeholder="08:00" />
+                    <span style={{ color: 'var(--text-muted)' }}>–</span>
+                    <input style={{ ...inp, width: 90 }} value={v.to} aria-label={`${d.full}: по`}
+                      onChange={(e) => setDay(d.key, { ...v, to: e.target.value })} placeholder="17:00" />
+                  </>
+                ) : <span style={{ color: 'var(--text-faint)' }}>выходной</span>}
+              </div>
+            )
+          })}
+        </div>
+        <Row label="Примечание" hint="Обед, особые дни — всё, что не укладывается в часы по дням">
+          <input style={inp} value={f.note || ''} onChange={(e) => set('note', e.target.value)} placeholder="например: обед 13:00–14:00" />
+        </Row>
+
+        <div style={{ ...blockTitle, marginTop: 14 }}>Место на карте</div>
+        <Row label="Координаты" hint="Пара из шаблона целиком — широта, долгота">
+          <input style={inp} value={pair} onChange={(e) => applyPair(e.target.value)} placeholder="например: 48.009964,37.808141" />
+        </Row>
+        <Row label="Широта и долгота">
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input style={{ ...inp, flex: 1 }} value={f.lat ?? ''} aria-label="Широта"
+              onChange={(e) => set('lat', e.target.value === '' ? null : Number(e.target.value))} placeholder="широта" />
+            <input style={{ ...inp, flex: 1 }} value={f.lon ?? ''} aria-label="Долгота"
+              onChange={(e) => set('lon', e.target.value === '' ? null : Number(e.target.value))} placeholder="долгота" />
+          </div>
+        </Row>
+        {insideHint && <div style={warnBox}>⚠ {insideHint}</div>}
+        {f.lat == null && (
+          <div style={hintBox}>
+            Без координат отделение останется в справочнике, но не появится на карте.
+          </div>
+        )}
+
+        <div style={{ ...blockTitle, marginTop: 14 }}>Связь с отчётом</div>
+        <Row label="Строка отчёта" hint="Нужна, чтобы на точке показывалась нагрузка. В отчёте адрес записан иначе, чем в справочнике">
+          <select style={inp} value={f.row_label || ''} onChange={(e) => set('row_label', e.target.value || null)}>
+            <option value="">— не связано —</option>
+            {f.row_label && !rowOptions.includes(f.row_label) && <option value={f.row_label}>{f.row_label}</option>}
+            {rowOptions.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </Row>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginTop: 12, cursor: 'pointer' }}>
+          <input type="checkbox" checked={f.is_active !== false} onChange={(e) => set('is_active', e.target.checked)} />
+          Отделение действует
+          <span style={{ color: 'var(--text-faint)' }}>— снятая отметка убирает точку с карты, история цифр остаётся</span>
+        </label>
+      </div>
+      <div style={foot}>
+        <button style={btnGhost} onClick={onClose}>Отмена</button>
+        <button style={btn} onClick={save} disabled={busy}>{busy ? 'Сохранение…' : 'Сохранить'}</button>
+      </div>
+    </Modal>
+  )
 }
 
 function Row({ label, hint, required, children }: { label: string; hint?: string; required?: boolean; children: React.ReactNode }) {
@@ -180,8 +183,6 @@ function Row({ label, hint, required, children }: { label: string; hint?: string
   )
 }
 
-const backdrop: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16 }
-const win: React.CSSProperties = { background: 'var(--surface)', borderRadius: 12, width: 'min(620px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', boxShadow: '0 12px 40px rgba(0,0,0,.25)' }
 const head: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid var(--border-faint)' }
 const body: React.CSSProperties = { padding: 16, overflowY: 'auto' }
 const foot: React.CSSProperties = { display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 16px', borderTop: '1px solid var(--border-faint)' }

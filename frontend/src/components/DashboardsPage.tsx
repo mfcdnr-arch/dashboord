@@ -42,8 +42,8 @@ import { MissingFieldsDialog } from './dashboards/MissingFieldsDialog'
 import { TemplateCloneDialog } from './dashboards/TemplateCloneDialog'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
 import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
-import { crumb, dialog, editHint, errBox, linkDanger, muted, overlay, rmBtn } from './dashboards/shared'
-
+import { crumb, editHint, errBox, linkDanger, muted, rmBtn } from './dashboards/shared'
+import { Modal } from './Modal'
 
 const DASH_PAGE = 50
 
@@ -1359,18 +1359,16 @@ export default function DashboardsPage({
           onSaved={async () => { setAlertWidget(null); await reloadPage(); setReloadKey((k) => k + 1) }} />
       )}
       {editWidget && sources && (
-        <div style={overlay} onClick={() => setEditWidget(null)}>
-          <div style={{ ...dialog, width: 680 }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-              <div style={{ fontSize: 16, fontWeight: 600 }}>✎ Изменить виджет: {editWidget.name}</div>
-              <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={() => setEditWidget(null)}>✕</button>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-              Смените тип, источник, датасет или поля — размещение на странице и пороги алертов сохранятся.
-            </div>
-            <WidgetForm sources={sources} initial={editWidget} submitLabel="Сохранить" onCreate={saveWidgetEdit} />
+        <Modal label={`Изменить виджет: ${editWidget.name}`} onClose={() => setEditWidget(null)} width={680}>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+            <div style={{ fontSize: 16, fontWeight: 600 }}>✎ Изменить виджет: {editWidget.name}</div>
+            <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={() => setEditWidget(null)}>✕</button>
           </div>
-        </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+            Смените тип, источник, датасет или поля — размещение на странице и пороги алертов сохранятся.
+          </div>
+          <WidgetForm sources={sources} initial={editWidget} submitLabel="Сохранить" onCreate={saveWidgetEdit} />
+        </Modal>
       )}
       {commentsOpen && sel && (
         <Comments dashboard={sel.dashboard} onClose={() => { setCommentsOpen(false); getDashboard(sel.dashboard.id).then(setSel).catch(() => {}) }} />

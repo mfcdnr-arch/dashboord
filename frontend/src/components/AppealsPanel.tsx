@@ -5,6 +5,7 @@ import {
 } from '../api'
 import UserAccessPanel from './users/UserAccessPanel'
 
+import { Modal } from './Modal'
 // Переиспользуемая панель обращений: 'mine' — личный кабинет (создание + свои
 // заявки), 'all' — раздел «Обращения» для staff (фильтр по статусу + ответ +
 // закрытие). Логика прав — на бэкенде (appeals/service.py), здесь только UI.
@@ -207,15 +208,17 @@ export default function AppealsPanel(
         {/* Карточка доступа сотрудника поверх переписки: та же панель, что в
             разделе «Пользователи», — второго экрана выдачи прав не заводим. */}
         {accessFor && (
-          <div style={accessOverlay} onClick={() => setAccessFor(null)}>
-            <div style={accessDialog} onClick={(e) => e.stopPropagation()}>
-              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ fontSize: 15, fontWeight: 600 }}>Доступ к отчётам · {detail.author}</div>
-                <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={() => setAccessFor(null)}>Закрыть</button>
-              </div>
-              <UserAccessPanel userId={accessFor} />
+          <Modal
+            label="Доступ к отчётам"
+            onClose={() => setAccessFor(null)}
+            style={{ width: 860, padding: 18 }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>Доступ к отчётам · {detail.author}</div>
+              <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={() => setAccessFor(null)}>Закрыть</button>
             </div>
-          </div>
+            <UserAccessPanel userId={accessFor} />
+          </Modal>
         )}
       </div>
     )
@@ -288,14 +291,6 @@ const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 
 const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 14 }
 const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }
 const btnGhost: React.CSSProperties = { height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-2)', fontSize: 13, cursor: 'pointer' }
-const accessOverlay: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex',
-  alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16,
-}
-const accessDialog: React.CSSProperties = {
-  background: 'var(--surface)', borderRadius: 14, padding: 18, width: 860, maxWidth: '95vw',
-  maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
-}
 const ctxBox: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12,
   padding: '8px 12px', borderRadius: 10, background: 'var(--surface-2)',
