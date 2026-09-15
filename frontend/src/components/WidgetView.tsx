@@ -10,6 +10,7 @@ import FitText from './dashboards/FitText'
 import RelatedMenu from './dashboards/RelatedMenu'
 import ReportProblemDialog from './dashboards/ReportProblemDialog'
 import { alertLook, levelLook } from '../lib/alertColors'
+import { useVirtualCols, VCOL_W, VCOL_FIRST_W, VIRT_FROM_COLS } from '../lib/useVirtualCols'
 import { exportWidgetXlsx } from '../api'
 import PassportDialog from './dashboards/PassportDialog'
 import { fmtNumber as fmt, heatSteps, logScaleAdvice, sparkSeries } from '../lib/format'
@@ -822,6 +823,12 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   const [pivotSearch, setPivotSearch] = useState('')
   const [pivotSort, setPivotSort] = useState<SortState>(null)
   const [matrixSort, setMatrixSort] = useState<SortState>(null)
+  // Виртуализация колонок таблицы. Хук зовётся ВСЕГДА и до ветвления по типу:
+  // порядок хуков между рендерами меняться не должен, а тип виджета человек
+  // может сменить прямо на странице.
+  const tableCols: string[] = (data?.type === 'table' && data.columns) || []
+  const virtOn = !print && tableCols.length >= VIRT_FROM_COLS
+  const vcols = useVirtualCols(tableCols.length, virtOn)
   // Хук объявлен до ветвления по типу виджета: тип может смениться при правке
   // виджета, а порядок хуков между рендерами меняться не должен.
   // В отчёте высоту не подгоняем под карточку: там места столько, сколько
@@ -1460,20 +1467,34 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         </div>
         {/* width:100% обязателен: без него контейнер растягивался под таблицу,
             прокрутка не включалась, и широкая таблица вылезала за карточку. */}
-        <div style={{ overflowX: print ? 'visible' : 'auto', width: '100%', maxWidth: '100%' }}>
-        <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
+        {/* Широкая форма рисуется не целиком: в кадре только те колонки, что
+            реально видны, по краям — распорки нужной ширины. У ежедневного
+            отчёта РЦО 66 строк × 327 граф = 21 648 ячеек; отрисовка занимала
+            секунды, а сортировка кликом по заголовку не укладывалась в 45 с —
+            React пересобирал все ячейки заново, и вкладка переставала
+            отвечать. Данные при этом НЕ обрезаются: прокрутка доходит до любой
+            графы, меняется только число нарисованных узлов. */}
+        <div ref={vcols.ref} style={{ overflowX: print ? 'visible' : 'auto', width: '100%', maxWidth: '100%' }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: 13,
+          // При виртуализации ширина колонок обязана быть известна заранее —
+          // иначе не посчитать, какая из них попала в кадр.
+          ...(virtOn
+            ? { tableLayout: 'fixed' as const, width: VCOL_FIRST_W + cols.length * VCOL_W }
+            : { width: '100%' }) }}>
           <thead><tr>
             {/* Названия строк закреплены слева: при прокрутке вправо уезжали и
                 они, и было не понять, к какой строке относятся числа. */}
-            <th style={{ ...th, ...sortableTh, ...stickyCol, ...stickyHead }} title={SORT_HINT} onClick={() => toggleSort(setTableSort, '__row')}>Строка{sortArrow(tableSort, '__row')}</th>
+            <th style={{ ...th, ...sortableTh, ...stickyCol, ...stickyHead, ...(virtOn ? { width: VCOL_FIRST_W } : {}) }} title={SORT_HINT} onClick={() => toggleSort(setTableSort, '__row')}>Строка{sortArrow(tableSort, '__row')}</th>
+            {virtOn && vcols.range.padBefore > 0 && <th style={{ ...th, width: vcols.range.padBefore, padding: 0 }} aria-hidden />}
             {/* Заголовок — человеческое имя показателя; код остаётся ключом
                 данных и подсказкой, чтобы можно было сверить с формулой. */}
-            {cols.map((c: string) => (
-              <th key={c} style={{ ...th, ...sortableTh }} title={`${SORT_HINT}\nКод столбца: ${c}`}
+            {cols.slice(vcols.range.start, vcols.range.end).map((c: string) => (
+              <th key={c} style={{ ...th, ...sortableTh, ...(virtOn ? { width: VCOL_W } : {}) }} title={`${SORT_HINT}\nКод столбца: ${c}`}
                 onClick={() => toggleSort(setTableSort, c)}>
                 {(data.column_titles?.[c] as string) || c}{sortArrow(tableSort, c)}
               </th>
             ))}
+            {virtOn && vcols.range.padAfter > 0 && <th style={{ ...th, width: vcols.range.padAfter, padding: 0 }} aria-hidden />}
           </tr></thead>
           <tbody>
             {rows.length === 0 && <tr><td style={td} colSpan={cols.length + 1}>Ничего не найдено</td></tr>}
@@ -1487,7 +1508,8 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                 title={onPick && !print ? `Показать всю страницу по строке «${r.row}»` : undefined}>
                 <td style={{ ...td, fontWeight: 600, ...stickyCol,
                   ...(onPick && !print ? { color: 'var(--accent)' } : {}) }}>{r.row}</td>
-                {cols.map((c: string) => (
+                {virtOn && vcols.range.padBefore > 0 && <td style={{ padding: 0 }} aria-hidden />}
+                {cols.slice(vcols.range.start, vcols.range.end).map((c: string) => (
                   <td key={c} style={{ ...td, ...cellStyle(r, c) }}
                     title={cellFmt[c] === 'bar' && typeof r[c] === 'number' && barMax[c]
                       ? `${fmt(r[c])} — ${Math.round((Math.abs(r[c]) / barMax[c]) * 100)} % от наибольшего в столбце`
@@ -1495,6 +1517,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                     {typeof r[c] === 'number' ? fmt(r[c]) : (r[c] ?? '—')}
                   </td>
                 ))}
+                {virtOn && vcols.range.padAfter > 0 && <td style={{ padding: 0 }} aria-hidden />}
               </tr>
             ))}
           </tbody>
