@@ -152,7 +152,16 @@ async def list_users(conn, org_id, q: Optional[str] = None, limit: int = 50, off
             "department_id": str(u["department_id"]) if u["department_id"] else None,
             "department": u["department"], "roles": list(u["roles"]), "created_at": u["created_at"],
         })
-    return {"total": total, "limit": limit, "offset": offset, "items": items}
+    # Сколько АКТИВНЫХ суперадминистраторов в организации. Нужен экрану, чтобы
+    # предупредить о тупике: пароль единственного владельца из интерфейса не
+    # восстанавливается никак (суперадмина может трогать только суперадмин, а
+    # роль выдавать — тоже только он), и выход тогда один — скрипт на сервере.
+    # 🔴 Считает сервер, а не экран: список постраничный, и второй владелец
+    # может оказаться на другой странице — предупреждение «он один» появлялось
+    # бы ложно. Заблокированные не в счёт: доступа они не дают.
+    superadmin_count = await _active_superadmin_count(conn, org_id)
+    return {"total": total, "limit": limit, "offset": offset, "items": items,
+            "superadmin_count": superadmin_count}
 
 
 async def _dept_ok(conn, org_id, department_id: Optional[str]) -> None:

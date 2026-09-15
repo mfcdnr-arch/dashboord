@@ -30,6 +30,9 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
   const { ask, node: confirmNode } = useConfirm()
   const [users, setUsers] = useState<AppUser[]>([])
   const [usersTotal, setUsersTotal] = useState(0)
+  // Сколько в системе активных суперадминистраторов. Приходит с сервера: список
+  // постраничный, и второй владелец может оказаться на другой странице.
+  const [superCount, setSuperCount] = useState<number | null>(null)
   const [uq, setUq] = useState('')
   const [depts, setDepts] = useState<Department[]>([])
   const [roles, setRoles] = useState<Role[]>([])
@@ -60,7 +63,7 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
   const loadUsers = (query: string) => {
     const seq = ++reqSeq.current
     return listUsers(query, USERS_PAGE, 0)
-      .then((p) => { if (seq === reqSeq.current) { setUsers(p.items); setUsersTotal(p.total) } }).catch(fail)
+      .then((p) => { if (seq === reqSeq.current) { setUsers(p.items); setUsersTotal(p.total); if (p.superadmin_count != null) setSuperCount(p.superadmin_count) } }).catch(fail)
   }
   const reload = () => {
     loadUsers(uq)
@@ -153,6 +156,27 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
     <div>
       {confirmNode}
       <h2 style={{ fontSize: 20, margin: '0 0 16px' }}>Пользователи</h2>
+      {/* Тупик, о котором лучше узнать заранее: пароль ЕДИНСТВЕННОГО
+          суперадминистратора из интерфейса не восстанавливается никак — его
+          может сбросить только суперадмин, а роль выдать тоже только он.
+          Показываем лишь суперадмину: администратор второго завести не может
+          (эскалация запрещена), и предупреждение стало бы для него шумом, на
+          который нельзя ответить действием. */}
+      {isSuper && superCount != null && superCount <= 1 && (
+        <div style={{
+          marginBottom: 14, padding: '10px 12px', borderRadius: 10, fontSize: 13,
+          border: '1px solid var(--warn)', background: 'var(--warn-bg)', color: 'var(--text-2)',
+        }}>
+          <b>⚠ Суперадминистратор в системе один — ваша учётная запись.</b> Если пароль будет
+          потерян, вернуть доступ из интерфейса не сможет никто: сбросить его вправе только
+          суперадминистратор, и выдать эту роль — тоже. Восстановление останется возможным лишь
+          с сервера, командой <code>./reset-superadmin.sh</code> — то есть потребуется доступ к машине.
+          <div style={{ marginTop: 6 }}>
+            Надёжнее завести второго: создайте пользователя ниже и выдайте ему роль
+            «Суперадминистратор» — тогда вы сможете восстанавливать доступ друг другу.
+          </div>
+        </div>
+      )}
       {error && <div style={errBox}>{error}</div>}
       {notice && (
         <div style={{ background: 'var(--success-bg)', color: 'var(--success)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }}>

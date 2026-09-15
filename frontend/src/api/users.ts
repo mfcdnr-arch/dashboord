@@ -36,7 +36,12 @@ export async function listRoles(): Promise<Role[]> {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
-export async function listUsers(q = '', limit = 50, offset = 0): Promise<Page<AppUser>> {
+/** Список пользователей + сколько в системе АКТИВНЫХ суперадминистраторов.
+ *  Счётчик приходит с сервера, а не считается по странице: список постраничный,
+ *  и второй владелец может оказаться на другой странице. */
+export type UsersPage = Page<AppUser> & { superadmin_count?: number }
+
+export async function listUsers(q = '', limit = 50, offset = 0): Promise<UsersPage> {
   const p = new URLSearchParams({ limit: String(limit), offset: String(offset) })
   if (q.trim()) p.set('q', q.trim())
   const res = await fetch(`/users?${p}`, { headers: authH() })
