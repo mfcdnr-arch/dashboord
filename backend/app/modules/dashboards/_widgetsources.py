@@ -12,6 +12,7 @@ from typing import Dict, List, Optional
 
 from ..metrics import resolver as mr
 from ..metrics.parser import FormulaError, parse
+from . import _pagecalc
 from ._base import DashboardError
 
 
@@ -155,14 +156,22 @@ def _align(categories: List[str], prev_rows: List[dict]) -> tuple:
 
 async def _field_title(conn, org_id, dataset_code: str, field_code: str, period=None) -> Optional[str]:
     """Человеческое имя столбца («… · Доля, %»): по нему видно, можно ли его
-    складывать. Код поля для этого не годится — он транслит и обрезан."""
+    складывать. Код поля для этого не годится — он транслит и обрезан.
+
+    Внутри расчёта страницы спрашивается один раз на графу: имя не меняется, а
+    вопрос задаётся на каждое поле каждого виджета (на «Обзоре» РЦО — 49 раз).
+    """
     rel = await mr._active_release(conn, org_id, dataset_code, period)
     if rel is None:
         return None
-    return await conn.fetchval(
-        "select cf.name from canonical_fields cf "
-        "where cf.code=$2 and cf.object_id=(select object_id from dataset_releases where id=$1)",
-        rel, field_code)
+
+    async def load():
+        return await conn.fetchval(
+            "select cf.name from canonical_fields cf "
+            "where cf.code=$2 and cf.object_id=(select object_id from dataset_releases where id=$1)",
+            rel, field_code)
+
+    return await _pagecalc.memo(("field_title", str(rel), field_code), load)
 
 
 async def _field_titles(conn, org_id, dataset_code: str, period=None) -> dict:
@@ -225,16 +234,30 @@ async def _dataset_period_series(conn, org_id, dataset_code: str, value_field: s
     )
     if not rels:
         raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
+
+    # 🔴 Один запрос на ВСЕ отчёты, а не по запросу на каждый. Замер на живых
+    # данных: страница «Обзор» дашборда РЦО тянула 3026 обращений к базе, из них
+    # 3816 выполнений именно этой суммы — она звалась в цикле по 54 выпускам, и
+    # так для каждого показателя каждого виджета. Само по себе это быстро, но
+    # цена растёт вместе с историей: через год отчётов вдвое больше. Приём тот
+    # же, что в матрице «строка × отчёт» (см. _dataset_row_period_matrix).
+    ids = [r["id"] for r in rels]
+    params: list = [ids, value_field, row]
+    acl = _row_acl_clause(params, allowed)
+    sums = await conn.fetch(
+        "select dataset_release_id as rel, coalesce(sum(value_number),0) as val from dataset_values "
+        f"where dataset_release_id = any($1::uuid[]) and canonical_field_code=$2 "
+        f"and ($3::text is null or row_label=$3){acl} group by dataset_release_id", *params)
+    by_rel = {r["rel"]: float(r["val"]) for r in sums}
+
     out = []
     for r in rels:
-        params: list = [r["id"], value_field, row]
-        acl = _row_acl_clause(params, allowed)
-        s = await conn.fetchval(
-            "select coalesce(sum(value_number),0) from dataset_values "
-            f"where dataset_release_id=$1 and canonical_field_code=$2 and ($3::text is null or row_label=$3){acl}",
-            *params)
         period = r["reporting_period_start"].isoformat() if r["reporting_period_start"] else "—"
-        out.append((period, float(s)))
+        # 🔴 Ноль, а не пропуск: отчёт пришёл, а показателя в нём нет — это
+        # значимый факт. При группировке такой выпуск не попадает в результат
+        # вовсе, и точка молча исчезла бы из графика: ряд стал бы короче, а
+        # «Динамика» показала бы непрерывный рост там, где был провал.
+        out.append((period, by_rel.get(r["id"], 0.0)))
     return out
 
 

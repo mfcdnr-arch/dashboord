@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from ... import cache
 from ..metrics.parser import FormulaError, extract_dependencies, parse
+from . import _pagecalc
 from ._alerts import _cfg
 from ._base import WIDGET_TYPES, DashboardError
 from ._rls import _can_view, visible_dashboard_ids, visible_widget_ids
@@ -79,7 +80,18 @@ async def compute_page_data(conn, org_id, page_id: str, user: dict,
     allowed = await visible_widget_ids(conn, org_id, user, str(p["dashboard_id"]))
     rows = await conn.fetch(
         "select id from widgets where page_id=$1::uuid order by position_y, position_x", page_id)
-    out = []
+    out: list = []
+    # Справочные вопросы («какой выпуск активен», «как называется графа») в
+    # пределах одного расчёта задаются десятками раз с одним и тем же ответом.
+    # Памятка живёт ровно здесь и исчезает вместе с расчётом — кэш, переживший
+    # запрос, отдавал бы данные «из прошлого раза».
+    with _pagecalc.page_scope():
+        return await _compute_widgets(conn, org_id, page_id, user, rows, allowed, out,
+                                      from_date, to_date, row, level_path)
+
+
+async def _compute_widgets(conn, org_id, page_id, user, rows, allowed, out,
+                           from_date, to_date, row, level_path) -> dict:
     for w in rows:
         wid = str(w["id"])
         if allowed is not None and wid not in allowed:

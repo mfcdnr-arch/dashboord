@@ -95,20 +95,31 @@ def _freeze(filters: Optional[Dict[str, str]]):
 # Доступ к БД
 # --------------------------------------------------------------------------- #
 async def _active_release(conn, org_id, code: str, date: Optional[str] = None):
-    """id активного (не superseded) выпуска датасета. Без даты — последний по периоду."""
-    if date is not None:
+    """id активного (не superseded) выпуска датасета. Без даты — последний по периоду.
+
+    Внутри расчёта страницы спрашивается один раз на пару «датасет + дата»: этот
+    вопрос задаётся на каждое поле каждого виджета (на «Обзоре» РЦО — 77 раз), а
+    ответ в пределах одного расчёта не меняется. Вне страницы кэша нет.
+    """
+    async def load():
+        if date is not None:
+            return await conn.fetchval(
+                "select id from dataset_releases where organization_id=$1 and code=$2 "
+                "and status <> 'superseded' and reporting_period_start = $3::text::date "
+                "order by created_at desc limit 1",
+                org_id, code, date,
+            )
         return await conn.fetchval(
             "select id from dataset_releases where organization_id=$1 and code=$2 "
-            "and status <> 'superseded' and reporting_period_start = $3::text::date "
-            "order by created_at desc limit 1",
-            org_id, code, date,
+            "and status <> 'superseded' "
+            "order by reporting_period_start desc nulls last, created_at desc limit 1",
+            org_id, code,
         )
-    return await conn.fetchval(
-        "select id from dataset_releases where organization_id=$1 and code=$2 "
-        "and status <> 'superseded' "
-        "order by reporting_period_start desc nulls last, created_at desc limit 1",
-        org_id, code,
-    )
+
+    # Организация и дата — часть ключа: без них виджет получил бы выпуск чужой
+    # организации, и выглядело бы это правдоподобно.
+    from ..dashboards import _pagecalc
+    return await _pagecalc.memo(("release", str(org_id), code, date), load)
 
 
 async def _dataset_periods(conn, org_id, datasets) -> List[str]:
