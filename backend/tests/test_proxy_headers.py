@@ -15,12 +15,18 @@ import ast
 import re
 from pathlib import Path
 
+import yaml
+
 # Каталог frontend/ смонтирован в контейнер тестов как /frontend (см.
 # docker-compose.yml, сервис tests); при локальном прогоне — в дереве репозитория.
 _ROOTS = [Path("/frontend"), Path(__file__).resolve().parents[2] / "frontend"]
 FRONT = next((r for r in _ROOTS if (r / "nginx.locations.conf").exists()), _ROOTS[-1])
 CONFS = ["nginx.locations.conf", "nginx.conf", "nginx.tls.conf"]
 APP = Path("/app/app") if Path("/app/app").exists() else Path(__file__).resolve().parents[1] / "app"
+# Файлы поставки — в /deploy внутри контейнера тестов (см. docker-compose.yml).
+_DEPLOY = [Path("/deploy"), Path(__file__).resolve().parents[2]]
+DEPLOY = next((r for r in _DEPLOY if (r / "docker-compose.prod.yml").exists()), _DEPLOY[-1])
+PROD_COMPOSE = ["docker-compose.prod.yml", "docker-compose.tls.yml", "docker-compose.monitoring.yml"]
 
 REAL_IP = "proxy_set_header X-Real-IP $remote_addr;"
 FORWARDED = "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;"
@@ -107,3 +113,24 @@ def test_header_parsing_lives_only_in_clientip():
     assert not guilty, (
         "заголовки адреса разбираются вне app/clientip.py: " + ", ".join(guilty) +
         " — правило должно быть одно на оба журнала")
+
+
+def test_api_port_is_not_published_outside():
+    """Наружу опубликован только веб-контейнер — в API приходят через nginx.
+
+    На это опирается умолчание доверия (приватные сети и loopback): адрес
+    контейнера nginx заранее неизвестен, поэтому доверяем диапазону. Опубликуй
+    кто-нибудь порт api — и доверие приватным сетям начнёт работать против нас:
+    подделать адрес в журнале сможет любой, кто дотянется до порта из LAN.
+    Тогда `TRUSTED_PROXIES` придётся сузить до адреса прокси явно.
+    """
+    for name in PROD_COMPOSE:
+        path = DEPLOY / name
+        if not path.exists():
+            continue
+        services = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("services") or {}
+        ports = (services.get("api") or {}).get("ports")
+        assert not ports, (
+            f"{name}: сервису api опубликован порт {ports} — в API можно прийти мимо nginx, "
+            f"и доверие приватным сетям в app/clientip.py перестаёт быть безопасным; "
+            f"либо уберите публикацию, либо сузьте TRUSTED_PROXIES до адреса прокси")
