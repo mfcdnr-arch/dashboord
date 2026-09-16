@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 
-from ... import db
+from ... import clientip, db
 from ..appeals import service as appeals_svc
 from ..system import settings_service as settings_svc
 from .deps import get_current_user
@@ -36,8 +36,9 @@ async def password_policy():
 
 @router.post("/login")
 async def login(request: Request, form: OAuth2PasswordRequestForm = Depends()):
-    fwd = request.headers.get("x-forwarded-for")
-    ip = (fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else None)) or None
+    # Адрес — через общий clientip: заголовок X-Forwarded-For присылает сам
+    # клиент, и журнал входов (как и аудит) не должен ему верить.
+    ip = clientip.from_request(request)
     ua = request.headers.get("user-agent")
     async with db.get_pool().acquire() as conn:
         sys_settings = await settings_svc.get_system_settings(conn)

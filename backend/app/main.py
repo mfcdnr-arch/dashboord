@@ -10,7 +10,7 @@ import asyncpg
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from . import cache, db, observability
+from . import cache, clientip, db, observability
 from .config import settings
 from .modules.appeals.router import router as appeals_router
 from .modules.audit.router import router as audit_router
@@ -70,6 +70,9 @@ async def _data_error_handler(request: Request, exc: asyncpg.exceptions.DataErro
 class ClientIPMiddleware:
     """Кладёт IP запроса в contextvar db.current_ip на время обработки.
 
+    Сам адрес определяет clientip — общий модуль для обоих журналов: заголовку
+    клиента верить нельзя, а правило не должно жить в двух копиях.
+
     Чистый ASGI-middleware (не BaseHTTPMiddleware) — выполняется в том же
     контексте, что и эндпоинт, поэтому contextvar видна в acquire().
     """
@@ -81,14 +84,7 @@ class ClientIPMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        headers = dict(scope.get("headers") or [])
-        fwd = headers.get(b"x-forwarded-for")
-        if fwd:
-            ip = fwd.decode(errors="ignore").split(",")[0].strip() or None
-        else:
-            client = scope.get("client")
-            ip = client[0] if client else None
-        token = db.current_ip.set(ip)
+        token = db.current_ip.set(clientip.from_scope(scope))
         try:
             await self.app(scope, receive, send)
         finally:

@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     password_min_length: int = 8
     password_require_complexity: bool = True  # требовать и буквы, и цифры
 
+    # Доверенные прокси: чьим заголовкам X-Real-IP / X-Forwarded-For можно
+    # верить при записи адреса в журналы (см. app/clientip.py). Список адресов
+    # или сетей через запятую; пусто — приватные сети и loopback (умолчание).
+    trusted_proxies: str = ""
+
     # Защита от подбора пароля: после login_max_attempts неудач за login_lockout_minutes
     # вход по этому логину временно блокируется. 0 в max — выключить блокировку.
     login_max_attempts: int = 5
