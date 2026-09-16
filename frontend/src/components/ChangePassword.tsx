@@ -11,6 +11,7 @@ export default function ChangePassword({
   onDone: (token: string) => void
 }) {
   const uid = useId()
+  const [cur, setCur] = useState('')
   const [pw1, setPw1] = useState('')
   const [pw2, setPw2] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -30,7 +31,7 @@ export default function ChangePassword({
     }
     setBusy(true)
     try {
-      await changePassword(token, pw1)
+      await changePassword(token, pw1, cur)
       // changePassword сохранил НОВЫЙ токен (старые отозваны сменой пароля) —
       // дальше работаем с ним, иначе следующий запрос получит 401.
       onDone(getToken() || token)
@@ -55,13 +56,16 @@ export default function ChangePassword({
         <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 0 }}>
           При первом входе необходимо задать новый пароль.
         </p>
+        <label style={label} htmlFor={`${uid}-cur`}>Временный пароль (тот, которым вы вошли)</label>
+        <input id={`${uid}-cur`} style={{ ...input, marginBottom: 10 }} type="password" value={cur}
+          onChange={(e) => setCur(e.target.value)} autoFocus />
         <label style={label} htmlFor={`${uid}-new`}>Новый пароль</label>
-        <input id={`${uid}-new`} style={{ ...input, marginBottom: 4, borderColor: pwErr ? '#d99' : 'var(--border-strong)' }} type="password" value={pw1} onChange={(e) => setPw1(e.target.value)} autoFocus />
+        <input id={`${uid}-new`} style={{ ...input, marginBottom: 4, borderColor: pwErr ? '#d99' : 'var(--border-strong)' }} type="password" value={pw1} onChange={(e) => setPw1(e.target.value)} />
         <div style={{ fontSize: 12, color: pwErr ? 'var(--danger)' : 'var(--text-muted)', marginBottom: 10 }}>{pwErr || passwordHint(policy)}</div>
         <label style={label} htmlFor={`${uid}-repeat`}>Повторите пароль</label>
         <input id={`${uid}-repeat`} style={input} type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
         {error && <Notice style={errBox}>{error}</Notice>}
-        <button style={button} disabled={busy || !pw1 || !pw2}>
+        <button style={button} disabled={busy || !cur || !pw1 || !pw2}>
           {busy ? 'Сохранение…' : 'Сохранить'}
         </button>
       </form>

@@ -9,7 +9,7 @@ export default function AppealsPage({ initialAppealId, onOpenDashboard }: {
 }) {
   return (
     <div>
-      <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Обращения</h2>
+      <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>Обращения</h1>
       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
         Вопросы и проблемы, которые пользователи направили администратору или модератору.
       </div>

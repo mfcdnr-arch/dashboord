@@ -56,7 +56,9 @@ async def test_must_change_password_blocks_api(client, admin_headers):
         assert "смените" in r.json()["detail"].lower()
         # свой профиль и смена пароля — разрешены
         assert (await client.get("/auth/me", headers=tok)).status_code == 200
-        assert (await client.post("/auth/change-password", json={"new_password": "NewPass99"}, headers=tok)).status_code == 200
+        assert (await client.post("/auth/change-password",
+                                    json={"current_password": "Xy345678", "new_password": "NewPass99"},
+                                    headers=tok)).status_code == 200
         # после смены — доступ восстановлен
         tok2 = hdr(await login(client, "ztest_tmp", "NewPass99"))
         assert (await client.get("/dashboards", headers=tok2)).status_code == 200

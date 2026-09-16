@@ -309,7 +309,7 @@ export function DashboardHeader({
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap', marginTop: 2 }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <h2 style={{ fontSize: 19, fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }}>{dashboard.name}</h2>
+              <h1 style={{ fontSize: 19, fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }}>{dashboard.name}</h1>
               {canManage && (
                 <button type="button" style={{ ...linkDanger, color: 'var(--text-faint)', fontSize: 13 }}
                   title="Переименовать дашборд, изменить описание" onClick={a.rename}>✎</button>

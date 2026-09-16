@@ -76,7 +76,7 @@ export default function SettingsPage({ me }: { me: { roles: string[] } }) {
 
   return (
     <div>
-      <h2 style={{ fontSize: 20, margin: '0 0 16px' }}>Настройки</h2>
+      <h1 style={{ fontSize: 20, margin: '0 0 16px' }}>Настройки</h1>
       {error && <Notice style={errBox}>{error}</Notice>}
       {savedAt && !error && <Notice kind="ok" style={okBox}>Сохранено.</Notice>}
 

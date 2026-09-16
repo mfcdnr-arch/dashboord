@@ -50,7 +50,7 @@ export default function QuickLinksPage(
 
   return (
     <div>
-      <h2 style={{ marginTop: 0 }}>Быстрый доступ</h2>
+      <h1 style={{ marginTop: 0 }}>Быстрый доступ</h1>
       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14 }}>
         Короткие ссылки на уже узнаваемые отчёты — вместо поиска дашборда по полному названию.
         {canManage && ' Каждый видит только те пункты, которые ему открыты.'}

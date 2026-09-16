@@ -158,7 +158,7 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
   return (
     <div>
       {confirmNode}
-      <h2 style={{ fontSize: 20, margin: '0 0 16px' }}>Пользователи</h2>
+      <h1 style={{ fontSize: 20, margin: '0 0 16px' }}>Пользователи</h1>
       {/* Тупик, о котором лучше узнать заранее: пароль ЕДИНСТВЕННОГО
           суперадминистратора из интерфейса не восстанавливается никак — его
           может сбросить только суперадмин, а роль выдать тоже только он.

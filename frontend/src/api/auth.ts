@@ -95,11 +95,11 @@ export async function getMe(token: string): Promise<Me> {
 // Смена пароля отзывает ВСЕ ранее выданные токены пользователя (сервер пишет
 // users.password_changed_at). Поэтому эндпоинт возвращает свежий токен — его
 // нужно сразу сохранить, иначе следующий же запрос получит 401.
-export async function changePassword(token: string, newPassword: string): Promise<void> {
+export async function changePassword(token: string, newPassword: string, currentPassword: string): Promise<void> {
   const res = await fetch('/auth/change-password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ new_password: newPassword }),
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))

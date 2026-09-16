@@ -5,8 +5,11 @@ import pytest
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
-async def _change(client, headers, pw):
-    return await client.post("/auth/change-password", headers=headers, json={"new_password": pw})
+async def _change(client, headers, pw, current="viewer123"):
+    # Текущий пароль обязателен (находка аудита) — фикстура `viewer` заводится
+    # с этим паролем; здесь проверяется политика для НОВОГО пароля.
+    return await client.post("/auth/change-password", headers=headers,
+                             json={"current_password": current, "new_password": pw})
 
 
 async def test_reject_too_short(client, viewer):

@@ -103,7 +103,7 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
   return (
     <div>
       {confirmNode}
-      <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Карта</h2>
+      <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>Карта</h1>
       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
         Отделения МФЦ на карте и их сведения: адрес, телефон, режим работы.
         {canManage ? ' Карта строится по справочнику — правка сведений сразу меняет то, что видно на точке.' : ' Правка — у администратора.'}

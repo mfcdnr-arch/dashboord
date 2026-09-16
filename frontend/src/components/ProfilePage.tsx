@@ -38,7 +38,7 @@ export default function ProfilePage(
     initialAppealId || initialTab === 'appeals' ? 'appeals' : 'profile')
   return (
     <div>
-      <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Личный кабинет</h2>
+      <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>Личный кабинет</h1>
       <div style={{ display: 'flex', gap: 8, margin: '12px 0 18px' }}>
         <button onClick={() => setTab('profile')} style={tab === 'profile' ? tabActive : tabBtn}>Профиль и активность</button>
         <button onClick={() => setTab('appeals')} style={tab === 'appeals' ? tabActive : tabBtn}>💬 Мои обращения</button>
@@ -127,6 +127,7 @@ function ProfileTab({ me }: { me: Me }) {
 function PasswordCard({ login }: { login: string }) {
   const uid = useId()
   const [open, setOpen] = useState(false)
+  const [cur, setCur] = useState('')
   const [pw1, setPw1] = useState('')
   const [pw2, setPw2] = useState('')
   const [policy, setPolicy] = useState<PasswordPolicy>({ min_length: 8, require_complexity: true })
@@ -143,8 +144,8 @@ function PasswordCard({ login }: { login: string }) {
     if (pw1 !== pw2) { setErr('Пароли не совпадают'); return }
     setBusy(true)
     try {
-      await changePassword(getToken() || '', pw1)
-      setOk(true); setPw1(''); setPw2(''); setOpen(false)
+      await changePassword(getToken() || '', pw1, cur)
+      setOk(true); setCur(''); setPw1(''); setPw2(''); setOpen(false)
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
 
@@ -157,16 +158,19 @@ function PasswordCard({ login }: { login: string }) {
       {ok && <div style={{ fontSize: 13, color: 'var(--success)', marginTop: 8 }}>Пароль изменён.</div>}
       {open && (
         <div style={{ marginTop: 12, maxWidth: 320 }}>
+          <label style={label} htmlFor={`${uid}-cur`}>Текущий пароль</label>
+          <input id={`${uid}-cur`} style={{ ...input, marginBottom: 10 }} type="password"
+            value={cur} onChange={(e) => setCur(e.target.value)} autoFocus />
           <label style={label} htmlFor={`${uid}-new`}>Новый пароль</label>
           <input id={`${uid}-new`} style={{ ...input, borderColor: pwErr ? 'var(--danger)' : 'var(--border-strong)' }} type="password"
-            value={pw1} onChange={(e) => setPw1(e.target.value)} autoFocus />
+            value={pw1} onChange={(e) => setPw1(e.target.value)} />
           <div style={{ fontSize: 12, color: pwErr ? 'var(--danger)' : 'var(--text-muted)', margin: '4px 0 10px' }}>{pwErr || passwordHint(policy)}</div>
           <label style={label} htmlFor={`${uid}-repeat`}>Повторите пароль</label>
           <input id={`${uid}-repeat`} style={input} type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
           {err && <Notice style={errBox}>{err}</Notice>}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button style={btn} disabled={busy || !pw1 || !pw2} onClick={submit}>{busy ? 'Сохранение…' : 'Сохранить'}</button>
-            <button style={btnGhost} onClick={() => { setOpen(false); setPw1(''); setPw2(''); setErr(null) }}>Отмена</button>
+            <button style={btn} disabled={busy || !cur || !pw1 || !pw2} onClick={submit}>{busy ? 'Сохранение…' : 'Сохранить'}</button>
+            <button style={btnGhost} onClick={() => { setOpen(false); setCur(''); setPw1(''); setPw2(''); setErr(null) }}>Отмена</button>
           </div>
         </div>
       )}

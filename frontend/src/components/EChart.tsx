@@ -8,6 +8,7 @@ import { SVGRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts' // только тип (стирается при сборке)
 // Русская запись чисел — та же, что во всей системе (см. lib/format).
 import { fmtNumber } from '../lib/format'
+import { describeChart } from '../lib/chartAlt'
 
 // SVG-рендерер (а не Canvas): графики — векторные. Причины для гос-он-прем (Astra):
 // не зависим от canvas, чётко при печати/PDF, работает в любом браузере с SVG.
@@ -198,5 +199,8 @@ export default function EChart({ option, height = 200, onPick }: { option: EChar
     chartRef.current?.setOption(withResolvedVars(withThemedText(withDetachedTooltip({ ...themeDefaults(), ...option }))), true)
   }, [option])
 
-  return <div ref={ref} style={{ width: '100%', height }} />
+  // Текстовая альтернатива: SVG графика для программы чтения с экрана пуст —
+  // она объявит «изображение» и замолчит. Описание строится из самой опции,
+  // поэтому новый тип виджета получает его сам (см. lib/chartAlt).
+  return <div ref={ref} role="img" aria-label={describeChart(option)} style={{ width: '100%', height }} />
 }

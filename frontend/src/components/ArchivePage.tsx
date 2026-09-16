@@ -116,7 +116,7 @@ export default function ArchivePage({ canManage, isAdmin }: { canManage: boolean
     <div>
       {confirmNode}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        <h2 style={{ margin: 0, fontSize: 20 }}>Архив дашбордов</h2>
+        <h1 style={{ margin: 0, fontSize: 20 }}>Архив дашбордов</h1>
         {canManage && <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={() => setAccessOpen(true)}>🔑 Доступ к архиву</button>}
       </div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>

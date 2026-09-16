@@ -1095,6 +1095,8 @@ export default function DashboardsPage({
       {error && <Notice style={errBox}>{error}</Notice>}
 
       {!sel && (
+        <>
+        <h1 style={{ fontSize: 20, margin: '0 0 8px' }}>Дашборды</h1>
         <DashboardList
           canManage={canManage} objects={objects} templates={templates}
           newDash={newDash} setNewDash={setNewDash} addDashboard={addDashboard} busy={busy}
@@ -1120,6 +1122,7 @@ export default function DashboardsPage({
           dashboards={dashboards} dashTotal={dashTotal} openDashboard={openDashboard}
           toggleFav={toggleFav} loadMoreDash={loadMoreDash} recent={recent}
         />
+        </>
       )}
 
       {sel && (

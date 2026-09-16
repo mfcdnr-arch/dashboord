@@ -101,7 +101,7 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
         <div style={{ flex: 1 }}>
-          <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Аудит действий</h2>
+          <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>Аудит действий</h1>
           <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
             Журнал изменений дашбордов, виджетов и прав доступа: кто, что и когда менял.
           </div>

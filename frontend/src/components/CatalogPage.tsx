@@ -67,7 +67,7 @@ export default function CatalogPage({ me }: { me: { roles: string[] } }) {
   return (
     <div>
       {confirmNode}
-      <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Справочники</h2>
+      <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>Справочники</h1>
       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
         Перечень услуг и служебные документы для проверки дашбордов.{!isAdmin && ' Редактирование — у администратора.'}
       </div>

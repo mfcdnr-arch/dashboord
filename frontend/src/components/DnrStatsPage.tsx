@@ -202,7 +202,7 @@ function OverviewView({ onOpenList }: { onOpenList: () => void }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 12, marginBottom: 4 }}>
-        <h2 style={{ margin: 0 }}>Статистика услуг ДНР</h2>
+        <h1 style={{ margin: 0 }}>Статистика услуг ДНР</h1>
         <button onClick={onOpenList} style={linkBtn}>Список отделений →</button>
       </div>
 

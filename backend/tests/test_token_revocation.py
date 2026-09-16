@@ -50,7 +50,7 @@ async def test_self_change_password_revokes_old_token_and_returns_new(client, te
     old_h = {"Authorization": f"Bearer {old}"}
     assert (await client.get("/auth/me", headers=old_h)).status_code == 200
 
-    r = await client.post("/auth/change-password", headers=old_h, json={"new_password": "RevokeAudit2026b"})
+    r = await client.post("/auth/change-password", headers=old_h, json={"current_password": temp_user["password"], "new_password": "RevokeAudit2026b"})
     assert r.status_code == 200, r.text
     fresh = r.json().get("access_token")
     assert fresh, "смена пароля должна вернуть новый токен взамен отозванного"

@@ -15,6 +15,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 class ChangePasswordIn(BaseModel):
+    # Текущий пароль обязателен: смена отзывает ВСЕ прежние токены (миграция
+    # 033), поэтому без него любой, кто сел за незаблокированный компьютер,
+    # выбрасывал владельца из системы и закреплял за собой доступ навсегда.
+    current_password: str = Field(min_length=1, max_length=200)
     new_password: str = Field(min_length=1, max_length=200)
 
 
@@ -96,6 +100,14 @@ async def change_password(data: ChangePasswordIn, user: dict = Depends(get_curre
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     async with db.get_pool().acquire() as conn:
+        current_hash = await conn.fetchval("select password_hash from users where id = $1", user["id"])
+        if not current_hash or not verify_password(data.current_password, current_hash):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Текущий пароль указан неверно")
+        # Тот же пароль сменой не считается. Иначе обязательная смена временного
+        # пароля обходится вводом его же: must_change_password снимается, и
+        # выданный администратором пароль остаётся в силе навсегда.
+        if verify_password(data.new_password, current_hash):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Новый пароль совпадает с текущим — придумайте другой")
         # password_changed_at отзывает ВСЕ ранее выданные токены (миграция 033),
         # включая текущий — поэтому сразу выдаём новый, чтобы пользователь не
         # получил 401 на следующем же запросе после смены пароля.

@@ -128,6 +128,7 @@ export default function MetricsPage({ canManage, isSuperadmin, initialMetricId }
 
   return (
     <div>
+      <h1 style={{ fontSize: 20, margin: '0 0 8px' }}>Метрики</h1>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, marginBottom: 16 }}>
         <button style={crumb} onClick={() => setSel(null)}>Метрики</button>
         {sel && <><span style={{ color: 'var(--text-faint)' }}>/</span><span>{sel.metric.name}</span></>}

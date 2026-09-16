@@ -21,7 +21,7 @@ export default function InstructionsPage({ canManage }: { canManage: boolean }) 
   const [tab, setTab] = useState<'read' | 'manage' | 'ann'>('read')
   return (
     <div>
-      <h2 style={{ fontSize: 18, margin: '0 0 4px' }}>Инструкции</h2>
+      <h1 style={{ fontSize: 18, margin: '0 0 4px' }}>Инструкции</h1>
       <div style={{ ...muted, marginBottom: 12 }}>
         Как пользоваться системой: короткие статьи и готовые руководства для скачивания.
       </div>

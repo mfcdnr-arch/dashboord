@@ -130,7 +130,7 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
       {/* Приветствие + дата/время. Часы отдельной плашкой справа: серой
           строкой рядом с приветствием их не замечали. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
-        <h2 style={{ fontSize: 20, margin: 0 }}>Здравствуйте, {me.full_name || me.login}!</h2>
+        <h1 style={{ fontSize: 20, margin: 0 }}>Здравствуйте, {me.full_name || me.login}!</h1>
         <div style={clockBox}>
           <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>
             {now.toLocaleTimeString('ru-RU')}

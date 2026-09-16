@@ -132,3 +132,49 @@ def test_notice_announces_errors_and_results():
     src = (SRC / "components" / "Notice.tsx").read_text(encoding="utf-8")
     assert "role=" in src and "'alert'" in src and "'status'" in src, (
         "Notice должен задавать role: alert для ошибки, status для остального")
+
+
+# --- заголовок страницы и текстовые альтернативы графикам (находки аудита) ---
+
+SECTION_RE = re.compile(r"section === '(\w+)'[^<]*<([A-Z]\w*)", re.S)
+IMPORT_RE = re.compile(r"import\s+(\w+)\s+from\s+'(\.[^']+)'")
+
+
+def test_every_section_page_has_a_heading():
+    """У каждого раздела есть заголовок первого уровня — им диктор отвечает «где я».
+
+    Было: верхний заголовок страницы — `h2`, а `h1` не было ни на одной. По
+    заголовкам листают страницу так же, как зрячий скользит взглядом, и без
+    первого уровня список заголовков начинается с середины.
+    """
+    app = (SRC / "App.tsx").read_text(encoding="utf-8")
+    imports = {name: path for name, path in IMPORT_RE.findall(app)}
+    missing = []
+    for section, comp in SECTION_RE.findall(app):
+        rel = imports.get(comp)
+        if not rel:
+            continue                      # не импортированный компонент — не страница
+        f = (SRC / rel.lstrip("./")).with_suffix(".tsx")
+        if not f.exists():
+            continue
+        text = _strip_comments(f.read_text(encoding="utf-8"))
+        if "<h1" in text:
+            continue
+        # заголовок может жить в собственной шапке раздела (открытый дашборд)
+        nearby = [p for p in (SRC / "components").rglob("*.tsx")
+                  if p.stem.startswith(comp.replace("Page", "")) and "<h1" in p.read_text(encoding="utf-8")]
+        if not nearby:
+            missing.append(f"{section} → {comp}")
+    assert not missing, "разделы без заголовка первого уровня: " + ", ".join(missing)
+
+
+def test_charts_have_a_text_alternative():
+    """График не остаётся немым: SVG для диктора пуст, нужна подпись словами.
+
+    Описание строится из самой опции графика в обёртке `EChart` — так его
+    получает и новый тип виджета, а не только те 26, что есть сегодня.
+    """
+    src = _strip_comments((SRC / "components" / "EChart.tsx").read_text(encoding="utf-8"))
+    assert 'role="img"' in src, "контейнер графика должен объявлять себя изображением"
+    assert "aria-label" in src and "describeChart" in src, (
+        "у графика должна быть текстовая альтернатива из lib/chartAlt")

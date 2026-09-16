@@ -325,6 +325,7 @@ export default function ObjectsPage(
   return (
     <div>
       {confirmNode}
+      <h1 style={{ fontSize: 20, margin: '0 0 8px' }}>Объекты</h1>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, marginBottom: 16 }}>
         <button style={crumb} onClick={() => { setObj(null); setFolder(null); setOpenDoc(null) }}>Объекты</button>
         {obj && <><span style={{ color: 'var(--text-faint)' }}>/</span><button style={crumb} onClick={() => { setFolder(null); setOpenDoc(null) }}>{obj.name}</button></>}

@@ -103,7 +103,7 @@ export default function UploadsPage() {
 
   return (
     <div>
-      <h2 style={{ marginTop: 0 }}>Загрузка</h2>
+      <h1 style={{ marginTop: 0 }}>Загрузка</h1>
 
       <div
         onDragOver={(e) => { e.preventDefault(); setDrag(true) }}

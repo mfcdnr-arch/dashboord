@@ -51,7 +51,7 @@ export default function ModerationPage({ me, onOpenDashboard }: {
 
   return (
     <div>
-      <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Модерация</h2>
+      <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>Модерация</h1>
       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
         Дашборды, отправленные на проверку. Одобрение публикует дашборд. Собственные одобрять нельзя (конфликт интересов).
       </div>

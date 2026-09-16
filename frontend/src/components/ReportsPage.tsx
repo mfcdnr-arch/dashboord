@@ -138,7 +138,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
 
   return (
     <div>
-      <h2 style={{ fontSize: 20, margin: '0 0 16px' }}>Отчёты</h2>
+      <h1 style={{ fontSize: 20, margin: '0 0 16px' }}>Отчёты</h1>
       {error && <Notice style={errBox}>{error}</Notice>}
 
       {/* Здоровье системы + автопочинка */}

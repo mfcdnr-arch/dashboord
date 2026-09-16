@@ -32,7 +32,7 @@ export default function LeadershipPage(
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-        <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Руководителю</h2>
+        <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>Руководителю</h1>
         {/* Состав подборки настраивается здесь же: собирать её, вспоминая
             нужные отчёты в общем списке дашбордов, неудобно — там свои
             фильтры и свои задачи. */}

@@ -40,7 +40,7 @@ export default function UserHomePage(
       {/* Приветствие и часы */}
       <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-          <div style={{ fontSize: 21, fontWeight: 700 }}>{greeting}, {fullName || 'коллега'}!</div>
+          <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0 }}>{greeting}, {fullName || 'коллега'}!</h1>
           <div style={{ ...muted, marginTop: 4 }}>
             Аналитический портал ГБУ «МФЦ ДНР» — отчёты по показателям работы центра.
           </div>

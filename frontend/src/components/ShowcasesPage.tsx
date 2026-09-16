@@ -103,6 +103,7 @@ export default function ShowcasesPage({ canManage, onOpenDashboard }: {
   return (
     <div>
       {confirmNode}
+      <h1 style={{ fontSize: 20, margin: '0 0 8px' }}>Витрины</h1>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, marginBottom: 16 }}>
         <button style={crumb} onClick={() => setSel(null)}>Витрины</button>
         {sel && <><span style={{ color: 'var(--text-faint)' }}>/</span><span>{sel.name}</span></>}
