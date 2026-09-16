@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listFeaturedCandidates, setFeaturedBulk, type FeaturedCandidate } from '../../api'
 import { Modal, ModalTitle } from '../Modal'
+import Notice from '../Notice'
 
 // Настройка состава подборки «Руководителю» (пп. 2–3 запроса заказчика).
 //
@@ -92,7 +93,7 @@ export default function FeaturedPicker({ onClose, onSaved }: { onClose: () => vo
         )}
       </div>
 
-      {err && <div style={errBox}>{err}</div>}
+      {err && <Notice style={errBox}>{err}</Notice>}
       {!items && !err && <div style={muted}>Загрузка…</div>}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', flex: 1, minHeight: 0 }}>

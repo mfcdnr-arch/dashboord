@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { fmtNumber as fmt } from '../lib/format'
 import { getPortalHome, type PortalHome } from '../api'
 import KpiDelta from './KpiDelta'
+import Notice from './Notice'
 
 /**
  * Главная обычного пользователя.
@@ -57,7 +58,7 @@ export default function UserHomePage(
         </div>
       </div>
 
-      {err && <div style={errBox}>{err}</div>}
+      {err && <Notice style={errBox}>{err}</Notice>}
 
       {/* Ключевые показатели: то же самое, что видит руководство, первым
           экраном — набор задаёт администратор, здесь только чтение. */}

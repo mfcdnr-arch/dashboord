@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { getWidgetRelated, type RelatedWidgetRef, type WidgetRelated } from '../../api'
 import { plural } from '../../lib/text'
 import { Modal, ModalTitle } from '../Modal'
+import Notice from '../Notice'
 
 const TYPE_RU: Record<string, string> = {
   kpi: 'карточка', gauge: 'спидометр', bar: 'столбцы', line: 'линия', pie: 'круговая',
@@ -74,7 +75,7 @@ export default function RelatedMenu(
         <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
       </div>
 
-      {err && <div style={errBox}>{err}</div>}
+      {err && <Notice style={errBox}>{err}</Notice>}
       {!data && !err && <div style={muted}>Загрузка…</div>}
 
       {data && (

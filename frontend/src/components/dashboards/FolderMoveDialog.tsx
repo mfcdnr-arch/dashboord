@@ -30,11 +30,11 @@ export function FolderMoveDialog({ target, objects, onClose, onMove, onClear }: 
           : target.currentPath ? `Сейчас в: ${target.currentPath}` : 'Сейчас без папки.'}
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-        <select style={input} value={objId} onChange={(e) => { setObjId(e.target.value); setFolderId('') }}>
+        <select style={input} aria-label="Объект" value={objId} onChange={(e) => { setObjId(e.target.value); setFolderId('') }}>
           <option value="">выберите объект…</option>
           {objects.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
-        <select style={input} value={folderId} onChange={(e) => setFolderId(e.target.value)} disabled={!objId}>
+        <select style={input} aria-label="Папка" value={folderId} onChange={(e) => setFolderId(e.target.value)} disabled={!objId}>
           <option value="">выберите папку…</option>
           {folderTree(folders).map((f) => <option key={f.id} value={f.id}>{folderLabel(f)}</option>)}
         </select>

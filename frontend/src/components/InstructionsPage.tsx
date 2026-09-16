@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useId } from 'react'
 import {
   createAnnouncement, createInstruction, deleteAnnouncement, deleteInstruction,
   downloadInstructionFile, getInstruction, listAnnouncements, listInstructions,
@@ -6,6 +6,7 @@ import {
   type Announcement, type Instruction,
 } from '../api'
 import { useConfirm } from './dashboards/ConfirmDialog'
+import Notice from './Notice'
 
 /**
  * «Инструкции» — то, что читает пользователь, и то, что администратор туда кладёт.
@@ -100,10 +101,10 @@ function ReadList() {
 
   return (
     <div>
-      {err && <div style={errBox}>{err}</div>}
+      {err && <Notice style={errBox}>{err}</Notice>}
       <input style={{ ...input, maxWidth: 420, marginBottom: 12 }} value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="🔍 Поиск по заголовку и тексту инструкций…" />
+        aria-label="Поиск по инструкциям" placeholder="🔍 Поиск по заголовку и тексту инструкций…" />
       {items.length === 0 ? (
         <div style={muted}>
           {q ? 'Ничего не нашлось — попробуйте другое слово.' : 'Инструкций пока нет.'}
@@ -137,6 +138,7 @@ function ReadList() {
 /* ─── Управление инструкциями ───────────────────────────────────────────── */
 
 function ManageList() {
+  const uid = useId()
   const [items, setItems] = useState<Instruction[]>([])
   const [err, setErr] = useState<string | null>(null)
   const [edit, setEdit] = useState<Partial<Instruction> | null>(null)
@@ -187,7 +189,7 @@ function ManageList() {
         <button style={btn} onClick={() => setEdit({ title: '', section: '', body: '', position: 0, is_published: true })}>
           ＋ Новая инструкция
         </button>
-        {err && <div style={{ ...errBox, marginTop: 10 }}>{err}</div>}
+        {err && <Notice style={{ ...errBox, marginTop: 10 }}>{err}</Notice>}
         <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginTop: 12 }}>
           {items.length === 0 && <div style={{ ...muted, padding: 12 }}>Инструкций пока нет.</div>}
           {items.map((i, idx) => (
@@ -216,14 +218,14 @@ function ManageList() {
           <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>
             {edit.id ? 'Правка инструкции' : 'Новая инструкция'}
           </div>
-          <label style={lbl}>Раздел (для группировки)</label>
-          <input style={input} value={edit.section || ''} placeholder="Начало работы"
+          <label style={lbl} htmlFor={`${uid}-section`}>Раздел (для группировки)</label>
+          <input id={`${uid}-section`} style={input} value={edit.section || ''} placeholder="Начало работы"
             onChange={(e) => setEdit({ ...edit, section: e.target.value })} />
-          <label style={lbl}>Название</label>
-          <input style={input} value={edit.title || ''}
+          <label style={lbl} htmlFor={`${uid}-title`}>Название</label>
+          <input id={`${uid}-title`} style={input} value={edit.title || ''}
             onChange={(e) => setEdit({ ...edit, title: e.target.value })} />
-          <label style={lbl}>Текст</label>
-          <textarea style={{ ...input, minHeight: 180, resize: 'vertical' }} value={edit.body || ''}
+          <label style={lbl} htmlFor={`${uid}-body`}>Текст</label>
+          <textarea id={`${uid}-body`} style={{ ...input, minHeight: 180, resize: 'vertical' }} value={edit.body || ''}
             placeholder="Опишите порядок действий по шагам."
             onChange={(e) => setEdit({ ...edit, body: e.target.value })} />
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
@@ -245,7 +247,7 @@ function ManageList() {
               : <div style={{ ...muted, fontSize: 12.5, marginBottom: 6 }}>
                   Можно приложить готовое руководство (.docx, .pdf, .xlsx, картинку) — до 25 МБ.
                 </div>}
-            <input type="file" disabled={!edit.id || busy}
+            <input type="file" aria-label="Файл руководства" disabled={!edit.id || busy}
               onChange={(e) => { const f = e.target.files?.[0]; if (f) attach(f) }} />
             {!edit.id && <div style={{ ...muted, fontSize: 12 }}>Файл можно приложить после сохранения.</div>}
           </div>
@@ -262,6 +264,7 @@ function ManageList() {
 /* ─── Объявления ────────────────────────────────────────────────────────── */
 
 function AnnouncementsAdmin() {
+  const aid = useId()
   const [items, setItems] = useState<Announcement[]>([])
   const [err, setErr] = useState<string | null>(null)
   const [title, setTitle] = useState('')
@@ -306,12 +309,12 @@ function AnnouncementsAdmin() {
         <div style={{ ...muted, fontSize: 12.5, marginBottom: 10 }}>
           Появится на главной у всех пользователей. Важное выделяется красным и стоит первым.
         </div>
-        {err && <div style={{ ...errBox, marginBottom: 10 }}>{err}</div>}
-        <label style={lbl}>Заголовок</label>
-        <input style={input} value={title} onChange={(e) => setTitle(e.target.value)}
+        {err && <Notice style={{ ...errBox, marginBottom: 10 }}>{err}</Notice>}
+        <label style={lbl} htmlFor={`${aid}-title`}>Заголовок</label>
+        <input id={`${aid}-title`} style={input} value={title} onChange={(e) => setTitle(e.target.value)}
           placeholder="Плановые работы в субботу" />
-        <label style={lbl}>Текст</label>
-        <textarea style={{ ...input, minHeight: 110, resize: 'vertical' }} value={body}
+        <label style={lbl} htmlFor={`${aid}-body`}>Текст</label>
+        <textarea id={`${aid}-body`} style={{ ...input, minHeight: 110, resize: 'vertical' }} value={body}
           onChange={(e) => setBody(e.target.value)}
           placeholder="20.08 с 9:00 до 12:00 система может быть недоступна." />
         <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>

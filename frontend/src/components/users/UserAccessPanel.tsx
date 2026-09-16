@@ -3,6 +3,7 @@ import {
   getUserDashboardAccess, setUserDashboardAccess,
   type UserDashboardAccess, type UserDashboardAccessItem,
 } from '../../api'
+import Notice from '../Notice'
 
 const STATUS_RU: Record<string, string> = {
   draft: 'черновик', review: 'на проверке', published: 'опубликован', archived: 'в архиве',
@@ -72,7 +73,7 @@ export default function UserAccessPanel({ userId, compact = false }: { userId: s
     }
   }
 
-  if (err && !data) return <div style={errBox}>{err}</div>
+  if (err && !data) return <Notice style={errBox}>{err}</Notice>
   if (!data) return <div style={muted}>Загрузка…</div>
   const changes = diff.grant.length + diff.revoke.length
 
@@ -97,8 +98,8 @@ export default function UserAccessPanel({ userId, compact = false }: { userId: s
         <span style={{ ...muted, marginLeft: 'auto' }}>дашбордов: {items.length}</span>
       </div>
 
-      {err && <div style={errBox}>{err}</div>}
-      {msg && <div style={okBox}>{msg}</div>}
+      {err && <Notice style={errBox}>{err}</Notice>}
+      {msg && <Notice kind="ok" style={okBox}>{msg}</Notice>}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: compact ? 220 : 340, overflowY: 'auto' }}>
         {items.length === 0 && <div style={muted}>Ничего не найдено.</div>}

@@ -490,9 +490,9 @@ function OfficesList({ onBackToOverview, onOpenDept }: {
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
         <div style={{ fontWeight: 600 }}>Отделения ({data.total})</div>
-        <input placeholder="🔍 Поиск по адресу или городу…" value={q} onChange={(e) => setQ(e.target.value)}
+        <input aria-label="Поиск отделения" placeholder="🔍 Поиск по адресу или городу…" value={q} onChange={(e) => setQ(e.target.value)}
           style={{ flex: '1 1 260px', padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)' }} />
-        <select value={sort} onChange={(e) => setSort(e.target.value)}
+        <select aria-label="Сортировка" value={sort} onChange={(e) => setSort(e.target.value)}
           style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--text)' }}>
           <option value="total_desc">Сортировка: по объёму</option>
           <option value="growth_desc">Сортировка: по приросту</option>

@@ -8,6 +8,7 @@ import { plural } from '../../lib/text'
 import { useConfirm } from '../dashboards/ConfirmDialog'
 import MapView from './MapView'
 import OfficeForm from './OfficeForm'
+import Notice from '../Notice'
 
 // Раздел «Карта» → справочник отделений.
 //
@@ -118,7 +119,7 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
             }}>{label}</button>
         ))}
       </div>
-      {error && <div style={errBox}>{error}</div>}
+      {error && <Notice style={errBox}>{error}</Notice>}
 
       {tab === 'map' && (
         <MapView offices={items} canManage={canManage} onEdit={(o) => { setTab('offices'); setEdit(o) }} />
@@ -195,6 +196,7 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
             обновлять существующие
           </label>
           <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }}
+            aria-label="Файл со списком отделений (CSV)"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f) }} />
           <button style={btnGhost} disabled={busy} onClick={() => fileRef.current?.click()}>
             {busy ? 'Загрузка…' : '⤒ Загрузить перечень'}

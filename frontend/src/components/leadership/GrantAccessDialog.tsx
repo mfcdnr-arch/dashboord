@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getFeaturedAccess, grantFeaturedAccess, type FeaturedAccess } from '../../api'
 import { Modal, ModalTitle } from '../Modal'
+import Notice from '../Notice'
 
 // «Предоставить доступ» к отчётам подборки (запрос заказчика: выбрали отчёты
 // для руководителя — значит открываем их ему).
@@ -58,8 +59,8 @@ export default function GrantAccessDialog({ onClose, onDone }: { onClose: () => 
         дашборде или в карточке сотрудника — здесь только выдача.
       </div>
 
-      {err && <div style={errBox}>{err}</div>}
-      {msg && <div style={okBox}>{msg}</div>}
+      {err && <Notice style={errBox}>{err}</Notice>}
+      {msg && <Notice kind="ok" style={okBox}>{msg}</Notice>}
       {!d && !err && <div style={muted}>Загрузка…</div>}
 
       {d && total === 0 && (

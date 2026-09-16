@@ -18,6 +18,7 @@ import { distinctLabels, dropCommonWords, elideMiddle, fitRotatedAxis, plural, t
 import { Modal, ModalTitle } from './Modal'
 
 import { RowPickCell, SORT_HINT, SortableTh } from './TableParts'
+import Notice from './Notice'
 // Отрисовка данных виджета: KPI/таблица/план-факт — HTML, столбцы/линия/круговая —
 // ECharts. По кнопке «подробнее» — drill (прозрачность): формула метрики + первичные строки.
 
@@ -383,7 +384,7 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
   const look = alertLook(alert)
   return (
     <div style={alert && stripe && look ? { borderLeft: `4px solid ${look.color}`, background: look.bg, borderRadius: 6, padding: '6px 8px', margin: '-2px 0' } : undefined}>
-      {error && <div style={errBox}>{error}</div>}
+      {error && <Notice style={errBox}>{error}</Notice>}
       {/* Пока данных нет — бледный контур на месте будущего числа, а не слово
           «Загрузка…». На странице в два десятка карточек текст, сменяющийся
           цифрой, читается как рывок: глаз цепляется за каждое слово и теряет
@@ -2184,7 +2185,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     const colAgg: string[] = data.col_aggregate || []
     return (
       <div>
-        <input style={searchInput} placeholder="🔍 Поиск по сводной…" value={pivotSearch} onChange={(e) => setPivotSearch(e.target.value)} />
+        <input style={searchInput} aria-label="Поиск по сводной таблице" placeholder="🔍 Поиск по сводной…" value={pivotSearch} onChange={(e) => setPivotSearch(e.target.value)} />
         {/* Оговорка стоит НАД таблицей: у таблицы своя прокрутка, и подпись под
             ней уезжает из виду ровно тогда, когда объясняет отсутствующую
             колонку «Итого». */}

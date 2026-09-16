@@ -7,6 +7,7 @@ import { fmtNumber } from '../../lib/format'
 import ArrivalCalendar from './ArrivalCalendar'
 
 import { Modal, ModalTitle } from '../Modal'
+import Notice from '../Notice'
 const ru = (iso?: string | null) => (iso ? iso.split('-').reverse().join('.') : '—')
 
 // Аналитика по папке (п. 8 списка заказчика). Папка — это одна форма, которая
@@ -30,7 +31,7 @@ export default function FolderAnalytics(
   }
   useEffect(() => { setD(null); load() }, [objectId, folderId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (err) return <div style={errBox}>{err}</div>
+  if (err) return <Notice style={errBox}>{err}</Notice>
   if (!d) return <div style={muted}>Загрузка…</div>
 
   const cov = d.coverage
@@ -314,7 +315,7 @@ function AddMissingDialog(
         <ModalTitle>Добавить показатели на дашборд</ModalTitle>
         <button style={{ ...closeBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
-      {err && <div style={errBox}>{err}</div>}
+      {err && <Notice style={errBox}>{err}</Notice>}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
         <label style={{ ...muted, display: 'flex', gap: 6, alignItems: 'center' }}>
           дашборд

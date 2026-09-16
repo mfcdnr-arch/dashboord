@@ -12,6 +12,7 @@ import UserCard from './users/UserCard'
 import AttendanceChart from './reports/AttendanceChart'
 import { fmtNumber as num } from '../lib/format'
 import { getLoginEvents, type LoginEventsReport } from '../api'
+import Notice from './Notice'
 
 
 // Раздел «Отчёты» (admin): системный мониторинг (CPU/RAM/диск через psutil +
@@ -138,7 +139,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
   return (
     <div>
       <h2 style={{ fontSize: 20, margin: '0 0 16px' }}>Отчёты</h2>
-      {error && <div style={errBox}>{error}</div>}
+      {error && <Notice style={errBox}>{error}</Notice>}
 
       {/* Здоровье системы + автопочинка */}
       <Section title="Здоровье системы" hint="обновляется автоматически каждые 15 с">
@@ -833,8 +834,8 @@ function HistorySection() {
   return (
     <Section title="Очистка истории" hint="только владелец системы; действие необратимо">
       {confirmNode}
-      {err && <div style={errBox}>{err}</div>}
-      {msg && <div style={{ ...errBox, background: 'var(--success-bg)', color: 'var(--success)' }}>{msg}</div>}
+      {err && <Notice style={errBox}>{err}</Notice>}
+      {msg && <Notice kind="ok" style={{ ...errBox, background: 'var(--success-bg)', color: 'var(--success)' }}>{msg}</Notice>}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
         <label style={lbl}>
           удалять записи старше

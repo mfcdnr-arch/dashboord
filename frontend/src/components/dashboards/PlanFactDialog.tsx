@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { buildPlanFact, DuplicateError, planFactPreview, type PlanFactPlan } from '../../api'
 import { Modal, ModalTitle } from '../Modal'
+import Notice from '../Notice'
 
 // Сводный дашборд «План/факт» по ВСЕМ объектам и папкам.
 //
@@ -72,9 +73,9 @@ export default function PlanFactDialog(
         <span style={{ ...band, background: '#eaf5f0', color: '#0f6e56' }}>от 85 %</span>
       </div>
 
-      {err && <div style={errBox}>{err}</div>}
+      {err && <Notice style={errBox}>{err}</Notice>}
       {dup && (
-        <div style={{ ...errBox, background: 'var(--accent-weak-bg)', color: 'var(--text)' }}>
+        <Notice kind="warn" style={{ ...errBox, background: 'var(--accent-weak-bg)', color: 'var(--text)' }}>
           <div style={{ marginBottom: 8 }}>{dup}</div>
           <div style={{ ...muted, fontSize: 12.5, marginBottom: 8 }}>
             Обычно нужно пересобрать существующий «План/факт», а не заводить второй:
@@ -84,7 +85,7 @@ export default function PlanFactDialog(
             <button style={ghostBtn} onClick={() => setDup(null)} disabled={busy}>Отмена</button>
             <button style={primaryBtn} onClick={() => build(true)} disabled={busy}>Всё равно создать</button>
           </div>
-        </div>
+        </Notice>
       )}
       {!plan && !err && <div style={muted}>Ищу пары «План + Факт»…</div>}
 

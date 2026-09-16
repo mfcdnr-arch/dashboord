@@ -13,6 +13,7 @@ import { PlaceMetricsDialog } from './metrics/PlaceMetricsDialog'
 import TemplatePicker from './metrics/TemplatePicker'
 import DataSuggestPanel from './metrics/DataSuggestPanel'
 import { fmtNumber as fmtNum } from '../lib/format'
+import Notice from './Notice'
 
 const FORMULA_HELP = [
   "SUM(field('план','кол'))",
@@ -132,7 +133,7 @@ export default function MetricsPage({ canManage, isSuperadmin, initialMetricId }
         {sel && <><span style={{ color: 'var(--text-faint)' }}>/</span><span>{sel.metric.name}</span></>}
       </div>
 
-      {error && <div style={errBox}>{error}</div>}
+      {error && <Notice style={errBox}>{error}</Notice>}
 
       {placeOpen && (
         <PlaceMetricsDialog
@@ -196,7 +197,7 @@ export default function MetricsPage({ canManage, isSuperadmin, initialMetricId }
               {bulkNote && <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{bulkNote}</span>}
             </div>
           )}
-          <input style={{ ...input, width: '100%', maxWidth: 420, marginBottom: 12 }} placeholder="🔍 Поиск по коду или названию…" value={mq} onChange={(e) => setMq(e.target.value)} />
+          <input style={{ ...input, width: '100%', maxWidth: 420, marginBottom: 12 }} aria-label="Поиск показателя" placeholder="🔍 Поиск по коду или названию…" value={mq} onChange={(e) => setMq(e.target.value)} />
           {metrics.length === 0 ? (
             <div style={muted}>{mq.trim() ? 'Ничего не найдено.' : 'Пока нет метрик. Создайте первую и задайте ей формулу.'}</div>
           ) : (
@@ -478,6 +479,7 @@ function MetricDetail({ data, canManage, isSuperadmin, onError, onChanged, onDel
             <div>
               <textarea
                 style={{ ...input, width: '100%', height: 70, fontFamily: 'ui-monospace, monospace', padding: 10, resize: 'vertical' }}
+                aria-label="Формула показателя"
                 placeholder="Например: SUM(field('план','кол'))"
                 value={formula} onChange={(e) => setFormula(e.target.value)}
               />
@@ -495,14 +497,14 @@ function MetricDetail({ data, canManage, isSuperadmin, onError, onChanged, onDel
           </div>
 
           {preview && (
-            <div style={{ ...okBox, marginTop: 10 }}>
+            <Notice kind="ok" style={{ ...okBox, marginTop: 10 }}>
               <strong>Предпросмотр: {fmtNum(preview.value)}{unit ? ' ' + unit : ''}</strong>
               <div style={{ fontSize: 12, color: 'var(--success)', marginTop: 2 }}>
                 зависит от: {[...preview.deps.datasets.map((d) => `датасет «${d}»`), ...preview.deps.metrics.map((m) => `метрика «${m}»`)].join(', ') || '—'}
               </div>
-            </div>
+            </Notice>
           )}
-          {previewErr && <div style={{ ...errBox, marginTop: 10 }}>{previewErr}</div>}
+          {previewErr && <Notice style={{ ...errBox, marginTop: 10 }}>{previewErr}</Notice>}
 
           <details style={{ marginTop: 12 }}>
             <summary style={{ fontSize: 13, color: 'var(--accent-text)', cursor: 'pointer' }}>📘 Справочник по формулам</summary>

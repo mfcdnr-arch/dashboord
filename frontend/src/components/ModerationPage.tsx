@@ -4,6 +4,7 @@ import {
   type ModerationQueueItem, type ReasonCode,
 } from '../api'
 import { Modal, ModalTitle } from './Modal'
+import Notice from './Notice'
 
 // Раздел «Модерация» (модератор/старший модератор/админ): очередь дашбордов,
 // отправленных на проверку. Одна ступень: одобрение = публикация. Конфликт
@@ -54,7 +55,7 @@ export default function ModerationPage({ me, onOpenDashboard }: {
       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
         Дашборды, отправленные на проверку. Одобрение публикует дашборд. Собственные одобрять нельзя (конфликт интересов).
       </div>
-      {error && <div style={errBox}>{error}</div>}
+      {error && <Notice style={errBox}>{error}</Notice>}
 
       {!queue ? <span style={muted}>Загрузка…</span> : queue.length === 0 ? (
         <div style={{ ...muted, padding: '20px 0' }}>Очередь пуста — на проверке ничего нет.</div>
@@ -151,7 +152,7 @@ function ReviewModal({ item, reasons, onClose, onDone, onError }: {
       </div>
 
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Причина возврата (если возвращаете)</div>
-      <select style={{ ...input, width: '100%', marginBottom: 8 }} value={reason} onChange={(e) => setReason(e.target.value)}>
+      <select style={{ ...input, width: '100%', marginBottom: 8 }} aria-label="Причина возврата" value={reason} onChange={(e) => setReason(e.target.value)}>
         <option value="">— не выбрана —</option>
         {reasons.map((r) => <option key={r.code} value={r.code}>{r.label}</option>)}
       </select>

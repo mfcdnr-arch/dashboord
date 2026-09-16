@@ -73,7 +73,7 @@ export function DashboardList({
       {canManage && objects.length > 0 && (
         <div style={{ ...rowForm, alignItems: 'center' }}>
           <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>или собрать автоматически из объекта:</span>
-          <select style={{ ...input, height: 36 }} value={autoObj} onChange={(e) => setAutoObj(e.target.value)}>
+          <select style={{ ...input, height: 36 }} aria-label="Объект для автоматической сборки" value={autoObj} onChange={(e) => setAutoObj(e.target.value)}>
             <option value="">выберите объект…</option>
             {objects.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
@@ -97,7 +97,7 @@ export function DashboardList({
       {canManage && templates.length > 0 && (
         <div style={{ ...rowForm, alignItems: 'center' }}>
           <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>или создать из шаблона:</span>
-          <select style={{ ...input, height: 36 }} value={tpl} onChange={(e) => setTpl(e.target.value)}>
+          <select style={{ ...input, height: 36 }} aria-label="Шаблон дашборда" value={tpl} onChange={(e) => setTpl(e.target.value)}>
             <option value="">выберите шаблон…</option>
             {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
@@ -110,7 +110,7 @@ export function DashboardList({
       )}
       <div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
-          <input style={{ ...input, flex: 1, minWidth: 200 }} placeholder="🔍 Поиск дашборда по названию или странице…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input style={{ ...input, flex: 1, minWidth: 200 }} aria-label="Поиск дашборда" placeholder="🔍 Поиск дашборда по названию или странице…" value={query} onChange={(e) => setQuery(e.target.value)} />
           <button style={favOnly ? { ...tab, ...tabActive } : tab} onClick={() => setFavOnly((v) => !v)} title="Показать только избранные">★ Избранное</button>
           {/* Зрителю: «нужного отчёта здесь нет». Списка недоступных отчётов не
               показываем — даже названия говорят, какие показатели за кем
@@ -143,13 +143,13 @@ export function DashboardList({
         {canManage && objects.length > 0 && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>📁 Папка:</span>
-            <select style={{ ...input, height: 32 }} value={filterObjId}
+            <select style={{ ...input, height: 32 }} aria-label="Фильтр: объект" value={filterObjId}
               onChange={(e) => { setFilterObjId(e.target.value); setFolderFilter('') }}>
               <option value="">все объекты</option>
               {objects.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select>
             {filterObjId && (
-              <select style={{ ...input, height: 32 }} value={folderFilter} onChange={(e) => setFolderFilter(e.target.value)}>
+              <select style={{ ...input, height: 32 }} aria-label="Фильтр: папка объекта" value={folderFilter} onChange={(e) => setFolderFilter(e.target.value)}>
                 <option value="">все папки объекта</option>
                 {folderTree(filterFolders).map((f) => <option key={f.id} value={f.id}>{folderLabel(f)}</option>)}
               </select>
@@ -158,7 +158,7 @@ export function DashboardList({
                 этого отчёта». Появляется, когда выбрана папка: без неё список
                 файлов был бы свалкой из всех папок объекта. */}
             {folderFilter && folderFilter !== 'none' && filterDocs.length > 0 && (
-              <select style={{ ...input, height: 32 }} value={docFilter}
+              <select style={{ ...input, height: 32 }} aria-label="Фильтр: отчёт" value={docFilter}
                 onChange={(e) => setDocFilter(e.target.value)}>
                 <option value="">все отчёты папки</option>
                 {filterDocs.map((d) => (

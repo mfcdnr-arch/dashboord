@@ -52,7 +52,7 @@ export default function RowAclEditor({ object, onClose }: { object: Obj; onClose
           )}
           <div style={{ marginBottom: 12 }}>
             <div style={label}>Подразделение</div>
-            <select style={sel} value={dept} onChange={(e) => setDept(e.target.value)}>
+            <select style={sel} aria-label="Подразделение" value={dept} onChange={(e) => setDept(e.target.value)}>
               <option value="">выберите…</option>
               {data.departments.map((d) => (
                 <option key={d.id} value={d.id}>{d.name}{d.row_labels.length ? ` (${d.row_labels.length})` : ''}</option>

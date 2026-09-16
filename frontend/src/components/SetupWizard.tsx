@@ -5,6 +5,7 @@ import {
   type Department, type Folder, type Obj, type Role, type SetupStatus,
 } from '../api'
 import { Modal, ModalTitle } from './Modal'
+import Notice from './Notice'
 
 // Мастер первичной настройки: проводит администратора через заведение отделов,
 // пользователей, первого объекта, ЗАГРУЗКУ ДАННЫХ и СБОРКУ ДАШБОРДА — целиком
@@ -64,7 +65,7 @@ export default function SetupWizard({ onClose, onNavigate }: {
         ))}
       </div>
 
-      {err && <div style={errBox}>{err}</div>}
+      {err && <Notice style={errBox}>{err}</Notice>}
 
       {step === 'welcome' && (
         <div>
@@ -185,10 +186,10 @@ function StepUsers({ roles, depts, usersCount, onAdd, onGoto }: {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
         <input style={input} placeholder="Логин" value={login} onChange={(e) => setLogin(e.target.value)} />
         <input style={input} placeholder="Временный пароль (мин. 8, буквы+цифры)" value={password} onChange={(e) => setPassword(e.target.value)} />
-        <select style={input} value={roleId} onChange={(e) => setRoleId(e.target.value)}>
+        <select style={input} aria-label="Роль сотрудника" value={roleId} onChange={(e) => setRoleId(e.target.value)}>
           {shownRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
-        <select style={input} value={deptId} onChange={(e) => setDeptId(e.target.value)}>
+        <select style={input} aria-label="Отдел" value={deptId} onChange={(e) => setDeptId(e.target.value)}>
           <option value="">— без отдела —</option>
           {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
@@ -265,7 +266,7 @@ function StepData({ objects, docsCount, onCreateFolder, onUpload, onGoto }: {
       <h3 style={h3}>Шаг 4. Данные</h3>
       <p style={p}>Загрузите документ (Excel/PDF/CSV/Word) в папку объекта — система распознает таблицу
         и подготовит датасет. Уже загружено: <b>{docsCount}</b>.</p>
-      {local && <div style={errBox}>{local}</div>}
+      {local && <Notice style={errBox}>{local}</Notice>}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
         <L t="Объект"><select style={input} value={objId} onChange={(e) => setObjId(e.target.value)}>
           {objects.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
@@ -311,14 +312,15 @@ function StepDashboard({ objects, dashCount, onAuto, onCreateEmpty, onGoto }: {
         загруженным данным. Уже собрано: <b>{dashCount}</b>.</p>
       {objects.length > 0 ? (
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <select style={{ ...input, flex: 1 }} value={objId} onChange={(e) => setObjId(e.target.value)}>
+          <select style={{ ...input, flex: 1 }} aria-label="Объект" value={objId} onChange={(e) => setObjId(e.target.value)}>
             {objects.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
           <button style={btn} disabled={busy || !objId} onClick={auto}>✨ Собрать из объекта</button>
         </div>
       ) : <p style={muted}>Сначала создайте объект и загрузите данные.</p>}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <input style={{ ...input, flex: 1 }} placeholder="…или пустой дашборд по названию" value={name}
+        <input style={{ ...input, flex: 1 }} aria-label="Название нового пустого дашборда"
+          placeholder="…или пустой дашборд по названию" value={name}
           onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && empty()} />
         <button style={btnGhost} disabled={busy || !name.trim()} onClick={empty}>Создать пустой</button>
       </div>

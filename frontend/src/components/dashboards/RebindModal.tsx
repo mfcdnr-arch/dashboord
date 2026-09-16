@@ -28,7 +28,7 @@ export function RebindModal({ rebind, setRebind, onConfirm, busy }: {
         {missing ? '⚠ ' : '✓ '}<code style={{ background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 4 }}>{code}</code>
       </span>
       <span style={{ color: 'var(--text-faint)' }}>→</span>
-      <select style={input} value={value} onChange={(e) => on(code, e.target.value)}>
+      <select style={input} aria-label={`Чем заменить «${code}»`} value={value} onChange={(e) => on(code, e.target.value)}>
         <option value="">{missing ? '— выберите замену —' : 'оставить как есть'}</option>
         {avail.map((a) => <option key={a.code} value={a.code}>{a.name} ({a.code})</option>)}
       </select>

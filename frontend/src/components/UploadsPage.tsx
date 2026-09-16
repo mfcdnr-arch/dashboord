@@ -125,6 +125,7 @@ export default function UploadsPage() {
           Незнакомую форму система не «угадывает»: такой файл подождёт вас здесь же.
         </div>
         <input ref={fileRef} type="file" multiple accept=".xlsx,.xls,.csv,.pdf,.docx" style={{ display: 'none' }}
+          aria-label="Выбрать файлы отчётов для загрузки"
           onChange={(e) => { if (e.target.files?.length) send(e.target.files); e.target.value = '' }} />
       </div>
 
@@ -172,7 +173,7 @@ export default function UploadsPage() {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 13 }}>
         <span style={{ color: 'var(--text-muted)' }}>Отчётная дата (если её нет в имени файла):</span>
-        <input type="date" value={period} onChange={(e) => setPeriod(e.target.value)}
+        <input type="date" aria-label="Отчётная дата загружаемых файлов" value={period} onChange={(e) => setPeriod(e.target.value)}
           style={{ padding: '5px 8px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text)' }} />
         {period && <button type="button" style={linkBtn} onClick={() => setPeriod('')}>сбросить</button>}
       </div>
@@ -189,7 +190,7 @@ export default function UploadsPage() {
       <h3 style={{ marginBottom: 8 }}>Журнал импорта</h3>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 13 }}>
         <span style={{ color: 'var(--text-muted)' }}>Показать отчёт за дату:</span>
-        <input type="date" value={filterPeriod} onChange={(e) => setFilterPeriod(e.target.value)}
+        <input type="date" aria-label="Показать журнал за отчётную дату" value={filterPeriod} onChange={(e) => setFilterPeriod(e.target.value)}
           style={{ padding: '5px 8px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text)' }} />
         {filterPeriod && <button type="button" style={linkBtn} onClick={() => setFilterPeriod('')}>сбросить</button>}
       </div>

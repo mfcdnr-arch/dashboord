@@ -9,6 +9,7 @@ import { widgetPassport, type PassportRow } from '../../api'
 import { fmtNumber } from '../../lib/format'
 import { errBox, muted } from './shared'
 import { Modal, ModalTitle } from '../Modal'
+import Notice from '../Notice'
 
 const ruDate = (iso?: string | null): string =>
   (iso && /^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10).split('-').reverse().join('.') : '—')
@@ -37,7 +38,7 @@ export default function PassportDialog(
           onClick={onClose} title="Закрыть">✕</button>
       </div>
 
-      {err && <div style={errBox}>{err}</div>}
+      {err && <Notice style={errBox}>{err}</Notice>}
       {!data && !err && <div style={muted}>Загрузка…</div>}
 
       {data && (

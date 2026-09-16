@@ -12,6 +12,7 @@ import {
 import { Modal, ModalTitle } from './Modal'
 
 import { RowToggleCell } from './TableParts'
+import Notice from './Notice'
 function fmtDt(iso: string | null): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -179,7 +180,7 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
           </div>
         </div>
       )}
-      {error && <div style={errBox}>{error}</div>}
+      {error && <Notice style={errBox}>{error}</Notice>}
       {notice && (
         <div style={{ background: 'var(--success-bg)', color: 'var(--success)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }}>
           {notice} <button style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer' }} onClick={() => setNotice(null)}>✕</button>
@@ -214,7 +215,7 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
       <Section title={`Пользователи (${usersTotal})`}>
         <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
           <button style={btn} onClick={() => setCreating(true)}>＋ Добавить пользователя</button>
-          <input style={{ ...input, flex: 1, minWidth: 200 }} placeholder="🔍 Поиск по логину или ФИО…" value={uq} onChange={(e) => setUq(e.target.value)} />
+          <input style={{ ...input, flex: 1, minWidth: 200 }} aria-label="Поиск сотрудника" placeholder="🔍 Поиск по логину или ФИО…" value={uq} onChange={(e) => setUq(e.target.value)} />
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>

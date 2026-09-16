@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { addComment, deleteComment, listComments, type DashComment } from '../../api'
 
 import { Modal, ModalTitle } from '../Modal'
+import Notice from '../Notice'
 const ru = (iso?: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('.') : '')
 const when = (iso: string) => new Date(iso).toLocaleString('ru-RU',
   { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -114,8 +115,8 @@ export default function WidgetComments(
         })}
       </div>
 
-      {err && <div style={errBox}>{err}</div>}
-      <textarea ref={box} value={text} onChange={(e) => setText(e.target.value)}
+      {err && <Notice style={errBox}>{err}</Notice>}
+      <textarea ref={box} value={text} onChange={(e) => setText(e.target.value)} aria-label="Замечание к цифре"
         rows={3} placeholder="Например: значение занижено — отделение переезжало"
         style={area} />
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>

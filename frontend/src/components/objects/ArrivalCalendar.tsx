@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getFolderCalendar, type CalendarState, type CalendarWeek, type FolderCalendar } from '../../api'
+import Notice from '../Notice'
 
 const ru = (iso?: string | null) => (iso ? iso.split('-').reverse().join('.') : '—')
 
@@ -46,7 +47,7 @@ export default function ArrivalCalendar(
       .catch((e) => setErr((e as Error).message))
   }, [objectId, folderId, year])
 
-  if (err) return <div style={errBox}>{err}</div>
+  if (err) return <Notice style={errBox}>{err}</Notice>
   if (!d) return <div style={muted}>Загрузка…</div>
 
   // Месяцы, в которых есть хоть одна неделя. Пустых строк не рисуем: у
@@ -59,7 +60,7 @@ export default function ArrivalCalendar(
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
         {d.years.length > 1 && (
-          <select value={d.year} onChange={(e) => setYear(Number(e.target.value))} style={sel}>
+          <select value={d.year} onChange={(e) => setYear(Number(e.target.value))} style={sel} aria-label="Год">
             {d.years.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
         )}

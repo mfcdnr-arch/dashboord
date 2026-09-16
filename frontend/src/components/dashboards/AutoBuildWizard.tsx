@@ -9,6 +9,7 @@ import { fmtNumber } from '../../lib/format'
 import { plural } from '../../lib/text'
 
 import { Modal, ModalTitle } from '../Modal'
+import Notice from '../Notice'
 /**
  * Мастер авто-сборки: что нашли в объекте и что из этого собрать.
  *
@@ -284,7 +285,7 @@ export default function AutoBuildWizard(
         <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
 
-      {loadErr && <div style={errBox}>{loadErr}</div>}
+      {loadErr && <Notice style={errBox}>{loadErr}</Notice>}
       {!plan && !loadErr && <div style={muted}>Смотрим, что есть в объекте…</div>}
 
       {plan && sel && (
@@ -457,12 +458,12 @@ export default function AutoBuildWizard(
           <div style={block}>
             <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Что берём</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <select style={input} value={folderId} onChange={(e) => setFolderId(e.target.value)}>
+              <select style={input} aria-label="Что берём: папка объекта" value={folderId} onChange={(e) => setFolderId(e.target.value)}>
                 <option value="">весь объект «{objectName}»</option>
                 {folders.map((f) => <option key={f.id} value={f.id}>📁 {f.name}</option>)}
               </select>
               {folderId && (
-                <select style={input} value={docId} onChange={(e) => setDocId(e.target.value)}>
+                <select style={input} aria-label="Что берём: отчёт из папки" value={docId} onChange={(e) => setDocId(e.target.value)}>
                   <option value="">все отчёты папки</option>
                   {docs.map((d) => (
                     <option key={d.id} value={d.id}>
@@ -495,7 +496,7 @@ export default function AutoBuildWizard(
 
           <div style={block}>
             <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Куда собрать</div>
-            <select style={input} value={target} onChange={(e) => setTarget(e.target.value)}>
+            <select style={input} aria-label="Куда собрать" value={target} onChange={(e) => setTarget(e.target.value)}>
               <option value="">Новый дашборд</option>
               {dashboards.map((d) => <option key={d.id} value={d.id}>Пересобрать «{d.name}»</option>)}
             </select>
@@ -507,7 +508,7 @@ export default function AutoBuildWizard(
             ) : (
               <div style={{ marginTop: 8 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Название</div>
-                <input style={input} value={name} onChange={(e) => setName(e.target.value)}
+                <input style={input} aria-label="Название дашборда" value={name} onChange={(e) => setName(e.target.value)}
                   placeholder={`Дашборд «${objectName}»`} />
                 {nameTaken ? (
                   // Предупреждаем ДО нажатия: отказ после сборки человек уже

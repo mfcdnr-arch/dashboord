@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getUserActivity, type UserActivity } from '../../api'
+import Notice from '../Notice'
 
 const ACTION_RU: Record<string, string> = {
   create: 'Создание', update: 'Изменение', delete: 'Удаление', publish: 'Публикация',
@@ -30,7 +31,7 @@ export default function UserCard({ userId, compact = false }: { userId: string; 
     getUserActivity(userId).then(setData).catch((e) => setErr((e as Error).message))
   }, [userId])
 
-  if (err) return <div style={errBox}>{err}</div>
+  if (err) return <Notice style={errBox}>{err}</Notice>
   if (!data) return <div style={muted}>Загрузка…</div>
   const u = data.user
 

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { getAttendanceDay, type AttendanceDay } from '../../api'
+import Notice from '../Notice'
 
 type Day = { day: string; logins: number; failed: number }
 
@@ -115,7 +116,7 @@ export default function AttendanceChart({ days, periodLabel }: { days: Day[]; pe
             <button style={{ ...linkBtn, marginLeft: 'auto' }}
               onClick={() => { setPicked(null); setDetail(null) }}>свернуть</button>
           </div>
-          {err && <div style={errBox}>{err}</div>}
+          {err && <Notice style={errBox}>{err}</Notice>}
           {loading && <span style={muted}>Загрузка…</span>}
           {detail && detail.users.length === 0 && !loading && (
             <div style={muted}>В этот день никто не входил.</div>

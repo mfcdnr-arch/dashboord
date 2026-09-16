@@ -6,6 +6,7 @@ import {
 import UserAccessPanel from './users/UserAccessPanel'
 
 import { Modal, ModalTitle } from './Modal'
+import Notice from './Notice'
 // Переиспользуемая панель обращений: 'mine' — личный кабинет (создание + свои
 // заявки), 'all' — раздел «Обращения» для staff (фильтр по статусу + ответ +
 // закрытие). Логика прав — на бэкенде (appeals/service.py), здесь только UI.
@@ -204,7 +205,7 @@ export default function AppealsPanel(
         ) : (
           <div style={muted}>Обращение закрыто. Новое сообщение откроет его снова.</div>
         )}
-        {err && <div style={errBox}>{err}</div>}
+        {err && <Notice style={errBox}>{err}</Notice>}
         {/* Карточка доступа сотрудника поверх переписки: та же панель, что в
             разделе «Пользователи», — второго экрана выдачи прав не заводим. */}
         {accessFor && (
@@ -244,7 +245,7 @@ export default function AppealsPanel(
           ))}
         </div>
       )}
-      {err && <div style={errBox}>{err}</div>}
+      {err && <Notice style={errBox}>{err}</Notice>}
       {items.length === 0 ? <div style={muted}>{isStaff ? 'Обращений нет.' : 'У вас пока нет обращений.'}</div> : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {items.map((a) => (

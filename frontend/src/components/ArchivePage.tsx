@@ -11,6 +11,7 @@ import WidgetView from './WidgetView'
 import { useConfirm } from './dashboards/ConfirmDialog'
 import { btn, btnGhost, crumb, errBox, input, linkDanger, muted, sel, widgetCard, wtBadge } from './dashboards/shared'
 import { Modal, ModalTitle } from './Modal'
+import Notice from './Notice'
 
 const MONTHS_RU = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
 export function monthLabel(m: string): string {
@@ -90,7 +91,7 @@ export default function ArchivePage({ canManage, isAdmin }: { canManage: boolean
           ))}
           <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={() => exportArchiveXlsx(opened.id, opened.dashboard_name).catch((e) => setErr((e as Error).message))}>⤓ Excel (слепок)</button>
         </div>
-        {err && <div style={errBox}>{err}</div>}
+        {err && <Notice style={errBox}>{err}</Notice>}
         {!cur || cur.widgets.length === 0 ? (
           <div style={muted}>На этой странице слепка нет виджетов.</div>
         ) : (
@@ -119,8 +120,8 @@ export default function ArchivePage({ canManage, isAdmin }: { canManage: boolean
         {canManage && <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={() => setAccessOpen(true)}>🔑 Доступ к архиву</button>}
       </div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        <input style={{ ...input, flex: 1, minWidth: 220 }} placeholder="🔍 Поиск по названию, теме или странице…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select style={sel} value={topic} onChange={(e) => setTopic(e.target.value)}>
+        <input style={{ ...input, flex: 1, minWidth: 220 }} aria-label="Поиск по архиву" placeholder="🔍 Поиск по названию, теме или странице…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select style={sel} aria-label="Тема" value={topic} onChange={(e) => setTopic(e.target.value)}>
           <option value="">Все темы</option>
           {topics.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
@@ -130,7 +131,7 @@ export default function ArchivePage({ canManage, isAdmin }: { canManage: boolean
         </label>
         {(archFrom || archTo) && <button style={btnGhost} onClick={() => { setArchFrom(''); setArchTo('') }}>✕ дата</button>}
       </div>
-      {err && <div style={errBox}>{err}</div>}
+      {err && <Notice style={errBox}>{err}</Notice>}
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div style={{ minWidth: 170 }}>
           <MonthBtn active={month === ''} label="Все месяцы" count={months.reduce((a, m) => a + m.count, 0)} onClick={() => setMonth('')} />
@@ -202,9 +203,9 @@ function AccessDialog({ onClose }: { onClose: () => void }) {
         Администраторы и модераторы видят архив всегда. Ниже — обычные пользователи, которым выдан допуск
         (они видят весь архив: слепки содержат полные данные).
       </div>
-      {err && <div style={errBox}>{err}</div>}
+      {err && <Notice style={errBox}>{err}</Notice>}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <select style={{ ...sel, flex: 1 }} value={uid} onChange={(e) => setUid(e.target.value)}>
+        <select style={{ ...sel, flex: 1 }} aria-label="Кому открыть доступ к архиву" value={uid} onChange={(e) => setUid(e.target.value)}>
           <option value="">— выберите пользователя —</option>
           {free.map((u) => <option key={u.id} value={u.id}>{u.full_name || u.login} ({u.login})</option>)}
         </select>

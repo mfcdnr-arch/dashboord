@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import {
   changePassword, checkPassword, getMyActivity, getPasswordPolicy, getToken, passwordHint,
   type Me, type PasswordPolicy, type UserActivity,
 } from '../api'
 import AppealsPanel from './AppealsPanel'
+import Notice from './Notice'
 
 // «Личный кабинет» (волна C): профиль + своя активность + смена пароля +
 // мои обращения — в одном месте, доступно ЛЮБОМУ пользователю (не только
@@ -71,7 +72,7 @@ function ProfileTab({ me }: { me: Me }) {
 
       <div style={card}>
         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Моя активность</div>
-        {actErr && <div style={errBox}>{actErr}</div>}
+        {actErr && <Notice style={errBox}>{actErr}</Notice>}
         {!activity && !actErr && <div style={muted}>Загрузка…</div>}
         {activity && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -124,6 +125,7 @@ function ProfileTab({ me }: { me: Me }) {
 }
 
 function PasswordCard({ login }: { login: string }) {
+  const uid = useId()
   const [open, setOpen] = useState(false)
   const [pw1, setPw1] = useState('')
   const [pw2, setPw2] = useState('')
@@ -155,13 +157,13 @@ function PasswordCard({ login }: { login: string }) {
       {ok && <div style={{ fontSize: 13, color: 'var(--success)', marginTop: 8 }}>Пароль изменён.</div>}
       {open && (
         <div style={{ marginTop: 12, maxWidth: 320 }}>
-          <label style={label}>Новый пароль</label>
-          <input style={{ ...input, borderColor: pwErr ? 'var(--danger)' : 'var(--border-strong)' }} type="password"
+          <label style={label} htmlFor={`${uid}-new`}>Новый пароль</label>
+          <input id={`${uid}-new`} style={{ ...input, borderColor: pwErr ? 'var(--danger)' : 'var(--border-strong)' }} type="password"
             value={pw1} onChange={(e) => setPw1(e.target.value)} autoFocus />
           <div style={{ fontSize: 12, color: pwErr ? 'var(--danger)' : 'var(--text-muted)', margin: '4px 0 10px' }}>{pwErr || passwordHint(policy)}</div>
-          <label style={label}>Повторите пароль</label>
-          <input style={input} type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
-          {err && <div style={errBox}>{err}</div>}
+          <label style={label} htmlFor={`${uid}-repeat`}>Повторите пароль</label>
+          <input id={`${uid}-repeat`} style={input} type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
+          {err && <Notice style={errBox}>{err}</Notice>}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button style={btn} disabled={busy || !pw1 || !pw2} onClick={submit}>{busy ? 'Сохранение…' : 'Сохранить'}</button>
             <button style={btnGhost} onClick={() => { setOpen(false); setPw1(''); setPw2(''); setErr(null) }}>Отмена</button>

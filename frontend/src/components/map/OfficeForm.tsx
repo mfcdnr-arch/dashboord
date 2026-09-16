@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { DAYS, createOffice, updateOffice, type DayKey, type Hours, type Office, type OfficeInput } from '../../api'
 
 import { Modal, ModalTitle } from '../Modal'
+import Notice from '../Notice'
 // Карточка отделения: то, что человек видит на точке карты, и то, что
 // администратор правит, когда график или телефон изменились.
 //
@@ -74,7 +75,7 @@ export default function OfficeForm({ office, rowOptions, onClose, onSaved }: {
         <button style={xBtn} onClick={onClose} title="Закрыть">✕</button>
       </div>
       <div style={body}>
-        {error && <div style={errBox}>{error}</div>}
+        {error && <Notice style={errBox}>{error}</Notice>}
 
         <Row label="Название" required>
           <input style={inp} value={f.name || ''} onChange={(e) => set('name', e.target.value)}

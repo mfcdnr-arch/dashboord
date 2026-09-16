@@ -610,7 +610,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
               {imgAdvanced ? '▾' : '▸'} Указать ссылкой (URL)
             </button>
             {imgAdvanced && (
-              <input style={{ ...sel, width: '100%', marginTop: 6 }} placeholder="https://… или data:image/…" value={imgUrl} onChange={(e) => { setImgUrl(e.target.value); setImgErr(null) }} />
+              <input style={{ ...sel, width: '100%', marginTop: 6 }} aria-label="Ссылка на картинку" placeholder="https://… или data:image/…" value={imgUrl} onChange={(e) => { setImgUrl(e.target.value); setImgErr(null) }} />
             )}
           </div>
         </>
@@ -640,7 +640,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
             ) : (
               <>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Формула показателя (как в Excel): данные — <code>field('датасет','поле')</code>, действия — <code>+ − * /</code>, свёртка — <code>SUM(…)</code></div>
-                <input style={{ ...sel, width: '100%', fontFamily: 'ui-monospace, monospace' }}
+                <input style={{ ...sel, width: '100%', fontFamily: 'ui-monospace, monospace' }} aria-label="Формула показателя"
                   placeholder="напр. SUM(field('plan','kol')) + 10" value={formulaDsl} onChange={(e) => setFormulaDsl(e.target.value)} />
               </>
             )}

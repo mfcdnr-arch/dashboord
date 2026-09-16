@@ -4,6 +4,7 @@ import {
   type RefDoc, type Service,
 } from '../api'
 import { useConfirm } from './dashboards/ConfirmDialog'
+import Notice from './Notice'
 
 // Раздел «Справочники» (admin/moderator): перечень услуг + служебные документы,
 // которыми пользуется модератор при проверке дашбордов (FR-8.16 / FR-8.17).
@@ -70,7 +71,7 @@ export default function CatalogPage({ me }: { me: { roles: string[] } }) {
       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
         Перечень услуг и служебные документы для проверки дашбордов.{!isAdmin && ' Редактирование — у администратора.'}
       </div>
-      {error && <div style={errBox}>{error}</div>}
+      {error && <Notice style={errBox}>{error}</Notice>}
 
       {/* Услуги */}
       <Section title={`Услуги (${services.length})`}>

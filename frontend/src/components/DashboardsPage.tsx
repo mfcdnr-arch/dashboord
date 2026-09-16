@@ -44,6 +44,7 @@ import { RebindModal, type RebindState } from './dashboards/RebindModal'
 import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
 import { crumb, editHint, errBox, linkDanger, muted, rmBtn } from './dashboards/shared'
 import { Modal, ModalTitle } from './Modal'
+import Notice from './Notice'
 
 const DASH_PAGE = 50
 
@@ -1091,7 +1092,7 @@ export default function DashboardsPage({
         </div>
       )}
 
-      {error && <div style={errBox}>{error}</div>}
+      {error && <Notice style={errBox}>{error}</Notice>}
 
       {!sel && (
         <DashboardList

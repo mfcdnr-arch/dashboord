@@ -152,7 +152,7 @@ export default function FormLevels(
               <div style={{ minWidth: 0, flex: 1, fontSize: 13, color: 'var(--text-muted)' }}>
                 Что показывать на ступени по умолчанию. Переключить можно будет на самой карточке.
               </div>
-              <select style={input} value={measure} onChange={(e) => setMeasure(e.target.value)}>
+              <select style={input} aria-label="Что показывать на ступени по умолчанию" value={measure} onChange={(e) => setMeasure(e.target.value)}>
                 {s.measures.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>

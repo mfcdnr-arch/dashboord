@@ -1,8 +1,9 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useId, useState, type FormEvent } from 'react'
 import { login, setToken, submitBlockedAppeal, type LoginError } from '../api'
 import Logo from './Logo'
 import { LoginBackdrop } from './Art'
 import ThemeToggle from './ThemeToggle'
+import Notice from './Notice'
 
 /**
  * Переключатель темы в углу страницы входа.
@@ -99,6 +100,10 @@ function useNarrow(max = 900): boolean {
 }
 
 export default function Login({ onLogin }: { onLogin: (token: string) => void }) {
+  // Подписи связаны с полями: диктор называет поле по его видимой подписи, а не
+  // «поле ввода». Через id, а не копией текста в aria-label — копия однажды
+  // разошлась бы с подписью на экране.
+  const uid = useId()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -200,11 +205,11 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
         <form onSubmit={submit} style={{ ...card, position: 'relative' }}>
           <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>Вход в систему</h2>
           <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 20px' }}>Введите логин и пароль, выданные администратором.</p>
-          <label style={label}>Логин</label>
-          <input style={input} value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
-          <label style={label}>Пароль</label>
-          <input style={input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          {error && <div style={errBox}>{error}</div>}
+          <label style={label} htmlFor={`${uid}-login`}>Логин</label>
+          <input id={`${uid}-login`} style={input} value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+          <label style={label} htmlFor={`${uid}-pwd`}>Пароль</label>
+          <input id={`${uid}-pwd`} style={input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          {error && <Notice style={errBox}>{error}</Notice>}
           <button style={{ ...button, opacity: busy || !username || !password ? 0.6 : 1 }} disabled={busy || !username || !password}>
             {busy ? 'Вход…' : 'Войти'}
           </button>
@@ -219,6 +224,7 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
 
 // Форма обращения без входа (login уже недоступен для входа — заблокирован).
 function BlockedAppealForm({ login: userLogin, onBack }: { login: string; onBack: () => void }) {
+  const uid = useId()
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState(false)
@@ -247,12 +253,12 @@ function BlockedAppealForm({ login: userLogin, onBack }: { login: string; onBack
           <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 16px' }}>
             Опишите проблему — обращение будет направлено администратору системы.
           </p>
-          <label style={label}>Логин</label>
-          <input style={{ ...input, background: 'var(--surface-2)' }} value={userLogin} disabled />
-          <label style={label}>Сообщение</label>
-          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4}
+          <label style={label} htmlFor={`${uid}-login`}>Логин</label>
+          <input id={`${uid}-login`} style={{ ...input, background: 'var(--surface-2)' }} value={userLogin} disabled />
+          <label style={label} htmlFor={`${uid}-msg`}>Сообщение</label>
+          <textarea id={`${uid}-msg`} value={message} onChange={(e) => setMessage(e.target.value)} rows={4}
             style={{ ...input, height: 'auto', padding: '8px 12px', resize: 'vertical', fontFamily: 'inherit' }} />
-          {err && <div style={errBox}>{err}</div>}
+          {err && <Notice style={errBox}>{err}</Notice>}
           <button style={{ ...button, opacity: busy || !message.trim() ? 0.6 : 1 }} disabled={busy || !message.trim()} onClick={send}>
             {busy ? 'Отправка…' : 'Отправить'}
           </button>

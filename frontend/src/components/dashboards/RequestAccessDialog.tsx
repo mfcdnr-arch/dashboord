@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { requestDashboardAccess } from '../../api'
 import { Modal, ModalTitle } from '../Modal'
+import Notice from '../Notice'
 
 // «Мне нужен отчёт, которого я не вижу» (п. 15, последняя из трёх идей).
 //
@@ -49,7 +50,7 @@ export default function RequestAccessDialog(
 
       {done ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={okBox}>✓ Запрос отправлен администратору.</div>
+          <Notice kind="ok" style={okBox}>✓ Запрос отправлен администратору.</Notice>
           <div style={muted}>
             Когда доступ выдадут, отчёт появится в этом списке сам. Ответ придёт уведомлением,
             переписка — в разделе «Кабинет».
@@ -69,10 +70,11 @@ export default function RequestAccessDialog(
           </div>
           <textarea
             value={wanted} onChange={(e) => setWanted(e.target.value)} rows={4} maxLength={2000}
+            aria-label="Какой отчёт нужен"
             placeholder="Например: еженедельный доклад по внедрению сервиса МАХ — о нём говорили на планёрке"
             style={area}
           />
-          {err && <div style={errBox}>{err}</div>}
+          {err && <Notice style={errBox}>{err}</Notice>}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button style={ghostBtn} onClick={onClose} disabled={busy}>Отмена</button>
             <button style={primaryBtn} onClick={send} disabled={busy || !wanted.trim()}>

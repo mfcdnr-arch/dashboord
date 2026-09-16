@@ -172,12 +172,12 @@ function Editor({ onAdded }: { onAdded: () => void }) {
           </label>
         </div>
         {kind === 'dashboard' ? (
-          <select value={dashboardId} onChange={(e) => setDashboardId(e.target.value)} style={input}>
+          <select value={dashboardId} onChange={(e) => setDashboardId(e.target.value)} style={input} aria-label="Дашборд">
             <option value="">— выберите дашборд —</option>
             {dashboards.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         ) : (
-          <select value={section} onChange={(e) => setSection(e.target.value)} style={input}>
+          <select value={section} onChange={(e) => setSection(e.target.value)} style={input} aria-label="Раздел системы">
             <option value="">— выберите раздел —</option>
             {sections.map((s) => <option key={s} value={s}>{SECTION_LABEL[s] || s}</option>)}
           </select>

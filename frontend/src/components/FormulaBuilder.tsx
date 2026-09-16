@@ -157,7 +157,7 @@ function TermCard({ term: t, sources, byCode, onPatch, onSetDataset, onRemove }:
   return (
     <div style={card}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <select style={sel} value={t.kind} onChange={(e) => onPatch({ kind: e.target.value as Kind })}>
+        <select style={sel} aria-label="Что берём в слагаемое" value={t.kind} onChange={(e) => onPatch({ kind: e.target.value as Kind })}>
           {KINDS.map((k) => <option key={k.v} value={k.v}>{k.t}</option>)}
         </select>
         {onRemove && <button style={rmBtn} onClick={onRemove} title="Убрать элемент">✕</button>}
@@ -219,7 +219,7 @@ function DatasetSel({ sources, value, onChange }: { sources: DataSources; value:
   const cur = sources.datasets.find((d) => d.code === value)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <select style={sel} value={value} onChange={(e) => onChange(e.target.value)}>
+      <select style={sel} aria-label="Набор данных" value={value} onChange={(e) => onChange(e.target.value)}>
         {sources.datasets.map((d) => <option key={d.code} value={d.code}>{d.name} ({d.code}){pathLabel(d)}</option>)}
       </select>
       {cur && <div style={srcHint}>{sourceLine(cur)}</div>}

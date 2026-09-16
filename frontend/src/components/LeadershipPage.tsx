@@ -3,6 +3,7 @@ import { listFeatured, type FeaturedDashboard } from '../api'
 import { fmtNumber } from '../lib/format'
 import FeaturedPicker from './leadership/FeaturedPicker'
 import GrantAccessDialog from './leadership/GrantAccessDialog'
+import Notice from './Notice'
 
 /**
  * Раздел «Руководителю» — подборка дашбордов с описаниями.
@@ -45,7 +46,7 @@ export default function LeadershipPage(
       {picker && <FeaturedPicker onClose={() => setPicker(false)} onSaved={load} />}
       {grantOpen && <GrantAccessDialog onClose={() => setGrantOpen(false)} onDone={load} />}
 
-      {error && <div style={errBox}>{error}</div>}
+      {error && <Notice style={errBox}>{error}</Notice>}
       {!items && !error && <div style={{ color: 'var(--text-muted)' }}>Загрузка…</div>}
 
       {items && items.length === 0 && (

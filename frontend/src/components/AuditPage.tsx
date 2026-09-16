@@ -4,6 +4,7 @@ import {
   type AuditDetail, type AuditItem, type AuditList, type AuditQuery,
 } from '../api'
 import { Modal, ModalTitle } from './Modal'
+import Notice from './Notice'
 
 // Раздел «Аудит действий» (только admin): журнал изменений сущностей
 // (дашборды/виджеты/права). Наполняется триггерами БД, автор — из сессии.
@@ -110,7 +111,7 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
           <button style={ghostBtn} onClick={() => doExport('xlsx')}>⤓ Excel</button>
         </div>
       </div>
-      {error && <div style={errBox}>{error}</div>}
+      {error && <Notice style={errBox}>{error}</Notice>}
 
       {/* Фильтры */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 14 }}>

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useId, useState, type FormEvent } from 'react'
 import {
   createFolder, createObject, deleteDocument, deleteFolder, deleteObject, listDocuments, listFolders,
   listObjects, updateFolder, updateObject, uploadDocument,
@@ -15,6 +15,7 @@ import AutoBuildWizard from './dashboards/AutoBuildWizard'
 import { getBuildSuggestion, type BuildSuggestion } from '../api/objects'
 import { listDashboards, type Dashboard } from '../api/dashboards'
 import { Modal, ModalTitle } from './Modal'
+import Notice from './Notice'
 
 const DOCS_PAGE = 50
 
@@ -26,6 +27,7 @@ export default function ObjectsPage(
   { canManage, isSuperadmin, initialObjectId }:
   { canManage: boolean; isSuperadmin?: boolean; initialObjectId?: string | null },
 ) {
+  const uid = useId()
   // Подтверждения — своим окном: системное браузер вправе подавить, и кнопка
   // необратимого действия выглядит нерабочей (см. ConfirmDialog).
   const { ask, node: confirmNode } = useConfirm()
@@ -330,7 +332,7 @@ export default function ObjectsPage(
         {openDoc && <><span style={{ color: 'var(--text-faint)' }}>/</span><span>{openDoc.original_filename}</span></>}
       </div>
 
-      {error && <div style={errBox}>{error}</div>}
+      {error && <Notice style={errBox}>{error}</Notice>}
 
       {!obj && (
         <Section title="Объекты">
@@ -554,9 +556,9 @@ export default function ObjectsPage(
         <Section title={`Документы папки «${folder.name}»`}>
           {canManage && (
             <form onSubmit={upload} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
-              <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-              <label style={{ fontSize: 13, color: 'var(--text-muted)' }}>Отчётная дата:</label>
-              <input style={{ ...input, width: 160 }} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <input type="file" aria-label="Файл отчёта" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              <label style={{ fontSize: 13, color: 'var(--text-muted)' }} htmlFor={`${uid}-period`}>Отчётная дата:</label>
+              <input id={`${uid}-period`} style={{ ...input, width: 160 }} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
               <button style={btn} disabled={busy || !file || !date}>Загрузить</button>
             </form>
           )}

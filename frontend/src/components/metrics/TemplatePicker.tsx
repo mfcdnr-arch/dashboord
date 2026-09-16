@@ -103,12 +103,12 @@ export default function TemplatePicker({ sources, onApply }: {
               </div>
               {inp.kind === 'field' && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <select style={sl} value={values[inp.key]?.dataset_code || ''}
+                  <select style={sl} aria-label={`${inp.label}: набор данных`} value={values[inp.key]?.dataset_code || ''}
                     onChange={(e) => setField(inp.key, e.target.value, '')}>
                     <option value="">датасет…</option>
                     {(sources?.datasets || []).map((d) => <option key={d.code} value={d.code}>{d.name}</option>)}
                   </select>
-                  <select style={{ ...sl, minWidth: 260 }} value={values[inp.key]?.field || ''}
+                  <select style={{ ...sl, minWidth: 260 }} aria-label={`${inp.label}: столбец`} value={values[inp.key]?.field || ''}
                     disabled={!values[inp.key]?.dataset_code}
                     onChange={(e) => setField(inp.key, values[inp.key].dataset_code, e.target.value)}>
                     <option value="">столбец…</option>
@@ -119,14 +119,14 @@ export default function TemplatePicker({ sources, onApply }: {
                 </div>
               )}
               {inp.kind === 'metric' && (
-                <select style={{ ...sl, minWidth: 300 }} value={values[inp.key]?.metric_code || ''}
+                <select style={{ ...sl, minWidth: 300 }} aria-label={`${inp.label}: показатель`} value={values[inp.key]?.metric_code || ''}
                   onChange={(e) => setValues((v) => ({ ...v, [inp.key]: { metric_code: e.target.value } }))}>
                   <option value="">метрика…</option>
                   {(sources?.metrics || []).map((m) => <option key={m.code} value={m.code}>{m.name}</option>)}
                 </select>
               )}
               {inp.kind === 'number' && (
-                <input style={{ ...sl, width: 160 }} type="number" placeholder={inp.hint || 'число'}
+                <input style={{ ...sl, width: 160 }} type="number" aria-label={inp.label} placeholder={inp.hint || 'число'}
                   value={values[inp.key] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [inp.key]: e.target.value }))} />
               )}
             </div>

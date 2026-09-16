@@ -3,6 +3,7 @@ import {
   checkFreshness, getRetentionPreview, getSettings, runRetention, updateOrgSettings, updateSystemSettings,
   type AllSettings, type OrgThresholds, type RetentionPreview, type SystemThresholds,
 } from '../api'
+import Notice from './Notice'
 
 // Раздел «Настройки» (admin/superadmin): пороги, которые раньше менялись только
 // правкой .env + рестарт контейнера — теперь через UI, без доступа к серверу.
@@ -52,7 +53,7 @@ export default function SettingsPage({ me }: { me: { roles: string[] } }) {
   useEffect(() => { if (canAdmin) load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!canAdmin) return <div style={{ color: 'var(--danger)' }}>Раздел «Настройки» доступен только администратору.</div>
-  if (!data || !sysForm || !orgForm) return <div>{error ? <div style={errBox}>{error}</div> : <span style={muted}>Загрузка…</span>}</div>
+  if (!data || !sysForm || !orgForm) return <div>{error ? <Notice style={errBox}>{error}</Notice> : <span style={muted}>Загрузка…</span>}</div>
 
   async function saveSys() {
     setSavingSys(true); setError(null)
@@ -76,8 +77,8 @@ export default function SettingsPage({ me }: { me: { roles: string[] } }) {
   return (
     <div>
       <h2 style={{ fontSize: 20, margin: '0 0 16px' }}>Настройки</h2>
-      {error && <div style={errBox}>{error}</div>}
-      {savedAt && !error && <div style={okBox}>Сохранено.</div>}
+      {error && <Notice style={errBox}>{error}</Notice>}
+      {savedAt && !error && <Notice kind="ok" style={okBox}>Сохранено.</Notice>}
 
       <Section title="Данные организации" hint="свежесть и хранение (раньше — только через .env)">
         <div style={grid2}>
@@ -185,8 +186,8 @@ function RetentionSection({ savedMonths }: { savedMonths: number }) {
 
   return (
     <Section title="Хранение данных (ретенция)" hint="что будет удалено по окну хранения — до удаления">
-      {err && <div style={errBox}>{err}</div>}
-      {done && <div style={okBox}>{done}</div>}
+      {err && <Notice style={errBox}>{err}</Notice>}
+      {done && <Notice kind="ok" style={okBox}>{done}</Notice>}
       {busy && !preview && <span style={muted}>Загрузка предпросмотра…</span>}
       {preview && !preview.enabled && (
         <div style={muted}>Ретенция выключена (окно хранения = 0) — старые данные не удаляются.</div>

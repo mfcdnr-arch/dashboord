@@ -6,6 +6,7 @@ import {
 import { fmtNumber as fmt } from '../lib/format'
 import { EmptyKpiArt } from './Art'
 import KpiDelta from './KpiDelta'
+import Notice from './Notice'
 
 const KIND_ICON: Record<string, string> = { dataset: '📄', metric: '📐', dashboard: '📊' }
 
@@ -91,7 +92,7 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
     try { await removeHomeKpi(code); load() } catch (e) { setError((e as Error).message) }
   }
 
-  if (error) return <div style={errBox}>{error}</div>
+  if (error) return <Notice style={errBox}>{error}</Notice>
   if (!data) return <div style={{ color: 'var(--text-faint)' }}>Загрузка…</div>
 
   const c = data.counters
@@ -317,7 +318,7 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
         </div>
         {canManage && available.length > 0 && (
           <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
-            <select id="addkpi" style={sel} defaultValue="">
+            <select id="addkpi" style={sel} aria-label="Добавить показатель на главную" defaultValue="">
               <option value="" disabled>Добавить показатель…</option>
               {available.map((m) => <option key={m.code} value={m.code}>{m.name}</option>)}
             </select>

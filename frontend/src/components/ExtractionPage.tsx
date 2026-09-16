@@ -14,6 +14,7 @@ import { buildReleaseFields } from '../lib/releaseFields'
 import { cancelRelease, deleteRelease, listVersionReleases, restoreRelease, type ReleaseBySheetResult, type ReleaseImpact, type SheetOutcome, type VersionRelease } from '../api/ingestion'
 import ImpactPanel from './ingestion/ImpactPanel'
 import { Modal, ModalTitle } from './Modal'
+import Notice from './Notice'
 
 const TYPES = [
   { v: 'number', t: 'Число' },
@@ -421,7 +422,7 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
         {doc.source_type.toUpperCase()} · отчётная дата {doc.reporting_period_start}
       </div>
 
-      {error && <div style={errBox}>{error}</div>}
+      {error && <Notice style={errBox}>{error}</Notice>}
       {job?.warnings?.map((w, i) => <div key={i} style={warnBox}>⚠ {w}</div>)}
 
       {doc.version_id && canManage && (
@@ -836,7 +837,8 @@ function FieldsPanel({ preview, previewing, transposed, excluded, names, types, 
           return (
             <div key={c.column_index} style={{ ...mapRow, opacity: on ? 1 : 0.5 }}>
               <span style={{ width: 30 }}>
-                <input type="checkbox" checked={on} onChange={() => onToggle(c.column_index)} />
+                <input type="checkbox" aria-label={`Взять столбец «${c.field_name}»`}
+                  checked={on} onChange={() => onToggle(c.column_index)} />
               </span>
               {/* Полный путь по шапке — для сверки с файлом. Сокращаем середину,
                   а не хвост: у составных заголовков различие как раз в конце. */}
@@ -850,13 +852,15 @@ function FieldsPanel({ preview, previewing, transposed, excluded, names, types, 
                   onChange={(e) => onName(c.column_index, e.target.value)} />
               </span>
               <span style={{ width: 110 }}>
-                <select style={{ ...input, width: 104, height: 30 }} value={types[c.column_index] ?? c.data_type}
+                <select style={{ ...input, width: 104, height: 30 }} aria-label={`Тип данных столбца «${c.field_name}»`}
+                  value={types[c.column_index] ?? c.data_type}
                   onChange={(e) => onType(c.column_index, e.target.value)}>
                   {TYPES.map((t) => <option key={t.v} value={t.v}>{t.t}</option>)}
                 </select>
               </span>
               <span style={{ width: 90, textAlign: 'center' }}>
-                <input type="radio" name="rowlabel" checked={labelField === c.column_index}
+                <input type="radio" name="rowlabel" aria-label={`Названия строк брать из столбца «${c.field_name}»`}
+                  checked={labelField === c.column_index}
                   onChange={() => onLabel(c.column_index)} />
               </span>
             </div>
@@ -929,6 +933,7 @@ function CellsPanel({ picked, onRename, onRemove }: {
             <span style={{ width: 70, fontSize: 12, color: 'var(--text-muted)' }}>{colName(p.col)}{p.row + 1}</span>
             <span style={{ flex: 1 }}>
               <input style={{ ...input, width: '95%', height: 30 }} value={p.field_name}
+                aria-label={`Название показателя для ячейки ${colName(p.col)}${p.row + 1}`}
                 onChange={(e) => onRename(i, e.target.value)} />
             </span>
             <button type="button" style={{ ...chip, color: 'var(--danger)' }} onClick={() => onRemove(i)}>убрать</button>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { reportWidgetProblem, widgetProblemKinds, type ProblemKind } from '../../api'
 import { Modal, ModalTitle } from '../Modal'
+import Notice from '../Notice'
 
 // «Сообщить о проблеме» прямо с виджета (п. 15 списка заказчика — обратная
 // связь пользователь → администратор).
@@ -71,13 +72,13 @@ export default function ReportProblemDialog(
 
       {done ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={okBox}>
+          <Notice kind="ok" style={okBox}>
             {done.appended
               ? '✓ Дописано в ваше открытое обращение по этому виджету — второе заводить не стали.'
               : done.owner_name
                 ? `✓ Обращение отправлено. За этот показатель отвечает ${done.owner_name} — уведомление ушло и ему.`
                 : '✓ Обращение отправлено администратору.'}
-          </div>
+          </Notice>
           <div style={muted}>
             Что именно вы видели на экране — дашборд, страницу, показатель и его значение —
             система приложила сама. Ответ придёт уведомлением, переписка — в разделе «Кабинет».
@@ -106,6 +107,7 @@ export default function ReportProblemDialog(
             <div style={label}>Подробнее (необязательно)</div>
             <textarea
               value={comment} onChange={(e) => setComment(e.target.value)} rows={4} maxLength={2000}
+              aria-label="Подробнее о проблеме"
               placeholder="Например: цифра не изменилась после нового отчёта"
               style={area}
             />
@@ -116,7 +118,7 @@ export default function ReportProblemDialog(
             значение на экране приложатся к обращению автоматически.
           </div>
 
-          {err && <div style={errBox}>{err}</div>}
+          {err && <Notice style={errBox}>{err}</Notice>}
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button style={ghostBtn} onClick={onClose} disabled={busy}>Отмена</button>

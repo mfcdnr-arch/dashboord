@@ -6,6 +6,7 @@ import {
 } from '../api'
 import PagePreview from './PagePreview'
 import { useConfirm } from './dashboards/ConfirmDialog'
+import Notice from './Notice'
 
 // Витрины (волна E): именованная подборка из N ЦЕЛЫХ дашбордов на одном
 // экране («Состав» — управление списком, «Просмотр» — живая сетка панелей).
@@ -106,7 +107,7 @@ export default function ShowcasesPage({ canManage, onOpenDashboard }: {
         <button style={crumb} onClick={() => setSel(null)}>Витрины</button>
         {sel && <><span style={{ color: 'var(--text-faint)' }}>/</span><span>{sel.name}</span></>}
       </div>
-      {error && <div style={errBox}>{error}</div>}
+      {error && <Notice style={errBox}>{error}</Notice>}
 
       {!sel && (
         <div>
@@ -145,7 +146,7 @@ export default function ShowcasesPage({ canManage, onOpenDashboard }: {
             <div>
               {canManage && (
                 <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
-                  <select style={input} value={addDashId} onChange={(e) => setAddDashId(e.target.value)}>
+                  <select style={input} aria-label="Дашборд для добавления в витрину" value={addDashId} onChange={(e) => setAddDashId(e.target.value)}>
                     <option value="">добавить дашборд…</option>
                     {availableDash.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
