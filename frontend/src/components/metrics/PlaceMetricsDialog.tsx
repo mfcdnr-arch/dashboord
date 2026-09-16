@@ -143,7 +143,7 @@ export function PlaceMetricsDialog(
                 <span style={{ minWidth: 0 }}>
                   <span style={{ overflowWrap: 'anywhere' }}>{m.name}</span>
                   {m.value != null && (
-                    <span style={{ color: 'var(--accent)', fontWeight: 600 }}>
+                    <span style={{ color: 'var(--accent-text)', fontWeight: 600 }}>
                       {' '}= {m.value.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}{m.unit ? ` ${m.unit}` : ''}
                     </span>
                   )}
@@ -179,5 +179,5 @@ const inp: React.CSSProperties = {
   borderRadius: 8, fontSize: 14, color: 'var(--text)',
 }
 const linkBtn: React.CSSProperties = {
-  border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: 0,
+  border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12, padding: 0,
 }

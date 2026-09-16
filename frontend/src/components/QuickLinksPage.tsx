@@ -76,7 +76,7 @@ export default function QuickLinksPage(
               title={l.kind === 'dashboard'
                 ? `Открыть отчёт «${l.dashboard_name || l.label}»`
                 : `Открыть раздел «${SECTION_LABEL[l.section] || l.section}»`}>
-              <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)' }}>{l.label}</span>
+              <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent-text)' }}>{l.label}</span>
               {/* Откуда отчёт: по одному короткому названию не понять, что внутри. */}
               <span style={sub}>
                 {l.kind === 'dashboard'
@@ -219,7 +219,7 @@ function elide(s: string, n = 46): string {
   return s.length <= n ? s : s.slice(0, n - 1) + '…'
 }
 const linkBtn: React.CSSProperties = {
-  background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--accent)',
+  background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--accent-text)',
   fontSize: 13, textDecoration: 'underline dotted',
 }
 const input: React.CSSProperties = {

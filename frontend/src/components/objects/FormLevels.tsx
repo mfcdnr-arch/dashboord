@@ -220,6 +220,6 @@ const btn: React.CSSProperties = {
   background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer',
 }
 const link: React.CSSProperties = {
-  marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--accent)',
+  marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--accent-text)',
   cursor: 'pointer', fontSize: 13, textDecoration: 'underline dotted',
 }

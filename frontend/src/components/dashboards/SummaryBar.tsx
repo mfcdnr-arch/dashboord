@@ -36,7 +36,7 @@ export function SummaryBar({ pageId }: { pageId: string | null }) {
       borderRadius: 10, padding: '7px 12px', margin: '0 0 12px',
       background: 'var(--surface)', fontSize: 12.5, color: 'var(--text-2)',
     }}>
-      <span style={{ fontWeight: 700, color: 'var(--accent)' }}>Как дела</span>
+      <span style={{ fontWeight: 700, color: 'var(--accent-text)' }}>Как дела</span>
       <span title={`Отчёт за ${ru(s.period)} против ${ru(s.prev_period)}`}>
         к отчёту за {ru(s.prev_period)}: выросли <b style={{ color: 'var(--success)' }}>{s.grew}</b>,
         просели <b style={{ color: s.fell ? 'var(--danger)' : 'inherit' }}>{s.fell}</b>

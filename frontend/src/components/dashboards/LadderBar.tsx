@@ -129,7 +129,7 @@ const box: React.CSSProperties = {
 }
 const crumb = (active: boolean): React.CSSProperties => ({
   background: 'none', border: 'none', padding: 0, cursor: active ? 'default' : 'pointer',
-  color: active ? 'var(--text)' : 'var(--accent)', fontSize: 13,
+  color: active ? 'var(--text)' : 'var(--accent-text)', fontSize: 13,
   fontWeight: active ? 600 : 400, maxWidth: 260, overflow: 'hidden',
   textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   textDecoration: active ? 'none' : 'underline dotted',
@@ -161,6 +161,6 @@ const label: React.CSSProperties = {
 const num: React.CSSProperties = { flexShrink: 0, fontWeight: 600, position: 'relative' }
 const avg: React.CSSProperties = { color: 'var(--text-faint)', fontWeight: 400 }
 const more: React.CSSProperties = {
-  background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer',
+  background: 'none', border: 'none', color: 'var(--accent-text)', cursor: 'pointer',
   fontSize: 13, padding: '6px 0', textDecoration: 'underline dotted',
 }

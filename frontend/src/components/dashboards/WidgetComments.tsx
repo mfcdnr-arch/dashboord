@@ -145,7 +145,7 @@ const xBtn: React.CSSProperties = {
 }
 const linkBtn: React.CSSProperties = {
   background: 'none', border: 'none', padding: '0 0 0 8px', cursor: 'pointer',
-  color: 'var(--accent)', textDecoration: 'underline', fontSize: 11,
+  color: 'var(--accent-text)', textDecoration: 'underline', fontSize: 11,
 }
 const errBox: React.CSSProperties = {
   padding: 8, borderRadius: 6, fontSize: 12.5, marginBottom: 6,

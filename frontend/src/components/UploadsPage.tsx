@@ -266,7 +266,7 @@ function when(iso?: string | null): string {
 
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '5px 8px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '5px 8px', verticalAlign: 'top' }
-const linkBtn: React.CSSProperties = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--accent)', fontSize: 12.5, textDecoration: 'underline dotted' }
+const linkBtn: React.CSSProperties = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--accent-text)', fontSize: 12.5, textDecoration: 'underline dotted' }
 function box(color: string): React.CSSProperties {
   return { border: `1px solid ${color}`, borderRadius: 10, padding: '7px 12px', marginBottom: 10, fontSize: 13 }
 }

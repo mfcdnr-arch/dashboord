@@ -135,7 +135,7 @@ export default function SheetGrid(props: Props) {
                       {off ? '☐' : '☑'} {colName(c)}
                     </button>
                     <button
-                      type="button" style={{ ...radio, color: labelCol === c ? 'var(--accent)' : 'var(--text-faint)' }}
+                      type="button" style={{ ...radio, color: labelCol === c ? 'var(--accent-text)' : 'var(--text-faint)' }}
                       title="Здесь лежат названия строк (подписи на дашборде)"
                       onClick={() => props.onLabelCol(c)}
                     >
@@ -240,7 +240,7 @@ const colBtn: React.CSSProperties = {
 const radio: React.CSSProperties = { border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }
 const nameBtn: React.CSSProperties = {
   display: 'block', maxWidth: 190, border: 'none', background: 'transparent', cursor: 'text',
-  color: 'var(--accent)', fontSize: 10, fontWeight: 600, lineHeight: 1.2, padding: '1px 2px 0',
+  color: 'var(--accent-text)', fontSize: 10, fontWeight: 600, lineHeight: 1.2, padding: '1px 2px 0',
   textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 }
 const cell: React.CSSProperties = {
@@ -248,5 +248,5 @@ const cell: React.CSSProperties = {
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'top',
 }
 const badge: React.CSSProperties = {
-  display: 'block', fontSize: 10, color: 'var(--accent)', fontWeight: 600, lineHeight: 1.2,
+  display: 'block', fontSize: 10, color: 'var(--accent-text)', fontWeight: 600, lineHeight: 1.2,
 }

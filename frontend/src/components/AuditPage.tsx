@@ -17,9 +17,9 @@ const ACTION_LABEL: Record<string, string> = {
   archive: 'Архивация', unarchive: 'Разархивация', heal: 'Автопочинка',
 }
 const ACTION_COLOR: Record<string, string> = {
-  create: 'var(--success)', update: 'var(--warn)', delete: 'var(--danger)', publish: 'var(--accent)',
+  create: 'var(--success)', update: 'var(--warn)', delete: 'var(--danger)', publish: 'var(--accent-text)',
   grant_access: 'var(--success)', revoke_access: 'var(--danger)', view: 'var(--text-muted)',
-  archive: 'var(--text-muted)', unarchive: 'var(--success)', heal: 'var(--accent)',
+  archive: 'var(--text-muted)', unarchive: 'var(--success)', heal: 'var(--accent-text)',
 }
 
 function fmtDt(iso: string | null): string {
@@ -253,7 +253,7 @@ function F({ t, children }: { t: string; children: React.ReactNode }) {
 }
 
 const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, background: 'var(--surface)' }
-const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: 0 }
+const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12, padding: 0 }
 const ghostBtn: React.CSSProperties = { height: 34, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer' }
 const pageBtn: React.CSSProperties = { height: 30, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', fontSize: 12, cursor: 'pointer' }
 const xBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0, fontSize: 15 }

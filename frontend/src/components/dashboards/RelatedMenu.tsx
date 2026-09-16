@@ -132,7 +132,7 @@ export default function RelatedMenu(
                         показан →
                       </button>
                     ) : onAddField && data.page_id ? (
-                      <button style={{ ...sibBtn, color: 'var(--accent)' }}
+                      <button style={{ ...sibBtn, color: 'var(--accent-text)' }}
                         disabled={busy === s.field}
                         onClick={async () => {
                           setBusy(s.field); setErr(null)

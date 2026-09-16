@@ -321,7 +321,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           API: {health ? `${health.status} · БД ${health.db}` : '…'}
         </span>
         <span style={{ fontSize: 13 }}><strong>{me.full_name || me.login}</strong></span>
-        {!narrow && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'var(--accent-weak-bg)', color: 'var(--accent)' }}>{me.roles.join(', ')}</span>}
+        {!narrow && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'var(--accent-weak-bg)', color: 'var(--accent-text)' }}>{me.roles.join(', ')}</span>}
         {isAdmin && (
           <button onClick={() => setWizardOpen(true)} title="Мастер первичной настройки"
             style={{ height: 32, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-2)', cursor: 'pointer', fontSize: 13 }}>
@@ -358,12 +358,12 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
                 padding: '8px 12px', marginBottom: narrow ? 0 : 4,
                 border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 14,
                 background: section === n.key ? 'var(--accent-weak-bg)' : 'transparent',
-                color: section === n.key ? 'var(--accent)' : n.ready ? 'var(--text)' : 'var(--text-faint)',
+                color: section === n.key ? 'var(--accent-text)' : n.ready ? 'var(--text)' : 'var(--text-faint)',
               }}
             >
               {n.label}{!n.ready && <span style={{ fontSize: 11 }}> · в разработке</span>}
               {n.key === 'appeals' && appealsOpen > 0 && (
-                <span style={{ marginLeft: 6, fontSize: 11, padding: '1px 6px', borderRadius: 9, background: 'var(--danger)', color: 'var(--on-accent)' }}>
+                <span style={{ marginLeft: 6, fontSize: 11, padding: '1px 6px', borderRadius: 9, background: 'var(--danger)', color: 'var(--on-danger)' }}>
                   {appealsOpen > 99 ? '99+' : appealsOpen}
                 </span>
               )}

@@ -173,7 +173,7 @@ const btn: React.CSSProperties = {
   background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer',
 }
 const linkBtn: React.CSSProperties = {
-  border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: 0,
+  border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12, padding: 0,
 }
 const badge: React.CSSProperties = {
   display: 'inline-block', padding: '1px 8px', borderRadius: 8,

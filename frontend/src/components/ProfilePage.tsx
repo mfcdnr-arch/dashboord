@@ -174,11 +174,11 @@ function PasswordCard({ login }: { login: string }) {
 
 const card: React.CSSProperties = { border: '1px solid var(--border)', borderRadius: 12, padding: 16 }
 const tabBtn: React.CSSProperties = { height: 34, padding: '0 14px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', cursor: 'pointer', fontSize: 13 }
-const tabActive: React.CSSProperties = { ...tabBtn, background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent)' }
+const tabActive: React.CSSProperties = { ...tabBtn, background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent-text)' }
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginTop: 8 }
 const roleBadge: React.CSSProperties = { display: 'inline-block', margin: '1px 4px 1px 0', padding: '1px 8px', borderRadius: 8, background: 'var(--surface-3)', color: 'var(--text-2)', fontSize: 12 }
-const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, padding: 0 }
+const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 13, padding: 0 }
 const label: React.CSSProperties = { fontSize: 13, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }
 const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 14, width: '100%', boxSizing: 'border-box' }
 const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }

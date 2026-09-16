@@ -212,15 +212,15 @@ export default function ShowcasesPage({ canManage, onOpenDashboard }: {
   )
 }
 
-const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 14, padding: 0 }
+const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 14, padding: 0 }
 const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 14 }
 const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }
 const tab: React.CSSProperties = { height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', cursor: 'pointer', fontSize: 13 }
-const tabActive: React.CSSProperties = { ...tab, background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent)' }
+const tabActive: React.CSSProperties = { ...tab, background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent-text)' }
 const rowItem: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', cursor: 'pointer' }
 const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 14, padding: '8px 0' }
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
-const editBtn: React.CSSProperties = { width: 24, height: 24, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--accent)', fontSize: 11 }
+const editBtn: React.CSSProperties = { width: 24, height: 24, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--accent-text)', fontSize: 11 }
 const rmBtn: React.CSSProperties = { width: 24, height: 24, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--danger)' }
 const folderBadge: React.CSSProperties = { fontSize: 11, color: 'var(--text-muted)', background: 'var(--surface-2)', border: '1px solid var(--border-faint)', borderRadius: 6, padding: '1px 6px' }
 const linkDanger: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 12, padding: 0 }

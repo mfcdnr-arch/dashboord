@@ -98,7 +98,7 @@ export default function LeadershipPage(
                   }}>
                     <div style={{ fontSize: 20, fontWeight: 700, whiteSpace: 'nowrap',
                       color: h.alert === 'danger' ? 'var(--danger)'
-                        : h.alert === 'warn' ? 'var(--warn)' : 'var(--accent)' }}>
+                        : h.alert === 'warn' ? 'var(--warn)' : 'var(--accent-text)' }}>
                       {h.value == null ? '—' : fmtNumber(h.value)}
                       {h.unit ? <span style={{ fontSize: 13 }}> {h.unit}</span> : null}
                     </div>

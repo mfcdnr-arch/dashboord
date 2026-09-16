@@ -83,5 +83,5 @@ export function MissingFieldsDialog(
 }
 
 const linkBtn: React.CSSProperties = {
-  border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: 0,
+  border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12, padding: 0,
 }

@@ -446,7 +446,7 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
                 видно всем, кому доступен отчёт. Счётчик подсвечивается, только
                 когда замечания есть, — иначе кнопка выглядела бы тревожной. */}
             {canComment && (
-              <button style={{ ...drillBtn, color: nComments ? 'var(--accent)' : 'var(--text-faint)' }}
+              <button style={{ ...drillBtn, color: nComments ? 'var(--accent-text)' : 'var(--text-faint)' }}
                 onClick={() => setComments(true)}
                 title={nComments
                   ? `Замечания к этой цифре: ${nComments}`
@@ -465,7 +465,7 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
                 спрятанный в меню терял бы весь смысл. Когда замечаний нет,
                 значка тоже нет — лишний элемент на узкой карточке дороже. */}
             {canComment && nComments > 0 && (
-              <button style={{ ...drillBtn, color: 'var(--accent)' }} onClick={() => setComments(true)}
+              <button style={{ ...drillBtn, color: 'var(--accent-text)' }} onClick={() => setComments(true)}
                 title={`Замечания к этой цифре: ${nComments}`}>💬 {nComments}</button>
             )}
           </>
@@ -886,7 +886,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         {/* При наличии прироста число чуть мельче: иначе карточка не вмещает
             обе строки и появляется полоса прокрутки. */}
         <FitText size={data.prev_value != null ? 26 : 30} title={kpiText}
-          style={{ fontWeight: 700, color: levelLook(data.alert?.level)?.color || 'var(--accent)' }}>{fmt(data.value)}
+          style={{ fontWeight: 700, color: levelLook(data.alert?.level)?.color || 'var(--accent-text)' }}>{fmt(data.value)}
           {data.unit && <span style={{ fontSize: '0.5em', color: 'var(--text-muted)', marginLeft: 6 }}>{data.unit}</span>}
         </FitText>
         {/* Прирост к прошлому отчёту: голое число не отвечает на вопрос «это
@@ -2103,7 +2103,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             {periods.length > 1 && (
               <SortableTh
                  sort={matrixSort} col="__chg" onSort={(c) => toggleSort(setMatrixSort, c)}
-                 style={{ ...th, textAlign: 'right', color: 'var(--accent)' }}
+                 style={{ ...th, textAlign: 'right', color: 'var(--accent-text)' }}
                >За период</SortableTh>
             )}
           </tr></thead>
@@ -2213,7 +2213,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             {rowTotal && (
               <SortableTh
                 sort={pivotSort} col="__total" onSort={(c) => toggleSort(setPivotSort, c)}
-                style={{ ...th, color: 'var(--accent)' }}
+                style={{ ...th, color: 'var(--accent-text)' }}
               >Итого</SortableTh>
             )}
           </tr></thead>
@@ -2240,7 +2240,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                 {colAgg[i] === 'avg' ? '⌀ ' : ''}{fmt(v)}
               </td>
             ))}
-            {rowTotal && <td style={{ ...totCell, textAlign: 'right', color: 'var(--accent)' }}>{fmt(data.grand_total)}</td>}
+            {rowTotal && <td style={{ ...totCell, textAlign: 'right', color: 'var(--accent-text)' }}>{fmt(data.grand_total)}</td>}
           </tr></tfoot>
         </table>
         </div>
@@ -2570,7 +2570,7 @@ const muted: React.CSSProperties = { fontSize: 11, color: 'var(--text-faint)' }
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 12, padding: '6px 8px', borderRadius: 6 }
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '4px 8px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '4px 8px' }
-const drillBtn: React.CSSProperties = { marginTop: 8, border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: 0 }
-const secH: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--accent)', marginBottom: 6 }
+const drillBtn: React.CSSProperties = { marginTop: 8, border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12, padding: 0 }
+const secH: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--accent-text)', marginBottom: 6 }
 const mono: React.CSSProperties = { fontFamily: 'ui-monospace, monospace', fontSize: 12, background: 'var(--surface-2)', padding: '6px 8px', borderRadius: 6, overflowX: 'auto' }
 const rmBtn: React.CSSProperties = { width: 26, height: 26, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--text-muted)' }

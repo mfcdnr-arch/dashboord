@@ -496,7 +496,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
                         Кто смотрел: {viewers.name}
-                        <button style={{ border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, marginLeft: 8 }} onClick={() => setViewers(null)}>× сбросить</button>
+                        <button style={{ border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12, marginLeft: 8 }} onClick={() => setViewers(null)}>× сбросить</button>
                       </div>
                       {viewers.viewers.length === 0 ? <span style={muted}>Просмотров нет.</span> : (
                         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
@@ -524,7 +524,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
                               <td style={{ ...td, fontWeight: 600 }}>{label(d)}</td>
                               <td style={{ ...td, textAlign: 'center' }}>{d.views}</td>
                               <td style={{ ...td, textAlign: 'center' }}>{d.viewers}</td>
-                              <td style={{ ...td, whiteSpace: 'nowrap' }}><button style={{ border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12 }} onClick={() => getDashboardViewers(d.dashboard_id).then(setViewers).catch((e) => setError((e as Error).message))}>кто смотрел</button></td>
+                              <td style={{ ...td, whiteSpace: 'nowrap' }}><button style={{ border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12 }} onClick={() => getDashboardViewers(d.dashboard_id).then(setViewers).catch((e) => setError((e as Error).message))}>кто смотрел</button></td>
                             </tr>
                           ))}
                         </tbody>
@@ -632,7 +632,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
                     <span style={{ flex: 1 }}>{m.name}</span>
                     {m.error
                       ? <span style={{ color: 'var(--danger)', fontSize: 12 }} title={m.error}>ошибка</span>
-                      : <b style={{ color: 'var(--accent)' }}>{num(m.value)}{m.unit ? <span style={{ color: 'var(--text-faint)', fontWeight: 400 }}> {m.unit}</span> : ''}</b>}
+                      : <b style={{ color: 'var(--accent-text)' }}>{num(m.value)}{m.unit ? <span style={{ color: 'var(--text-faint)', fontWeight: 400 }}> {m.unit}</span> : ''}</b>}
                   </div>
                 ))}
               </div>
@@ -678,7 +678,7 @@ function GaugeCard({ title, g, sub }: { title: string; g: Gauge; sub: string }) 
 function Stat({ t, v, danger }: { t: string; v: number; danger?: boolean }) {
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '10px 16px', textAlign: 'center', minWidth: 84 }}>
-      <div style={{ fontSize: 24, fontWeight: 700, color: danger ? 'var(--danger)' : 'var(--accent)' }}>{v}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, color: danger ? 'var(--danger)' : 'var(--accent-text)' }}>{v}</div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t}</div>
     </div>
   )
@@ -778,7 +778,7 @@ const selStyle: React.CSSProperties = {
   background: 'var(--surface)', color: 'var(--text)', fontSize: 13,
 }
 const linkBtnStyle: React.CSSProperties = {
-  border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, padding: 0,
+  border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 13, padding: 0,
 }
 
 
@@ -868,7 +868,7 @@ function HistorySection() {
             </tbody>
           </table>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <button style={{ ...btn, background: 'var(--danger)', opacity: chosen.length === 0 || busy ? 0.5 : 1 }}
+            <button style={{ ...btn, background: 'var(--danger)', color: 'var(--on-danger)', opacity: chosen.length === 0 || busy ? 0.5 : 1 }}
               disabled={chosen.length === 0 || busy} onClick={run}>
               {busy ? 'Удаление…' : `Удалить (${willRemove})`}
             </button>

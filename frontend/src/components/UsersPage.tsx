@@ -272,7 +272,7 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
         {users.length === 0 && <div style={muted}>Ничего не найдено.</div>}
         {users.length < usersTotal && (
           <div style={{ textAlign: 'center', marginTop: 12 }}>
-            <button style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent)' }} onClick={loadMoreUsers}>
+            <button style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent-text)' }} onClick={loadMoreUsers}>
               Показать ещё ({usersTotal - users.length})
             </button>
           </div>
@@ -513,10 +513,10 @@ function L({ t, children }: { t: string; children: React.ReactNode }) {
 
 const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13 }
 const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
-const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: '0 6px 0 0' }
+const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12, padding: '0 6px 0 0' }
 const roleBadge: React.CSSProperties = { display: 'inline-block', margin: '1px 4px 1px 0', padding: '1px 8px', borderRadius: 8, background: 'var(--surface-3)', color: 'var(--text-2)', fontSize: 12 }
 const superBadge: React.CSSProperties = { ...roleBadge, background: 'var(--accent)', color: 'var(--on-accent)', fontWeight: 600 }
-const chip: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--accent-weak-bg)', color: 'var(--accent)', padding: '4px 10px', borderRadius: 12, fontSize: 13 }
+const chip: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--accent-weak-bg)', color: 'var(--accent-text)', padding: '4px 10px', borderRadius: 12, fontSize: 13 }
 const xBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0 }
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px' }

@@ -41,7 +41,7 @@ export function AccessEditor({ dashboard, onClose }: { dashboard: Dashboard; onC
   }
 
   const chip = (g: DashGrant) => (
-    <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, background: 'var(--accent-weak-bg)', color: 'var(--accent)', padding: '4px 10px', borderRadius: 12 }}>
+    <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, background: 'var(--accent-weak-bg)', color: 'var(--accent-text)', padding: '4px 10px', borderRadius: 12 }}>
       {g.grantee_type === 'role' ? '👥' : '👤'} {g.label}
       <button style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0 }} onClick={() => remove(g.id)} title="Убрать доступ">✕</button>
     </span>

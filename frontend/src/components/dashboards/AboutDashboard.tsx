@@ -162,7 +162,7 @@ const STATUS: Record<string, string> = {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 14 }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', marginBottom: 6 }}>{title}</div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent-text)', marginBottom: 6 }}>{title}</div>
       {children}
     </div>
   )
@@ -180,5 +180,5 @@ function Row({ k, v }: { k: string; v: string }) {
 const lbl: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--text-muted)' }
 const txt: React.CSSProperties = { fontSize: 13, lineHeight: 1.5 }
 const faint: React.CSSProperties = { fontSize: 12, color: 'var(--text-faint)' }
-const chip: React.CSSProperties = { fontSize: 12, background: 'var(--accent-weak-bg)', color: 'var(--accent)', padding: '2px 8px', borderRadius: 10 }
+const chip: React.CSSProperties = { fontSize: 12, background: 'var(--accent-weak-bg)', color: 'var(--accent-text)', padding: '2px 8px', borderRadius: 10 }
 const mono: React.CSSProperties = { fontFamily: 'ui-monospace, monospace', fontSize: 12, background: 'var(--surface-2)', padding: '2px 8px', borderRadius: 6 }

@@ -190,7 +190,7 @@ export function DashboardList({
         )}
         {canManage && objects.length > 0 && selectedIds.size > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '8px 12px', borderRadius: 10, background: 'var(--accent-weak-bg)' }}>
-            <span style={{ fontSize: 13, color: 'var(--accent)' }}>Выбрано: {selectedIds.size}</span>
+            <span style={{ fontSize: 13, color: 'var(--accent-text)' }}>Выбрано: {selectedIds.size}</span>
             <button style={btnAuto} onClick={onBulkMove}>📁 Переместить в папку</button>
             <button style={{ ...tab, marginLeft: 'auto' }} onClick={() => setSelectedIds(new Set())}>Снять выделение</button>
           </div>
@@ -212,7 +212,7 @@ export function DashboardList({
           groupByObject(dashboards).map(([objectName, list]) => (
           <div key={objectName} style={{ marginBottom: 14 }}>
             {groupByObject(dashboards).length > 1 && (
-              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent)', margin: '0 0 6px 2px' }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent-text)', margin: '0 0 6px 2px' }}>
                 🏢 {objectName}
                 <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · отчётов: {list.length}</span>
               </div>
@@ -248,7 +248,7 @@ export function DashboardList({
                       title={d.featured
                         ? 'Убрать из подборки «Руководителю»'
                         : 'Добавить в подборку «Руководителю» (доступ выдаётся отдельно)'}
-                      style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14, padding: 0, lineHeight: 1, color: d.featured ? 'var(--accent)' : 'var(--border-strong)' }}>
+                      style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14, padding: 0, lineHeight: 1, color: d.featured ? 'var(--accent-text)' : 'var(--border-strong)' }}>
                       {d.featured ? '👔' : '👤'}
                     </button>
                   )}
@@ -256,7 +256,7 @@ export function DashboardList({
                     <span title="Дашборд собран по этому отчёту: его виджеты закреплены за отчётной датой">📌</span>
                   )}
                   {d.name}
-                  {!!d.comments_count && <span title={`Комментариев: ${d.comments_count}`} style={{ fontSize: 12, color: 'var(--accent)' }}>💬{d.comments_count}</span>}
+                  {!!d.comments_count && <span title={`Комментариев: ${d.comments_count}`} style={{ fontSize: 12, color: 'var(--accent-text)' }}>💬{d.comments_count}</span>}
                   {d.folder_name && (
                     <span title={`${d.object_name ?? ''} / ${d.folder_name}`} style={{ fontSize: 11, padding: '1px 8px', borderRadius: 9, background: 'var(--surface-3)', color: 'var(--text-2)' }}>
                       📁 {d.folder_name}

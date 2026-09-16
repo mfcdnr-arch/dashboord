@@ -221,7 +221,7 @@ function Note({ tone, children }: { tone: 'danger' | 'warn'; children: React.Rea
 const muted: React.CSSProperties = { fontSize: 12, color: 'var(--text-2)' }
 const linkBtn: React.CSSProperties = {
   background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-  color: 'var(--accent)', textDecoration: 'underline', fontSize: 12,
+  color: 'var(--accent-text)', textDecoration: 'underline', fontSize: 12,
 }
 const th: React.CSSProperties = {
   textAlign: 'left', padding: '3px 6px', borderBottom: '1px solid var(--border)',

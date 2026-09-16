@@ -87,7 +87,7 @@ export default function TemplatePicker({ sources, onApply }: {
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <button type="button" onClick={() => setSel(null)}
-              style={{ border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, padding: 0 }}>← к списку</button>
+              style={{ border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 13, padding: 0 }}>← к списку</button>
             <b style={{ fontSize: 14 }}>{sel.name}</b>
             {sel.unit && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>· {sel.unit}</span>}
           </div>

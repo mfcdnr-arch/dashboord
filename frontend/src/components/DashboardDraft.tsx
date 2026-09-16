@@ -276,5 +276,5 @@ const tab: React.CSSProperties = {
   color: 'var(--text-muted)', fontSize: 12, padding: '3px 10px', cursor: 'pointer',
 }
 const tabActive: React.CSSProperties = {
-  border: '1px solid var(--accent)', background: 'var(--accent-weak-bg)', color: 'var(--accent)',
+  border: '1px solid var(--accent)', background: 'var(--accent-weak-bg)', color: 'var(--accent-text)',
 }

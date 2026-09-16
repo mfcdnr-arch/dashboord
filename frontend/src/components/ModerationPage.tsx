@@ -171,7 +171,7 @@ function ReviewModal({ item, reasons, onClose, onDone, onError }: {
 const input: React.CSSProperties = { minHeight: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, background: 'var(--surface)', fontFamily: 'inherit' }
 const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
 const btnGhost: React.CSSProperties = { height: 34, padding: '0 14px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--danger)', fontSize: 13, cursor: 'pointer' }
-const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, padding: '0 0 0 6px' }
+const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 13, padding: '0 0 0 6px' }
 const xBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0, fontSize: 15 }
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px' }

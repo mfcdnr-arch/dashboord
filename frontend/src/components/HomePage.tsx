@@ -217,7 +217,7 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 24 }}>
         {counters.map((x) => (
           <div key={x.t} style={counter}>
-            <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--accent)' }}>{x.v}</div>
+            <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--accent-text)' }}>{x.v}</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{x.t}</div>
           </div>
         ))}
@@ -305,7 +305,7 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
               {k.value != null
                 ? (
                   <div style={{ marginTop: 4 }}>
-                    <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--accent)' }}>
+                    <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--accent-text)' }}>
                       {fmt(k.value)}{k.unit && <span style={{ fontSize: 13, color: 'var(--text-muted)', marginLeft: 4 }}>{k.unit}</span>}
                     </div>
                     <KpiDelta kpi={k} />
@@ -401,7 +401,7 @@ const td: React.CSSProperties = { border: '1px solid var(--border-faint)', paddi
 const counter: React.CSSProperties = { minWidth: 96, border: '1px solid var(--border)', borderRadius: 12, padding: '12px 16px', textAlign: 'center' }
 const featureCard: React.CSSProperties = { display: 'flex', gap: 10, alignItems: 'flex-start', border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'var(--surface)' }
 const kpiCard: React.CSSProperties = { border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'var(--surface)' }
-const pageChip: React.CSSProperties = { border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', padding: '6px 10px', fontSize: 13, cursor: 'pointer', color: 'var(--accent)' }
+const pageChip: React.CSSProperties = { border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', padding: '6px 10px', fontSize: 13, cursor: 'pointer', color: 'var(--accent-text)' }
 const sel: React.CSSProperties = { height: 34, padding: '0 8px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, background: 'var(--surface)' }
 const btn: React.CSSProperties = { height: 34, padding: '0 12px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
 const rmBtn: React.CSSProperties = { marginLeft: 'auto', width: 22, height: 22, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--danger)', fontSize: 11 }

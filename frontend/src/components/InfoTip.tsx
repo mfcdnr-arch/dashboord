@@ -52,7 +52,7 @@ export default function InfoTip({ text, label = 'Подсказка' }: { text: 
         onFocus={() => setOpen(true)} onBlur={() => { setOpen(false); setPos(null) }}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v) }}
         style={{ width: 16, height: 16, borderRadius: '50%', border: '1px solid var(--border-strong)', background: 'var(--accent-weak-bg)',
-          color: 'var(--accent)', fontSize: 11, lineHeight: '14px', cursor: 'help', padding: 0, fontWeight: 700 }}>i</button>
+          color: 'var(--accent-text)', fontSize: 11, lineHeight: '14px', cursor: 'help', padding: 0, fontWeight: 700 }}>i</button>
       {open && createPortal(
         <span ref={tip} role="tooltip" style={{
           position: 'fixed', top: pos?.top ?? -9999, left: pos?.left ?? -9999, zIndex: 200,

@@ -85,5 +85,5 @@ export function AttentionBar({ pageId }: { pageId: string | null }) {
 
 const linkBtn: React.CSSProperties = {
   background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-  color: 'var(--accent)', fontSize: 12.5, textDecoration: 'underline dotted',
+  color: 'var(--accent-text)', fontSize: 12.5, textDecoration: 'underline dotted',
 }

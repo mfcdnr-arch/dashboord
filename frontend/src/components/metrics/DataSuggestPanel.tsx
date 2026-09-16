@@ -165,7 +165,7 @@ export default function DataSuggestPanel({ onCreated }: { onCreated: () => void 
           <input type="checkbox" checked={picked.has(s.code)} onChange={() => toggle(s.code)} style={{ marginTop: 3 }} />
           <span style={{ minWidth: 0 }}>
             <span style={{ fontSize: 11, padding: '1px 8px', borderRadius: 9, background: 'var(--accent-weak-bg)',
-              color: 'var(--accent)', marginRight: 6 }}>{TYPE_RU[s.type] || s.type}</span>
+              color: 'var(--accent-text)', marginRight: 6 }}>{TYPE_RU[s.type] || s.type}</span>
             <span style={{ fontSize: 13 }}>{s.name}</span>
             {s.preview_value != null && (
               <span style={{ marginLeft: 6, fontSize: 12, color: 'var(--success)' }}

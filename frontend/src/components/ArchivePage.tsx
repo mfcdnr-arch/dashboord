@@ -85,7 +85,7 @@ export default function ArchivePage({ canManage, isAdmin }: { canManage: boolean
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
           {pages.map((p, i) => (
-            <button key={i} style={{ ...btnGhost, ...(i === page ? { borderColor: 'var(--accent)', color: 'var(--accent)', background: 'var(--accent-weak-bg)' } : {}) }}
+            <button key={i} style={{ ...btnGhost, ...(i === page ? { borderColor: 'var(--accent)', color: 'var(--accent-text)', background: 'var(--accent-weak-bg)' } : {}) }}
               onClick={() => setPage(i)}>{p.name}</button>
           ))}
           <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={() => exportArchiveXlsx(opened.id, opened.dashboard_name).catch((e) => setErr((e as Error).message))}>⤓ Excel (слепок)</button>
@@ -176,7 +176,7 @@ function MonthBtn({ active, label, count, onClick }: { active: boolean; label: s
     <button onClick={onClick} style={{
       display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between', gap: 8,
       border: 'none', borderRadius: 8, padding: '8px 10px', marginBottom: 2, cursor: 'pointer', fontSize: 13,
-      background: active ? 'var(--accent-weak-bg)' : 'transparent', color: active ? 'var(--accent)' : 'var(--text-2)',
+      background: active ? 'var(--accent-weak-bg)' : 'transparent', color: active ? 'var(--accent-text)' : 'var(--text-2)',
     }}>
       <span>📁 {label}</span><span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{count}</span>
     </button>

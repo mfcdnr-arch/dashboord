@@ -339,6 +339,6 @@ const btn: React.CSSProperties = { height: 36, padding: '0 16px', border: 'none'
 const btnWide: React.CSSProperties = { ...btn, height: 42, textAlign: 'left' }
 const btnGhost: React.CSSProperties = { height: 36, padding: '0 14px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-2)', fontSize: 14, cursor: 'pointer' }
 const xBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18 }
-const chip: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', background: 'var(--accent-weak-bg)', color: 'var(--accent)', padding: '4px 10px', borderRadius: 12, fontSize: 13 }
+const chip: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', background: 'var(--accent-weak-bg)', color: 'var(--accent-text)', padding: '4px 10px', borderRadius: 12, fontSize: 13 }
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }

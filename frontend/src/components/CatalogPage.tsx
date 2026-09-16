@@ -123,7 +123,7 @@ export default function CatalogPage({ me }: { me: { roles: string[] } }) {
               <div key={d.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, border: '1px solid var(--border-faint)', borderRadius: 8, padding: '8px 10px' }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>
-                    📄 {d.url ? <a href={d.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{d.title}</a> : d.title}
+                    📄 {d.url ? <a href={d.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-text)' }}>{d.title}</a> : d.title}
                   </div>
                   {d.description && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{d.description}</div>}
                 </div>
@@ -143,7 +143,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13 }
 const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
-const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: '0 6px 0 0' }
+const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12, padding: '0 6px 0 0' }
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px' }
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }

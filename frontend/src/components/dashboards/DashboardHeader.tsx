@@ -86,7 +86,7 @@ const tabLine: React.CSSProperties = {
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 }
 const tabLineOn: React.CSSProperties = {
-  color: 'var(--accent)', borderBottomColor: 'var(--accent)', fontWeight: 600,
+  color: 'var(--accent-text)', borderBottomColor: 'var(--accent)', fontWeight: 600,
 }
 const menuBox: React.CSSProperties = {
   position: 'absolute', right: 0, top: 34, width: 250, background: 'var(--surface)',
@@ -129,7 +129,7 @@ function Dropdown(
   return (
     <div ref={box} style={{ position: 'relative' }}>
       <button type="button" title={title}
-        style={{ ...hbtn, ...(open ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+        style={{ ...hbtn, ...(open ? { borderColor: 'var(--accent)', color: 'var(--accent-text)' } : {}) }}
         onClick={() => setOpen(!open)}>{label} ▾</button>
       {open && <div style={{ ...menuBox, ...(width ? { width } : {}) }}>{children}</div>}
     </div>
@@ -304,7 +304,7 @@ export function DashboardHeader({
   return (
     <>
       <div style={wrap} data-export-hide>
-        <button type="button" style={{ ...linkDanger, color: 'var(--accent)', fontSize: 12 }} onClick={onBack}>← Дашборды</button>
+        <button type="button" style={{ ...linkDanger, color: 'var(--accent-text)', fontSize: 12 }} onClick={onBack}>← Дашборды</button>
 
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap', marginTop: 2 }}>
           <div style={{ minWidth: 0 }}>
@@ -326,7 +326,7 @@ export function DashboardHeader({
                 title={dashboard.comments_count ? `Обсуждение: ${dashboard.comments_count} коммент.` : 'Обсуждение дашборда (пока нет комментариев)'}
                 style={{
                   ...chip, border: 'none', cursor: 'pointer',
-                  ...(dashboard.comments_count ? { background: 'var(--accent-weak-bg)', color: 'var(--accent)', fontWeight: 600 } : {}),
+                  ...(dashboard.comments_count ? { background: 'var(--accent-weak-bg)', color: 'var(--accent-text)', fontWeight: 600 } : {}),
                 }}>
                 💬 {dashboard.comments_count || ''}
               </button>
@@ -364,7 +364,7 @@ export function DashboardHeader({
             )}
             {/* Публикация — ОДНА кнопка по текущему состоянию. */}
             {canManage && status === 'draft' && (
-              <button type="button" style={{ ...hbtn, borderColor: 'var(--accent)', color: 'var(--accent)' }} onClick={a.submitReview}>Отправить на проверку</button>
+              <button type="button" style={{ ...hbtn, borderColor: 'var(--accent)', color: 'var(--accent-text)' }} onClick={a.submitReview}>Отправить на проверку</button>
             )}
             {canManage && status === 'review' && (
               <button type="button" style={hbtn} onClick={a.cancelReview}>Отозвать заявку</button>
@@ -379,7 +379,7 @@ export function DashboardHeader({
             {(canManage || isSuperadmin) && (
             <Dropdown label="⋯" title="Остальные действия с дашбордом" open={moreOpen} setOpen={setMoreOpen}>
               {canManage && (
-                <button type="button" style={{ ...menuItem, color: editMode ? 'var(--accent)' : 'var(--text-2)' }}
+                <button type="button" style={{ ...menuItem, color: editMode ? 'var(--accent-text)' : 'var(--text-2)' }}
                   onClick={() => { setEditMode(!editMode); setMoreOpen(false) }}>
                   {editMode ? '✓ Выйти из режима правки' : '✎ Правка: двигать виджеты'}
                 </button>
@@ -456,7 +456,7 @@ export function DashboardHeader({
                   <div style={{ fontSize: 11, color: 'var(--text-faint)', padding: '2px 9px 5px' }}>снимок за отчёт, не обновляется</div>
                   {slicePages.map((p) => (
                     <button key={p.id} type="button"
-                      style={{ ...menuItem, ...(page?.id === p.id ? { color: 'var(--accent)', fontWeight: 600 } : {}) }}
+                      style={{ ...menuItem, ...(page?.id === p.id ? { color: 'var(--accent-text)', fontWeight: 600 } : {}) }}
                       onClick={() => { onOpenPage(p); setSliceOpen(false) }}
                       title={p.name}>📌 {periodDate(p)}</button>
                   ))}
@@ -471,7 +471,7 @@ export function DashboardHeader({
               {/* Раскладка страницы. В «потоке» место и размер считаются по типу
                   виджета при отрисовке, поэтому подгонять и двигать нечего —
                   кнопки сетки там не показываем. */}
-              <button type="button" style={{ ...hbtn, height: 26, ...(flowMode ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+              <button type="button" style={{ ...hbtn, height: 26, ...(flowMode ? { borderColor: 'var(--accent)', color: 'var(--accent-text)' } : {}) }}
                 title={flowMode
                   ? 'Сейчас «поток»: виджеты сами укладываются по типу. Перейти на свободную сетку с перетаскиванием'
                   : 'Сейчас свободная сетка. Перейти на «поток»: карточки, графики и таблицы уложатся сами и не оставят дыр'}
@@ -509,7 +509,7 @@ export function DashboardHeader({
             style={{
               border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit',
               display: 'inline-flex', gap: 14, alignItems: 'center',
-              color: pFrom || pTo || crossRow ? 'var(--accent)' : 'var(--text-muted)',
+              color: pFrom || pTo || crossRow ? 'var(--accent-text)' : 'var(--text-muted)',
               textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3,
             }}
             onClick={() => setFiltersOpen(!filtersOpen)}>
@@ -530,7 +530,7 @@ export function DashboardHeader({
             пресеты:
             {presets.map((p) => (
               <span key={p.id} style={presetChip}>
-                <button type="button" style={{ border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: 12 }}
+                <button type="button" style={{ border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', padding: 0, fontSize: 12 }}
                   onClick={() => applyPreset(p)} title="Применить набор фильтров">{p.name}</button>
                 {canManage && (
                   <button type="button" style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0 }}
@@ -545,7 +545,7 @@ export function DashboardHeader({
             onClick={savePreset} title="Сохранить текущие фильтры как набор">💾 сохранить набор</button>
         )}
         {canManage && missingCount > 0 && (
-          <button type="button" style={{ ...linkDanger, color: 'var(--accent)', fontSize: 12, marginLeft: 'auto' }}
+          <button type="button" style={{ ...linkDanger, color: 'var(--accent-text)', fontSize: 12, marginLeft: 'auto' }}
             onClick={onOpenMissing}
             title="Показатели, которые есть в данных, но не показаны ни одним виджетом">
             💡 {missingCount} показателей не показаны

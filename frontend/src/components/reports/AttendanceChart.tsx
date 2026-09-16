@@ -172,7 +172,7 @@ export default function AttendanceChart({ days, periodLabel }: { days: Day[]; pe
 
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 12 }
 const linkBtn: React.CSSProperties = {
-  border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: 0,
+  border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12, padding: 0,
 }
 const th: React.CSSProperties = {
   border: '1px solid var(--border-faint)', padding: '5px 8px', background: 'var(--surface-2)',

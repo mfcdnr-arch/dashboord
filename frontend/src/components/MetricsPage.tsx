@@ -190,7 +190,7 @@ export default function MetricsPage({ canManage, isSuperadmin, initialMetricId }
               <button type="button" style={{ ...btnGhostSm }}
                 title="Одобрить проверенные версии. Свою версию одобрить нельзя — это разделение обязанностей"
                 onClick={() => openBulk('approved')}>✓✓ Одобрить все проверенные</button>
-              <button type="button" style={{ ...btnGhostSm, borderColor: 'var(--accent)', color: 'var(--accent)' }}
+              <button type="button" style={{ ...btnGhostSm, borderColor: 'var(--accent)', color: 'var(--accent-text)' }}
                 title="Вывести показатели на дашборд карточками — рядом с тем, из чего они считаются"
                 onClick={() => setPlaceOpen(true)}>📊 Разместить на дашборде</button>
               {bulkNote && <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{bulkNote}</span>}
@@ -227,7 +227,7 @@ export default function MetricsPage({ canManage, isSuperadmin, initialMetricId }
           )}
           {metrics.length < metricsTotal && (
             <div style={{ textAlign: 'center', marginTop: 12 }}>
-              <button style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent)' }} onClick={loadMoreMetrics}>
+              <button style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent-text)' }} onClick={loadMoreMetrics}>
                 Показать ещё ({metricsTotal - metrics.length})
               </button>
             </div>
@@ -505,7 +505,7 @@ function MetricDetail({ data, canManage, isSuperadmin, onError, onChanged, onDel
           {previewErr && <div style={{ ...errBox, marginTop: 10 }}>{previewErr}</div>}
 
           <details style={{ marginTop: 12 }}>
-            <summary style={{ fontSize: 13, color: 'var(--accent)', cursor: 'pointer' }}>📘 Справочник по формулам</summary>
+            <summary style={{ fontSize: 13, color: 'var(--accent-text)', cursor: 'pointer' }}>📘 Справочник по формулам</summary>
             <div style={helpBox}>
               <div style={helpH}>Данные — откуда берутся числа</div>
               <ul style={helpUl}>
@@ -525,7 +525,7 @@ function MetricDetail({ data, canManage, isSuperadmin, onError, onChanged, onDel
               <div style={helpH}>Примеры — нажмите, чтобы подставить</div>
               <ul style={helpUl}>
                 {FORMULA_HELP.map((f) => (
-                  <li key={f}><code style={{ cursor: 'pointer', color: 'var(--accent)' }} onClick={() => setFormula(f)}>{f}</code></li>
+                  <li key={f}><code style={{ cursor: 'pointer', color: 'var(--accent-text)' }} onClick={() => setFormula(f)}>{f}</code></li>
                 ))}
               </ul>
               <div style={{ marginTop: 6, color: 'var(--text-faint)' }}>
@@ -558,7 +558,7 @@ function MetricNow({ v, unit }: { v?: MetricValue; unit?: string | null }) {
   }
   const num = v.value == null ? '—' : v.value.toLocaleString('ru-RU', { maximumFractionDigits: 2 })
   return (
-    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)', whiteSpace: 'nowrap' }}
+    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent-text)', whiteSpace: 'nowrap' }}
       title="Значение по лучшей версии формулы на текущих данных">
       {num}{(v.unit || unit) ? ` ${v.unit || unit}` : ''}
     </span>
@@ -578,7 +578,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 
-const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 14, padding: 0 }
+const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 14, padding: 0 }
 const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 14 }
 const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }
 const btnGhost: React.CSSProperties = { height: 36, padding: '0 14px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', fontSize: 14, cursor: 'pointer' }
@@ -596,8 +596,8 @@ const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 14 }
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 const okBox: React.CSSProperties = { background: 'var(--success-bg)', color: 'var(--success)', fontSize: 14, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--success-bg)' }
 const helpBox: React.CSSProperties = { fontSize: 12.5, color: 'var(--text-2)', marginTop: 8, padding: '10px 12px', background: 'var(--surface-2)', border: '1px solid var(--border-faint)', borderRadius: 8, lineHeight: 1.5 }
-const helpH: React.CSSProperties = { fontWeight: 600, color: 'var(--accent)', marginTop: 8, marginBottom: 2 }
+const helpH: React.CSSProperties = { fontWeight: 600, color: 'var(--accent-text)', marginTop: 8, marginBottom: 2 }
 const helpUl: React.CSSProperties = { margin: '2px 0 0', paddingLeft: 18 }
 const modeBtn: React.CSSProperties = { height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', cursor: 'pointer', fontSize: 13 }
-const modeBtnActive: React.CSSProperties = { background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent)' }
+const modeBtnActive: React.CSSProperties = { background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent-text)' }
 const mono2: React.CSSProperties = { fontFamily: 'ui-monospace, monospace', background: 'var(--surface-2)', padding: '2px 6px', borderRadius: 6, color: 'var(--text)' }

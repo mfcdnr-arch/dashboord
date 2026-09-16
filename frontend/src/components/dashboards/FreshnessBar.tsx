@@ -23,14 +23,14 @@ export function FreshnessBar(
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-      background: 'var(--accent-weak-bg)', color: 'var(--accent)', fontSize: 13,
+      background: 'var(--accent-weak-bg)', color: 'var(--accent-text)', fontSize: 13,
       padding: '8px 12px', borderRadius: 8, margin: '0 0 12px',
     }}>
       <span>🔄 Появились данные за {ru(available)} — на экране показаны за {ru(asOf)}.</span>
       <button type="button" onClick={onRefresh}
         style={{
           marginLeft: 'auto', height: 28, padding: '0 12px', border: '1px solid var(--accent)',
-          borderRadius: 8, background: 'var(--surface)', color: 'var(--accent)',
+          borderRadius: 8, background: 'var(--surface)', color: 'var(--accent-text)',
           fontSize: 12.5, cursor: 'pointer',
         }}>Показать свежие</button>
     </div>

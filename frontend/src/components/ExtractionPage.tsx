@@ -724,7 +724,7 @@ function TemplateBanner({ tpl, applied, onApply, onDrop }: {
     <div style={{
       display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
       background: warn ? 'var(--warn-bg)' : 'var(--accent-weak-bg)',
-      color: warn ? 'var(--warn)' : 'var(--accent)',
+      color: warn ? 'var(--warn)' : 'var(--accent-text)',
       fontSize: 13, padding: '8px 12px', borderRadius: 8, margin: '0 0 12px',
     }}>
       <span>
@@ -1117,15 +1117,15 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   )
 }
 
-const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 14, padding: 0 }
+const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 14, padding: 0 }
 const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 14 }
 const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }
 const btnGhost: React.CSSProperties = { height: 36, padding: '0 14px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', fontSize: 14, cursor: 'pointer' }
-const btnDanger: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--danger)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }
+const btnDanger: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--danger)', color: 'var(--on-danger)', fontSize: 14, cursor: 'pointer' }
 const chip: React.CSSProperties = { padding: '6px 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', fontSize: 13, cursor: 'pointer' }
 // border целиком, а не borderColor поверх сокращённого свойства из chip:
 // иначе React предупреждает о смешивании и при перерисовке рамка «прыгает».
-const chipActive: React.CSSProperties = { background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent)' }
+const chipActive: React.CSSProperties = { background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent-text)' }
 const h3: React.CSSProperties = { fontSize: 14, margin: '0 0 8px' }
 const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 14 }
 const mapRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid var(--border-faint)' }
@@ -1139,7 +1139,7 @@ const hintBox: React.CSSProperties = {
 // и сравнить столбцы глазами невозможно.
 const outHead: React.CSSProperties = {
   border: '1px solid var(--border-faint)', padding: '5px 9px',
-  background: 'var(--accent-weak-bg)', color: 'var(--accent)', fontSize: 12,
+  background: 'var(--accent-weak-bg)', color: 'var(--accent-text)', fontSize: 12,
   whiteSpace: 'normal', overflowWrap: 'anywhere', maxWidth: 190, minWidth: 90,
   textAlign: 'left', verticalAlign: 'bottom',
 }
@@ -1212,7 +1212,7 @@ function ReleasesPanel(
               <span title="Форма в точности совпала с прошлым отчётом, замечаний к данным не было — система выпустила их сама. Если цифры не те, нажмите «Отменить выпуск»."
                 style={{
                   fontSize: 11, padding: '1px 8px', borderRadius: 8,
-                  background: 'var(--accent-weak-bg)', color: 'var(--accent)',
+                  background: 'var(--accent-weak-bg)', color: 'var(--accent-text)',
                 }}>⚙ выпущено автоматически</span>
             )}
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>

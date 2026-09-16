@@ -61,7 +61,7 @@ export function Comments({ dashboard, onClose }: { dashboard: Dashboard; onClose
             {items.map((c) => (
               <div key={c.id} style={{ border: '1px solid var(--border-faint)', borderRadius: 10, padding: '8px 12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{c.author}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent-text)' }}>{c.author}</span>
                   <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{fmtDt(c.created_at)}</span>
                   {c.can_delete && (
                     <button onClick={() => remove(c.id)} title="Удалить комментарий"

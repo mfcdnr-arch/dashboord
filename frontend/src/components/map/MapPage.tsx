@@ -112,7 +112,7 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
           <button key={k} onClick={() => setTab(k)} aria-pressed={tab === k}
             style={{
               border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, padding: '8px 12px',
-              color: tab === k ? 'var(--accent)' : 'var(--text-muted)',
+              color: tab === k ? 'var(--accent-text)' : 'var(--text-muted)',
               fontWeight: tab === k ? 700 : 400,
               borderBottom: tab === k ? '2px solid var(--accent)' : '2px solid transparent',
             }}>{label}</button>
@@ -322,7 +322,7 @@ function fmtDate(iso?: string | null): string {
 const inp: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', background: 'var(--surface)', color: 'var(--text)' }
 const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
 const btnGhost: React.CSSProperties = { ...btn, background: 'transparent', color: 'var(--text)', border: '1px solid var(--border-strong)' }
-const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: '0 6px 0 0' }
+const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12, padding: '0 6px 0 0' }
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px' }
 const card: React.CSSProperties = { border: '1px solid var(--border-faint)', borderRadius: 10, padding: 12, marginBottom: 12, background: 'var(--surface-2)', boxSizing: 'border-box' }

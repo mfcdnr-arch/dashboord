@@ -132,7 +132,7 @@ export function WidgetPicker({ value, onPick, onClose }: { value: string; onPick
       {WIDGET_GROUPS.map((g) => (
         <div key={g.key} style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{g.title}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-text)' }}>{g.title}</span>
             <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{g.note}</span>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>

@@ -53,7 +53,7 @@ export function SourceCatalog({ sources }: { sources: DataSources }) {
         {sources.datasets.map((d) => (
           <div key={d.code} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', background: 'var(--surface)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setExp(exp === d.code ? null : d.code)}>
-              <span style={{ color: 'var(--accent)' }}>{exp === d.code ? '▾' : '▸'}</span>
+              <span style={{ color: 'var(--accent-text)' }}>{exp === d.code ? '▾' : '▸'}</span>
               <span style={{ fontSize: 13, fontWeight: 600 }}>{d.name}</span>
               <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>({d.code})</span>
               {/* Раньше здесь стояло имя ОДНОГО файла — самого свежего выпуска,
@@ -67,7 +67,7 @@ export function SourceCatalog({ sources }: { sources: DataSources }) {
             {exp === d.code && (
               <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-2)' }}>
                 <div style={{ marginBottom: 4 }}><b>Поля/столбцы:</b> {d.fields.length === 0 ? '—' : d.fields.map((f) => (
-                  <span key={f.code} style={chip('var(--accent-weak-bg)', 'var(--accent)')}>{f.name} <span style={{ color: 'var(--text-faint)' }}>· {f.data_type === 'number' ? 'число' : f.data_type === 'date' ? 'дата' : 'текст'}{f.is_row_label ? ' · строка' : ''}</span></span>
+                  <span key={f.code} style={chip('var(--accent-weak-bg)', 'var(--accent-text)')}>{f.name} <span style={{ color: 'var(--text-faint)' }}>· {f.data_type === 'number' ? 'число' : f.data_type === 'date' ? 'дата' : 'текст'}{f.is_row_label ? ' · строка' : ''}</span></span>
                 ))}</div>
                 <div style={{ marginBottom: 4 }}><b>Строки:</b> {d.rows.length === 0 ? '—' : d.rows.map((r, i) => <span key={i} style={chip('var(--surface-3)', 'var(--text-2)')}>{r}</span>)}</div>
                 <div style={{ marginBottom: 4 }}><b>Периоды:</b> {d.dates.length === 0 ? '—' : d.dates.map(ruDate).join(', ')}</div>
@@ -95,7 +95,7 @@ export function SourceCatalog({ sources }: { sources: DataSources }) {
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Показатели (метрики) — готовые формулы для KPI/план-факта</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
         {sources.metrics.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Нет метрик — создайте в разделе «Метрики».</span>}
-        {sources.metrics.map((m) => <span key={m.code} style={chip('var(--accent-weak-bg)', 'var(--accent)')}>{m.name} <span style={{ color: 'var(--text-faint)' }}>({m.code})</span></span>)}
+        {sources.metrics.map((m) => <span key={m.code} style={chip('var(--accent-weak-bg)', 'var(--accent-text)')}>{m.name} <span style={{ color: 'var(--text-faint)' }}>({m.code})</span></span>)}
       </div>
     </div>
   )
@@ -573,7 +573,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       <F t="Тип"><button type="button" style={{ ...sel, minWidth: 200, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', cursor: 'pointer' }}
         onClick={() => setPickerOpen(true)} title="Открыть галерею типов виджетов">
         <span style={{ fontWeight: 600, color: 'var(--text)' }}>{WIDGET_META[type]?.t || type}</span>
-        <span style={{ fontSize: 12, color: 'var(--accent)' }}>▦ галерея</span>
+        <span style={{ fontSize: 12, color: 'var(--accent-text)' }}>▦ галерея</span>
       </button></F>
       {pickerOpen && <WidgetPicker value={type} onClose={() => setPickerOpen(false)}
         onPick={(v) => { setType(v); if (!['kpi', 'gauge'].includes(v) && source === 'formula') setSource('metric') }} />}
@@ -606,7 +606,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           </div>
           {imgErr && <div style={{ flexBasis: '100%', color: 'var(--danger)', fontSize: 12 }}>{imgErr}</div>}
           <div style={{ flexBasis: '100%' }}>
-            <button type="button" style={{ border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: 0 }} onClick={() => setImgAdvanced((v) => !v)}>
+            <button type="button" style={{ border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12, padding: 0 }} onClick={() => setImgAdvanced((v) => !v)}>
               {imgAdvanced ? '▾' : '▸'} Указать ссылкой (URL)
             </button>
             {imgAdvanced && (

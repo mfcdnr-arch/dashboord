@@ -110,7 +110,7 @@ function ReadList() {
         </div>
       ) : sections.map(([name, list]) => (
         <div key={name} style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>{name}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-text)', marginBottom: 6 }}>{name}</div>
           <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
             {list.map((i, idx) => (
               <button key={i.id} style={{ ...rowBtn, borderTop: idx ? '1px solid var(--border-faint)' : 'none' }}
@@ -393,7 +393,7 @@ const btnGhost: React.CSSProperties = {
   background: 'var(--surface)', color: 'var(--text)', fontSize: 13.5, cursor: 'pointer',
 }
 const linkBtn: React.CSSProperties = {
-  border: 'none', background: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer',
+  border: 'none', background: 'none', color: 'var(--accent-text)', fontSize: 12.5, cursor: 'pointer',
 }
 const iconBtn: React.CSSProperties = {
   border: '1px solid var(--border)', background: 'var(--surface)', borderRadius: 8,
@@ -409,7 +409,7 @@ const badgeNew: React.CSSProperties = {
   background: 'var(--accent)', color: '#fff',
 }
 const crumb: React.CSSProperties = {
-  border: 'none', background: 'none', color: 'var(--accent)', fontSize: 13, cursor: 'pointer', padding: 0,
+  border: 'none', background: 'none', color: 'var(--accent-text)', fontSize: 13, cursor: 'pointer', padding: 0,
 }
 // Рамка задана ПОЛНЫМИ свойствами, а не сокращением: активная вкладка
 // переопределяет только цвет рамки, а смешивать `border` с `borderColor` при
@@ -420,4 +420,4 @@ const tabBtn: React.CSSProperties = {
   borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--border)',
   background: 'var(--surface)', color: 'var(--text)', fontSize: 13, cursor: 'pointer',
 }
-const tabActive: React.CSSProperties = { ...tabBtn, borderColor: 'var(--accent)', color: 'var(--accent)', fontWeight: 600 }
+const tabActive: React.CSSProperties = { ...tabBtn, borderColor: 'var(--accent)', color: 'var(--accent-text)', fontWeight: 600 }

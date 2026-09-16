@@ -225,7 +225,7 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
 function Stat({ t, v, warn }: { t: string; v: number; warn?: boolean }) {
   return (
     <div style={{ border: '1px solid var(--border-faint)', borderRadius: 10, padding: '8px 14px', minWidth: 90 }}>
-      <div style={{ fontSize: 20, fontWeight: 700, color: warn ? 'var(--warn)' : 'var(--accent)' }}>{v}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, color: warn ? 'var(--warn)' : 'var(--accent-text)' }}>{v}</div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t}</div>
     </div>
   )
@@ -233,7 +233,7 @@ function Stat({ t, v, warn }: { t: string; v: number; warn?: boolean }) {
 
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
 const linkBtn: React.CSSProperties = {
-  border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, padding: 0,
+  border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 13, padding: 0,
 }
 const th: React.CSSProperties = {
   border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)',

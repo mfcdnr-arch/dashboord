@@ -368,7 +368,7 @@ export default function AutoBuildWizard(
                       // человек жмёт по неделе, ничего не происходит, и почему —
                       // не сказано. Особенно когда выбор восстановлен из прошлой
                       // сборки и занят старыми неделями, а нужны свежие.
-                      <div style={{ fontSize: 12, color: 'var(--accent)', marginBottom: 6 }}>
+                      <div style={{ fontSize: 12, color: 'var(--accent-text)', marginBottom: 6 }}>
                         Отмечено максимум ({MAX_PERIODS}). Чтобы отметить другую неделю,
                         снимите лишнюю — или нажмите «снять все» и выберите заново.
                       </div>
@@ -426,7 +426,7 @@ export default function AutoBuildWizard(
                       )}
                       <span style={{ overflowWrap: 'anywhere' }}>{m.name}</span>
                       {m.preview_value != null && (
-                        <span style={{ color: 'var(--accent)' }}> = {fmtNumber(m.preview_value)}
+                        <span style={{ color: 'var(--accent-text)' }}> = {fmtNumber(m.preview_value)}
                           {m.unit ? ` ${m.unit}` : ''}</span>
                       )}
                       {m.why && <span style={{ ...muted, display: 'block', fontSize: 11.5 }}>{m.why}</span>}
@@ -512,7 +512,7 @@ export default function AutoBuildWizard(
                 {nameTaken ? (
                   // Предупреждаем ДО нажатия: отказ после сборки человек уже
                   // воспримет как сбой, а тут он просто правит поле.
-                  <div style={{ fontSize: 12.5, color: 'var(--accent)', marginTop: 5 }}>
+                  <div style={{ fontSize: 12.5, color: 'var(--accent-text)', marginTop: 5 }}>
                     Дашборд с таким названием уже есть. Измените название — иначе в списке будут
                     два неразличимых, — или выберите его выше в «Пересобрать».{' '}
                     <button type="button" style={linkBtn} onClick={() => setName(uniqueName)}>
@@ -582,6 +582,6 @@ const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 13 }
 const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, width: '100%' }
 const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
 const btnGhost: React.CSSProperties = { height: 34, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', fontSize: 13, cursor: 'pointer' }
-const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', fontSize: 12, cursor: 'pointer', padding: 0 }
+const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', fontSize: 12, cursor: 'pointer', padding: 0 }
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8 }
 const warnBox: React.CSSProperties = { background: 'var(--warn-bg)', color: 'var(--warn)', fontSize: 13, padding: '8px 10px', borderRadius: 8 }

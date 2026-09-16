@@ -537,7 +537,7 @@ function OfficeCard({ office, onClose, onEdit, load, folds }: {
       <Row k="Почта" v={office.email} />
       {office.website && (
         <div style={{ fontSize: 13, marginTop: 6 }}>
-          <a href={office.website} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{office.website}</a>
+          <a href={office.website} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-text)' }}>{office.website}</a>
         </div>
       )}
       {onEdit && <button style={{ ...btnGhost, marginTop: 10 }} onClick={() => onEdit(office)}>✎ Править сведения</button>}

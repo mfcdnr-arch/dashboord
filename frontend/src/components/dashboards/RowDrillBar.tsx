@@ -44,7 +44,7 @@ export function RowDrillBar(
       borderRadius: 10, padding: '7px 12px', margin: '0 0 12px', fontSize: 12.5,
       color: 'var(--text-2)',
     }}>
-      <span style={{ fontWeight: 600, color: 'var(--accent)' }}>📍 {row}</span>
+      <span style={{ fontWeight: 600, color: 'var(--accent-text)' }}>📍 {row}</span>
       <span style={{ color: 'var(--text-muted)' }}>вся страница показана по этой строке</span>
 
       {rank === null && !failed && <span style={{ color: 'var(--text-faint)' }}>считаем место среди строк…</span>}
@@ -75,7 +75,7 @@ export function RowDrillBar(
         style={{
           marginLeft: 'auto', height: 26, padding: '0 10px', borderWidth: 1, borderStyle: 'solid',
           borderColor: 'var(--accent)', borderRadius: 8, background: 'var(--surface)',
-          color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer', whiteSpace: 'nowrap',
+          color: 'var(--accent-text)', fontSize: 12.5, cursor: 'pointer', whiteSpace: 'nowrap',
         }}>← ко всем строкам</button>
     </div>
   )

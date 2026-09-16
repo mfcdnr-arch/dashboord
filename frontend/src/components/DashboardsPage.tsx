@@ -1200,7 +1200,7 @@ export default function DashboardsPage({
                 <div key={v.version_no} style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, padding: '4px 0' }}>
                   <span>v{v.version_no}</span><span style={{ color: 'var(--text-muted)' }}>{v.status_code}</span>
                   <span style={{ color: 'var(--text-faint)' }}>{new Date(v.created_at).toLocaleString('ru-RU')}</span>
-                  {canManage && <button style={{ ...linkDanger, color: 'var(--accent)', marginLeft: 'auto' }} onClick={() => doRestore(v.version_no)}>откатить</button>}
+                  {canManage && <button style={{ ...linkDanger, color: 'var(--accent-text)', marginLeft: 'auto' }} onClick={() => doRestore(v.version_no)}>откатить</button>}
                 </div>
               ))}
             </div>

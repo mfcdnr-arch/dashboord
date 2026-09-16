@@ -186,7 +186,7 @@ export default function AppealsPanel(
               background: m.is_staff ? 'var(--accent-weak-bg)' : 'var(--surface)',
             }}>
               <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: m.is_staff ? 'var(--accent)' : 'var(--text)' }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: m.is_staff ? 'var(--accent-text)' : 'var(--text)' }}>
                   {m.is_staff ? '🛠 ' : ''}{m.author}
                 </span>
                 <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{fmtDt(m.created_at)}</span>
@@ -286,7 +286,7 @@ export default function AppealsPanel(
   )
 }
 
-const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 14, padding: 0 }
+const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 14, padding: 0 }
 const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 14 }
 const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }
 const btnGhost: React.CSSProperties = { height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-2)', fontSize: 13, cursor: 'pointer' }
@@ -296,6 +296,6 @@ const ctxBox: React.CSSProperties = {
   border: '1px solid var(--border-faint)',
 }
 const tab: React.CSSProperties = { height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', cursor: 'pointer', fontSize: 13 }
-const tabActive: React.CSSProperties = { ...tab, background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent)' }
+const tabActive: React.CSSProperties = { ...tab, background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent-text)' }
 const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 14, padding: '8px 0' }
 const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginTop: 10 }

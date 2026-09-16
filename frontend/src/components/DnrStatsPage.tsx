@@ -418,7 +418,7 @@ const tdText: React.CSSProperties = {
 }
 const linkBtn: React.CSSProperties = {
   background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 12px',
-  cursor: 'pointer', color: 'var(--accent)', fontSize: 13, whiteSpace: 'nowrap',
+  cursor: 'pointer', color: 'var(--accent-text)', fontSize: 13, whiteSpace: 'nowrap',
 }
 
 // ---------------------------------------------------------------------------
@@ -583,7 +583,7 @@ function DeptBlock({ d, onOpenDashboard }: { d: DeptRow; onOpenDashboard: () => 
           </span>
         </span>
         <button onClick={onOpenDashboard} title="Открыть дашборд этого ведомства для этого отделения"
-          style={{ fontWeight: 400, fontSize: 12, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', whiteSpace: 'nowrap' }}>
+          style={{ fontWeight: 400, fontSize: 12, color: 'var(--accent-text)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', whiteSpace: 'nowrap' }}>
           → дашборд ведомства
         </button>
       </div>

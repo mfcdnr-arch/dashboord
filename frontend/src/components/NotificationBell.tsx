@@ -115,7 +115,7 @@ export default function NotificationBell(
         style={{ position: 'relative', height: 32, width: 36, border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', cursor: 'pointer', fontSize: 16 }}>
         🔔
         {unread > 0 && (
-          <span style={{ position: 'absolute', top: -6, right: -6, minWidth: 18, height: 18, padding: '0 4px', borderRadius: 9, background: 'var(--danger)', color: 'var(--on-accent)', fontSize: 11, lineHeight: '18px', textAlign: 'center' }}>
+          <span style={{ position: 'absolute', top: -6, right: -6, minWidth: 18, height: 18, padding: '0 4px', borderRadius: 9, background: 'var(--danger)', color: 'var(--on-danger)', fontSize: 11, lineHeight: '18px', textAlign: 'center' }}>
             {unread > 99 ? '99+' : unread}
           </span>
         )}
@@ -125,7 +125,7 @@ export default function NotificationBell(
         <div style={{ position: 'absolute', right: 0, top: 40, width: 360, maxWidth: '92vw', maxHeight: 420, overflowY: 'auto', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 10px 40px rgba(0,0,0,0.18)', zIndex: 80 }}>
           <div style={{ display: 'flex', alignItems: 'center', padding: '10px 12px', borderBottom: '1px solid var(--border-faint)' }}>
             <b style={{ fontSize: 14 }}>Уведомления</b>
-            {unread > 0 && <button onClick={readAll} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12 }}>прочитать всё</button>}
+            {unread > 0 && <button onClick={readAll} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12 }}>прочитать всё</button>}
           </div>
           {!data ? <div style={{ padding: 14, color: 'var(--text-faint)', fontSize: 13 }}>Загрузка…</div>
             : data.items.length === 0 ? <div style={{ padding: 14, color: 'var(--text-faint)', fontSize: 13 }}>Уведомлений нет.</div>

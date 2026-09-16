@@ -71,7 +71,7 @@ export default function UserHomePage(
                 {k.value != null
                   ? (
                     <div style={{ marginTop: 4 }}>
-                      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--accent)' }}>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--accent-text)' }}>
                         {fmt(k.value)}{k.unit && <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 4 }}>{k.unit}</span>}
                       </div>
                       <KpiDelta kpi={k} size={12} />
@@ -137,7 +137,7 @@ export default function UserHomePage(
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, marginTop: 10 }}>
           {(data?.objects || []).map((g) => (
             <div key={g.object_name} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent-text)', marginBottom: 6 }}>
                 🏢 {g.object_name}
                 <span style={{ ...muted, fontWeight: 400 }}> · {g.dashboards.length}</span>
               </div>
@@ -195,7 +195,7 @@ export default function UserHomePage(
           <div style={{ fontSize: 14 }}>
             Всего материалов: <b>{data?.instructions.total ?? 0}</b>
             {(data?.instructions.unread ?? 0) > 0 && (
-              <span style={{ color: 'var(--accent)', fontWeight: 600 }}> · новых для вас: {data?.instructions.unread}</span>
+              <span style={{ color: 'var(--accent-text)', fontWeight: 600 }}> · новых для вас: {data?.instructions.unread}</span>
             )}
           </div>
           <button style={{ ...btn, marginTop: 10 }} onClick={() => onGoto?.('instructions')}>Открыть инструкции</button>
@@ -306,7 +306,7 @@ const btnGhost: React.CSSProperties = {
   color: 'var(--text)', fontSize: 13.5, cursor: 'pointer',
 }
 const linkBtn: React.CSSProperties = {
-  marginLeft: 'auto', border: 'none', background: 'none', color: 'var(--accent)',
+  marginLeft: 'auto', border: 'none', background: 'none', color: 'var(--accent-text)',
   fontSize: 13, cursor: 'pointer',
 }
 const rowBtn: React.CSSProperties = {

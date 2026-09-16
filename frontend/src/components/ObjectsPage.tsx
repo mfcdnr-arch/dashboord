@@ -363,7 +363,7 @@ export default function ObjectsPage(
       {obj && canManage && suggestion?.suggest && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-          background: 'var(--accent-weak-bg)', color: 'var(--accent)', fontSize: 13,
+          background: 'var(--accent-weak-bg)', color: 'var(--accent-text)', fontSize: 13,
           padding: '10px 12px', borderRadius: 10, marginBottom: 14,
         }}>
           <span>
@@ -416,7 +416,7 @@ export default function ObjectsPage(
               <button style={{ ...btn, whiteSpace: 'nowrap', flexShrink: 0 }}
                 disabled={busy || !newFolder.trim()}>＋ Папка</button>
               <button type="button"
-                style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent)',
+                style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent-text)',
                          whiteSpace: 'nowrap', flexShrink: 0 }}
                 onClick={() => setRowAclObj(obj)} title="Ограничить видимость строк данных по подразделению">
                 🔐 Доступ к строкам
@@ -467,7 +467,7 @@ export default function ObjectsPage(
                       fontSize: 11.5, padding: '3px 10px', borderRadius: 10, cursor: 'pointer',
                       border: '1px solid ' + (f.auto_release === false ? 'var(--border-strong)' : 'var(--accent)'),
                       background: f.auto_release === false ? 'var(--surface)' : 'var(--accent-weak-bg)',
-                      color: f.auto_release === false ? 'var(--text-muted)' : 'var(--accent)',
+                      color: f.auto_release === false ? 'var(--text-muted)' : 'var(--accent-text)',
                       whiteSpace: 'nowrap',
                     }}
                   >
@@ -575,7 +575,7 @@ export default function ObjectsPage(
           />
           {docs.length < docsTotal && (
             <div style={{ textAlign: 'center', marginTop: 12 }}>
-              <button style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent)' }} onClick={loadMoreDocs}>
+              <button style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent-text)' }} onClick={loadMoreDocs}>
                 Показать ещё ({docsTotal - docs.length})
               </button>
             </div>
@@ -615,11 +615,11 @@ function PipelineBadge({ state, hint }: { state?: string; hint?: string }) {
     failed: { t: '⚠ не распознан', bg: 'var(--danger-bg)', c: 'var(--danger)' },
     ready: { t: '✓ данные подготовлены', bg: 'var(--success-bg)', c: 'var(--success)' },
     attention: { t: '⚠ требует внимания', bg: 'var(--warn-bg)', c: 'var(--warn)' },
-    needs_markup: { t: 'нужна разметка', bg: 'var(--accent-weak-bg)', c: 'var(--accent)' },
+    needs_markup: { t: 'нужна разметка', bg: 'var(--accent-weak-bg)', c: 'var(--accent-text)' },
     released: { t: 'данные выпущены', bg: 'var(--surface-3)', c: 'var(--text-muted)' },
     // Выпущено автоматом — отдельное состояние, а не оттенок «выпущено»:
     // человек этой кнопки не нажимал, и он должен понять, откуда данные.
-    released_auto: { t: '⚙ выпущено автоматически', bg: 'var(--accent-weak-bg)', c: 'var(--accent)' },
+    released_auto: { t: '⚙ выпущено автоматически', bg: 'var(--accent-weak-bg)', c: 'var(--accent-text)' },
   }
   const s = map[state || ''] || map.new
   return (
@@ -707,7 +707,7 @@ function EditDialog(
         </label>
       ))}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
-        <button type="button" style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent)' }} onClick={onClose}>
+        <button type="button" style={{ ...btn, background: 'var(--accent-weak-bg)', color: 'var(--accent-text)' }} onClick={onClose}>
           Отмена
         </button>
         <button type="button" style={btn} disabled={busy || nameEmpty} onClick={() => onSave(vals)}>
@@ -726,7 +726,7 @@ function fmtSize(n: number | null): string {
   return `${(n / 1024 / 1024).toFixed(1)} МБ`
 }
 
-const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 14, padding: 0 }
+const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 14, padding: 0 }
 const tabOff: React.CSSProperties = {
   height: 32, padding: '0 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer',
   border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text-2)',

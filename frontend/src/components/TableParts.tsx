@@ -80,7 +80,7 @@ export function RowPickCell(
       {onPick
         ? (
           <button
-            type="button" style={{ ...bare, color: 'var(--accent)' }}
+            type="button" style={{ ...bare, color: 'var(--accent-text)' }}
             onClick={(e) => { e.stopPropagation(); onPick(label) }}
             title={title ?? `Показать всю страницу по строке «${label}»`}
           >{content}</button>
@@ -114,7 +114,7 @@ export function RowToggleCell(
   return (
     <th scope="row" style={{ ...style, fontWeight: 600, textAlign: 'left' }}>
       <button
-        type="button" style={{ ...bare, color: 'var(--accent)' }} title={title}
+        type="button" style={{ ...bare, color: 'var(--accent-text)' }} title={title}
         onClick={(e) => { e.stopPropagation(); onToggle() }}
         {...(expanded !== undefined ? { 'aria-expanded': expanded } : {})}
         {...(pressed !== undefined ? { 'aria-pressed': pressed } : {})}
