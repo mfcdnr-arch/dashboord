@@ -62,7 +62,12 @@ export default function AttendanceChart({ days, periodLabel }: { days: Day[]; pe
                 alignItems: 'center', gap: 2, height: '100%', border: 'none', padding: 0,
                 cursor: 'pointer', background: active ? 'var(--surface-3)' : 'transparent',
                 borderRadius: '4px 4px 0 0', position: 'relative',
-                outline: picked === d.day ? '2px solid var(--accent)' : 'none',
+                // Выбор помечаем ВНУТРЕННЕЙ рамкой, а не outline: outline —
+                // это фокусное кольцо браузера, и инлайновый `outline: none`
+                // у невыбранных столбиков гасил его на всех 25 сразу, то есть
+                // идущий клавиатурой не видел, где он. Теперь два признака не
+                // спорят: выбор внутри, фокус снаружи.
+                boxShadow: picked === d.day ? 'inset 0 0 0 2px var(--accent)' : undefined,
               }}>
               {/* Своя подсказка вместо системной: та появляется с задержкой в
                   секунду, и человек успевает решить, что подсказки нет. */}

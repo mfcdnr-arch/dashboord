@@ -180,9 +180,11 @@ export default function CommandPalette(
   )
 }
 
+// outline НЕ подавляем: поле получает фокус при открытии палитры, и кольцо
+// браузера — единственный признак фокуса, кроме мигающего курсора.
 const input: React.CSSProperties = {
   width: '100%', boxSizing: 'border-box', padding: '14px 16px', fontSize: 15,
-  border: 'none', borderBottom: '1px solid var(--border)', outline: 'none',
+  border: 'none', borderBottom: '1px solid var(--border)',
   background: 'transparent', color: 'var(--text)', fontFamily: 'inherit',
 }
 const row: React.CSSProperties = {

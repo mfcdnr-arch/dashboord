@@ -102,7 +102,7 @@ export function WidgetCard({
             ? { borderLeft: `4px solid ${alertLook(alert)!.color}`,
                 background: alertLook(alert)!.bg }
             : {}),
-          outline: editMode ? '1px dashed var(--text-faint)' : 'none' }}>
+          outline: editMode ? '1px dashed var(--text-faint)' : undefined }}>
           {/* Шапка в два ряда: сверху ИМЯ (оно главное — виджет без
               названия ничего не сообщает), снизу значок типа и
               действия. Когда всё было одной строкой, на узкой

@@ -136,3 +136,87 @@ def test_accent_is_not_used_as_text_in_components() -> None:
     assert not offenders, (
         "акцент использован как цвет текста — нужен --accent-text: " + ", ".join(offenders)
     )
+
+
+# Поверхности, на которых реально рендерится приглушённый текст. Список не
+# выдуман: замер по живому дереву (обход 8 разделов) показал --text-muted на
+# пяти фонах, а --text-faint — на --surface и на --bg. Проверяем все пять, а
+# не только белый: подбор «под карточку» на фоне страницы снова уходил ниже
+# нормы, и ровно так дефект и жил.
+SURFACES = ("surface", "surface-2", "surface-3", "accent-weak-bg", "bg")
+
+
+def test_muted_text_is_readable_on_every_surface(themes) -> None:
+    """Приглушённый текст — обычный текст, ему нужно 4,5:1 на КАЖДОМ фоне.
+
+    До правки (прогон 17.09): --text-muted давал 3,95 на --surface-3 в светлой
+    и 2,97 на --surface-2 в «МинЭк»; --text-faint — 2,58 / 3,85 / 1,69 на
+    карточке. Этим цветом набраны кнопки виджета «⚑ проблема», «⤓ Excel»,
+    «💬 замечание» и подпись формы под заголовком — то есть не декор.
+    """
+    bad = []
+    for name, t in themes.items():
+        for token in ("text-muted", "text-faint"):
+            for bg in SURFACES:
+                got = contrast(t[token], t[bg])
+                if got < AA_TEXT:
+                    bad.append(f"{name}: --{token} на --{bg} = {got:.2f}")
+    assert not bad, "приглушённый текст ниже нормы AA: " + "; ".join(bad)
+
+
+def test_muted_steps_stay_distinct(themes) -> None:
+    """Обратная сторона: ступени серого не должны схлопнуться в одну.
+
+    Если оба токена просто дотянуть до 4,5 на худшем фоне, они сходятся в
+    один цвет, и третья ступень приглушённости перестаёт существовать —
+    иерархия теряется там же, где чинился контраст.
+    """
+    bad = []
+    for name, t in themes.items():
+        lm, lf = _luminance(t["text-muted"]), _luminance(t["text-faint"])
+        gap = abs(lm - lf) / max(lm, lf)
+        if gap < 0.12:
+            bad.append(f"{name}: --text-muted и --text-faint различаются на {gap * 100:.0f}%")
+    assert not bad, "ступени приглушённого текста слились: " + "; ".join(bad)
+
+
+def test_status_colors_are_readable(themes) -> None:
+    """Статусные цвета несут смысл, значит подчиняются норме для текста.
+
+    Проверяются обе поверхности: сам цвет стоит и на карточке («↑ +467 %»),
+    и на своей подложке («API: ok»). До правки --success давал 3,99 и 3,46 в
+    светлой, --warn — 4,18 на своей подложке в «МинЭк».
+    """
+    bad = []
+    for name, t in themes.items():
+        for token in ("success", "warn", "danger"):
+            for bg in ("surface", f"{token}-bg"):
+                got = contrast(t[token], t[bg])
+                if got < AA_TEXT:
+                    bad.append(f"{name}: --{token} на --{bg} = {got:.2f}")
+    assert not bad, "статусный цвет ниже нормы AA: " + "; ".join(bad)
+
+
+def test_focus_ring_is_not_suppressed_in_components() -> None:
+    """`outline: 'none'` инлайном гасит фокусное кольцо браузера.
+
+    Так и было у столбиков графика «Входы по дням»: выбранный получал свой
+    outline, а остальные 24 — `none`, то есть идущий клавиатурой не видел,
+    где он. Состояние выбора помечается чем угодно ещё (фон, inset-тень),
+    но не outline.
+    """
+    offenders: list[str] = []
+    for path in sorted(FRONT.rglob("*.tsx")):
+        if ".test." in path.name:
+            continue
+        src = path.read_text(encoding="utf-8")
+        # Ловим и прямое 'none', и тернарник '… ? … : "none"'. Отрицательный
+        # просмотр '(?!\w+ *:)' не даёт уйти в СЛЕДУЮЩЕЕ свойство: иначе
+        # 'outline: …, background: "none"' считалось бы нарушением.
+        for m in re.finditer(r"outline:(?:(?!\w+ *:)[^\n])*'none'", src):
+            line = src[: m.start()].count("\n") + 1
+            offenders.append(f"{path.relative_to(FRONT)}:{line}")
+    assert not offenders, (
+        "фокусное кольцо подавлено инлайновым outline: 'none' — "
+        "выбор помечайте фоном или inset-тенью: " + ", ".join(offenders)
+    )
