@@ -1391,6 +1391,10 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     // соотношение уже пришедших чисел. Максимум берём по ВСЕМ строкам, а не по
     // видимым, иначе при поиске полоски перерисовывались бы от другой базы и
     // одно и то же число выглядело бы то большим, то маленьким.
+    // Имя графы по её коду — то же, что в шапке. Нужно ячейкам: шапка уезжает
+    // при вертикальной прокрутке (у РЦО 66 строк — 3277px), и с середины
+    // таблицы число оставалось без подписи колонки, а узнать её было нечем.
+    const colName = (c: string) => (data.column_titles?.[c] as string) || c
     const cellFmt: Record<string, string> = data.cell_format || {}
     const fmtStyles: Record<string, { color: string; bg: string }> = data.alert_styles || {}
     const barMax: Record<string, number> = {}
@@ -1522,8 +1526,8 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                 {cols.slice(vcols.range.start, vcols.range.end).map((c: string) => (
                   <td key={c} style={{ ...td, ...cellStyle(r, c) }}
                     title={cellFmt[c] === 'bar' && typeof r[c] === 'number' && barMax[c]
-                      ? `${fmt(r[c])} — ${Math.round((Math.abs(r[c]) / barMax[c]) * 100)} % от наибольшего в столбце`
-                      : undefined}>
+                      ? `${colName(c)} — ${Math.round((Math.abs(r[c]) / barMax[c]) * 100)} % от наибольшего в столбце`
+                      : colName(c)}>
                     {typeof r[c] === 'number' ? fmt(r[c]) : (r[c] ?? '—')}
                   </td>
                 ))}
@@ -2137,7 +2141,8 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                   const d = r.deltas?.[ci]
                   const dp = r.delta_pcts?.[ci]
                   return (
-                    <td key={ci} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <td key={ci} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}
+                      title={fmtPeriod(periods[ci])}>
                       <div>{typeof v === 'number' ? fmt(v) : '—'}</div>
                       {typeof d === 'number' && d !== 0 && (
                         <div style={{ fontSize: 10.5, color: d > 0 ? 'var(--success)' : 'var(--danger)' }}
@@ -2244,8 +2249,8 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                   label={String(r.row)} onPick={onPick && !print ? onPick : undefined}
                   style={{ ...td, ...stickyCol }}
                 />
-                {cols.map((_, ci) => <td key={ci} style={{ ...td, textAlign: 'right' }}>{typeof r.values[ci] === 'number' ? fmt(r.values[ci]) : '—'}</td>)}
-                {rowTotal && <td style={{ ...totCell, textAlign: 'right' }}>{fmt(r.total)}</td>}
+                {cols.map((c, ci) => <td key={ci} style={{ ...td, textAlign: 'right' }} title={c}>{typeof r.values[ci] === 'number' ? fmt(r.values[ci]) : '—'}</td>)}
+                {rowTotal && <td style={{ ...totCell, textAlign: 'right' }} title="Итого по строке">{fmt(r.total)}</td>}
               </tr>
             ))}
           </tbody>
