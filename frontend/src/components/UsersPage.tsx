@@ -206,7 +206,7 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
           ))}
         </div>
         <form onSubmit={addDept} style={{ display: 'flex', gap: 8 }}>
-          <input name="dep" style={input} placeholder="Новый отдел" />
+          <input name="dep" style={input} aria-label="Название нового отдела" placeholder="Новый отдел" />
           <button style={btn}>＋ Отдел</button>
         </form>
       </Section>
@@ -470,7 +470,7 @@ function UserEditor({ user, depts, roles, canGrantSuper, onClose, onSaved }: {
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return <div style={{ marginBottom: 24 }}><h3 style={{ fontSize: 15, margin: '0 0 10px' }}>{title}</h3>{children}</div>
+  return <div style={{ marginBottom: 24 }}><h2 style={{ fontSize: 15, margin: '0 0 10px' }}>{title}</h2>{children}</div>
 }
 
 // «Личный кабинет» пользователя (волна B): входы, действия из аудита и

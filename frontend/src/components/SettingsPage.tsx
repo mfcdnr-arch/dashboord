@@ -273,7 +273,7 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   return (
     <div style={{ marginBottom: 24 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10 }}>
-        <h3 style={{ fontSize: 15, margin: 0 }}>{title}</h3>
+        <h2 style={{ fontSize: 15, margin: 0 }}>{title}</h2>
         {hint && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{hint}</span>}
       </div>
       {children}

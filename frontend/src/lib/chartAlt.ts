@@ -1,3 +1,7 @@
+// Склонение берём общее (lib/text): вторая копия правила однажды разойдётся
+// с первой, а разойдётся она молча — в тексте для диктора.
+import { plural } from './text'
+
 /**
  * Текстовая альтернатива графику — то, что услышит человек с диктором экрана.
  *
@@ -119,12 +123,4 @@ export function describeChart(option: unknown): string {
   }
 
   return parts.map((t, i) => (i === 0 ? t : t.charAt(0).toUpperCase() + t.slice(1))).join('. ') + '.'
-}
-
-function plural(n: number, one: string, few: string, many: string): string {
-  const d = Math.abs(n) % 100, u = d % 10
-  if (d > 10 && d < 20) return many
-  if (u > 1 && u < 5) return few
-  if (u === 1) return one
-  return many
 }

@@ -383,7 +383,7 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 24 }}>
-      <h3 style={{ fontSize: 15, margin: '0 0 10px' }}>{title}</h3>
+      <h2 style={{ fontSize: 15, margin: '0 0 10px' }}>{title}</h2>
       {children}
     </div>
   )

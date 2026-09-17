@@ -8,7 +8,7 @@ const EChartInner = lazy(() => import('./EChart'))
 
 export default function EChartLazy(props: { option: EChartsOption; height?: number; onPick?: (name: string, index: number) => void }) {
   return (
-    <Suspense fallback={<div style={{ height: props.height ?? 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9aa4b2', fontSize: 13 }}>Загрузка графика…</div>}>
+    <Suspense fallback={<div style={{ height: props.height ?? 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Загрузка графика…</div>}>
       <EChartInner {...props} />
     </Suspense>
   )

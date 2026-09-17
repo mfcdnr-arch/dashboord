@@ -72,7 +72,7 @@ export default function KioskView({ dashboardName, pages, onClose }: {
           <button style={ctrl} onClick={() => go(-1)} title="Предыдущая (←)">‹</button>
           <button style={ctrl} onClick={() => setPaused((p) => !p)} title="Пауза/пуск (пробел)">{paused ? '▶' : '⏸'}</button>
           <button style={ctrl} onClick={() => go(1)} title="Следующая (→)">›</button>
-          <select style={selDark} value={secs} onChange={(e) => setSecs(Number(e.target.value))} title="Интервал смены">
+          <select style={selDark} value={secs} onChange={(e) => setSecs(Number(e.target.value))} aria-label="Интервал смены страниц" title="Интервал смены">
             {INTERVALS.map((s) => <option key={s} value={s}>{s}с</option>)}
           </select>
           <button style={{ ...ctrl, color: '#fca5a5' }} onClick={onClose} title="Выход (Esc)">✕</button>

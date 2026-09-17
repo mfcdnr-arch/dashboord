@@ -21,7 +21,13 @@ SRC = next((r for r in _ROOTS if r.exists()), _ROOTS[-1])
 
 FIELD = re.compile(r"<(input|select|textarea)\b", re.I)
 # компонент-обёртка: его JSX начинается с <label>, значит поле внутри названо
-WRAP_DEF = re.compile(r"(?:export\s+)?(?:function|const)\s+([A-Z]\w*)\s*[=(][^\n]*\n?[^\n]*?return\s*\(?\s*<label\b", re.S)
+# Компонент-подпись: функция, возвращающая <label>. Между сигнатурой и return
+# могут стоять комментарии — после вырезания от них остаются ПУСТЫЕ строки, а
+# прежний regex допускал не больше двух строк. Из-за этого добавленный в F
+# комментарий молча вывел обёртку из списка, и 66 полей разом «потеряли»
+# имя; тест при этом остался зелёным, потому что у них есть ещё и title.
+# Ограничиваем длину, а не число строк, и не даём перешагнуть чужой return.
+WRAP_DEF = re.compile(r"(?:export\s+)?(?:function|const)\s+([A-Z]\w*)\s*[=(](?:(?!\breturn\b)[\s\S]){0,400}?return\s*\(?\s*<label\b")
 PLACEHOLDER = re.compile(r'placeholder=(?:"([^"]*)"|\{`([^`]*)`\}|\{([^}]*)\})')
 # placeholder-пример: показывает, что вписать, но полем не называется
 EXAMPLE = re.compile(r"^\s*(напр\b|например|например:|https?://|…|\.\.\.)", re.I)
@@ -91,8 +97,10 @@ def _unnamed() -> list:
             if any((w_at := max(src.rfind("<" + w + " ", 0, m.start()), src.rfind("<" + w + "\n", 0, m.start()))) >= 0
                    and src.find("</" + w + ">", w_at) > m.start() for w in local):
                 continue
-            if re.search(r"\btitle=", tag):
-                continue
+            # `title` именем НЕ считается: подсказка не показывается ни на
+            # касании, ни при переходе клавиатурой, а часть дикторов её не
+            # читает. Проверено: после починки WRAP_DEF на title не держится
+            # ни одно поле — правило ужесточено без единой правки компонентов.
             ph = PLACEHOLDER.search(tag)
             if ph:
                 text = ph.group(1) or ph.group(2) or ""

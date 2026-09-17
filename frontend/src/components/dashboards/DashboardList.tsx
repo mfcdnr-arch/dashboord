@@ -66,7 +66,7 @@ export function DashboardList({
     <div>
       {canManage && (
         <form onSubmit={addDashboard} style={rowForm}>
-          <input style={{ ...input, width: 260 }} placeholder="Название дашборда" value={newDash} onChange={(e) => setNewDash(e.target.value)} />
+          <input style={{ ...input, width: 260 }} aria-label="Название дашборда" placeholder="Название дашборда" value={newDash} onChange={(e) => setNewDash(e.target.value)} />
           <button style={btn} disabled={busy || !newDash.trim()}>＋ Дашборд</button>
         </form>
       )}
@@ -234,9 +234,12 @@ export function DashboardList({
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
                   {canManage && objects.length > 0 && (
                     <input type="checkbox" checked={selectedIds.has(d.id)} onClick={(e) => toggleSelect(e, d.id)} onChange={() => {}}
+                      aria-label={`Выбрать «${d.name}» для массового действия`}
                       title="Выбрать для массового действия" style={{ cursor: 'pointer' }} />
                   )}
-                  <button onClick={(e) => toggleFav(e, d)} title={d.is_favorite ? 'Убрать из избранного' : 'В избранное'}
+                  <button onClick={(e) => toggleFav(e, d)}
+                    aria-label={d.is_favorite ? `Убрать «${d.name}» из избранного` : `Добавить «${d.name}» в избранное`}
+                    title={d.is_favorite ? 'Убрать из избранного' : 'В избранное'}
                     style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: d.is_favorite ? '#e0a800' : 'var(--border-strong)', padding: 0, lineHeight: 1 }}>
                     {d.is_favorite ? '★' : '☆'}
                   </button>
@@ -245,6 +248,9 @@ export function DashboardList({
                     // за ней нет: кто увидит дашборд, решают те же гранты, что и
                     // в общем списке, — флаг отвечает только за состав подборки.
                     <button onClick={(e) => onToggleFeatured(e, d)}
+                      aria-label={d.featured
+                        ? `Убрать «${d.name}» из подборки «Руководителю»`
+                        : `Добавить «${d.name}» в подборку «Руководителю»`}
                       title={d.featured
                         ? 'Убрать из подборки «Руководителю»'
                         : 'Добавить в подборку «Руководителю» (доступ выдаётся отдельно)'}

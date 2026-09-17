@@ -194,7 +194,7 @@ export default function ShowcasesPage({ canManage, onOpenDashboard }: {
                 return (
                   <div key={it.id}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                      <h3 style={{ fontSize: 15, margin: 0 }}>{it.dashboard_name}</h3>
+                      <h2 style={{ fontSize: 15, margin: 0 }}>{it.dashboard_name}</h2>
                       <button style={crumb} onClick={() => onOpenDashboard(it.dashboard_id)}>открыть →</button>
                     </div>
                     {it.page_id

@@ -6,7 +6,7 @@ import {
   type LayoutTemplate, type ReleaseResult, type ValidationWarning,
 } from '../api'
 import DashboardDraft from './DashboardDraft'
-import { elideMiddle } from '../lib/text'
+import { elideMiddle, plural} from '../lib/text'
 import InfoTip from './InfoTip'
 import SheetGrid, { colName, fillMerges, type PickedCell, type Rect } from './SheetGrid'
 import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
@@ -547,7 +547,7 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
                   ? 'Кликайте по ячейкам с нужными цифрами — каждая станет отдельным показателем.'
                   : 'Протяните мышью по ячейкам, чтобы задать область данных. Клик по букве столбца или номеру строки — исключить их. ◉ — где лежат названия строк.'}
                 {table.row_count > table.preview.length &&
-                  ` Показаны первые ${table.preview.length} строк из ${table.row_count}.`}
+                  ` Показаны первые ${table.preview.length} ${plural(table.preview.length, 'строка', 'строки', 'строк')} из ${table.row_count}.`}
               </div>
             </>
           )}
@@ -847,7 +847,7 @@ function FieldsPanel({ preview, previewing, transposed, excluded, names, types, 
               </span>
               <span style={{ flex: 1 }}>
                 <input id={`field-name-${c.column_index}`} style={{ ...input, width: '95%', height: 30 }}
-                  title="Так показатель будет называться на дашборде"
+                  aria-label="Название показателя" title="Так показатель будет называться на дашборде"
                   value={names[c.column_index] ?? c.field_name}
                   onChange={(e) => onName(c.column_index, e.target.value)} />
               </span>

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import EChartLazy from './EChartLazy'
 import { chartColors, useThemeVersion } from '../theme'
-import { elideMiddle } from '../lib/text'
+import { elideMiddle, plural} from '../lib/text'
 import { logScaleAdvice } from '../lib/format'
 import type { FieldSuggestion } from '../api'
 
@@ -162,7 +162,7 @@ export default function DashboardDraft({ columns, rows, labelColumn, names, tota
             >
               <span style={{ ...cardTitle, color: colors[i % colors.length] }}>{elideMiddle(full, 110)}</span>
               <span style={cardValue}>{fmt(single ? (t.nums[0] ?? 0) : t.value)}</span>
-              <span style={cardSub}>{single ? 'значение' : `${t.kind} по ${t.nums.length} строк.`}</span>
+              <span style={cardSub}>{single ? 'значение' : `${t.kind} по ${t.nums.length} ${plural(t.nums.length, 'строке', 'строкам', 'строкам')}`}</span>
             </button>
           )
         })}

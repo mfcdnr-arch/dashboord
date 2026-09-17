@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { plural } from '../../lib/text'
 import { buildPlanFact, DuplicateError, planFactPreview, type PlanFactPlan } from '../../api'
 import { Modal, ModalTitle } from '../Modal'
 import Notice from '../Notice'
@@ -94,7 +95,7 @@ export default function PlanFactDialog(
           <div style={{ fontSize: 13, marginBottom: 8 }}>
             Будет собрано <strong>{plan.widgets}</strong>{' '}
             {plural(plan.widgets, 'показатель', 'показателя', 'показателей')}
-            {plan.objects.length > 1 ? ` из ${plan.objects.length} объектов` : ''}:
+            {plan.objects.length > 1 ? ` из ${plan.objects.length} ${plural(plan.objects.length, 'объекта', 'объектов', 'объектов')}` : ''}:
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 280, overflowY: 'auto' }}>
             {plan.objects.map((o) => (
@@ -143,15 +144,6 @@ export default function PlanFactDialog(
       </div>
     </Modal>
   )
-}
-
-function plural(n: number, one: string, few: string, many: string): string {
-  const tail = Math.abs(n) % 100
-  if (tail >= 11 && tail <= 14) return many
-  const last = tail % 10
-  if (last === 1) return one
-  if (last >= 2 && last <= 4) return few
-  return many
 }
 
 const scale: React.CSSProperties = {

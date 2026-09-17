@@ -80,7 +80,7 @@ function ReadList() {
         <button style={crumb} onClick={() => setOpen(null)}>← Все инструкции</button>
         <div style={{ ...card, marginTop: 10 }}>
           <div style={{ ...muted, fontSize: 12 }}>{open.section || 'Прочее'}</div>
-          <h3 style={{ fontSize: 17, margin: '4px 0 10px' }}>{open.title}</h3>
+          <h2 style={{ fontSize: 17, margin: '4px 0 10px' }}>{open.title}</h2>
           {open.body && (
             <div style={{ fontSize: 14, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{open.body}</div>
           )}

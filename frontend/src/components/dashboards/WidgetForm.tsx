@@ -655,7 +655,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       )}
       {usesSource && source === 'metric' && (() => {
         const line = (lbl: string, x?: MetricSource) => (x && (x.formula || x.unit)) ? (
-          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{lbl}<b style={{ color: 'var(--text-2)' }}>{x.name}</b>{x.unit ? ` · ед.: ${x.unit}` : ''}{x.formula ? <> · формула: <code style={{ fontFamily: 'ui-monospace, monospace', background: 'var(--surface-3)', padding: '0 4px', borderRadius: 4 }}>{x.formula}</code></> : ''}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: '100%', overflowWrap: 'anywhere' }}>{lbl}<b style={{ color: 'var(--text-2)' }}>{x.name}</b>{x.unit ? ` · ед.: ${x.unit}` : ''}{x.formula ? <> · формула: <code style={{ fontFamily: 'ui-monospace, monospace', background: 'var(--surface-3)', padding: '0 4px', borderRadius: 4 }}>{x.formula}</code></> : ''}</div>
         ) : null
         const m = sources.metrics.find((x) => x.code === metricCode)
         const fm = type === 'plan_fact' ? sources.metrics.find((x) => x.code === factMetric) : undefined

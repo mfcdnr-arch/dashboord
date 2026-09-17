@@ -5,6 +5,7 @@
 // выпустил. Раньше ответ собирался по трём разным экранам — «Динамика»,
 // аналитика папки и журнал аудита.
 import { useEffect, useState } from 'react'
+import { plural } from '../../lib/text'
 import { widgetPassport, type PassportRow } from '../../api'
 import { fmtNumber } from '../../lib/format'
 import { errBox, muted } from './shared'
@@ -81,7 +82,7 @@ export default function PassportDialog(
                         {fmtNumber(h.value)}
                         {h.aggregate === 'avg' && (
                           <span style={{ fontSize: 10.5, color: 'var(--text-muted)', marginLeft: 4 }}
-                            title={`Доля усредняется по ${h.rows_used} строкам: складывать проценты нельзя`}>⌀</span>
+                            title={`Доля усредняется по ${h.rows_used} ${plural(h.rows_used, 'строке', 'строкам', 'строкам')}: складывать проценты нельзя`}>⌀</span>
                         )}
                       </td>
                       <td style={{ ...cell, whiteSpace: 'nowrap',

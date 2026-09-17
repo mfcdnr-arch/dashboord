@@ -108,7 +108,7 @@ export default function DataSuggestPanel({ onCreated }: { onCreated: () => void 
         <b style={{ fontSize: 14 }}>Что можно посчитать по вашим данным</b>
         {datasets.length > 1 && (
           <select style={sl} value={dsCode} onChange={(e) => setDsCode(e.target.value)}
-            title="Предложения строятся по столбцам выбранного файла">
+            aria-label="Файл, по которому строятся предложения" title="Предложения строятся по столбцам выбранного файла">
             <option value="">все файлы ({datasets.length})</option>
             {datasets.map((d) => (
               <option key={d.code} value={d.code}>

@@ -1298,7 +1298,7 @@ export default function DashboardsPage({
 
               {canManage && sources && (
                 <div data-export-hide style={{ marginTop: 20 }}>
-                  <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>Добавить виджет</h3>
+                  <h2 style={{ fontSize: 14, margin: '0 0 8px' }}>Добавить виджет</h2>
                   <SourceCatalog sources={sources} />
                   {sources.datasets.length > 0 && <SuggestPanel datasets={sources.datasets} onAdd={addWidgetsBatch} />}
                   <SuggestMetricsPanel dashboardId={sel.dashboard.id} />

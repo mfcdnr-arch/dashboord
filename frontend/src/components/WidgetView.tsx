@@ -804,6 +804,21 @@ function PlanForecast({ f, unit }: { f: any; unit?: string }) {
   )
 }
 
+/** Пустое состояние виджета: что именно пусто и куда смотреть.
+ *
+ *  «Нет данных» само по себе читается как «система сломалась», хотя причина
+ *  почти всегда снимается самим человеком — фильтром периода или настройкой
+ *  виджета. Цвет — токен: прежний жёсткий #9aa4b2 давал на карточке 2,52:1
+ *  при норме 4,5, то есть объяснение было ещё и плохо читаемым. */
+function Empty({ why }: { why: string }) {
+  return (
+    <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+      Данных нет
+      <div style={{ fontSize: 11, marginTop: 2 }}>{why}</div>
+    </div>
+  )
+}
+
 function Body({ data, onPick, print = false }: { data: any; onPick?: (name: string) => void; print?: boolean }) {
   useThemeVersion() // перерисовка при смене темы: цвета серий берутся из токенов
   const C = chartColors()
@@ -861,7 +876,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   }
   if (data.type === 'text') {
     const align = data.align === 'center' ? 'center' : 'left'
-    if (!data.heading && !data.body) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Пустая аннотация</div>
+    if (!data.heading && !data.body) return <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Пустая аннотация</div>
     return (
       <div style={{ textAlign: align }}>
         {data.heading && <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>{data.heading}</div>}
@@ -870,7 +885,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     )
   }
   if (data.type === 'image') {
-    if (!data.url) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Не указан URL картинки</div>
+    if (!data.url) return <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Не указан URL картинки</div>
     return (
       <div style={{ textAlign: 'center' }}>
         <img src={data.url} alt={data.caption || ''} style={{ maxWidth: '100%', maxHeight: 220, objectFit: data.fit === 'cover' ? 'cover' : 'contain' }} />
@@ -1523,7 +1538,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   }
   if (data.type === 'dynamics') {
     const periods: string[] = data.periods || []
-    if (periods.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных за период</div>
+    if (periods.length === 0) return <Empty why="За выбранный период отчётов нет — расширьте период в шапке страницы." />
     // Индекс роста: бэкенд отдаёт готовый ряд (первая точка = 100 %), график
     // рисует его вместо абсолютных значений. Сами значения никуда не деваются —
     // они остаются в подсказке, иначе «сколько» ответить было бы негде.
@@ -1669,7 +1684,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   if (data.type === 'yoy') {
     // Год к году: текущий год (сплошная) против прошлого (пунктир) по месяцам.
     const months: string[] = data.months || []
-    if (months.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
+    if (months.length === 0) return <Empty why="Для сравнения по годам нужны отчёты хотя бы за два года." />
     const series: any[] = [] // eslint-disable-line @typescript-eslint/no-explicit-any
     if (data.previous_year != null) {
       series.push({ type: 'line', name: String(data.previous_year), data: data.previous, smooth: true, symbol: 'circle', symbolSize: 5,
@@ -1705,7 +1720,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
 
   if (data.type === 'compare' || data.type === 'cross_dataset_compare') {
     const cats: string[] = data.categories || []
-    if (cats.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
+    if (cats.length === 0) return <Empty why="Ни у одного из выбранных источников нет значений за этот период." />
     // Показатели одной формы называются по шаблону «Количество … · Факт ·
     // нарастающим итогом»: в легенде от них остаётся одинаковое начало и конец,
     // а различие — в середине. Отсекаем общую часть, чтобы подписи различались.
@@ -1856,7 +1871,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             // «Ранжированного списка» и «Показателей списком».
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
               Показаны самые крупные:{' '}
-              {data.hidden_rows > 0 && `${cats.length} строк${cats.length === 1 ? 'а' : ''} из ${data.total_rows}`}
+              {data.hidden_rows > 0 && `${cats.length} ${plural(cats.length, 'строка', 'строки', 'строк')} из ${data.total_rows}`}
               {data.hidden_rows > 0 && data.hidden_series > 0 && ' и '}
               {data.hidden_series > 0 && `${(data.series || []).length} показателей из ${data.total_series}`}
               {' '}— иначе столбики становятся неразличимы. Полный состав виден в таблице.
@@ -1881,7 +1896,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     const rows: string[] = data.rows || []
     const cols: string[] = data.columns || []
     const cells: number[][] = data.cells || []
-    if (rows.length === 0 || cols.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
+    if (rows.length === 0 || cols.length === 0) return <Empty why="В отчёте нет строк или выбранных граф — проверьте настройку виджета." />
     // 🔴 На равномерной шкале «от нуля до максимума» карта РЦО сливалась в один
     // бледный тон: замер — 67,7 % клеток лежат в нижней пятой части шкалы,
     // потому что распределение длиннохвостое (медиана 27 при максимуме 290 на
@@ -1989,7 +2004,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     // свой прирост и свою подсветку: значения разного масштаба, и общий цвет
     // карточки был бы неверен.
     const lines: any[] = data.lines || []
-    if (!lines.length) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
+    if (!lines.length) return <Empty why="У показателя нет разрезов с данными за этот отчёт." />
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {lines.map((l, i) => (
@@ -2030,7 +2045,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     // вправо непонятно, чья это строка (тот же приём, что в таблице).
     const periods: string[] = data.periods || []
     let rows: any[] = data.rows || []
-    if (rows.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных за период</div>
+    if (rows.length === 0) return <Empty why="За выбранный период отчётов нет — расширьте период в шапке страницы." />
     // Разрез матрицы: строки формы (районы) или показатели формы. Во втором
     // случае строка — это ПОКАЗАТЕЛЬ, и провалиться в неё нельзя: фильтр
     // страницы работает по строкам данных, а не по графам.
@@ -2073,7 +2088,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
           {byMonth
             ? ` · столбцы — месяцы (по ${data.total_reports} ${plural(data.total_reports || 0, 'отчёту', 'отчётам', 'отчётам')})`
             : data.total_periods > data.shown_periods
-              ? ` · показаны последние ${data.shown_periods} отчётов из ${data.total_periods}`
+              ? ` · показаны последние ${data.shown_periods} ${plural(data.shown_periods, 'отчёт', 'отчёта', 'отчётов')} из ${data.total_periods}`
               : ` · отчётов: ${data.shown_periods}`}
         </div>
         {monthNote && (
@@ -2167,7 +2182,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   if (data.type === 'pivot') {
     const cols: string[] = data.columns || []
     let rows: any[] = data.rows || []
-    if (rows.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
+    if (rows.length === 0) return <Empty why="В отчёте нет строк с выбранными графами." />
     const totCell: React.CSSProperties = { ...td, fontWeight: 700, background: 'var(--surface-accent)' }
     if (pivotSearch.trim()) {
       const s = pivotSearch.trim().toLowerCase()
@@ -2336,7 +2351,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
 
   if (data.type === 'waterfall') {
     const cats: string[] = data.categories || []
-    if (cats.length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
+    if (cats.length === 0) return <Empty why="Нечего раскладывать: у выбранной графы нет значений за этот отчёт." />
     const vals: number[] = (data.values || []).map((x: any) => (x == null ? 0 : x))
     const total = vals.reduce((a, b) => a + b, 0)
     // Подписи: у разреза по периодам это даты или месяцы (коротко и так), у
@@ -2439,7 +2454,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   }
 
   // bar | line | pie
-  if ((data.categories || []).length === 0) return <div style={{ color: '#9aa4b2', fontSize: 13 }}>Нет данных</div>
+  if ((data.categories || []).length === 0) return <Empty why="У выбранной графы нет значений за этот отчёт." />
   return (
     <div style={{ height: '100%' }}>
       <EChart option={P(chartOption(data, chartHeight(data)))} height={chartHeight(data)} onPick={onPick} />
@@ -2519,7 +2534,7 @@ function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
           <div style={secH}>Формулы метрик</div>
           {drill.metrics.map((m: any) => (
             <div key={m.code} style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{m.name} <span style={{ color: '#9aa4b2', fontWeight: 400 }}>({m.code} · v{m.version_no} · {m.status})</span></div>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{m.name} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({m.code} · v{m.version_no} · {m.status})</span></div>
               {/* Ответственный за показатель (п. 11): разбор отвечает «из чего
                   это собрано», и «с кого спросить» — часть того же ответа. */}
               {m.owner_name && (
@@ -2528,7 +2543,7 @@ function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
               <div style={mono}>{m.formula}</div>
               {/* Расширенная информация по показателю (FR-5.9): текст модератора или заглушка */}
               {'info_text' in m && (
-                <div style={{ fontSize: 12, marginTop: 4, padding: '6px 8px', borderRadius: 6, background: m.info_text ? '#f4f7fb' : '#fafafa', color: m.info_text ? '#374151' : '#9aa4b2', whiteSpace: 'pre-wrap' }}>
+                <div style={{ fontSize: 12, marginTop: 4, padding: '6px 8px', borderRadius: 6, background: m.info_text ? 'var(--surface-2)' : 'var(--surface-3)', color: m.info_text ? 'var(--text)' : 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>
                   {m.info_text ? m.info_text : 'Информации нет, в разработке.'}
                 </div>
               )}

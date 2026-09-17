@@ -26,7 +26,9 @@ export const WT = [
 ]
 
 export function F({ t, children }: { t: string; children: React.ReactNode }) {
-  return <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--text-muted)' }}>{t}{children}</label>
+  // minWidth: 0 — без него flex-элемент не может стать уже содержимого, и
+  // подпись вместе с полем выталкивает соседей за край.
+  return <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--text-muted)', minWidth: 0, maxWidth: '100%' }}>{t}{children}</label>
 }
 
 export function PubBadge({ status }: { status: string }) {
@@ -42,7 +44,11 @@ export function PubBadge({ status }: { status: string }) {
 
 export const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 14, padding: 0 }
 export const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 14 }
-export const sel: React.CSSProperties = { height: 34, padding: '0 8px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, background: 'var(--surface)' }
+// maxWidth/minWidth: список растягивается по самой длинной опции, а имена
+// показателей в госформе длиной со строку — один такой список раздувал
+// страницу до 943px и включал горизонтальную прокрутку ВСЕЙ страницы при
+// 200 % зума и на узком экране (замер: 976px против 320).
+export const sel: React.CSSProperties = { height: 34, padding: '0 8px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, background: 'var(--surface)', maxWidth: '100%', minWidth: 0 }
 export const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 14, cursor: 'pointer' }
 export const btnAuto: React.CSSProperties = { height: 36, padding: '0 14px', border: '1px solid var(--accent)', borderRadius: 8, background: 'var(--accent-weak-bg)', color: 'var(--accent-text)', fontSize: 14, cursor: 'pointer' }
 export const btnGhost: React.CSSProperties = { height: 36, padding: '0 14px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-2)', fontSize: 14, cursor: 'pointer' }

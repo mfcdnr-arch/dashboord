@@ -48,7 +48,7 @@ export default function InfoTip({ text, label = 'Подсказка' }: { text: 
   return (
     <span style={{ display: 'inline-flex' }}
       onMouseEnter={() => setOpen(true)} onMouseLeave={() => { setOpen(false); setPos(null) }}>
-      <button ref={btn} type="button" aria-label={label} title=""
+      <button ref={btn} type="button" aria-label={label} title="" className="tap-target"
         onFocus={() => setOpen(true)} onBlur={() => { setOpen(false); setPos(null) }}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v) }}
         style={{ width: 16, height: 16, borderRadius: '50%', border: '1px solid var(--border-strong)', background: 'var(--accent-weak-bg)',

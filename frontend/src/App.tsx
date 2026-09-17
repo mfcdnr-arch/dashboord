@@ -311,6 +311,10 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
       {/* Смонтирован всегда, независимо от раздела — Ctrl+K обязан работать
           из любого места, в этом весь смысл «быстрого» поиска. */}
       <CommandPalette nav={nav} onNavigate={onSearchNavigate} />
+      {/* Первое, что получает фокус на странице. До содержимого иначе 24
+          нажатия Tab — шапка плюс два десятка пунктов меню, и так на
+          КАЖДОМ переходе. Видна только при фокусе (см. .skip-link). */}
+      <a href="#main-content" className="skip-link">К содержимому</a>
       <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
         <Logo size={34} />
         <div>
@@ -375,7 +379,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             узкой колонке (900px — комфортная длина строки), но ДАШБОРДЫ и ВИТРИНЫ —
             это плотная сетка виджетов: на 900px из 12 колонок сетки получаются
             узкие карточки, а на мониторе 1920 половина экрана простаивала. */}
-        <main style={{ flex: 1, padding: narrow ? 12 : 24, maxWidth: (narrow || WIDE_SECTIONS.has(section)) ? '100%' : 900, minWidth: 0 }}>
+        <main id="main-content" tabIndex={-1} style={{ flex: 1, padding: narrow ? 12 : 24, maxWidth: (narrow || WIDE_SECTIONS.has(section)) ? '100%' : 900, minWidth: 0 }}>
           <OnboardingHint section={section} roles={me.roles} userKey={me.login} />
           {section === 'home' ? (
             <HomePage me={me} canManage={canManage}

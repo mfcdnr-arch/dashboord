@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { plural } from '../../lib/text'
 import { getGeoBase, officeLoad, type GeoBase, type Office, type OfficeLoad } from '../../api'
 import { fmtNumber, heatSteps } from '../../lib/format'
 import { boundsOf, esc, px, py, ringPath, shortName, textWidth, type Rect } from './projection'
@@ -261,7 +262,7 @@ export default function MapView({ offices, onEdit, canManage }: {
       `style="font-size:${l.fs.toFixed(2)}px;stroke-width:${(2.6 * k).toFixed(2)}px">${esc(l.n)}</text>`))
     groups.forEach((g, gi) => {
       if (g.items.length > 1) {
-        out.push(`<g class="mv-clu" data-g="${gi}" tabindex="0" role="button" aria-label="${g.items.length} отделений, раскрыть">` +
+        out.push(`<g class="mv-clu" data-g="${gi}" tabindex="0" role="button" aria-label="${g.items.length} ${plural(g.items.length, 'отделение', 'отделения', 'отделений')}, раскрыть">` +
           `<circle cx="${g.x.toFixed(1)}" cy="${g.y.toFixed(1)}" r="${g.r.toFixed(1)}" stroke-width="${(2 * k).toFixed(2)}"/>` +
           `<text x="${g.x.toFixed(1)}" y="${g.y.toFixed(1)}" style="font-size:${(11 * k).toFixed(2)}px">${g.items.length}</text></g>`)
       } else {
@@ -467,7 +468,7 @@ export default function MapView({ offices, onEdit, canManage }: {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' }}>
         <div ref={wrapRef} style={{ flex: '1 1 460px', minWidth: 0 }}>
           <svg ref={svgRef} className="mv-svg" role="img"
-            aria-label={`Карта отделений МФЦ: ${pts.length} отделений на карте`}
+            aria-label={`Карта отделений МФЦ: ${pts.length} ${plural(pts.length, 'отделение', 'отделения', 'отделений')} на карте`}
             onPointerDown={onPointerDown} onPointerMove={onPointerMove}
             onPointerUp={onPointerUp} onPointerCancel={onPointerUp} />
           <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 4 }}>

@@ -336,7 +336,7 @@ export default function AutoBuildWizard(
                       <select
                         style={viewSel} value={(pick.views || {})[f.code] || 'kpi'}
                         disabled={!on.includes(f.code)}
-                        title="Как показать этот показатель"
+                        aria-label="Вид показателя" title="Как показать этот показатель"
                         onChange={(e) => setView(d.code, f.code, e.target.value)}
                       >
                         {VIEW_LABELS.filter((v) => d.periods > 1 || v.v === 'kpi' || v.v === 'none')

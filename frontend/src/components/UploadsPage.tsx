@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { plural } from '../lib/text'
 import {
   knownForms, listFolders, listObjects, routeUpload, uploadJournal, uploadToInbox,
   type Folder, type JournalItem, type KnownForm, type Obj,
@@ -187,7 +188,7 @@ export default function UploadsPage() {
         </div>
       )}
 
-      <h3 style={{ marginBottom: 8 }}>Журнал импорта</h3>
+      <h2 style={{ marginBottom: 8 }}>Журнал импорта</h2>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 13 }}>
         <span style={{ color: 'var(--text-muted)' }}>Показать отчёт за дату:</span>
         <input type="date" aria-label="Показать журнал за отчётную дату" value={filterPeriod} onChange={(e) => setFilterPeriod(e.target.value)}
@@ -197,7 +198,7 @@ export default function UploadsPage() {
       <div style={{ fontSize: 12, color: 'var(--text-faint)', marginBottom: 8 }}>
         {filterPeriod
           ? `Отчёты за ${ru(filterPeriod)}: найдено ${items.length}.`
-          : `Что загрузили, куда это попало и почему — по последним ${items.length} файлам.`}
+          : `Что загрузили, куда это попало и почему — по последним ${items.length} ${plural(items.length, 'файлу', 'файлам', 'файлам')}.`}
       </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>

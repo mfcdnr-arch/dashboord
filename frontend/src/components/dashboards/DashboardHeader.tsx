@@ -258,12 +258,12 @@ export function DashboardHeader({
     <>
               {/* Фильтры, меняющие цифры, остаются на виду. */}
               <input type="date" style={{ ...input, height: 30, width: 138, fontSize: 12.5 }} value={pFrom}
-                title="Период: с" onChange={(e) => setPFrom(e.target.value)} />
+                aria-label="Период: с" title="Период: с" onChange={(e) => setPFrom(e.target.value)} />
               <input type="date" style={{ ...input, height: 30, width: 138, fontSize: 12.5 }} value={pTo}
-                title="Период: по" onChange={(e) => setPTo(e.target.value)} />
+                aria-label="Период: по" title="Период: по" onChange={(e) => setPTo(e.target.value)} />
               {reportDates.length > 1 && (
                 <select style={{ ...input, height: 30, width: 168, fontSize: 12.5 }} value={pickedReport}
-                  title="Открыть конкретный отчёт: вся страница покажет его цифры"
+                  aria-label="Отчёт" title="Открыть конкретный отчёт: вся страница покажет его цифры"
                   onChange={(e) => { const v = e.target.value; setPFrom(v); setPTo(v) }}>
                   <option value="">Отчёт: последний</option>
                   {reportDates.map((d) => <option key={d} value={d}>{ru(d)}</option>)}
@@ -283,6 +283,7 @@ export function DashboardHeader({
               </Dropdown>
               {catOptions.length > 0 ? (
                 <select style={{ ...input, height: 30, width: 150, fontSize: 12.5 }} value={crossRow || ''}
+                  aria-label="Строка данных"
                   title="Строка данных: фильтрует все виджеты страницы. Клик по столбцу или сектору на графике задаёт её же"
                   onChange={(e) => setCrossRow(e.target.value || null)}>
                   <option value="">Строка: все</option>
@@ -310,12 +311,19 @@ export function DashboardHeader({
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <h1 style={{ fontSize: 19, fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }}>{dashboard.name}</h1>
-              {canManage && (
-                <button type="button" style={{ ...linkDanger, color: 'var(--text-faint)', fontSize: 13 }}
-                  title="Переименовать дашборд, изменить описание" onClick={a.rename}>✎</button>
-              )}
-              <button type="button" style={{ ...linkDanger, color: 'var(--text-faint)', fontSize: 13 }}
-                title="Что это за дашборд и из чего он собран" onClick={a.about}>ℹ</button>
+              {/* Свой контейнер с зазором 16: у значков зона нажатия 24×24
+                  (.tap-target), и при общем зазоре 8 зоны накладывались бы —
+                  нажатие по краю ✎ попадало бы в ℹ. */}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 16 }}>
+                {canManage && (
+                  <button type="button" className="tap-target" style={{ ...linkDanger, color: 'var(--text-faint)', fontSize: 13 }}
+                    aria-label="Переименовать дашборд"
+                    title="Переименовать дашборд, изменить описание" onClick={a.rename}>✎</button>
+                )}
+                <button type="button" className="tap-target" style={{ ...linkDanger, color: 'var(--text-faint)', fontSize: 13 }}
+                  aria-label="О дашборде"
+                  title="Что это за дашборд и из чего он собран" onClick={a.about}>ℹ</button>
+              </span>
               {dashboard.folder_name && (
                 <span style={chip} title="Папка объекта, в которой лежит дашборд">
                   📁 {dashboard.object_name} / {dashboard.folder_name}

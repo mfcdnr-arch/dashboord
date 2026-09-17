@@ -179,8 +179,8 @@ export default function MetricsPage({ canManage, isSuperadmin, initialMetricId }
           {canManage && <DataSuggestPanel onCreated={refresh} />}
           {canManage && (
             <form onSubmit={addMetric} style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-              <input style={{ ...input, width: 160 }} placeholder="код (латиницей)" value={code} onChange={(e) => setCode(e.target.value)} />
-              <input style={{ ...input, width: 240 }} placeholder="Название метрики" value={name} onChange={(e) => setName(e.target.value)} />
+              <input style={{ ...input, width: 160 }} aria-label="Код метрики латиницей" placeholder="код (латиницей)" value={code} onChange={(e) => setCode(e.target.value)} />
+              <input style={{ ...input, width: 240 }} aria-label="Название метрики" placeholder="Название метрики" value={name} onChange={(e) => setName(e.target.value)} />
               <button style={btn} disabled={busy || !code.trim() || !name.trim()}>＋ Метрика</button>
             </form>
           )}
@@ -370,7 +370,7 @@ function MetricDetail({ data, canManage, isSuperadmin, onError, onChanged, onDel
             {canManage ? (
               <select style={{ ...input, height: 30, fontSize: 13, minWidth: 220 }} value={owner} disabled={ownerBusy}
                 onChange={(e) => saveOwner(e.target.value)}
-                title="Кому адресуются жалобы на эту цифру («⚑ проблема» на виджете)">
+                aria-label="Ответственный за показатель" title="Кому адресуются жалобы на эту цифру («⚑ проблема» на виджете)">
                 <option value="">не назначен</option>
                 {staff.map((u) => (
                   <option key={u.id} value={u.id}>{u.full_name || u.login}</option>

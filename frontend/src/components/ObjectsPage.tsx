@@ -341,7 +341,7 @@ export default function ObjectsPage(
               ответит «Недостаточно прав», а нерабочая кнопка выглядит как поломка. */}
           {canManage && (
             <form onSubmit={addObject} style={rowForm}>
-              <input style={input} placeholder="Название объекта" value={newObj} onChange={(e) => setNewObj(e.target.value)} />
+              <input style={input} aria-label="Название объекта" placeholder="Название объекта" value={newObj} onChange={(e) => setNewObj(e.target.value)} />
               <button style={btn} disabled={busy || !newObj.trim()}>＋ Объект</button>
             </form>
           )}
@@ -411,7 +411,7 @@ export default function ObjectsPage(
               <input style={input} placeholder="Название папки" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} />
               {folders.length > 0 && (
                 <select style={input} value={newFolderParent} onChange={(e) => setNewFolderParent(e.target.value)}
-                  title="Вложить в существующую папку (необязательно)">
+                  aria-label="Родительская папка" title="Вложить в существующую папку (необязательно)">
                   <option value="">— верхний уровень —</option>
                   {folderTree(folders).map((f) => <option key={f.id} value={f.id}>{folderLabel(f)}</option>)}
                 </select>

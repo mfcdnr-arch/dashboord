@@ -690,7 +690,7 @@ function Section({ title, hint, action, children }: {
   return (
     <div style={{ marginBottom: 24 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-        <h3 style={{ fontSize: 15, margin: 0 }}>{title}</h3>
+        <h2 style={{ fontSize: 15, margin: 0 }}>{title}</h2>
         {hint && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{hint}</span>}
         {action && <span style={{ marginLeft: 'auto' }}>{action}</span>}
       </div>
@@ -817,7 +817,7 @@ function HistorySection() {
       .map((k) => `${k.label}: ${k.removable}`).join('\n')
     if (!await ask({
       title: 'Удалить историю?',
-      message: `Будет удалено безвозвратно:\n${list}\n\nЗаписи новее ${stats.older_than_days} дней не трогаем — по ним разбирают свежие случаи. `
+      message: `Будет удалено безвозвратно:\n${list}\n\nЗаписи новее ${stats.older_than_days} ${plural(stats.older_than_days, 'дня', 'дней', 'дней')} не трогаем — по ним разбирают свежие случаи. `
         + `Журнал действий (${stats.protected_audit_events}) не удаляется: он отвечает на вопрос «кто это сделал».`,
       confirmLabel: 'Удалить',
       busyLabel: 'Удаление…',
@@ -859,6 +859,7 @@ function HistorySection() {
                   <td style={td}>
                     <input type="checkbox" checked={!!picked[k.kind]} disabled={k.removable === 0}
                       onChange={(e) => setPicked((c) => ({ ...c, [k.kind]: e.target.checked }))}
+                      aria-label={`Отметить для удаления: ${k.label}`}
                       title={k.removable === 0 ? 'Нечего удалять за этим порогом' : 'Отметить для удаления'} />
                   </td>
                   <td style={td}>{k.label}</td>
