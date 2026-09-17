@@ -119,7 +119,7 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
             }}>{label}</button>
         ))}
       </div>
-      {error && <Notice style={errBox}>{error}</Notice>}
+      {error && <Notice>{error}</Notice>}
 
       {tab === 'map' && (
         <MapView offices={items} canManage={canManage} onEdit={(o) => { setTab('offices'); setEdit(o) }} />
@@ -329,4 +329,3 @@ const th: React.CSSProperties = { border: '1px solid var(--border-faint)', paddi
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px' }
 const card: React.CSSProperties = { border: '1px solid var(--border-faint)', borderRadius: 10, padding: 12, marginBottom: 12, background: 'var(--surface-2)', boxSizing: 'border-box' }
 const rowLine: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '3px 0', borderBottom: '1px solid var(--border-faint)' }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }

@@ -92,7 +92,7 @@ export default function HomePage({ me, canManage, onOpenDashboard }: {
     try { await removeHomeKpi(code); load() } catch (e) { setError((e as Error).message) }
   }
 
-  if (error) return <Notice style={errBox}>{error}</Notice>
+  if (error) return <Notice flush>{error}</Notice>
   if (!data) return <div style={{ color: 'var(--text-faint)' }}>Загрузка…</div>
 
   const c = data.counters
@@ -407,4 +407,3 @@ const sel: React.CSSProperties = { height: 34, padding: '0 8px', border: '1px so
 const btn: React.CSSProperties = { height: 34, padding: '0 12px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
 const rmBtn: React.CSSProperties = { marginLeft: 'auto', width: 22, height: 22, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--danger)', fontSize: 11 }
 const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 14, paddingBottom: 8 }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8 }

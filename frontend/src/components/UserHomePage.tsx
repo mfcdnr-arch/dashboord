@@ -294,9 +294,7 @@ const card: React.CSSProperties = {
 }
 const h2: React.CSSProperties = { fontSize: 15.5, fontWeight: 700 }
 const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 13 }
-const errBox: React.CSSProperties = {
-  background: 'var(--danger-bg)', color: 'var(--danger)', padding: 10, borderRadius: 10, fontSize: 13,
-}
+const errBox: React.CSSProperties = { padding: 10, borderRadius: 10, marginBottom: 0 }
 const btn: React.CSSProperties = {
   width: '100%', padding: '8px 12px', borderRadius: 9, border: 'none',
   background: 'var(--accent)', color: '#fff', fontSize: 13.5, fontWeight: 600, cursor: 'pointer',

@@ -75,7 +75,7 @@ export default function RelatedMenu(
         <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose} title="Закрыть">✕</button>
       </div>
 
-      {err && <Notice style={errBox}>{err}</Notice>}
+      {err && <Notice flush>{err}</Notice>}
       {!data && !err && <div style={muted}>Загрузка…</div>}
 
       {data && (
@@ -207,6 +207,3 @@ const sibBtn: React.CSSProperties = {
 }
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13, lineHeight: 1.5 }
 const xBtn: React.CSSProperties = { border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--text-muted)' }
-const errBox: React.CSSProperties = {
-  background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8,
-}

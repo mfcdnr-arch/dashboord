@@ -50,7 +50,7 @@ export default function RequestAccessDialog(
 
       {done ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Notice kind="ok" style={okBox}>✓ Запрос отправлен администратору.</Notice>
+          <Notice kind="ok" flush>✓ Запрос отправлен администратору.</Notice>
           <div style={muted}>
             Когда доступ выдадут, отчёт появится в этом списке сам. Ответ придёт уведомлением,
             переписка — в разделе «Кабинет».
@@ -74,7 +74,7 @@ export default function RequestAccessDialog(
             placeholder="Например: еженедельный доклад по внедрению сервиса МАХ — о нём говорили на планёрке"
             style={area}
           />
-          {err && <Notice style={errBox}>{err}</Notice>}
+          {err && <Notice flush>{err}</Notice>}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button style={ghostBtn} onClick={onClose} disabled={busy}>Отмена</button>
             <button style={primaryBtn} onClick={send} disabled={busy || !wanted.trim()}>
@@ -101,11 +101,4 @@ const ghostBtn: React.CSSProperties = {
   background: 'var(--surface-2)', color: 'var(--text)', fontSize: 13, cursor: 'pointer',
 }
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 12, lineHeight: 1.5 }
-const okBox: React.CSSProperties = {
-  background: 'var(--success-bg)', color: 'var(--success)', fontSize: 13,
-  padding: '8px 10px', borderRadius: 8,
-}
-const errBox: React.CSSProperties = {
-  background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8,
-}
 const xBtn: React.CSSProperties = { border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--text-muted)' }

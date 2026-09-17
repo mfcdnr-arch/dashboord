@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { DataSet, DataSources } from '../api'
+import Field from './Field'
 
 // Визуальный конструктор формул: пользователь собирает выражение из «элементов»
 // (агрегат столбца / ячейка / метрика / число), соединяя их действиями (+ − × ÷),
@@ -165,37 +166,37 @@ function TermCard({ term: t, sources, byCode, onPatch, onSetDataset, onRemove }:
 
       {t.kind === 'agg' && (
         <div style={rowWrap}>
-          <Lbl t="Действие"><select style={sel} value={t.fn} onChange={(e) => onPatch({ fn: e.target.value })}>{AGG.map((a) => <option key={a.v} value={a.v}>{a.t}</option>)}</select></Lbl>
-          <Lbl t="Датасет (документ)"><DatasetSel sources={sources} value={t.dataset} onChange={onSetDataset} /></Lbl>
-          <Lbl t="Поле (число)"><select style={sel} value={t.field} onChange={(e) => onPatch({ field: e.target.value })}>{numFields.map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></Lbl>
-          <Lbl t="Только строка">
+          <Field size="sm" label="Действие"><select style={sel} value={t.fn} onChange={(e) => onPatch({ fn: e.target.value })}>{AGG.map((a) => <option key={a.v} value={a.v}>{a.t}</option>)}</select></Field>
+          <Field size="sm" label="Датасет (документ)"><DatasetSel sources={sources} value={t.dataset} onChange={onSetDataset} /></Field>
+          <Field size="sm" label="Поле (число)"><select style={sel} value={t.field} onChange={(e) => onPatch({ field: e.target.value })}>{numFields.map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></Field>
+          <Field size="sm" label="Только строка">
             <label style={{ display: 'flex', alignItems: 'center', gap: 4, height: 32 }}>
               <input type="checkbox" checked={t.useFilter} onChange={(e) => onPatch({ useFilter: e.target.checked })} />
               <select style={{ ...sel, opacity: t.useFilter ? 1 : 0.5 }} disabled={!t.useFilter} value={t.filterRow} onChange={(e) => onPatch({ filterRow: e.target.value })}>{(ds?.rows || []).map((r) => <option key={r} value={r}>{r}</option>)}</select>
             </label>
-          </Lbl>
+          </Field>
         </div>
       )}
 
       {t.kind === 'cell' && (
         <div style={rowWrap}>
-          <Lbl t="Датасет (документ)"><DatasetSel sources={sources} value={t.dataset} onChange={onSetDataset} /></Lbl>
-          <Lbl t="Дата"><select style={sel} value={t.date} onChange={(e) => onPatch({ date: e.target.value })}>{(ds?.dates || []).map((d) => <option key={d} value={d}>{d}</option>)}</select></Lbl>
-          <Lbl t="Строка"><select style={sel} value={t.row} onChange={(e) => onPatch({ row: e.target.value })}>{(ds?.rows || []).map((r) => <option key={r} value={r}>{r}</option>)}</select></Lbl>
-          <Lbl t="Столбец"><select style={sel} value={t.field} onChange={(e) => onPatch({ field: e.target.value })}>{numFields.map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></Lbl>
+          <Field size="sm" label="Датасет (документ)"><DatasetSel sources={sources} value={t.dataset} onChange={onSetDataset} /></Field>
+          <Field size="sm" label="Дата"><select style={sel} value={t.date} onChange={(e) => onPatch({ date: e.target.value })}>{(ds?.dates || []).map((d) => <option key={d} value={d}>{d}</option>)}</select></Field>
+          <Field size="sm" label="Строка"><select style={sel} value={t.row} onChange={(e) => onPatch({ row: e.target.value })}>{(ds?.rows || []).map((r) => <option key={r} value={r}>{r}</option>)}</select></Field>
+          <Field size="sm" label="Столбец"><select style={sel} value={t.field} onChange={(e) => onPatch({ field: e.target.value })}>{numFields.map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></Field>
         </div>
       )}
 
       {t.kind === 'metric' && (
         <div style={rowWrap}>
-          <Lbl t="Метрика"><select style={sel} value={t.metricCode} onChange={(e) => onPatch({ metricCode: e.target.value })}><option value="">— выберите —</option>{sources.metrics.map((m) => <option key={m.code} value={m.code}>{m.name}</option>)}</select></Lbl>
-          <Lbl t="Версия"><select style={sel} value={t.metricVersion} onChange={(e) => onPatch({ metricVersion: e.target.value })}><option value="approved">одобренная</option><option value="latest">последняя</option></select></Lbl>
+          <Field size="sm" label="Метрика"><select style={sel} value={t.metricCode} onChange={(e) => onPatch({ metricCode: e.target.value })}><option value="">— выберите —</option>{sources.metrics.map((m) => <option key={m.code} value={m.code}>{m.name}</option>)}</select></Field>
+          <Field size="sm" label="Версия"><select style={sel} value={t.metricVersion} onChange={(e) => onPatch({ metricVersion: e.target.value })}><option value="approved">одобренная</option><option value="latest">последняя</option></select></Field>
         </div>
       )}
 
       {t.kind === 'number' && (
         <div style={rowWrap}>
-          <Lbl t="Значение"><input style={{ ...sel, width: 120 }} type="number" value={t.num} onChange={(e) => onPatch({ num: e.target.value })} /></Lbl>
+          <Field size="sm" label="Значение"><input style={{ ...sel, width: 120 }} type="number" value={t.num} onChange={(e) => onPatch({ num: e.target.value })} /></Field>
         </div>
       )}
     </div>
@@ -227,9 +228,6 @@ function DatasetSel({ sources, value, onChange }: { sources: DataSources; value:
   )
 }
 
-function Lbl({ t, children }: { t: string; children: React.ReactNode }) {
-  return <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--text-muted)' }}>{t}{children}</label>
-}
 
 const card: React.CSSProperties = { border: '1px solid var(--border)', borderRadius: 10, padding: 12, background: 'var(--surface)' }
 const rowWrap: React.CSSProperties = { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }

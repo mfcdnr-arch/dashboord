@@ -285,7 +285,7 @@ export default function AutoBuildWizard(
         <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
 
-      {loadErr && <Notice style={errBox}>{loadErr}</Notice>}
+      {loadErr && <Notice flush>{loadErr}</Notice>}
       {!plan && !loadErr && <div style={muted}>Смотрим, что есть в объекте…</div>}
 
       {plan && sel && (
@@ -584,5 +584,4 @@ const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px
 const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
 const btnGhost: React.CSSProperties = { height: 34, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', fontSize: 13, cursor: 'pointer' }
 const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', fontSize: 12, cursor: 'pointer', padding: 0 }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8 }
 const warnBox: React.CSSProperties = { background: 'var(--warn-bg)', color: 'var(--warn)', fontSize: 13, padding: '8px 10px', borderRadius: 8 }

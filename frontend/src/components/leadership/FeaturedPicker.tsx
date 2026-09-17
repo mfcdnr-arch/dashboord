@@ -170,7 +170,4 @@ const warnBadge: React.CSSProperties = { ...badge, background: 'var(--warn-bg)',
 const xBtn: React.CSSProperties = {
   border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--text-muted)',
 }
-const errBox: React.CSSProperties = {
-  background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px',
-  borderRadius: 8, marginBottom: 8,
-}
+const errBox: React.CSSProperties = { marginBottom: 8 }

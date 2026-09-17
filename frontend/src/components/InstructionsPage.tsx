@@ -378,9 +378,7 @@ const card: React.CSSProperties = {
   background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 16,
 }
 const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 13 }
-const errBox: React.CSSProperties = {
-  background: 'var(--danger-bg)', color: 'var(--danger)', padding: 10, borderRadius: 10, fontSize: 13,
-}
+const errBox: React.CSSProperties = { padding: 10, borderRadius: 10, marginBottom: 0 }
 const input: React.CSSProperties = {
   width: '100%', boxSizing: 'border-box', padding: '7px 10px', fontSize: 13, marginBottom: 8,
   border: '1px solid var(--border-strong)', borderRadius: 8,

@@ -108,7 +108,7 @@ export default function ShowcasesPage({ canManage, onOpenDashboard }: {
         <button style={crumb} onClick={() => setSel(null)}>Витрины</button>
         {sel && <><span style={{ color: 'var(--text-faint)' }}>/</span><span>{sel.name}</span></>}
       </div>
-      {error && <Notice style={errBox}>{error}</Notice>}
+      {error && <Notice>{error}</Notice>}
 
       {!sel && (
         <div>
@@ -221,7 +221,6 @@ const tab: React.CSSProperties = { height: 32, padding: '0 12px', border: '1px s
 const tabActive: React.CSSProperties = { ...tab, background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent-text)' }
 const rowItem: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', cursor: 'pointer' }
 const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 14, padding: '8px 0' }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 const editBtn: React.CSSProperties = { width: 24, height: 24, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--accent-text)', fontSize: 11 }
 const rmBtn: React.CSSProperties = { width: 24, height: 24, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--danger)' }
 const folderBadge: React.CSSProperties = { fontSize: 11, color: 'var(--text-muted)', background: 'var(--surface-2)', border: '1px solid var(--border-faint)', borderRadius: 6, padding: '1px 6px' }

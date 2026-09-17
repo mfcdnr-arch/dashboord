@@ -25,11 +25,6 @@ export const WT = [
   { v: 'text', t: 'Текст/заголовок' }, { v: 'image', t: 'Картинка/лого' },
 ]
 
-export function F({ t, children }: { t: string; children: React.ReactNode }) {
-  // minWidth: 0 — без него flex-элемент не может стать уже содержимого, и
-  // подпись вместе с полем выталкивает соседей за край.
-  return <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, color: 'var(--text-muted)', minWidth: 0, maxWidth: '100%' }}>{t}{children}</label>
-}
 
 export function PubBadge({ status }: { status: string }) {
   const m: Record<string, { t: string; bg: string; c: string }> = {
@@ -65,7 +60,6 @@ export const editHint: React.CSSProperties = {
 export const wtBadge: React.CSSProperties = { marginLeft: 8, fontSize: 11, padding: '1px 7px', borderRadius: 8, background: 'var(--accent-weak-bg)', color: 'var(--accent-text)' }
 export const rmBtn: React.CSSProperties = { marginLeft: 'auto', width: 24, height: 24, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--danger)' }
 export const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 14, padding: '8px 0' }
-export const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 export const linkDanger: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 12, padding: 0 }
 export const alertBtn: React.CSSProperties = { marginLeft: 8, width: 24, height: 24, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--warn)' }
 export const editBtn: React.CSSProperties = { marginLeft: 8, width: 24, height: 24, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: 'pointer', color: 'var(--accent-text)' }

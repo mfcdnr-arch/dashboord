@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react'
 import { plural } from '../../lib/text'
 import { widgetPassport, type PassportRow } from '../../api'
 import { fmtNumber } from '../../lib/format'
-import { errBox, muted } from './shared'
+import { muted } from './shared'
 import { Modal, ModalTitle } from '../Modal'
 import Notice from '../Notice'
 
@@ -39,7 +39,7 @@ export default function PassportDialog(
           onClick={onClose} title="Закрыть">✕</button>
       </div>
 
-      {err && <Notice style={errBox}>{err}</Notice>}
+      {err && <Notice>{err}</Notice>}
       {!data && !err && <div style={muted}>Загрузка…</div>}
 
       {data && (

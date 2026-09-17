@@ -6,8 +6,9 @@ import {
 import { WidgetPreviewBody } from '../WidgetView'
 import FormulaBuilder from '../FormulaBuilder'
 import { dataUriBytes, fileToEmbeddableDataUri } from '../../lib/image'
-import { DEFAULT_SIZE, F, WT, btn, btnAuto, btnGhost, sel, tab, tabActive, wtBadge } from './shared'
+import { DEFAULT_SIZE, WT, btn, btnAuto, btnGhost, sel, tab, tabActive, wtBadge } from './shared'
 import { WidgetPicker, WIDGET_META } from './WidgetPicker'
+import Field from '../Field'
 
 /** Датасет — это НЕ один файл, а ряд отчётов одной формы: пятнадцать недель
  *  лежат под одним кодом. Подпись должна говорить об этом прямо, иначе человек
@@ -137,9 +138,9 @@ export function SuggestPanel({ datasets, onAdd }: { datasets: DataSources['datas
   return (
     <div style={{ border: '1px solid var(--border-strong)', borderRadius: 10, padding: 12, marginBottom: 12, background: 'var(--surface-2)' }}>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-        <F t="Датасет"><select style={sel} value={dc} onChange={(e) => { setDc(e.target.value); load(e.target.value) }}>
+        <Field size="sm" label="Датасет"><select style={sel} value={dc} onChange={(e) => { setDc(e.target.value); load(e.target.value) }}>
           {datasets.map((d) => <option key={d.code} value={d.code}>{dsOption(d)}</option>)}
-        </select></F>
+        </select></Field>
         <button style={{ ...btn, height: 34 }} disabled={busy || chosen.size === 0} onClick={add}>{busy ? 'Добавление…' : `＋ Добавить выбранные (${chosen.size})`}</button>
         <button style={{ ...btnGhost, height: 34 }} onClick={() => setOpen(false)}>Скрыть</button>
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>отметьте нужные предложения</span>
@@ -568,26 +569,26 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end', minWidth: 0, maxWidth: '100%',
       border: initial ? 'none' : '1px solid var(--border)', borderRadius: 10, padding: initial ? 0 : 12 }}>
-      <F t="Название"><input style={sel} placeholder="Заголовок виджета" value={name} onChange={(e) => setName(e.target.value)} /></F>
-      <F t="Подсказка (тултип)"><input style={sel} placeholder="Что показывает виджет — покажется по значку «i»" value={help} onChange={(e) => setHelp(e.target.value)} /></F>
-      <F t="Тип"><button type="button" style={{ ...sel, minWidth: 200, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', cursor: 'pointer' }}
+      <Field size="sm" label="Название"><input style={sel} placeholder="Заголовок виджета" value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      <Field size="sm" label="Подсказка (тултип)"><input style={sel} placeholder="Что показывает виджет — покажется по значку «i»" value={help} onChange={(e) => setHelp(e.target.value)} /></Field>
+      <Field size="sm" label="Тип"><button type="button" style={{ ...sel, minWidth: 200, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', cursor: 'pointer' }}
         onClick={() => setPickerOpen(true)} title="Открыть галерею типов виджетов">
         <span style={{ fontWeight: 600, color: 'var(--text)' }}>{WIDGET_META[type]?.t || type}</span>
         <span style={{ fontSize: 12, color: 'var(--accent-text)' }}>▦ галерея</span>
-      </button></F>
+      </button></Field>
       {pickerOpen && <WidgetPicker value={type} onClose={() => setPickerOpen(false)}
         onPick={(v) => { setType(v); if (!['kpi', 'gauge'].includes(v) && source === 'formula') setSource('metric') }} />}
       {isText && (
         <>
-          <F t="Заголовок (крупно)"><input style={{ ...sel, width: 200 }} placeholder="напр. Итоги квартала" value={heading} onChange={(e) => setHeading(e.target.value)} /></F>
-          <F t="Текст"><input style={{ ...sel, width: 260 }} placeholder="пояснение к разделу" value={bodyText} onChange={(e) => setBodyText(e.target.value)} /></F>
-          <F t="Выравнивание"><select style={sel} value={align} onChange={(e) => setAlign(e.target.value)}><option value="left">Слева</option><option value="center">По центру</option></select></F>
+          <Field size="sm" label="Заголовок (крупно)"><input style={{ ...sel, width: 200 }} placeholder="напр. Итоги квартала" value={heading} onChange={(e) => setHeading(e.target.value)} /></Field>
+          <Field size="sm" label="Текст"><input style={{ ...sel, width: 260 }} placeholder="пояснение к разделу" value={bodyText} onChange={(e) => setBodyText(e.target.value)} /></Field>
+          <Field size="sm" label="Выравнивание"><select style={sel} value={align} onChange={(e) => setAlign(e.target.value)}><option value="left">Слева</option><option value="center">По центру</option></select></Field>
         </>
       )}
       {isImage && (
         <>
           <div style={{ flexBasis: '100%', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-            <F t="Картинка (файл, крупные сжимаются)">
+            <Field size="sm" label="Картинка (файл, крупные сжимаются)">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <label style={{ ...btnGhost, height: 34, display: 'inline-flex', alignItems: 'center', cursor: imgBusy ? 'wait' : 'pointer', opacity: imgBusy ? 0.6 : 1 }}>
                   {imgBusy ? '⏳ Обработка…' : '🖼 Выбрать файл…'}
@@ -601,8 +602,8 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
                   </>
                 )}
               </div>
-            </F>
-            <F t="Подпись (необяз.)"><input style={{ ...sel, width: 180 }} placeholder="напр. Логотип МФЦ" value={caption} onChange={(e) => setCaption(e.target.value)} /></F>
+            </Field>
+            <Field size="sm" label="Подпись (необяз.)"><input style={{ ...sel, width: 180 }} placeholder="напр. Логотип МФЦ" value={caption} onChange={(e) => setCaption(e.target.value)} /></Field>
           </div>
           {imgErr && <div style={{ flexBasis: '100%', color: 'var(--danger)', fontSize: 12 }}>{imgErr}</div>}
           <div style={{ flexBasis: '100%' }}>
@@ -616,14 +617,14 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         </>
       )}
       {usesSource && (
-        <F t="Источник"><select style={sel} value={source} onChange={(e) => setSource(e.target.value as 'metric' | 'dataset' | 'formula')}>
+        <Field size="sm" label="Источник"><select style={sel} value={source} onChange={(e) => setSource(e.target.value as 'metric' | 'dataset' | 'formula')}>
           <option value="metric">Метрика</option><option value="dataset">Датасет</option>
           {['kpi', 'gauge'].includes(type) && <option value="formula">Формула</option>}
-        </select></F>
+        </select></Field>
       )}
       {['kpi', 'gauge'].includes(type) && source === 'formula' && (
         <>
-          <F t="Единица (необяз.)"><input style={{ ...sel, width: 110 }} placeholder="напр. шт, %" value={formulaUnit} onChange={(e) => setFormulaUnit(e.target.value)} /></F>
+          <Field size="sm" label="Единица (необяз.)"><input style={{ ...sel, width: 110 }} placeholder="напр. шт, %" value={formulaUnit} onChange={(e) => setFormulaUnit(e.target.value)} /></Field>
           <div style={{ flexBasis: '100%' }}>
             <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
               <button type="button" style={{ ...tab, ...(formulaMode === 'visual' ? tabActive : {}) }} onClick={() => setFormulaMode('visual')}>🖱 Конструктор</button>
@@ -648,10 +649,10 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         </>
       )}
       {usesSource && source === 'metric' && (
-        <F t={type === 'plan_fact' ? 'Метрика (план)' : 'Метрика'}><select style={sel} value={metricCode} onChange={(e) => setMetricCode(e.target.value)}>{sources.metrics.map((m) => <option key={m.code} value={m.code}>{m.name}{m.unit ? ` · ${m.unit}` : ''}</option>)}</select></F>
+        <Field size="sm" label={type === 'plan_fact' ? 'Метрика (план)' : 'Метрика'}><select style={sel} value={metricCode} onChange={(e) => setMetricCode(e.target.value)}>{sources.metrics.map((m) => <option key={m.code} value={m.code}>{m.name}{m.unit ? ` · ${m.unit}` : ''}</option>)}</select></Field>
       )}
       {type === 'plan_fact' && source === 'metric' && (
-        <F t="Метрика (факт)"><select style={sel} value={factMetric} onChange={(e) => setFactMetric(e.target.value)}>{sources.metrics.map((m) => <option key={m.code} value={m.code}>{m.name}{m.unit ? ` · ${m.unit}` : ''}</option>)}</select></F>
+        <Field size="sm" label="Метрика (факт)"><select style={sel} value={factMetric} onChange={(e) => setFactMetric(e.target.value)}>{sources.metrics.map((m) => <option key={m.code} value={m.code}>{m.name}{m.unit ? ` · ${m.unit}` : ''}</option>)}</select></Field>
       )}
       {usesSource && source === 'metric' && (() => {
         const line = (lbl: string, x?: MetricSource) => (x && (x.formula || x.unit)) ? (
@@ -662,24 +663,24 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         return (m || fm) ? <div style={{ flexBasis: '100%', margin: '-2px 0 2px' }}>{line(type === 'plan_fact' ? 'План: ' : '', m)}{line('Факт: ', fm)}</div> : null
       })()}
       {usesDataset && (
-        <F t="Датасет"><select style={sel} value={dataset} onChange={(e) => { setDataset(e.target.value); const nf = numFields(e.target.value); setValueField(nf[0]?.code || ''); setPlanField(nf[0]?.code || ''); setFactField(nf[0]?.code || ''); setMultiFields([]) }}>{sources.datasets.map((d) => <option key={d.code} value={d.code}>{dsOption(d)}</option>)}</select></F>
+        <Field size="sm" label="Датасет"><select style={sel} value={dataset} onChange={(e) => { setDataset(e.target.value); const nf = numFields(e.target.value); setValueField(nf[0]?.code || ''); setPlanField(nf[0]?.code || ''); setFactField(nf[0]?.code || ''); setMultiFields([]) }}>{sources.datasets.map((d) => <option key={d.code} value={d.code}>{dsOption(d)}</option>)}</select></Field>
       )}
       {usesValueField && (
-        <F t="Поле (значение)"><select style={sel} value={valueField} onChange={(e) => setValueField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></F>
+        <Field size="sm" label="Поле (значение)"><select style={sel} value={valueField} onChange={(e) => setValueField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></Field>
       )}
       {isObjectsCompare && (
-        <F t="Показатель (по подразделениям)"><select style={sel} value={objField} onChange={(e) => setObjField(e.target.value)}>
+        <Field size="sm" label="Показатель (по подразделениям)"><select style={sel} value={objField} onChange={(e) => setObjField(e.target.value)}>
           {allNumFields.length === 0 && <option value="">— нет числовых полей —</option>}
           {allNumFields.map((f) => <option key={f.code} value={f.code}>{f.name} ({f.code})</option>)}
-        </select></F>
+        </select></Field>
       )}
       {isCrossCompare && (
         <div style={{ flexBasis: '100%' }}>
-          <F t="Сопоставлять"><select style={sel} value={matchBy} onChange={(e) => setMatchBy(e.target.value as 'row_label' | 'period')}>
+          <Field size="sm" label="Сопоставлять"><select style={sel} value={matchBy} onChange={(e) => setMatchBy(e.target.value as 'row_label' | 'period')}>
             <option value="row_label">По строке (одинаковые названия в разных файлах)</option>
             <option value="period">По периоду (по месяцу выпуска)</option>
-          </select></F>
-          <F t="Вид"><select style={sel} value={viz} onChange={(e) => setViz(e.target.value)}><option value="bar">Столбцы</option><option value="line">Линии</option></select></F>
+          </select></Field>
+          <Field size="sm" label="Вид"><select style={sel} value={viz} onChange={(e) => setViz(e.target.value)}><option value="bar">Столбцы</option><option value="line">Линии</option></select></Field>
           {/* Именно здесь индекс роста нужен больше всего: два источника разного
               масштаба (миллионы уведомлений и тысячи записей) на одной оси
               несравнимы, пока каждый не приведён к своему старту за 100 %. */}
@@ -692,13 +693,13 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           <div style={{ fontSize: 11, color: 'var(--text-muted)', margin: '8px 0 4px' }}>Источники (минимум 2, из разных датасетов/файлов)</div>
           {crossSeries.map((it, i) => (
             <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 6, flexWrap: 'wrap' }}>
-              <F t="Датасет"><select style={sel} value={it.dataset_code} onChange={(e) => { const nf = numFields(e.target.value); updateCross(i, { dataset_code: e.target.value, value_field: nf[0]?.code || '' }) }}>
+              <Field size="sm" label="Датасет"><select style={sel} value={it.dataset_code} onChange={(e) => { const nf = numFields(e.target.value); updateCross(i, { dataset_code: e.target.value, value_field: nf[0]?.code || '' }) }}>
                 {sources.datasets.map((d) => <option key={d.code} value={d.code}>{dsOption(d)}</option>)}
-              </select></F>
-              <F t="Поле"><select style={sel} value={it.value_field} onChange={(e) => updateCross(i, { value_field: e.target.value })}>
+              </select></Field>
+              <Field size="sm" label="Поле"><select style={sel} value={it.value_field} onChange={(e) => updateCross(i, { value_field: e.target.value })}>
                 {numFields(it.dataset_code).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
-              </select></F>
-              <F t="Подпись серии (необяз.)"><input style={{ ...sel, width: 160 }} placeholder={`${it.dataset_code}.${it.value_field}`} value={it.label} onChange={(e) => updateCross(i, { label: e.target.value })} /></F>
+              </select></Field>
+              <Field size="sm" label="Подпись серии (необяз.)"><input style={{ ...sel, width: 160 }} placeholder={`${it.dataset_code}.${it.value_field}`} value={it.label} onChange={(e) => updateCross(i, { label: e.target.value })} /></Field>
               <button type="button" style={{ ...btnGhost, height: 34 }} disabled={crossSeries.length <= 2} onClick={() => removeCrossItem(i)} title={crossSeries.length <= 2 ? 'Минимум 2 источника' : 'Убрать источник'}>✕</button>
             </div>
           ))}
@@ -707,18 +708,18 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       )}
       {type === 'field_list' && (
         <>
-          <F t="Порядок">
+          <Field size="sm" label="Порядок">
             <select style={sel} value={flSort} onChange={(e) => setFlSort(e.target.value)}>
               <option value="value">По величине</option>
               <option value="change">По изменению (кто просел — сверху)</option>
               <option value="name">По названию</option>
             </select>
-          </F>
-          <F t="Группировать по началу имени">
+          </Field>
+          <Field size="sm" label="Группировать по началу имени">
             <input style={{ ...sel, width: 130 }} value={groupSep} placeholder="напр. · или :"
               onChange={(e) => setGroupSep(e.target.value)}
               title="Разделитель в имени графы. У формы РЦО это « · » («Ведомство · Услуга · Показатель»), у «Статистики услуг» — «:». Пусто — плоский список без заголовков." />
-          </F>
+          </Field>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }}
             title="Показатели без значений за этот отчёт. Их число называется под таблицей — молча они не пропадают.">
             <input type="checkbox" checked={hideZero} onChange={(e) => setHideZero(e.target.checked)} />Скрывать пустые
@@ -727,18 +728,18 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       )}
       {type === 'spark_table' && (
         <>
-          <F t="Отчётов в линии">
+          <Field size="sm" label="Отчётов в линии">
             <input style={{ ...sel, width: 110 }} type="number" min={2} max={24}
               value={sparkPeriods} onChange={(e) => setSparkPeriods(e.target.value)}
               title="Сколько последних отчётов показывает линия. На двух точках она вырождается в отрезок и формы движения не показывает." />
-          </F>
-          <F t="Порядок строк">
+          </Field>
+          <Field size="sm" label="Порядок строк">
             <select style={sel} value={sparkSort} onChange={(e) => setSparkSort(e.target.value)}>
               <option value="value">По величине</option>
               <option value="change">По изменению (кто просел — сверху)</option>
               <option value="form">Как в форме</option>
             </select>
-          </F>
+          </Field>
         </>
       )}
       {type === 'ranked' && (
@@ -747,7 +748,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
               Показываем переключатель только там, где форма называет своё
               устройство: у плоской формы мер нет, и выбирать не из чего. */}
           {(sources.datasets.find((d) => d.code === dataset)?.measures || []).length > 0 && (
-            <F t="Ранжируем по">
+            <Field size="sm" label="Ранжируем по">
               <select style={sel} value={rankMeasure} onChange={(e) => setRankMeasure(e.target.value)}
                 title="Мера складывает графы выбранной ветки лестницы: спустившись в ведомство, рейтинг покажет отделения внутри него. Одна графа внутри ветки замолкает.">
                 <option value="">— одной графе —</option>
@@ -755,22 +756,22 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
                   <option key={m} value={m}>мере «{m}»</option>
                 ))}
               </select>
-            </F>
+            </Field>
           )}
-          <F t="План (необяз.)"><select style={sel} value={planField} onChange={(e) => setPlanField(e.target.value)}>
+          <Field size="sm" label="План (необяз.)"><select style={sel} value={planField} onChange={(e) => setPlanField(e.target.value)}>
             <option value="">— без плана —</option>
             {numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
-          </select></F>
-          <F t="Порядок">
+          </select></Field>
+          <Field size="sm" label="Порядок">
             <select style={sel} value={rankBy} onChange={(e) => setRankBy(e.target.value)} disabled={!planField}
               title={planField ? 'По выполнению плана крупное отделение не выигрывает автоматически: сравниваются не размеры, а исполнение'
                 : 'Чтобы ранжировать по выполнению плана, укажите поле плана'}>
               <option value="value">По значению</option>
               <option value="plan_pct">По выполнению плана, %</option>
             </select>
-          </F>
-          <F t="Строк с каждого конца"><input style={{ ...sel, width: 100 }} type="number" min={1} max={15}
-            value={topN} onChange={(e) => setTopN(e.target.value)} /></F>
+          </Field>
+          <Field size="sm" label="Строк с каждого конца"><input style={{ ...sel, width: 100 }} type="number" min={1} max={15}
+            value={topN} onChange={(e) => setTopN(e.target.value)} /></Field>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }}
             title="Антитоп — то, ради чего рейтинг чаще всего и открывают: кто отстаёт.">
             <input type="checkbox" checked={showBottom} onChange={(e) => setShowBottom(e.target.checked)} />Показывать антитоп
@@ -785,13 +786,13 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           </div>
           {pairs.map((it, i) => (
             <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 6, flexWrap: 'wrap' }}>
-              <F t="План"><select style={sel} value={it.plan_field} onChange={(e) => updatePair(i, { plan_field: e.target.value })}>
+              <Field size="sm" label="План"><select style={sel} value={it.plan_field} onChange={(e) => updatePair(i, { plan_field: e.target.value })}>
                 {numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
-              </select></F>
-              <F t="Факт"><select style={sel} value={it.fact_field} onChange={(e) => updatePair(i, { fact_field: e.target.value })}>
+              </select></Field>
+              <Field size="sm" label="Факт"><select style={sel} value={it.fact_field} onChange={(e) => updatePair(i, { fact_field: e.target.value })}>
                 {numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
-              </select></F>
-              <F t="Подпись строки (необяз.)"><input style={{ ...sel, width: 160 }} placeholder="имя графы факта" value={it.label} onChange={(e) => updatePair(i, { label: e.target.value })} /></F>
+              </select></Field>
+              <Field size="sm" label="Подпись строки (необяз.)"><input style={{ ...sel, width: 160 }} placeholder="имя графы факта" value={it.label} onChange={(e) => updatePair(i, { label: e.target.value })} /></Field>
               <button type="button" style={{ ...btnGhost, height: 34 }} disabled={pairs.length <= 1} onClick={() => removePair(i)} title={pairs.length <= 1 ? 'Нужна хотя бы одна пара' : 'Убрать строку'}>✕</button>
             </div>
           ))}
@@ -800,20 +801,20 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       )}
       {type === 'thermometer' && (
         <>
-          <F t="План"><select style={sel} value={planField} onChange={(e) => setPlanField(e.target.value)}>
+          <Field size="sm" label="План"><select style={sel} value={planField} onChange={(e) => setPlanField(e.target.value)}>
             {numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
-          </select></F>
-          <F t="Факт"><select style={sel} value={factField} onChange={(e) => setFactField(e.target.value)}>
+          </select></Field>
+          <Field size="sm" label="Факт"><select style={sel} value={factField} onChange={(e) => setFactField(e.target.value)}>
             {numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
-          </select></F>
-          <F t="Срок">
+          </select></Field>
+          <Field size="sm" label="Срок">
             <input style={{ ...sel, width: 150 }} type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)}
               title="Дата, к которой план должен быть выполнен. В госформе она обычно написана в имени графы плана — «до 1 сентября 2026 г.»" />
-          </F>
-          <F t="Отсчёт с (пусто — первый отчёт)">
+          </Field>
+          <Field size="sm" label="Отсчёт с (пусто — первый отчёт)">
             <input style={{ ...sel, width: 150 }} type="date" value={thermStart} onChange={(e) => setThermStart(e.target.value)}
               title="От этой даты считается «сколько срока прошло». По умолчанию — дата первого отчёта формы: выдуманное начало сделало бы отставание или опережение неправдой." />
-          </F>
+          </Field>
           {!deadline && (
             <div style={{ flexBasis: '100%', fontSize: 11, color: 'var(--warn)' }}>
               Без срока термометр не считается: «успеваем ли» существует только относительно даты.
@@ -822,10 +823,10 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         </>
       )}
       {type === 'gauge' && (
-        <F t="Шкала, max (пусто — авто)"><input style={{ ...sel, width: 130 }} type="number" placeholder="напр. 100" value={gaugeMax} onChange={(e) => setGaugeMax(e.target.value)} /></F>
+        <Field size="sm" label="Шкала, max (пусто — авто)"><input style={{ ...sel, width: 130 }} type="number" placeholder="напр. 100" value={gaugeMax} onChange={(e) => setGaugeMax(e.target.value)} /></Field>
       )}
       {['kpi', 'gauge'].includes(type) && (
-        <F t="Цель (пусто — нет)"><input style={{ ...sel, width: 130 }} type="number" placeholder="напр. 200" value={target} onChange={(e) => setTarget(e.target.value)} /></F>
+        <Field size="sm" label="Цель (пусто — нет)"><input style={{ ...sel, width: 130 }} type="number" placeholder="напр. 200" value={target} onChange={(e) => setTarget(e.target.value)} /></Field>
       )}
       {/* Карточка с одним числом не отвечает на вопрос «много это или мало».
           Прирост к прошлому отчёту и мини-график отвечают — но каждый стоит
@@ -862,35 +863,35 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
             <input type="checkbox" checked={growthIndex} onChange={(e) => setGrowthIndex(e.target.checked)} />Индекс роста (первая точка = 100 %)
           </label>
           {growthIndex && (
-            <F t="База индекса (100 %)">
+            <Field size="sm" label="База индекса (100 %)">
               <input type="date" style={sel} value={indexBase} onChange={(e) => setIndexBase(e.target.value)}
                 title="Пусто — первый отчёт ряда. Иначе рост считается от выбранного отчёта: «сколько сейчас относительно 22.07»." />
               <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4, maxWidth: 320 }}>
                 Пусто — считаем от первого отчёта ряда. Выбранная дата должна быть отчётной датой файла.
               </div>
-            </F>
+            </Field>
           )}
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }} title="Отметить точки, отклонившиеся от линии тренда больше чем на N стандартных отклонений (простая статистика, без ИИ)">
             <input type="checkbox" checked={anomalies} onChange={(e) => setAnomalies(e.target.checked)} />Отмечать аномалии
           </label>
           {anomalies && (
-            <F t="Порог, σ">
+            <Field size="sm" label="Порог, σ">
               <input style={{ ...sel, width: 70 }} type="number" min="0.5" step="0.5" value={anomalyThreshold} onChange={(e) => setAnomalyThreshold(e.target.value)} />
-            </F>
+            </Field>
           )}
         </>
       )}
       {type === 'matrix' && (
-        <F t="Что в строках">
+        <Field size="sm" label="Что в строках">
           <select style={sel} value={matrixBy} onChange={(e) => setMatrixBy(e.target.value)}
             title="У сводной формы строка одна — тогда осмыслен разрез «показатели × даты»">
             <option value="rows">Строки формы (районы, отделения) × даты</option>
             <option value="fields">Показатели формы × даты</option>
           </select>
-        </F>
+        </Field>
       )}
       {type === 'waterfall' && (
-        <F t="Из чего складывается итог">
+        <Field size="sm" label="Из чего складывается итог">
           <select style={sel} value={wfBy} onChange={(e) => setWfBy(e.target.value)}
             title="«Вклад периодов» отвечает на «за счёт чего итог такой», «вклад строк» — на «кто сколько дал»">
             <option value="periods">Вклад периодов (отчёты или месяцы)</option>
@@ -901,10 +902,10 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
               ? 'У накопительного итога вклад периода — это прирост к предыдущему, а первый столбик показывает уровень, с которого начали. Для долей вид не строится: вклады долей не складываются.'
               : 'Столбик на строку формы; если строк много, хвост складывается в «Прочие» — иначе сумма столбиков перестала бы сходиться с итогом.'}
           </div>
-        </F>
+        </Field>
       )}
       {type === 'matrix' && (
-        <F t="Что в столбцах">
+        <Field size="sm" label="Что в столбцах">
           <select style={sel} value={periodGroup} onChange={(e) => setPeriodGroup(e.target.value)}
             title="У ежедневной формы полсотни отчётов за два месяца: по отчётам матрица отвечает на «что было на прошлой неделе», по месяцам — на «как прошёл месяц»">
             <option value="report">Отчётные даты</option>
@@ -915,24 +916,24 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
               ? 'Месяц собирается из отчётов по смыслу показателя: потоки складываются, накопительный итог берётся последним отчётом месяца, доли усредняются. Число отчётов в каждом месяце виджет назовёт сам — месяцы неравны между собой.'
               : 'Столбец на каждый отчёт.'}
           </div>
-        </F>
+        </Field>
       )}
       {type === 'matrix' && (
-        <F t={periodGroup === 'month' ? 'Сколько последних месяцев' : 'Сколько последних отчётов'}>
+        <Field size="sm" label={periodGroup === 'month' ? 'Сколько последних месяцев' : 'Сколько последних отчётов'}>
           <input style={{ ...sel, width: 80 }} type="number" min="2" max="52" value={maxPeriods}
             onChange={(e) => setMaxPeriods(e.target.value)}
             title="Недельная форма за год даёт полсотни столбцов — матрица перестаёт читаться. Сколько отчётов есть всего, виджет скажет сам." />
           <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4, maxWidth: 320 }}>
             Строки формы × {periodGroup === 'month' ? 'месяцы' : 'отчётные даты'}: в ячейке значение и прирост к предыдущему столбцу.
           </div>
-        </F>
+        </Field>
       )}
       {/* Условное форматирование таблицы: у каждого числового столбца свой
           режим. Полоска отвечает на «много это или мало на фоне остальных»,
           цвет — на «в норме или нет»; смешивать их в одном столбце нельзя,
           иначе непонятно, что означает заливка. */}
       {type === 'table' && dataset && numFields(dataset).length > 0 && (
-        <F t="Оформление ячеек (необязательно)">
+        <Field size="sm" label="Оформление ячеек (необязательно)">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 150, overflowY: 'auto',
             width: 'min(520px, 100%)', boxSizing: 'border-box',
             padding: '4px 6px', border: '1px solid var(--border-faint)', borderRadius: 8 }}>
@@ -953,11 +954,11 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
             Цвет берётся из порогов виджета — их задаёт кнопка ⚠ у таблицы на дашборде;
             пока порогов нет, столбец останется без заливки.
           </span>
-        </F>
+        </Field>
       )}
       {usesMulti && (
         <>
-          <F t={type === 'heatmap' ? 'Поля (столбцы карты)'
+          <Field size="sm" label={type === 'heatmap' ? 'Поля (столбцы карты)'
             : type === 'funnel' ? 'Этапы воронки — в порядке следования'
             : type === 'matrix' ? 'Показатели — строками матрицы' : 'Поля (несколько)'}>
             {/* Высота была жёстко задана в 34px: полтора десятка длинных имён
@@ -976,22 +977,22 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
                 </label>
               ))}
             </div>
-          </F>
+          </Field>
           {type === 'compare' && (
             <>
-              <F t="Вид"><select style={sel} value={viz} onChange={(e) => setViz(e.target.value)}><option value="bar">Столбцы</option><option value="line">Линии</option></select></F>
+              <Field size="sm" label="Вид"><select style={sel} value={viz} onChange={(e) => setViz(e.target.value)}><option value="bar">Столбцы</option><option value="line">Линии</option></select></Field>
               {/* Показатели одной формы различаются на два порядка (2 357 470
                   против 7 078): на линейной шкале маленькие столбики
                   вырождаются в полоску у нуля. «Авто» включает логарифм, когда
                   разброс больше чем в 100 раз. */}
-              <F t="Шкала">
+              <Field size="sm" label="Шкала">
                 <select style={sel} value={scale} onChange={(e) => setScale(e.target.value)}
                   title="Логарифмическая шкала показывает и большие, и маленькие показатели рядом">
                   <option value="">авто (по разбросу)</option>
                   <option value="linear">линейная</option>
                   <option value="log">логарифмическая</option>
                 </select>
-              </F>
+              </Field>
             </>
           )}
         </>
@@ -999,7 +1000,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       {/* У светофора план необязателен: без него плитки красятся по порогам
           самого значения, с ним — по проценту выполнения. */}
       {type === 'status_grid' && (
-        <F t="Поле плана (необязательно) — тогда цвет по % выполнения">
+        <Field size="sm" label="Поле плана (необязательно) — тогда цвет по % выполнения">
           <select style={sel} value={planField} onChange={(e) => setPlanField(e.target.value)}>
             <option value="">без плана</option>
             {numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
@@ -1013,12 +1014,12 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
               ? 'Цвет по умолчанию: красный ниже 90 % плана, жёлтый ниже 100 %, зелёный от 100 %. Поменять — кнопкой ⚠ у виджета.'
               : 'Без плана плитки красятся только по порогам самого значения — задайте их кнопкой ⚠ у виджета, иначе все плитки будут одного цвета.'}
           </div>
-        </F>
+        </Field>
       )}
       {type === 'plan_fact' && source === 'dataset' && (
         <>
-          <F t="Поле (план)"><select style={sel} value={planField} onChange={(e) => setPlanField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></F>
-          <F t="Поле (факт)"><select style={sel} value={factField} onChange={(e) => setFactField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></F>
+          <Field size="sm" label="Поле (план)"><select style={sel} value={planField} onChange={(e) => setPlanField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></Field>
+          <Field size="sm" label="Поле (факт)"><select style={sel} value={factField} onChange={(e) => setFactField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></Field>
           {/* «Успеем ли к сроку» — вопрос, ради которого на план-факт и смотрят.
               Прогноз линейный: средний темп между первым и последним отчётом. */}
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }}
@@ -1035,9 +1036,9 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           </label>
           {ownFilter && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-              <F t="С даты"><input type="date" style={sel} value={ownFrom} onChange={(e) => setOwnFrom(e.target.value)} /></F>
-              <F t="По дату"><input type="date" style={sel} value={ownTo} onChange={(e) => setOwnTo(e.target.value)} /></F>
-              <F t="Строка">{(() => {
+              <Field size="sm" label="С даты"><input type="date" style={sel} value={ownFrom} onChange={(e) => setOwnFrom(e.target.value)} /></Field>
+              <Field size="sm" label="По дату"><input type="date" style={sel} value={ownTo} onChange={(e) => setOwnTo(e.target.value)} /></Field>
+              <Field size="sm" label="Строка">{(() => {
                 // Для «Сравнения источников» строки берём из ВЫБРАННЫХ источников
                 // (не из общего `dataset` — он для этого типа виджета не используется).
                 const rows = isCrossCompare
@@ -1046,7 +1047,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
                 return rows.length
                   ? <select style={sel} value={ownRow} onChange={(e) => setOwnRow(e.target.value)}><option value="">— все строки —</option>{rows.map((r) => <option key={r} value={r}>{r}</option>)}</select>
                   : <input style={sel} value={ownRow} onChange={(e) => setOwnRow(e.target.value)} placeholder="напр. Паспорт" />
-              })()}</F>
+              })()}</Field>
             </div>
           )}
         </div>

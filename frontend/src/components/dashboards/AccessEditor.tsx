@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { addDashboardGrant, listDashboardGrants, removeDashboardGrant, type Dashboard, type DashGrant, type GrantTargets, type GrantWidget } from '../../api'
-import { F, btn, muted, rmBtn, sel } from './shared'
+import { btn, muted, rmBtn, sel } from './shared'
 import { Modal, ModalTitle } from '../Modal'
+import Field from '../Field'
 
 export function AccessEditor({ dashboard, onClose }: { dashboard: Dashboard; onClose: () => void }) {
   const [grants, setGrants] = useState<DashGrant[]>([])
@@ -84,26 +85,26 @@ export function AccessEditor({ dashboard, onClose }: { dashboard: Dashboard; onC
       )}
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <F t="Область"><select style={sel} value={scope} onChange={(e) => { setScope(e.target.value as 'dashboard' | 'widget'); setWid('') }}>
+        <Field size="sm" label="Область"><select style={sel} value={scope} onChange={(e) => { setScope(e.target.value as 'dashboard' | 'widget'); setWid('') }}>
           <option value="dashboard">Весь дашборд</option><option value="widget">Отдельный виджет</option>
-        </select></F>
+        </select></Field>
         {scope === 'widget' && (
-          <F t="Виджет">
+          <Field size="sm" label="Виджет">
             <select style={{ ...sel, minWidth: 180 }} value={wid} onChange={(e) => setWid(e.target.value)}>
               <option value="">выберите…</option>
               {widgets.map((w) => <option key={w.id} value={w.id}>{w.name} ({w.page_title})</option>)}
             </select>
-          </F>
+          </Field>
         )}
-        <F t="Кому"><select style={sel} value={gtype} onChange={(e) => { setGtype(e.target.value as 'role' | 'user'); setGid('') }}>
+        <Field size="sm" label="Кому"><select style={sel} value={gtype} onChange={(e) => { setGtype(e.target.value as 'role' | 'user'); setGid('') }}>
           <option value="user">Пользователю</option><option value="role">Роли</option>
-        </select></F>
-        <F t={gtype === 'role' ? 'Роль' : 'Пользователь'}>
+        </select></Field>
+        <Field size="sm" label={gtype === 'role' ? 'Роль' : 'Пользователь'}>
           <select style={{ ...sel, minWidth: 180 }} value={gid} onChange={(e) => setGid(e.target.value)}>
             <option value="">выберите…</option>
             {options.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
           </select>
-        </F>
+        </Field>
         <button style={btn} disabled={busy} onClick={add}>＋ Выдать доступ</button>
       </div>
       {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 10 }}>{err}</div>}

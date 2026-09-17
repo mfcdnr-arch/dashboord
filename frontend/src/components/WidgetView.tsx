@@ -2588,7 +2588,7 @@ function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
 }
 
 const muted: React.CSSProperties = { fontSize: 11, color: 'var(--text-faint)' }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 12, padding: '6px 8px', borderRadius: 6 }
+const errBox: React.CSSProperties = { fontSize: 12, padding: '6px 8px', borderRadius: 6, marginBottom: 0 }
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '4px 8px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '4px 8px' }
 const drillBtn: React.CSSProperties = { marginTop: 8, border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12, padding: 0 }

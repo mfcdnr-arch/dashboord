@@ -46,7 +46,7 @@ export default function LeadershipPage(
       {picker && <FeaturedPicker onClose={() => setPicker(false)} onSaved={load} />}
       {grantOpen && <GrantAccessDialog onClose={() => setGrantOpen(false)} onDone={load} />}
 
-      {error && <Notice style={errBox}>{error}</Notice>}
+      {error && <Notice>{error}</Notice>}
       {!items && !error && <div style={{ color: 'var(--text-muted)' }}>Загрузка…</div>}
 
       {items && items.length === 0 && (
@@ -173,8 +173,4 @@ const empty: React.CSSProperties = {
 const draftBadge: React.CSSProperties = {
   fontSize: 11, color: 'var(--warn)', border: '1px solid var(--warn)', borderRadius: 10,
   padding: '1px 7px', flexShrink: 0,
-}
-const errBox: React.CSSProperties = {
-  background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13,
-  padding: '8px 10px', borderRadius: 8, marginBottom: 12,
 }

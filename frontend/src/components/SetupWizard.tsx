@@ -6,6 +6,7 @@ import {
 } from '../api'
 import { Modal, ModalTitle } from './Modal'
 import Notice from './Notice'
+import Field from './Field'
 
 // Мастер первичной настройки: проводит администратора через заведение отделов,
 // пользователей, первого объекта, ЗАГРУЗКУ ДАННЫХ и СБОРКУ ДАШБОРДА — целиком
@@ -65,7 +66,7 @@ export default function SetupWizard({ onClose, onNavigate }: {
         ))}
       </div>
 
-      {err && <Notice style={errBox}>{err}</Notice>}
+      {err && <Notice>{err}</Notice>}
 
       {step === 'welcome' && (
         <div>
@@ -266,15 +267,15 @@ function StepData({ objects, docsCount, onCreateFolder, onUpload, onGoto }: {
       <h3 style={h3}>Шаг 4. Данные</h3>
       <p style={p}>Загрузите документ (Excel/PDF/CSV/Word) в папку объекта — система распознает таблицу
         и подготовит датасет. Уже загружено: <b>{docsCount}</b>.</p>
-      {local && <Notice style={errBox}>{local}</Notice>}
+      {local && <Notice>{local}</Notice>}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-        <L t="Объект"><select style={input} value={objId} onChange={(e) => setObjId(e.target.value)}>
+        <Field label="Объект"><select style={input} value={objId} onChange={(e) => setObjId(e.target.value)}>
           {objects.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-        </select></L>
-        <L t="Папка"><select style={input} value={folderId} onChange={(e) => setFolderId(e.target.value)}>
+        </select></Field>
+        <Field label="Папка"><select style={input} value={folderId} onChange={(e) => setFolderId(e.target.value)}>
           {folders.length === 0 && <option value="">— нет папок, создайте ниже —</option>}
           {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-        </select></L>
+        </select></Field>
       </div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         <input style={{ ...input, flex: 1 }} placeholder="Новая папка (напр. Отчёты 2026)" value={newFolder}
@@ -282,8 +283,8 @@ function StepData({ objects, docsCount, onCreateFolder, onUpload, onGoto }: {
         <button style={btnGhost} onClick={addFolder}>＋ Папка</button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10, alignItems: 'end' }}>
-        <L t="Файл документа"><input type="file" style={{ fontSize: 13 }} onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></L>
-        <L t="Отчётная дата"><input type="date" style={input} value={date} onChange={(e) => setDate(e.target.value)} /></L>
+        <Field label="Файл документа"><input type="file" style={{ fontSize: 13 }} onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Field>
+        <Field label="Отчётная дата"><input type="date" style={input} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <button style={btn} disabled={busy || !folderId || !file || !date} onClick={upload}>{busy ? 'Загрузка…' : '⤴ Загрузить документ'}</button>
@@ -329,9 +330,6 @@ function StepDashboard({ objects, dashCount, onAuto, onCreateEmpty, onGoto }: {
   )
 }
 
-function L({ t, children }: { t: string; children: React.ReactNode }) {
-  return <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: 'var(--text-muted)' }}>{t}{children}</label>
-}
 
 const card: React.CSSProperties = { border: '1px solid var(--border)', borderRadius: 12, padding: 14, background: 'var(--surface-2)' }
 const p: React.CSSProperties = { fontSize: 14, color: 'var(--text-2)', lineHeight: 1.5, margin: '0 0 14px' }
@@ -343,4 +341,3 @@ const btnGhost: React.CSSProperties = { height: 36, padding: '0 14px', border: '
 const xBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18 }
 const chip: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', background: 'var(--accent-weak-bg)', color: 'var(--accent-text)', padding: '4px 10px', borderRadius: 12, fontSize: 13 }
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }

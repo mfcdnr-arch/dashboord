@@ -42,7 +42,7 @@ import { MissingFieldsDialog } from './dashboards/MissingFieldsDialog'
 import { TemplateCloneDialog } from './dashboards/TemplateCloneDialog'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
 import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
-import { crumb, editHint, errBox, linkDanger, muted, rmBtn } from './dashboards/shared'
+import { crumb, editHint, linkDanger, muted, rmBtn } from './dashboards/shared'
 import { Modal, ModalTitle } from './Modal'
 import Notice from './Notice'
 
@@ -1092,7 +1092,7 @@ export default function DashboardsPage({
         </div>
       )}
 
-      {error && <Notice style={errBox}>{error}</Notice>}
+      {error && <Notice>{error}</Notice>}
 
       {!sel && (
         <>

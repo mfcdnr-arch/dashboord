@@ -139,7 +139,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
   return (
     <div>
       <h1 style={{ fontSize: 20, margin: '0 0 16px' }}>Отчёты</h1>
-      {error && <Notice style={errBox}>{error}</Notice>}
+      {error && <Notice>{error}</Notice>}
 
       {/* Здоровье системы + автопочинка */}
       <Section title="Здоровье системы" hint="обновляется автоматически каждые 15 с">
@@ -716,7 +716,6 @@ function iso(d: Date): string {
 }
 
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 const btnGhost: React.CSSProperties = { height: 32, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-2)', fontSize: 13, cursor: 'pointer' }
 const btn: React.CSSProperties = { height: 32, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
 const inp: React.CSSProperties = { height: 30, padding: '0 8px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13 }
@@ -834,8 +833,8 @@ function HistorySection() {
   return (
     <Section title="Очистка истории" hint="только владелец системы; действие необратимо">
       {confirmNode}
-      {err && <Notice style={errBox}>{err}</Notice>}
-      {msg && <Notice kind="ok" style={{ ...errBox, background: 'var(--success-bg)', color: 'var(--success)' }}>{msg}</Notice>}
+      {err && <Notice>{err}</Notice>}
+      {msg && <Notice kind="ok">{msg}</Notice>}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
         <label style={lbl}>
           удалять записи старше

@@ -13,6 +13,7 @@ import { Modal, ModalTitle } from './Modal'
 
 import { RowToggleCell } from './TableParts'
 import Notice from './Notice'
+import Field from './Field'
 function fmtDt(iso: string | null): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -180,7 +181,7 @@ export default function UsersPage({ me }: { me: { id: string; roles: string[] } 
           </div>
         </div>
       )}
-      {error && <Notice style={errBox}>{error}</Notice>}
+      {error && <Notice>{error}</Notice>}
       {notice && (
         <div style={{ background: 'var(--success-bg)', color: 'var(--success)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }}>
           {notice} <button style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer' }} onClick={() => setNotice(null)}>✕</button>
@@ -424,17 +425,17 @@ function UserEditor({ user, depts, roles, canGrantSuper, onClose, onSaved }: {
         <button style={{ ...xBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        {isNew && <L t="Логин *"><input style={input} value={login} onChange={(e) => setLogin(e.target.value)} /></L>}
-        {isNew && <L t="Временный пароль *"><input style={{ ...input, borderColor: pwErr ? '#d99' : undefined }} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={`минимум ${policy.min_length}, буквы+цифры`} /></L>}
+        {isNew && <Field label="Логин *"><input style={input} value={login} onChange={(e) => setLogin(e.target.value)} /></Field>}
+        {isNew && <Field label="Временный пароль *"><input style={{ ...input, borderColor: pwErr ? '#d99' : undefined }} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={`минимум ${policy.min_length}, буквы+цифры`} /></Field>}
         {isNew && <div style={{ gridColumn: '1 / -1', fontSize: 12, color: pwErr ? 'var(--danger)' : 'var(--text-muted)', marginTop: -4 }}>{pwErr || passwordHint(policy)}</div>}
-        <L t="Фамилия"><input style={input} value={last} onChange={(e) => setLast(e.target.value)} /></L>
-        <L t="Имя"><input style={input} value={first} onChange={(e) => setFirst(e.target.value)} /></L>
-        <L t="Отчество"><input style={input} value={middle} onChange={(e) => setMiddle(e.target.value)} /></L>
-        <L t="Email"><input style={input} value={email} onChange={(e) => setEmail(e.target.value)} /></L>
-        <L t="Отдел"><select style={input} value={deptId} onChange={(e) => setDeptId(e.target.value)}>
+        <Field label="Фамилия"><input style={input} value={last} onChange={(e) => setLast(e.target.value)} /></Field>
+        <Field label="Имя"><input style={input} value={first} onChange={(e) => setFirst(e.target.value)} /></Field>
+        <Field label="Отчество"><input style={input} value={middle} onChange={(e) => setMiddle(e.target.value)} /></Field>
+        <Field label="Email"><input style={input} value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+        <Field label="Отдел"><select style={input} value={deptId} onChange={(e) => setDeptId(e.target.value)}>
           <option value="">— без отдела —</option>
           {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select></L>
+        </select></Field>
       </div>
       <div style={{ marginTop: 12 }}>
         <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13 }}>
@@ -508,9 +509,6 @@ const tabOn: React.CSSProperties = {
   ...tabOff, border: '1px solid var(--accent)', background: 'var(--accent)', color: 'var(--on-accent)',
 }
 
-function L({ t, children }: { t: string; children: React.ReactNode }) {
-  return <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: 'var(--text-muted)' }}>{t}{children}</label>
-}
 
 const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13 }
 const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
@@ -522,4 +520,3 @@ const xBtn: React.CSSProperties = { border: 'none', background: 'none', color: '
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px' }
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }

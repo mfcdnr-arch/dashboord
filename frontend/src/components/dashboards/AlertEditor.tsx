@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { updateWidget, type Widget } from '../../api'
-import { F, btn, btnGhost, muted, rmBtn, sel } from './shared'
+import { btn, btnGhost, muted, rmBtn, sel } from './shared'
 import { Modal, ModalTitle } from '../Modal'
+import Field from '../Field'
 
 // ── Редактор порогов KPI-алерта (условное форматирование) ──────────────────
 type AlertRule = { level: string; op: string; value: string; value2?: string; label?: string }
@@ -86,11 +87,11 @@ export function AlertEditor({ widget, onClose, onSaved }: { widget: Widget; onCl
 
       {onOpts && (
         <div style={{ marginBottom: 12 }}>
-          <F t="Сравнивать по">
+          <Field size="sm" label="Сравнивать по">
             <select style={sel} value={alertOn} onChange={(e) => setAlertOn(e.target.value)}>
               {onOpts.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
             </select>
-          </F>
+          </Field>
         </div>
       )}
 
@@ -110,13 +111,13 @@ export function AlertEditor({ widget, onClose, onSaved }: { widget: Widget; onCl
       )}
       {rules.map((r, i) => (
         <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 8, borderBottom: '1px solid var(--surface-2)', paddingBottom: 8 }}>
-          <F t="Уровень"><select style={sel} value={r.level} onChange={(e) => set(i, { level: e.target.value })}>{LEVELS.map((l) => <option key={l.v} value={l.v}>{l.t}</option>)}</select></F>
-          <F t="Условие"><select style={sel} value={r.op} onChange={(e) => set(i, { op: e.target.value })}>{OPS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}</select></F>
-          <F t="Значение"><input style={{ ...sel, width: 90 }} type="number" value={r.value} onChange={(e) => set(i, { value: e.target.value })} /></F>
+          <Field size="sm" label="Уровень"><select style={sel} value={r.level} onChange={(e) => set(i, { level: e.target.value })}>{LEVELS.map((l) => <option key={l.v} value={l.v}>{l.t}</option>)}</select></Field>
+          <Field size="sm" label="Условие"><select style={sel} value={r.op} onChange={(e) => set(i, { op: e.target.value })}>{OPS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}</select></Field>
+          <Field size="sm" label="Значение"><input style={{ ...sel, width: 90 }} type="number" value={r.value} onChange={(e) => set(i, { value: e.target.value })} /></Field>
           {(r.op === 'between' || r.op === 'outside') && (
-            <F t="…до"><input style={{ ...sel, width: 90 }} type="number" value={r.value2} onChange={(e) => set(i, { value2: e.target.value })} /></F>
+            <Field size="sm" label="…до"><input style={{ ...sel, width: 90 }} type="number" value={r.value2} onChange={(e) => set(i, { value2: e.target.value })} /></Field>
           )}
-          <F t="Подпись (необяз.)"><input style={{ ...sel, width: 150 }} placeholder="напр. План не выполнен" value={r.label} onChange={(e) => set(i, { label: e.target.value })} /></F>
+          <Field size="sm" label="Подпись (необяз.)"><input style={{ ...sel, width: 150 }} placeholder="напр. План не выполнен" value={r.label} onChange={(e) => set(i, { label: e.target.value })} /></Field>
           <button style={rmBtn} onClick={() => del(i)} title="Удалить правило">✕</button>
         </div>
       ))}

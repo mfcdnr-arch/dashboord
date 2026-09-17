@@ -9,7 +9,7 @@ import {
 import { listUsers, AppUser } from '../api/users'
 import WidgetView from './WidgetView'
 import { useConfirm } from './dashboards/ConfirmDialog'
-import { btn, btnGhost, crumb, errBox, input, linkDanger, muted, sel, widgetCard, wtBadge } from './dashboards/shared'
+import { btn, btnGhost, crumb, input, linkDanger, muted, sel, widgetCard, wtBadge } from './dashboards/shared'
 import { Modal, ModalTitle } from './Modal'
 import Notice from './Notice'
 
@@ -91,7 +91,7 @@ export default function ArchivePage({ canManage, isAdmin }: { canManage: boolean
           ))}
           <button style={{ ...btnGhost, marginLeft: 'auto' }} onClick={() => exportArchiveXlsx(opened.id, opened.dashboard_name).catch((e) => setErr((e as Error).message))}>⤓ Excel (слепок)</button>
         </div>
-        {err && <Notice style={errBox}>{err}</Notice>}
+        {err && <Notice>{err}</Notice>}
         {!cur || cur.widgets.length === 0 ? (
           <div style={muted}>На этой странице слепка нет виджетов.</div>
         ) : (
@@ -131,7 +131,7 @@ export default function ArchivePage({ canManage, isAdmin }: { canManage: boolean
         </label>
         {(archFrom || archTo) && <button style={btnGhost} onClick={() => { setArchFrom(''); setArchTo('') }}>✕ дата</button>}
       </div>
-      {err && <Notice style={errBox}>{err}</Notice>}
+      {err && <Notice>{err}</Notice>}
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div style={{ minWidth: 170 }}>
           <MonthBtn active={month === ''} label="Все месяцы" count={months.reduce((a, m) => a + m.count, 0)} onClick={() => setMonth('')} />
@@ -203,7 +203,7 @@ function AccessDialog({ onClose }: { onClose: () => void }) {
         Администраторы и модераторы видят архив всегда. Ниже — обычные пользователи, которым выдан допуск
         (они видят весь архив: слепки содержат полные данные).
       </div>
-      {err && <Notice style={errBox}>{err}</Notice>}
+      {err && <Notice>{err}</Notice>}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <select style={{ ...sel, flex: 1 }} aria-label="Кому открыть доступ к архиву" value={uid} onChange={(e) => setUid(e.target.value)}>
           <option value="">— выберите пользователя —</option>

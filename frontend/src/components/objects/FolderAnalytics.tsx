@@ -31,7 +31,7 @@ export default function FolderAnalytics(
   }
   useEffect(() => { setD(null); load() }, [objectId, folderId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (err) return <Notice style={errBox}>{err}</Notice>
+  if (err) return <Notice flush>{err}</Notice>
   if (!d) return <div style={muted}>Загрузка…</div>
 
   const cov = d.coverage
@@ -252,10 +252,6 @@ const noteBox: React.CSSProperties = {
   background: 'var(--surface-2)', color: 'var(--text-2)', fontSize: 13, padding: '8px 10px',
   borderRadius: 8, marginTop: 8,
 }
-const errBox: React.CSSProperties = {
-  background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8,
-}
-
 // Добавление забытых показателей на дашборд этой папки.
 //
 // Выбор дашборда и страницы обязателен: карточку надо куда-то положить, а
@@ -315,7 +311,7 @@ function AddMissingDialog(
         <ModalTitle>Добавить показатели на дашборд</ModalTitle>
         <button style={{ ...closeBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
-      {err && <Notice style={errBox}>{err}</Notice>}
+      {err && <Notice flush>{err}</Notice>}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
         <label style={{ ...muted, display: 'flex', gap: 6, alignItems: 'center' }}>
           дашборд

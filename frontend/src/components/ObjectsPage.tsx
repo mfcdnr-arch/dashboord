@@ -333,7 +333,7 @@ export default function ObjectsPage(
         {openDoc && <><span style={{ color: 'var(--text-faint)' }}>/</span><span>{openDoc.original_filename}</span></>}
       </div>
 
-      {error && <Notice style={errBox}>{error}</Notice>}
+      {error && <Notice>{error}</Notice>}
 
       {!obj && (
         <Section title="Объекты">
@@ -744,4 +744,3 @@ const btn: React.CSSProperties = { height: 36, padding: '0 14px', border: 'none'
 const rowForm: React.CSSProperties = {
   display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center',
 }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }

@@ -153,14 +153,8 @@ const btn: React.CSSProperties = {
 const xBtn: React.CSSProperties = {
   border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--text-muted)',
 }
-const errBox: React.CSSProperties = {
-  background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px',
-  borderRadius: 8, marginBottom: 8,
-}
-const okBox: React.CSSProperties = {
-  background: 'var(--success-bg)', color: 'var(--success)', fontSize: 13, padding: '8px 10px',
-  borderRadius: 8, marginBottom: 8,
-}
+const errBox: React.CSSProperties = { marginBottom: 8 }
+const okBox: React.CSSProperties = { marginBottom: 8 }
 const warnBox: React.CSSProperties = {
   background: 'var(--warn-bg)', color: 'var(--warn)', fontSize: 12, padding: '8px 10px',
   borderRadius: 8, marginBottom: 8,

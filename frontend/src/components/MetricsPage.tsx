@@ -134,7 +134,7 @@ export default function MetricsPage({ canManage, isSuperadmin, initialMetricId }
         {sel && <><span style={{ color: 'var(--text-faint)' }}>/</span><span>{sel.metric.name}</span></>}
       </div>
 
-      {error && <Notice style={errBox}>{error}</Notice>}
+      {error && <Notice>{error}</Notice>}
 
       {placeOpen && (
         <PlaceMetricsDialog
@@ -505,7 +505,7 @@ function MetricDetail({ data, canManage, isSuperadmin, onError, onChanged, onDel
               </div>
             </Notice>
           )}
-          {previewErr && <Notice style={{ ...errBox, marginTop: 10 }}>{previewErr}</Notice>}
+          {previewErr && <Notice style={{ marginTop: 10, marginBottom: 0 }}>{previewErr}</Notice>}
 
           <details style={{ marginTop: 12 }}>
             <summary style={{ fontSize: 13, color: 'var(--accent-text)', cursor: 'pointer' }}>📘 Справочник по формулам</summary>
@@ -596,8 +596,7 @@ const pill: React.CSSProperties = { fontSize: 11, padding: '2px 8px', borderRadi
 const h3: React.CSSProperties = { fontSize: 14, margin: '0 0 8px' }
 const mono: React.CSSProperties = { fontFamily: 'ui-monospace, monospace', fontSize: 13, color: 'var(--text)', background: 'var(--surface-2)', padding: '6px 8px', borderRadius: 6, overflowX: 'auto' }
 const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 14 }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
-const okBox: React.CSSProperties = { background: 'var(--success-bg)', color: 'var(--success)', fontSize: 14, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--success-bg)' }
+const okBox: React.CSSProperties = { fontSize: 14, padding: '10px 12px', border: '1px solid var(--success-bg)', marginBottom: 0 }
 const helpBox: React.CSSProperties = { fontSize: 12.5, color: 'var(--text-2)', marginTop: 8, padding: '10px 12px', background: 'var(--surface-2)', border: '1px solid var(--border-faint)', borderRadius: 8, lineHeight: 1.5 }
 const helpH: React.CSSProperties = { fontWeight: 600, color: 'var(--accent-text)', marginTop: 8, marginBottom: 2 }
 const helpUl: React.CSSProperties = { margin: '2px 0 0', paddingLeft: 18 }

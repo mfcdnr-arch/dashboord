@@ -164,8 +164,5 @@ const ghostBtn: React.CSSProperties = {
   background: 'var(--surface-2)', color: 'var(--text)', fontSize: 13, cursor: 'pointer',
 }
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 12, lineHeight: 1.5 }
-const errBox: React.CSSProperties = {
-  background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13,
-  padding: '8px 10px', borderRadius: 8, marginTop: 10,
-}
+const errBox: React.CSSProperties = { marginTop: 10, marginBottom: 0 }
 const xBtn: React.CSSProperties = { border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--text-muted)' }

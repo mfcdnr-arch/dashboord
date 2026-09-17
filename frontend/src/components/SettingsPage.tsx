@@ -4,6 +4,7 @@ import {
   type AllSettings, type OrgThresholds, type RetentionPreview, type SystemThresholds,
 } from '../api'
 import Notice from './Notice'
+import Field from './Field'
 
 // Раздел «Настройки» (admin/superadmin): пороги, которые раньше менялись только
 // правкой .env + рестарт контейнера — теперь через UI, без доступа к серверу.
@@ -53,7 +54,7 @@ export default function SettingsPage({ me }: { me: { roles: string[] } }) {
   useEffect(() => { if (canAdmin) load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!canAdmin) return <div style={{ color: 'var(--danger)' }}>Раздел «Настройки» доступен только администратору.</div>
-  if (!data || !sysForm || !orgForm) return <div>{error ? <Notice style={errBox}>{error}</Notice> : <span style={muted}>Загрузка…</span>}</div>
+  if (!data || !sysForm || !orgForm) return <div>{error ? <Notice>{error}</Notice> : <span style={muted}>Загрузка…</span>}</div>
 
   async function saveSys() {
     setSavingSys(true); setError(null)
@@ -77,20 +78,20 @@ export default function SettingsPage({ me }: { me: { roles: string[] } }) {
   return (
     <div>
       <h1 style={{ fontSize: 20, margin: '0 0 16px' }}>Настройки</h1>
-      {error && <Notice style={errBox}>{error}</Notice>}
-      {savedAt && !error && <Notice kind="ok" style={okBox}>Сохранено.</Notice>}
+      {error && <Notice>{error}</Notice>}
+      {savedAt && !error && <Notice kind="ok">Сохранено.</Notice>}
 
       <Section title="Данные организации" hint="свежесть и хранение (раньше — только через .env)">
         <div style={grid2}>
-          <Field label="Свежесть данных, дней" hint="если по объекту нет новых данных дольше — уведомление">
+          <Field strong label="Свежесть данных, дней" hint="если по объекту нет новых данных дольше — уведомление">
             <input style={inp} type="number" min={1} value={orgForm.stale_days}
               onChange={(e) => setOrgForm({ ...orgForm, stale_days: e.target.value })} />
           </Field>
-          <Field label="Ретенция, месяцев" hint="0 — хранить без ограничения; окно скользящего удаления старых данных">
+          <Field strong label="Ретенция, месяцев" hint="0 — хранить без ограничения; окно скользящего удаления старых данных">
             <input style={inp} type="number" min={0} value={orgForm.retention_months}
               onChange={(e) => setOrgForm({ ...orgForm, retention_months: e.target.value })} />
           </Field>
-          <Field label="Срок ответа на обращение, часов"
+          <Field strong label="Срок ответа на обращение, часов"
             hint="ничего не запрещает: делает ожидание видимым — в списке обращений просроченные помечаются красным">
             <input style={inp} type="number" min={1} max={720} value={orgForm.appeal_response_hours}
               onChange={(e) => setOrgForm({ ...orgForm, appeal_response_hours: e.target.value })} />
@@ -108,39 +109,39 @@ export default function SettingsPage({ me }: { me: { roles: string[] } }) {
 
       <Section title="Системные пороги" hint="один сервер на инсталляцию — вход и здоровье системы">
         <div style={grid2}>
-          <Field label="Попыток входа до блокировки">
+          <Field strong label="Попыток входа до блокировки">
             <input style={inp} type="number" min={0} value={sysForm.login_max_attempts}
               onChange={(e) => setSysForm({ ...sysForm, login_max_attempts: e.target.value })} />
           </Field>
-          <Field label="Блокировка, минут">
+          <Field strong label="Блокировка, минут">
             <input style={inp} type="number" min={1} value={sysForm.login_lockout_minutes}
               onChange={(e) => setSysForm({ ...sysForm, login_lockout_minutes: e.target.value })} />
           </Field>
-          <Field label="CPU: предупреждение, %">
+          <Field strong label="CPU: предупреждение, %">
             <input style={inp} type="number" min={1} max={99} value={sysForm.cpu_warn}
               onChange={(e) => setSysForm({ ...sysForm, cpu_warn: e.target.value })} />
           </Field>
-          <Field label="CPU: критично, %">
+          <Field strong label="CPU: критично, %">
             <input style={inp} type="number" min={1} max={100} value={sysForm.cpu_crit}
               onChange={(e) => setSysForm({ ...sysForm, cpu_crit: e.target.value })} />
           </Field>
-          <Field label="RAM: предупреждение, %">
+          <Field strong label="RAM: предупреждение, %">
             <input style={inp} type="number" min={1} max={99} value={sysForm.ram_warn}
               onChange={(e) => setSysForm({ ...sysForm, ram_warn: e.target.value })} />
           </Field>
-          <Field label="RAM: критично, %">
+          <Field strong label="RAM: критично, %">
             <input style={inp} type="number" min={1} max={100} value={sysForm.ram_crit}
               onChange={(e) => setSysForm({ ...sysForm, ram_crit: e.target.value })} />
           </Field>
-          <Field label="Диск: предупреждение, %">
+          <Field strong label="Диск: предупреждение, %">
             <input style={inp} type="number" min={1} max={99} value={sysForm.disk_warn}
               onChange={(e) => setSysForm({ ...sysForm, disk_warn: e.target.value })} />
           </Field>
-          <Field label="Диск: критично, %">
+          <Field strong label="Диск: критично, %">
             <input style={inp} type="number" min={1} max={100} value={sysForm.disk_crit}
               onChange={(e) => setSysForm({ ...sysForm, disk_crit: e.target.value })} />
           </Field>
-          <Field label="Перезапусков воркера в час, не больше">
+          <Field strong label="Перезапусков воркера в час, не больше">
             <input style={inp} type="number" min={1} max={10} value={sysForm.worker_restart_max_per_hour}
               onChange={(e) => setSysForm({ ...sysForm, worker_restart_max_per_hour: e.target.value })} />
           </Field>
@@ -186,8 +187,8 @@ function RetentionSection({ savedMonths }: { savedMonths: number }) {
 
   return (
     <Section title="Хранение данных (ретенция)" hint="что будет удалено по окну хранения — до удаления">
-      {err && <Notice style={errBox}>{err}</Notice>}
-      {done && <Notice kind="ok" style={okBox}>{done}</Notice>}
+      {err && <Notice>{err}</Notice>}
+      {done && <Notice kind="ok">{done}</Notice>}
       {busy && !preview && <span style={muted}>Загрузка предпросмотра…</span>}
       {preview && !preview.enabled && (
         <div style={muted}>Ретенция выключена (окно хранения = 0) — старые данные не удаляются.</div>
@@ -259,15 +260,6 @@ function RetentionSection({ savedMonths }: { savedMonths: number }) {
   )
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <label style={{ display: 'block' }}>
-      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{label}</div>
-      {children}
-      {hint && <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>{hint}</div>}
-    </label>
-  )
-}
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -282,8 +274,6 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 }
 
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
-const okBox: React.CSSProperties = { background: 'var(--success-bg)', color: 'var(--success)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 const grid2: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 12 }
 const inp: React.CSSProperties = { width: '100%', height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text)', fontSize: 14 }
 const btn: React.CSSProperties = { height: 34, padding: '0 16px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }

@@ -3,6 +3,7 @@ import { DAYS, createOffice, updateOffice, type DayKey, type Hours, type Office,
 
 import { Modal, ModalTitle } from '../Modal'
 import Notice from '../Notice'
+import Field from '../Field'
 // Карточка отделения: то, что человек видит на точке карты, и то, что
 // администратор правит, когда график или телефон изменились.
 //
@@ -77,29 +78,29 @@ export default function OfficeForm({ office, rowOptions, onClose, onSaved }: {
       <div style={body}>
         {error && <Notice style={errBox}>{error}</Notice>}
 
-        <Row label="Название" required>
+        <Field style={{ marginBottom: 8 }} label="Название" required>
           <input style={inp} value={f.name || ''} onChange={(e) => set('name', e.target.value)}
             placeholder="например: МФЦ №1 по городу Донецк" />
-        </Row>
-        <Row label="Адрес">
+        </Field>
+        <Field style={{ marginBottom: 8 }} label="Адрес">
           <input style={inp} value={f.address || ''} onChange={(e) => set('address', e.target.value)}
             placeholder="например: г. Донецк, ул. Челюскинцев, 167" />
-        </Row>
-        <Row label="Населённый пункт" hint="Заполняется из адреса; правится, если прочитано неверно">
+        </Field>
+        <Field style={{ marginBottom: 8 }} label="Населённый пункт" hint="Заполняется из адреса; правится, если прочитано неверно">
           <input style={inp} value={f.city || ''} onChange={(e) => set('city', e.target.value)} placeholder="например: Донецк" />
-        </Row>
-        <Row label="Телефон">
+        </Field>
+        <Field style={{ marginBottom: 8 }} label="Телефон">
           <div style={{ display: 'flex', gap: 8 }}>
             <input style={{ ...inp, flex: 1 }} value={f.phone || ''} onChange={(e) => set('phone', e.target.value)} placeholder="например: 119" />
             <input style={{ ...inp, flex: 1 }} value={f.phone2 || ''} onChange={(e) => set('phone2', e.target.value)} placeholder="доп. телефон" />
           </div>
-        </Row>
-        <Row label="Почта и сайт">
+        </Field>
+        <Field style={{ marginBottom: 8 }} label="Почта и сайт">
           <div style={{ display: 'flex', gap: 8 }}>
             <input style={{ ...inp, flex: 1 }} value={f.email || ''} onChange={(e) => set('email', e.target.value)} placeholder="например: mfc@example.ru" />
             <input style={{ ...inp, flex: 1 }} value={f.website || ''} onChange={(e) => set('website', e.target.value)} placeholder="https://…" />
           </div>
-        </Row>
+        </Field>
 
         <div style={{ ...blockTitle, marginTop: 14 }}>Режим работы</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10 }}>
@@ -125,22 +126,22 @@ export default function OfficeForm({ office, rowOptions, onClose, onSaved }: {
             )
           })}
         </div>
-        <Row label="Примечание" hint="Обед, особые дни — всё, что не укладывается в часы по дням">
+        <Field style={{ marginBottom: 8 }} label="Примечание" hint="Обед, особые дни — всё, что не укладывается в часы по дням">
           <input style={inp} value={f.note || ''} onChange={(e) => set('note', e.target.value)} placeholder="например: обед 13:00–14:00" />
-        </Row>
+        </Field>
 
         <div style={{ ...blockTitle, marginTop: 14 }}>Место на карте</div>
-        <Row label="Координаты" hint="Пара из шаблона целиком — широта, долгота">
+        <Field style={{ marginBottom: 8 }} label="Координаты" hint="Пара из шаблона целиком — широта, долгота">
           <input style={inp} value={pair} onChange={(e) => applyPair(e.target.value)} placeholder="например: 48.009964,37.808141" />
-        </Row>
-        <Row label="Широта и долгота">
+        </Field>
+        <Field style={{ marginBottom: 8 }} label="Широта и долгота">
           <div style={{ display: 'flex', gap: 8 }}>
             <input style={{ ...inp, flex: 1 }} value={f.lat ?? ''} aria-label="Широта"
               onChange={(e) => set('lat', e.target.value === '' ? null : Number(e.target.value))} placeholder="широта" />
             <input style={{ ...inp, flex: 1 }} value={f.lon ?? ''} aria-label="Долгота"
               onChange={(e) => set('lon', e.target.value === '' ? null : Number(e.target.value))} placeholder="долгота" />
           </div>
-        </Row>
+        </Field>
         {insideHint && <div style={warnBox}>⚠ {insideHint}</div>}
         {f.lat == null && (
           <div style={hintBox}>
@@ -149,13 +150,13 @@ export default function OfficeForm({ office, rowOptions, onClose, onSaved }: {
         )}
 
         <div style={{ ...blockTitle, marginTop: 14 }}>Связь с отчётом</div>
-        <Row label="Строка отчёта" hint="Нужна, чтобы на точке показывалась нагрузка. В отчёте адрес записан иначе, чем в справочнике">
+        <Field style={{ marginBottom: 8 }} label="Строка отчёта" hint="Нужна, чтобы на точке показывалась нагрузка. В отчёте адрес записан иначе, чем в справочнике">
           <select style={inp} value={f.row_label || ''} onChange={(e) => set('row_label', e.target.value || null)}>
             <option value="">— не связано —</option>
             {f.row_label && !rowOptions.includes(f.row_label) && <option value={f.row_label}>{f.row_label}</option>}
             {rowOptions.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
-        </Row>
+        </Field>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginTop: 12, cursor: 'pointer' }}>
           <input type="checkbox" checked={f.is_active !== false} onChange={(e) => set('is_active', e.target.checked)} />
@@ -171,17 +172,6 @@ export default function OfficeForm({ office, rowOptions, onClose, onSaved }: {
   )
 }
 
-function Row({ label, hint, required, children }: { label: string; hint?: string; required?: boolean; children: React.ReactNode }) {
-  return (
-    <label style={{ display: 'block', marginBottom: 8 }}>
-      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 3 }}>
-        {label}{required && <span style={{ color: 'var(--danger)' }}> *</span>}
-        {hint && <span style={{ color: 'var(--text-faint)' }}> — {hint}</span>}
-      </div>
-      {children}
-    </label>
-  )
-}
 
 const head: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid var(--border-faint)' }
 const body: React.CSSProperties = { padding: 16, overflowY: 'auto' }
@@ -191,6 +181,6 @@ const btn: React.CSSProperties = { height: 34, padding: '0 16px', border: 'none'
 const btnGhost: React.CSSProperties = { ...btn, background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border-strong)' }
 const xBtn: React.CSSProperties = { border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', color: 'var(--text-muted)' }
 const blockTitle: React.CSSProperties = { fontSize: 13, fontWeight: 700, marginBottom: 8 }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 10 }
+const errBox: React.CSSProperties = { marginBottom: 10 }
 const warnBox: React.CSSProperties = { background: 'var(--warn-bg, var(--surface-2))', color: 'var(--text)', fontSize: 12, padding: '6px 10px', borderRadius: 8, marginBottom: 8 }
 const hintBox: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 12, marginBottom: 8 }

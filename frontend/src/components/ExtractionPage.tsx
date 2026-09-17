@@ -15,6 +15,7 @@ import { cancelRelease, deleteRelease, listVersionReleases, restoreRelease, type
 import ImpactPanel from './ingestion/ImpactPanel'
 import { Modal, ModalTitle } from './Modal'
 import Notice from './Notice'
+import Field from './Field'
 
 const TYPES = [
   { v: 'number', t: 'Число' },
@@ -422,7 +423,7 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
         {doc.source_type.toUpperCase()} · отчётная дата {doc.reporting_period_start}
       </div>
 
-      {error && <Notice style={errBox}>{error}</Notice>}
+      {error && <Notice>{error}</Notice>}
       {job?.warnings?.map((w, i) => <div key={i} style={warnBox}>⚠ {w}</div>)}
 
       {doc.version_id && canManage && (
@@ -1111,16 +1112,6 @@ function SheetReport({ res }: { res: ReleaseBySheetResult }) {
   )
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: 'var(--text-muted)' }}>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-        {label}{hint && <InfoTip text={hint} />}
-      </span>
-      {children}
-    </label>
-  )
-}
 
 const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 14, padding: 0 }
 const input: React.CSSProperties = { height: 36, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 14 }
@@ -1157,7 +1148,6 @@ const outCell: React.CSSProperties = {
   border: '1px solid var(--border-faint)', padding: '5px 9px',
   whiteSpace: 'normal', overflowWrap: 'anywhere', maxWidth: 190, verticalAlign: 'top',
 }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 const warnBox: React.CSSProperties = { background: 'var(--warn-bg)', color: 'var(--warn)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 8 }
 
 /**

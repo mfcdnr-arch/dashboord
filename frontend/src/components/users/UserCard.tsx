@@ -31,7 +31,7 @@ export default function UserCard({ userId, compact = false }: { userId: string; 
     getUserActivity(userId).then(setData).catch((e) => setErr((e as Error).message))
   }, [userId])
 
-  if (err) return <Notice style={errBox}>{err}</Notice>
+  if (err) return <Notice flush>{err}</Notice>
   if (!data) return <div style={muted}>Загрузка…</div>
   const u = data.user
 
@@ -124,7 +124,3 @@ const badge: React.CSSProperties = {
   background: 'var(--surface-3)', color: 'var(--text-2)', fontSize: 12, flexShrink: 0,
 }
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
-const errBox: React.CSSProperties = {
-  background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13,
-  padding: '8px 10px', borderRadius: 8,
-}

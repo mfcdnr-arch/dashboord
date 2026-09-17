@@ -55,7 +55,7 @@ export default function ModerationPage({ me, onOpenDashboard }: {
       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
         Дашборды, отправленные на проверку. Одобрение публикует дашборд. Собственные одобрять нельзя (конфликт интересов).
       </div>
-      {error && <Notice style={errBox}>{error}</Notice>}
+      {error && <Notice>{error}</Notice>}
 
       {!queue ? <span style={muted}>Загрузка…</span> : queue.length === 0 ? (
         <div style={{ ...muted, padding: '20px 0' }}>Очередь пуста — на проверке ничего нет.</div>
@@ -177,4 +177,3 @@ const xBtn: React.CSSProperties = { border: 'none', background: 'none', color: '
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px' }
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }

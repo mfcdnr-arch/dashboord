@@ -121,7 +121,7 @@ export default function AttendanceChart({ days, periodLabel }: { days: Day[]; pe
             <button style={{ ...linkBtn, marginLeft: 'auto' }}
               onClick={() => { setPicked(null); setDetail(null) }}>свернуть</button>
           </div>
-          {err && <Notice style={errBox}>{err}</Notice>}
+          {err && <Notice flush>{err}</Notice>}
           {loading && <span style={muted}>Загрузка…</span>}
           {detail && detail.users.length === 0 && !loading && (
             <div style={muted}>В этот день никто не входил.</div>
@@ -192,7 +192,4 @@ const chip: React.CSSProperties = {
 const warnChip: React.CSSProperties = {
   fontSize: 12, padding: '2px 9px', borderRadius: 10,
   background: 'var(--warn-bg)', color: 'var(--warn)',
-}
-const errBox: React.CSSProperties = {
-  background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8,
 }

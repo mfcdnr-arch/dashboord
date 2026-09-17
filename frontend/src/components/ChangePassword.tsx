@@ -64,7 +64,7 @@ export default function ChangePassword({
         <div style={{ fontSize: 12, color: pwErr ? 'var(--danger)' : 'var(--text-muted)', marginBottom: 10 }}>{pwErr || passwordHint(policy)}</div>
         <label style={label} htmlFor={`${uid}-repeat`}>Повторите пароль</label>
         <input id={`${uid}-repeat`} style={input} type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
-        {error && <Notice style={errBox}>{error}</Notice>}
+        {error && <Notice>{error}</Notice>}
         <button style={button} disabled={busy || !cur || !pw1 || !pw2}>
           {busy ? 'Сохранение…' : 'Сохранить'}
         </button>
@@ -86,7 +86,4 @@ const input: React.CSSProperties = {
 }
 const button: React.CSSProperties = {
   height: 40, border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 15, cursor: 'pointer', marginTop: 4,
-}
-const errBox: React.CSSProperties = {
-  background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12,
 }

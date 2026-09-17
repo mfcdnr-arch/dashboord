@@ -5,6 +5,7 @@ import {
 } from '../api'
 import { Modal, ModalTitle } from './Modal'
 import Notice from './Notice'
+import Field from './Field'
 
 // Раздел «Аудит действий» (только admin): журнал изменений сущностей
 // (дашборды/виджеты/права). Наполняется триггерами БД, автор — из сессии.
@@ -111,30 +112,30 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
           <button style={ghostBtn} onClick={() => doExport('xlsx')}>⤓ Excel</button>
         </div>
       </div>
-      {error && <Notice style={errBox}>{error}</Notice>}
+      {error && <Notice>{error}</Notice>}
 
       {/* Фильтры */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 14 }}>
-        <F t="Автор">
+        <Field label="Автор">
           <select style={input} value={actor} onChange={(e) => onFilterChange(setActor)(e.target.value)}>
             <option value="">— любой —</option>
             {facets?.actors.map((a) => <option key={a.id} value={a.id}>{a.full_name ? `${a.full_name} (${a.login})` : a.login}</option>)}
           </select>
-        </F>
-        <F t="Тип объекта">
+        </Field>
+        <Field label="Тип объекта">
           <select style={input} value={entityType} onChange={(e) => onFilterChange(setEntityType)(e.target.value)}>
             <option value="">— все —</option>
             {facets?.entity_types.map((et) => <option key={et.code} value={et.code}>{et.label}</option>)}
           </select>
-        </F>
-        <F t="Действие">
+        </Field>
+        <Field label="Действие">
           <select style={input} value={action} onChange={(e) => onFilterChange(setAction)(e.target.value)}>
             <option value="">— все —</option>
             {facets?.actions.map((a) => <option key={a} value={a}>{ACTION_LABEL[a] || a}</option>)}
           </select>
-        </F>
-        <F t="С даты"><input type="date" style={input} value={dateFrom} onChange={(e) => onFilterChange(setDateFrom)(e.target.value)} /></F>
-        <F t="По дату"><input type="date" style={input} value={dateTo} onChange={(e) => onFilterChange(setDateTo)(e.target.value)} /></F>
+        </Field>
+        <Field label="С даты"><input type="date" style={input} value={dateFrom} onChange={(e) => onFilterChange(setDateFrom)(e.target.value)} /></Field>
+        <Field label="По дату"><input type="date" style={input} value={dateTo} onChange={(e) => onFilterChange(setDateTo)(e.target.value)} /></Field>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-2)', height: 34, whiteSpace: 'nowrap' }} title="Просмотры дашбордов по умолчанию скрыты, чтобы журнал изменений не засорялся">
           <input type="checkbox" checked={includeViews} onChange={(e) => { setOffset(0); setIncludeViews(e.target.checked) }} />
           Показывать просмотры
@@ -249,9 +250,6 @@ function DetailModal({ d, onClose }: { d: AuditDetail; onClose: () => void }) {
   )
 }
 
-function F({ t, children }: { t: string; children: React.ReactNode }) {
-  return <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: 'var(--text-muted)' }}>{t}{children}</label>
-}
 
 const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, background: 'var(--surface)' }
 const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12, padding: 0 }
@@ -261,4 +259,3 @@ const xBtn: React.CSSProperties = { border: 'none', background: 'none', color: '
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '6px 10px', verticalAlign: 'top' }
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }

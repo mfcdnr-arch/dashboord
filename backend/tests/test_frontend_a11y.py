@@ -27,7 +27,10 @@ FIELD = re.compile(r"<(input|select|textarea)\b", re.I)
 # комментарий молча вывел обёртку из списка, и 66 полей разом «потеряли»
 # имя; тест при этом остался зелёным, потому что у них есть ещё и title.
 # Ограничиваем длину, а не число строк, и не даём перешагнуть чужой return.
-WRAP_DEF = re.compile(r"(?:export\s+)?(?:function|const)\s+([A-Z]\w*)\s*[=(](?:(?!\breturn\b)[\s\S]){0,400}?return\s*\(?\s*<label\b")
+# Форма `export default function` и длинная типизированная сигнатура тоже
+# должны распознаваться: на обеих страж уже спотыкался и молча переставал
+# видеть обёртку — а значит, и проверять поля, которые она подписывает.
+WRAP_DEF = re.compile(r"(?:export\s+(?:default\s+)?)?(?:function|const)\s+([A-Z]\w*)\s*[=(](?:(?!\breturn\b)[\s\S]){0,1200}?return\s*\(?\s*<label\b")
 PLACEHOLDER = re.compile(r'placeholder=(?:"([^"]*)"|\{`([^`]*)`\}|\{([^}]*)\})')
 # placeholder-пример: показывает, что вписать, но полем не называется
 EXAMPLE = re.compile(r"^\s*(напр\b|например|например:|https?://|…|\.\.\.)", re.I)
@@ -78,7 +81,7 @@ def _sources() -> dict:
 def _unnamed() -> list:
     texts = _sources()
     defs = {p: set(WRAP_DEF.findall(t)) for p, t in texts.items()}
-    exported = {n for p, ns in defs.items() for n in ns if re.search(r"export\s+function\s+" + n + r"\b", texts[p])}
+    exported = {n for p, ns in defs.items() for n in ns if re.search(r"export\s+(?:default\s+)?function\s+" + n + r"\b", texts[p])}
     out = []
     for p, src in texts.items():
         local = defs[p] | {n for n in exported if re.search(r"import[^\n]*\b" + n + r"\b", src)}

@@ -209,7 +209,7 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
           <input id={`${uid}-login`} style={input} value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
           <label style={label} htmlFor={`${uid}-pwd`}>Пароль</label>
           <input id={`${uid}-pwd`} style={input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          {error && <Notice style={errBox}>{error}</Notice>}
+          {error && <Notice>{error}</Notice>}
           <button style={{ ...button, opacity: busy || !username || !password ? 0.6 : 1 }} disabled={busy || !username || !password}>
             {busy ? 'Вход…' : 'Войти'}
           </button>
@@ -258,7 +258,7 @@ function BlockedAppealForm({ login: userLogin, onBack }: { login: string; onBack
           <label style={label} htmlFor={`${uid}-msg`}>Сообщение</label>
           <textarea id={`${uid}-msg`} value={message} onChange={(e) => setMessage(e.target.value)} rows={4}
             style={{ ...input, height: 'auto', padding: '8px 12px', resize: 'vertical', fontFamily: 'inherit' }} />
-          {err && <Notice style={errBox}>{err}</Notice>}
+          {err && <Notice>{err}</Notice>}
           <button style={{ ...button, opacity: busy || !message.trim() ? 0.6 : 1 }} disabled={busy || !message.trim()} onClick={send}>
             {busy ? 'Отправка…' : 'Отправить'}
           </button>
@@ -289,4 +289,3 @@ const card: React.CSSProperties = {
 const label: React.CSSProperties = { fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }
 const input: React.CSSProperties = { height: 40, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 9, marginBottom: 14, fontSize: 14 }
 const button: React.CSSProperties = { height: 42, border: 'none', borderRadius: 9, background: BRAND.primary, color: 'var(--on-accent)', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginTop: 4 }
-const errBox: React.CSSProperties = { background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }

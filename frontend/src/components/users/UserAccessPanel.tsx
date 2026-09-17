@@ -73,7 +73,7 @@ export default function UserAccessPanel({ userId, compact = false }: { userId: s
     }
   }
 
-  if (err && !data) return <Notice style={errBox}>{err}</Notice>
+  if (err && !data) return <Notice flush>{err}</Notice>
   if (!data) return <div style={muted}>Загрузка…</div>
   const changes = diff.grant.length + diff.revoke.length
 
@@ -98,8 +98,8 @@ export default function UserAccessPanel({ userId, compact = false }: { userId: s
         <span style={{ ...muted, marginLeft: 'auto' }}>дашбордов: {items.length}</span>
       </div>
 
-      {err && <Notice style={errBox}>{err}</Notice>}
-      {msg && <Notice kind="ok" style={okBox}>{msg}</Notice>}
+      {err && <Notice flush>{err}</Notice>}
+      {msg && <Notice kind="ok" flush>{msg}</Notice>}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: compact ? 220 : 340, overflowY: 'auto' }}>
         {items.length === 0 && <div style={muted}>Ничего не найдено.</div>}
@@ -181,12 +181,6 @@ const badge: React.CSSProperties = {
   background: 'var(--surface-3)', color: 'var(--text-2)', fontSize: 11, flexShrink: 0,
 }
 const warnBadge: React.CSSProperties = { ...badge, background: 'var(--warn-bg)', color: 'var(--warn)' }
-const errBox: React.CSSProperties = {
-  background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13, padding: '8px 10px', borderRadius: 8,
-}
-const okBox: React.CSSProperties = {
-  background: 'var(--success-bg)', color: 'var(--success)', fontSize: 13, padding: '8px 10px', borderRadius: 8,
-}
 const noteBox: React.CSSProperties = {
   background: 'var(--surface-2)', color: 'var(--text-2)', fontSize: 12, padding: '8px 10px', borderRadius: 8,
 }

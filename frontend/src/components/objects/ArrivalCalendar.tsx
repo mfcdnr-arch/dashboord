@@ -160,7 +160,4 @@ const sel: React.CSSProperties = {
   padding: '3px 6px', fontSize: 12, borderRadius: 6,
   border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text)',
 }
-const errBox: React.CSSProperties = {
-  padding: 10, borderRadius: 8, fontSize: 13,
-  background: 'var(--alert-danger-bg)', color: 'var(--alert-danger)',
-}
+const errBox: React.CSSProperties = { padding: 10, background: 'var(--alert-danger-bg)', color: 'var(--alert-danger)', marginBottom: 0 }

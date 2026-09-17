@@ -24,13 +24,18 @@ const LOOK: Record<NoticeKind, React.CSSProperties> = {
 const BASE: React.CSSProperties = { fontSize: 13, padding: '8px 10px', borderRadius: 8, marginBottom: 12 }
 
 export default function Notice(
-  { kind = 'error', style, children }:
-  { kind?: NoticeKind; style?: React.CSSProperties; children: React.ReactNode },
+  { kind = 'error', flush, style, children }:
+  { kind?: NoticeKind; flush?: boolean; style?: React.CSSProperties; children: React.ReactNode },
 ) {
-  // style переопределяет вид целиком: у уже существующих форм свои отступы и
-  // размеры, и менять их заодно с доступностью значило бы смешивать две правки.
+  // flush — сообщение без нижнего отступа: внутри диалога или строки списка
+  // отступ снизу лишний. Встречалось двенадцать раз своим объявлением стиля.
+  const gap = flush ? { marginBottom: 0 } : null
+  // style ДОПОЛНЯЕТ базовый вид, а не заменяет его целиком. Раньше заменял, и
+  // каждой форме приходилось объявлять весь набор свойств заново — таких копий
+  // набралось 42 в 38 файлах, из них 28 совпадали с базой символ в символ.
+  // Теперь форма пишет только то, чем отличается: style={{ marginTop: 10 }}.
   return (
-    <div role={kind === 'error' ? 'alert' : 'status'} style={style || { ...BASE, ...LOOK[kind] }}>
+    <div role={kind === 'error' ? 'alert' : 'status'} style={{ ...BASE, ...LOOK[kind], ...gap, ...style }}>
       {children}
     </div>
   )
