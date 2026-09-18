@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { plural } from '../../lib/text'
 import { getGeoBase, officeLoad, type GeoBase, type Office, type OfficeLoad } from '../../api'
 import { fmtNumber, heatSteps } from '../../lib/format'
-import { boundsOf, esc, px, py, ringPath, shortName, textWidth, type Rect } from './projection'
+import { boundsOf, esc, latOf, lonOf, metersPerPixel, px, py, ringPath, shortName, textWidth, type Rect } from './projection'
 
 // Карта отделений МФЦ.
 //
@@ -36,10 +36,15 @@ function median(v: number[]): number {
   return s.length ? s[Math.floor(s.length / 2)] : 0
 }
 
-export default function MapView({ offices, onEdit, canManage }: {
+export default function MapView({ offices, onEdit, canManage, pick, height }: {
   offices: Office[]
   onEdit?: (o: Office) => void
   canManage?: boolean
+  // Режим выбора места: нажатие по карте отдаёт координаты наверх, вместо того
+  // чтобы открывать карточку отделения. Заведён ради того, чтобы координаты не
+  // приходилось переписывать парой чисел из постороннего источника.
+  pick?: { lat: number | null; lon: number | null; onPick: (lat: number, lon: number) => void }
+  height?: string
 }) {
   const [geo, setGeo] = useState<GeoBase | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -58,6 +63,9 @@ export default function MapView({ offices, onEdit, canManage }: {
   const viewRef = useRef<Rect>({ x: 0, y: 0, w: 1, h: 1 })
   const fullWRef = useRef(1)
   const [tick, setTick] = useState(0) // перерисовать после изменения вида
+  // Цена пикселя в метрах при нынешнем масштабе — её показываем человеку в
+  // режиме выбора: на обзоре республики пиксель стоит сотни метров.
+  const [mpp, setMpp] = useState(0)
 
   useEffect(() => { getGeoBase().then(setGeo).catch((e) => setError((e as Error).message)) }, [])
 
@@ -111,6 +119,7 @@ export default function MapView({ offices, onEdit, canManage }: {
   }, [shapes, aspect])
 
   useEffect(() => { resetView() }, [resetView])
+
 
   // Пересобрать вид при изменении размера контейнера: иначе карта остаётся
   // растянутой по прежним пропорциям и уезжает за край.
@@ -275,9 +284,32 @@ export default function MapView({ offices, onEdit, canManage }: {
           `${fill ? ` fill="${fill}"` : ''}/></g>`)
       }
     })
+    // Маркер выбранного места — перекрестие, а не кружок: кружок на карте уже
+    // означает отделение, и два разных смысла в одной форме путали бы.
+    // 🔴 И цвет у него НЕ акцентный: акцентом красятся сами отделения, а пока
+    // правка не сохранена, на карте видны сразу два — «где стоит сейчас» и
+    // «куда ставлю». Одним цветом их не различить (проверено осмотром: маркер
+    // ложится ровно на точку). Цвет текста нейтрален и читается в трёх темах.
+    // pointer-events отключены — иначе маркер перехватывал бы нажатие по себе,
+    // и точку нельзя было бы поправить на пару пикселей.
+    if (pick && pick.lat != null && pick.lon != null) {
+      const mx = px(pick.lon), my = py(pick.lat)
+      const r = 9 * k, arm = 16 * k
+      const glyph = `<circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="${r.toFixed(1)}"/>`
+        + `<line x1="${(mx - arm).toFixed(1)}" y1="${my.toFixed(1)}" x2="${(mx - r * 0.4).toFixed(1)}" y2="${my.toFixed(1)}"/>`
+        + `<line x1="${(mx + r * 0.4).toFixed(1)}" y1="${my.toFixed(1)}" x2="${(mx + arm).toFixed(1)}" y2="${my.toFixed(1)}"/>`
+        + `<line x1="${mx.toFixed(1)}" y1="${(my - arm).toFixed(1)}" x2="${mx.toFixed(1)}" y2="${(my - r * 0.4).toFixed(1)}"/>`
+        + `<line x1="${mx.toFixed(1)}" y1="${(my + r * 0.4).toFixed(1)}" x2="${mx.toFixed(1)}" y2="${(my + arm).toFixed(1)}"/>`
+      // Подложка под маркером: районы залиты пастелью, и на ней цвет текста
+      // держит норму не везде (в тёмной теме замер дал 2,59 при норме 3:1).
+      // Тот же приём, что у подписей карты, — обводка цветом поверхности.
+      out.push(`<g class="mv-mark-bg" pointer-events="none" stroke-width="${(4.2 * k).toFixed(2)}">${glyph}</g>`)
+      out.push(`<g class="mv-mark" pointer-events="none" stroke-width="${(1.8 * k).toFixed(2)}">${glyph}</g>`)
+    }
     svg.innerHTML = out.join('')
+    setMpp(metersPerPixel(k))
     ;(svg as unknown as { __groups: Group[] }).__groups = groups
-  }, [shapes, pts, layer, sel, aspect, scale])
+  }, [shapes, pts, layer, sel, aspect, scale, pick?.lat, pick?.lon]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { draw() }, [draw, tick])
 
@@ -289,6 +321,17 @@ export default function MapView({ offices, onEdit, canManage }: {
     viewRef.current = { x: cx - nw / 2, y: cy - (nw * a) / 2, w: nw, h: nw * a }
     setTick((t) => t + 1)
   }, [aspect])
+
+  // В режиме выбора приближаем к уже заданной точке — человек правит
+  // существующее отделение и должен видеть, где оно стоит СЕЙЧАС, а не искать
+  // его на обзоре республики. Один раз: дальше масштаб — дело человека.
+  const zoomedToPick = useRef(false)
+  useEffect(() => {
+    if (!shapes || !pick || zoomedToPick.current) return
+    if (pick.lat == null || pick.lon == null) return
+    zoomedToPick.current = true
+    zoomTo(px(pick.lon), py(pick.lat), fullWRef.current * 0.06)
+  }, [shapes, pick?.lat, pick?.lon, zoomTo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const toMap = (clientX: number, clientY: number) => {
     const svg = svgRef.current!
@@ -340,6 +383,14 @@ export default function MapView({ offices, onEdit, canManage }: {
     if (!d) return
     if (d.moved) { setTick((t) => t + 1); return } // перерисовать после перетаскивания
     const el = (d.target as Element)?.closest?.('.mv-pt, .mv-clu') as SVGGElement | null
+    // Скопление раскрываем нажатием ДАЖЕ в режиме выбора: в Донецке полтора
+    // десятка отделений, и без раскрытия туда не прицелиться.
+    if (pick && !el?.classList.contains('mv-clu')) {
+      const p = toMap(e.clientX, e.clientY)
+      const r6 = (v: number) => Math.round(v * 1e6) / 1e6
+      pick.onPick(r6(latOf(p.y)), r6(lonOf(p.x)))
+      return
+    }
     if (!el) return
     if (el.classList.contains('mv-clu')) {
       const gi = Number(el.getAttribute('data-g'))
@@ -401,7 +452,7 @@ export default function MapView({ offices, onEdit, canManage }: {
           onKeyDown={(e) => { if (e.key === 'Enter') find(q) }} />
         <button style={btnGhost} onClick={() => find(q)}>Найти</button>
         <div style={{ flex: 1 }} />
-        {canManage && (
+        {canManage && !pick && (
           <button style={{ ...btnGhost, ...(mode === 'chief' ? pressed : null) }} aria-pressed={mode === 'chief'}
             onClick={() => setMode(mode === 'chief' ? 'user' : 'chief')}
             title="Показать на точках нагрузку: сколько прошло через отделение за период">
@@ -467,18 +518,31 @@ export default function MapView({ offices, onEdit, canManage }: {
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' }}>
         <div ref={wrapRef} style={{ flex: '1 1 460px', minWidth: 0 }}>
-          <svg ref={svgRef} className="mv-svg" role="img"
-            aria-label={`Карта отделений МФЦ: ${pts.length} ${plural(pts.length, 'отделение', 'отделения', 'отделений')} на карте`}
+          <svg ref={svgRef} className={pick ? 'mv-svg mv-pick' : 'mv-svg'} role="img"
+            style={height ? { height } : undefined}
+            aria-label={pick
+              ? 'Карта для выбора места отделения: нажмите место, где находится отделение'
+              : `Карта отделений МФЦ: ${pts.length} ${plural(pts.length, 'отделение', 'отделения', 'отделений')} на карте`}
             onPointerDown={onPointerDown} onPointerMove={onPointerMove}
             onPointerUp={onPointerUp} onPointerCancel={onPointerUp} />
-          <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 4 }}>
-            Точку — нажатием, карту — перетаскиванием. Масштаб: Ctrl + колесо (чтобы карта не перехватывала прокрутку страницы).
-            {pts.length < offices.length && <> · на карте {pts.length} из {offices.length}: у остальных нет координат или они не действуют.</>}
-          </div>
+          {pick ? (
+            <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 4 }}>
+              Нажмите место отделения. Карту двигают перетаскиванием, масштаб — кнопками ＋/－ или Ctrl + колесо.
+              {mpp > 0 && <> · сейчас пиксель — это {mpp >= 100 ? Math.round(mpp) : mpp.toFixed(mpp >= 10 ? 0 : 1)} м
+                {mpp > 40 && <span style={{ color: 'var(--warn)' }}>, приблизьте, чтобы поставить точку точнее</span>}</>}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 4 }}>
+              Точку — нажатием, карту — перетаскиванием. Масштаб: Ctrl + колесо (чтобы карта не перехватывала прокрутку страницы).
+              {pts.length < offices.length && <> · на карте {pts.length} из {offices.length}: у остальных нет координат или они не действуют.</>}
+            </div>
+          )}
         </div>
-        <OfficeCard office={sel} onClose={() => setSel(null)} onEdit={canManage ? onEdit : undefined}
-          load={mode === 'chief' ? load?.items.find((i) => i.office_id === sel?.id) || null : null}
-          folds={load?.folds} />
+        {!pick && (
+          <OfficeCard office={sel} onClose={() => setSel(null)} onEdit={canManage ? onEdit : undefined}
+            load={mode === 'chief' ? load?.items.find((i) => i.office_id === sel?.id) || null : null}
+            folds={load?.folds} />
+        )}
       </div>
     </div>
   )
@@ -585,6 +649,11 @@ const MAP_CSS = `
 .mv-pt circle{fill:var(--accent);stroke:var(--surface);cursor:pointer}
 .mv-pt:hover circle,.mv-pt:focus circle{stroke:var(--text)}
 .mv-pt.mv-on circle{stroke:var(--text);stroke-width:2}
+.mv-svg.mv-pick{cursor:crosshair}
+.mv-svg.mv-pick:active{cursor:crosshair}
+.mv-mark circle,.mv-mark-bg circle{fill:none}
+.mv-mark circle,.mv-mark line{stroke:var(--text)}
+.mv-mark-bg circle,.mv-mark-bg line{stroke:var(--surface);stroke-linecap:round}
 .mv-clu{cursor:pointer}
 .mv-clu circle{fill:var(--brand-brown,var(--text-muted));stroke:var(--surface)}
 .mv-clu text{fill:var(--on-accent,#fff);text-anchor:middle;dominant-baseline:central;font-weight:700}

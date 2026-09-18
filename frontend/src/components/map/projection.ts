@@ -10,6 +10,20 @@ export const K = Math.cos((48.05 * Math.PI) / 180)
 export const px = (lon: number): number => lon * K * 1000
 export const py = (lat: number): number => -lat * 1000
 
+/** Обратный перевод: точка на карте → координаты.
+ *  Нужен там, где человек ставит отделение НАЖАТИЕМ: прямой перевод отвечает
+ *  «где рисовать», обратный — «что он показал». */
+export const lonOf = (x: number): number => x / (K * 1000)
+export const latOf = (y: number): number => -y / 1000
+
+/** Цена пикселя в метрах при текущем масштабе (`unitsPerPixel` — единиц
+ *  проекции на пиксель). Одна единица — тысячная доля градуса широты.
+ *
+ *  Показывается человеку рядом с картой: на обзоре республики пиксель стоит
+ *  сотни метров, и «поставить точку в нужный дом» там невозможно в принципе —
+ *  об этом честнее сказать, чем дать промахнуться молча. */
+export const metersPerPixel = (unitsPerPixel: number): number => unitsPerPixel * 111.32
+
 export interface Rect { x: number; y: number; w: number; h: number }
 
 export function ringPath(ring: number[][]): string {

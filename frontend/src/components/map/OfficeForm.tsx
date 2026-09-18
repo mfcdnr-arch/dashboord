@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DAYS, createOffice, updateOffice, type DayKey, type Hours, type Office, type OfficeInput } from '../../api'
 
+import MapView from './MapView'
 import { Modal, ModalTitle } from '../Modal'
 import Notice from '../Notice'
 import Field from '../Field'
@@ -10,9 +11,12 @@ import Field from '../Field'
 // Окно выводится ПОРТАЛОМ в body — внутри страницы его обрезал бы контейнер со
 // своей прокруткой (этот дефект в проекте уже ловили у подсказок и drill-окна).
 
-export default function OfficeForm({ office, rowOptions, onClose, onSaved }: {
+export default function OfficeForm({ office, rowOptions, allOffices, onClose, onSaved }: {
   office: Office | null
   rowOptions: string[]
+  // Соседние отделения показываются на мини-карте как ориентир: «наше рядом с
+  // тем, что уже стоит» — единственная привязка, когда точного адреса нет.
+  allOffices?: Office[]
   onClose: () => void
   onSaved: (o: Office) => void
 }) {
@@ -28,6 +32,10 @@ export default function OfficeForm({ office, rowOptions, onClose, onSaved }: {
   const [pair, setPair] = useState(() => (office && office.lat != null ? `${office.lat},${office.lon}` : ''))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Карта разворачивается по кнопке, а не всегда: она тянет геометрию
+  // республики (районы и населённые пункты), и платить за это при каждой
+  // правке телефона незачем.
+  const [showMap, setShowMap] = useState(false)
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -142,6 +150,23 @@ export default function OfficeForm({ office, rowOptions, onClose, onSaved }: {
               onChange={(e) => set('lon', e.target.value === '' ? null : Number(e.target.value))} placeholder="долгота" />
           </div>
         </Field>
+        <button style={{ ...btnGhost, marginBottom: 8 }} onClick={() => setShowMap((v) => !v)}
+          aria-expanded={showMap}
+          title="Показать карту и поставить точку нажатием — координаты подставятся сами">
+          {showMap ? '📍 Скрыть карту' : '📍 Указать на карте'}
+        </button>
+        {showMap && (
+          <div style={{ marginBottom: 8 }}>
+            <MapView
+              offices={allOffices || []}
+              height="320px"
+              pick={{
+                lat: f.lat ?? null,
+                lon: f.lon ?? null,
+                onPick: (lat, lon) => { setF((st) => ({ ...st, lat, lon })); setPair(`${lat},${lon}`) },
+              }} />
+          </div>
+        )}
         {insideHint && <div style={warnBox}>⚠ {insideHint}</div>}
         {f.lat == null && (
           <div style={hintBox}>
@@ -178,7 +203,7 @@ const body: React.CSSProperties = { padding: 16, overflowY: 'auto' }
 const foot: React.CSSProperties = { display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 16px', borderTop: '1px solid var(--border-faint)' }
 const inp: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, width: '100%', boxSizing: 'border-box', background: 'var(--surface)', color: 'var(--text)' }
 const btn: React.CSSProperties = { height: 34, padding: '0 16px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
-const btnGhost: React.CSSProperties = { ...btn, background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border-strong)' }
+const btnGhost: React.CSSProperties = { ...btn, background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border-strong)', cursor: 'pointer' }
 const xBtn: React.CSSProperties = { border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', color: 'var(--text-muted)' }
 const blockTitle: React.CSSProperties = { fontSize: 13, fontWeight: 700, marginBottom: 8 }
 const errBox: React.CSSProperties = { marginBottom: 10 }

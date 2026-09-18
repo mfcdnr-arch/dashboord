@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { boundsOf, esc, px, py, ringPath, shortName } from './projection'
+import { boundsOf, esc, latOf, lonOf, metersPerPixel, px, py, ringPath, shortName } from './projection'
 
 describe('проекция карты', () => {
   it('сжимает долготу по широте региона, широта растёт вверх', () => {
@@ -50,5 +50,30 @@ describe('экранирование', () => {
     // Разметка карты собирается строкой ради скорости, а имена вводит человек.
     expect(esc('<script>alert("1")</script>')).toBe('&lt;script&gt;alert(&quot;1&quot;)&lt;/script&gt;')
     expect(esc('МФЦ «Восток» & Ко')).toBe('МФЦ «Восток» &amp; Ко')
+  })
+})
+
+describe('обратный перевод: точка на экране → координаты', () => {
+  it('возвращает ту же точку, из которой считали', () => {
+    // На этом держится выбор координат нажатием: промах здесь сдвинул бы
+    // отделение на карте, а заметить это можно было бы только глазами.
+    const lat = 48.0159, lon = 37.8029
+    expect(latOf(py(lat))).toBeCloseTo(lat, 9)
+    expect(lonOf(px(lon))).toBeCloseTo(lon, 9)
+  })
+
+  it('не путает широту с долготой', () => {
+    // Одинаковое число по обеим осям даёт РАЗНЫЕ координаты — сжатие по
+    // долготе и перевёрнутая ось Y тому причиной.
+    expect(latOf(1000)).not.toBeCloseTo(lonOf(1000), 3)
+    expect(latOf(-48000)).toBeCloseTo(48, 9)
+  })
+
+  it('называет цену пикселя в метрах', () => {
+    // Подсказка о точности: на обзоре республики пиксель — это сотни метров,
+    // и ставить точку «в дом» там бессмысленно, надо приблизить.
+    expect(metersPerPixel(3)).toBeCloseTo(333.96, 1)
+    expect(metersPerPixel(0.05)).toBeLessThan(6)
+    expect(metersPerPixel(0)).toBe(0)
   })
 })

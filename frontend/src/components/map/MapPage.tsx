@@ -307,7 +307,7 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
       </>}
 
       {edit !== undefined && (
-        <OfficeForm office={edit} rowOptions={rowOptions}
+        <OfficeForm office={edit} rowOptions={rowOptions} allOffices={items}
           onClose={() => setEdit(undefined)}
           onSaved={() => { setEdit(undefined); reload(); if (dsCode) refreshReport(dsCode) }} />
       )}
