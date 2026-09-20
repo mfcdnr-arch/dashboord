@@ -25,8 +25,13 @@ const ruDate = (iso?: string | null): string =>
   (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').reverse().join('.') : iso || '')
 
 export default function ObjectsPage(
-  { canManage, isSuperadmin, initialObjectId }:
-  { canManage: boolean; isSuperadmin?: boolean; initialObjectId?: string | null },
+  { canManage, isSuperadmin, initialObjectId, initialFolderId, initialDocumentId }:
+  {
+    canManage: boolean; isSuperadmin?: boolean; initialObjectId?: string | null
+    // Переход из «Загрузки»: открыть сразу разметку загруженного файла.
+    // Раньше модератор выходил сюда и искал свой файл руками среди папок.
+    initialFolderId?: string | null; initialDocumentId?: string | null
+  },
 ) {
   const uid = useId()
   // Подтверждения — своим окном: системное браузер вправе подавить, и кнопка
@@ -69,11 +74,11 @@ export default function ObjectsPage(
       // Переход из уведомления «данные не поступили»: открываем тот объект,
       // о котором речь, а не общий список.
       const target = initialObjectId && list.find((o) => o.id === initialObjectId)
-      if (target) openObject(target)
+      if (target) openObject(target, initialFolderId, initialDocumentId)
     }).catch(fail)
-  }, [initialObjectId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialObjectId, initialFolderId, initialDocumentId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function openObject(o: Obj) {
+  async function openObject(o: Obj, goFolderId?: string | null, goDocId?: string | null) {
     setError(null)
     setObj(o)
     setSuggestion(null)
@@ -86,7 +91,19 @@ export default function ObjectsPage(
     setDocsTotal(0)
     setNewFolderParent('')
     try {
-      setFolders(await listFolders(o.id))
+      const list = await listFolders(o.id)
+      setFolders(list)
+      // Пришли из «Загрузки» — доводим до самого файла, а не бросаем на
+      // списке папок: иначе переход экономит один клик из трёх.
+      const f = goFolderId ? list.find((x) => x.id === goFolderId) : null
+      if (f) {
+        setFolder(f)
+        const page = await listDocuments(f.id, DOCS_PAGE, 0)
+        setDocs(page.items)
+        setDocsTotal(page.total)
+        const d = goDocId ? page.items.find((x) => x.id === goDocId) : null
+        if (d) setOpenDoc(d)
+      }
     } catch (e) {
       fail(e)
     }

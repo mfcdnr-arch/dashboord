@@ -165,6 +165,9 @@ async def journal(conn, org_id, limit: int = JOURNAL_LIMIT, period: Optional[dat
         "select d.id, d.original_filename, d.reporting_period_start, d.created_at, "
         "  d.routed_by, d.routed_note, d.status::text as status, "
         "  f.name as folder_name, f.is_inbox, o.name as object_name, "
+        # Идентификаторы нужны, чтобы из журнала попасть прямо в разметку:
+        # раньше модератор выходил в «Объекты» и искал свой файл руками.
+        "  d.folder_id, f.object_id, "
         "  u.full_name, u.login, "
         "  (select ej.status::text from extraction_jobs ej join document_versions v2 on v2.id=ej.document_version_id "
         "   where v2.document_id=d.id order by ej.created_at desc limit 1) as job_status, "
@@ -189,6 +192,8 @@ async def journal(conn, org_id, limit: int = JOURNAL_LIMIT, period: Optional[dat
             "folder_name": r["folder_name"],
             "object_name": r["object_name"],
             "in_inbox": bool(r["is_inbox"]),
+            "folder_id": str(r["folder_id"]) if r["folder_id"] else None,
+            "object_id": str(r["object_id"]) if r["object_id"] else None,
             "routed_by": r["routed_by"],
             "routed_note": r["routed_note"],
             "state": _state(r),

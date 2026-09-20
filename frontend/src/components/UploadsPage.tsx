@@ -18,7 +18,11 @@ import {
  * его не туда значит показать неверные цифры на дашборде без единого признака
  * ошибки.
  */
-export default function UploadsPage() {
+export default function UploadsPage(
+  // Переход прямо к разметке файла: без него модератор после загрузки выходил
+  // в «Объекты» и искал свой файл руками среди папок.
+  { onOpenDocument }: { onOpenDocument?: (objectId: string, folderId: string, docId: string) => void } = {},
+) {
   const [items, setItems] = useState<JournalItem[]>([])
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -244,7 +248,19 @@ export default function UploadsPage() {
                   {it.routed_by === 'manual' && <b>✍ </b>}
                   {it.routed_note || (it.in_inbox ? '' : 'папка выбрана при загрузке')}
                 </td>
-                <td style={td}>{it.state}</td>
+                <td style={td}>
+                  {it.state}
+                  {/* Кнопка появляется, только когда есть куда вести: файл уже
+                      разложен по папке и не ждёт ручной маршрутизации. */}
+                  {onOpenDocument && !it.in_inbox && it.object_id && it.folder_id && (
+                    <div>
+                      <button type="button" style={linkBtn}
+                        onClick={() => onOpenDocument(it.object_id!, it.folder_id!, it.id)}>
+                        открыть разметку →
+                      </button>
+                    </div>
+                  )}
+                </td>
                 <td style={{ ...td, color: 'var(--text-muted)' }}>
                   {it.uploaded_by || '—'}<div style={{ fontSize: 11 }}>{when(it.uploaded_at)}</div>
                 </td>

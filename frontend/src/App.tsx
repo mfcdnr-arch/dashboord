@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { clearToken, getAppealsStats, getHealth, getMe, getSetupStatus, getToken, UNAUTHORIZED_EVENT, type Health, type Me, listServices, listRefDocs } from './api'
+import { clearToken, getAppealsStats, getHealth, getMe, getSetupStatus, getToken, listOffices, UNAUTHORIZED_EVENT, type Health, type Me, listServices, listRefDocs } from './api'
 import Login from './components/Login'
 import ChangePassword from './components/ChangePassword'
 import ObjectsPage from './components/ObjectsPage'
@@ -137,8 +137,11 @@ const NAV = [
   { key: 'dnrstats', label: 'Статистика услуг', ready: true, dnrStatsGate: true },
   // Карта отделений. Справочник внутри полезен и без карты — это ответ на
   // «где ближайшее отделение, когда работает и куда звонить», поэтому раздел
-  // виден всем; правка сведений — у администратора.
-  { key: 'map', label: 'Карта', ready: true },
+  // виден всем. Но ПОКА СПРАВОЧНИК ПУСТ обычному пользователю показывать
+  // нечего: он увидит контур республики без единой точки и решит, что
+  // сломалось. Управляющему пункт виден всегда — иначе наполнить справочник
+  // в первый раз было бы нечем (то же правило, что у «Справочников»).
+  { key: 'map', label: 'Карта', ready: true, mapGate: true },
   { key: 'archive', label: 'Архив', ready: true, archiveGate: true },
   { key: 'moderation', label: 'Модерация', ready: true, modOnly: true },
   { key: 'appeals', label: 'Обращения', ready: true, modOnly: true },
@@ -233,6 +236,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   // С какой вкладки открыть «Кабинет»: с главной ведёт кнопка «Написать администратору».
   const [profileTab, setProfileTab] = useState<'profile' | 'appeals' | undefined>(undefined)
   const [openObject, setOpenObject] = useState<string | null>(null)
+  // Куда вести из «Загрузки»: папка и файл, чтобы открылась сразу разметка.
+  const [openFolder, setOpenFolder] = useState<string | null>(null)
+  const [openDocument, setOpenDocument] = useState<string | null>(null)
   // Показатель, к которому ведёт быстрый поиск (п. 9): раздел «Метрики»
   // remount'ится при каждом переходе в него (см. `nav`-переключатель ниже),
   // поэтому простого initial-пропа достаточно — навSeq для него не нужен.
@@ -303,6 +309,13 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     if (canManage) return
     listShowcases().then((r) => setShowcasesOk(r.length > 0)).catch(() => setShowcasesOk(false))
   }, [canManage])
+  // «Карта»: у управляющего всегда, остальным — когда в справочнике есть
+  // хоть одно отделение. Пустая карта читается как поломка системы.
+  const [mapOk, setMapOk] = useState(false)
+  useEffect(() => {
+    if (canManage) return
+    listOffices().then((r) => setMapOk(r.length > 0)).catch(() => setMapOk(false))
+  }, [canManage])
   // «Руководителю»: у управляющего пункт есть всегда (ему туда класть), у
   // остальных — когда в подборке есть хоть что-то, доступное лично им.
   const [featuredOk, setFeaturedOk] = useState(false)
@@ -341,6 +354,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     && (!(n as { userOnly?: boolean }).userOnly || !canManage)
     && (!(n as { archiveGate?: boolean }).archiveGate || archiveOk)
     && (!(n as { showcaseGate?: boolean }).showcaseGate || canManage || showcasesOk)
+    && (!(n as { mapGate?: boolean }).mapGate || canManage || mapOk)
     // Подборка «Руководителю»: управляющим всегда, остальным — по галочке
     // (одного лишь наличия доступа к отчёту из подборки теперь мало).
     && (!(n as { featuredGate?: boolean }).featuredGate || canManage || (me.show_featured && featuredOk))
@@ -361,7 +375,12 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
       case 'page': goTo({ section: 'dashboards', dashboard: t.dashboard, page: t.page }); break
       case 'widget': goTo({ section: 'dashboards', dashboard: t.dashboard,
         page: t.page || undefined, widget: t.widget }); break
-      case 'object': setSection('objects'); setOpenObject(t.object); break
+      case 'object':
+        setSection('objects'); setOpenObject(t.object)
+        // Цель из «Загрузки» сбрасываем: иначе поиск объекта открыл бы
+        // чужой файл, до которого доводили в прошлый раз.
+        setOpenFolder(null); setOpenDocument(null)
+        break
       case 'metric': setSection('metrics'); setOpenMetric(t.metric); break
     }
   }, [goTo])
@@ -385,7 +404,10 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           API: {health ? `${health.status} · БД ${health.db}` : '…'}
         </span>
         <span style={{ fontSize: 13 }}><strong>{me.full_name || me.login}</strong></span>
-        {!narrow && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'var(--accent-weak-bg)', color: 'var(--accent-text)' }}>{me.roles.join(', ')}</span>}
+        {/* Роли по-русски: `role_names` приходит с сервера ровно для этого,
+            а в шапке стояли машинные коды — человек видел «user». Запасной
+            вариант на случай старого ответа сервера: лучше код, чем пусто. */}
+        {!narrow && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'var(--accent-weak-bg)', color: 'var(--accent-text)' }}>{(me.role_names?.length ? me.role_names : me.roles).join(', ')}</span>}
         {isAdmin && (
           <button onClick={() => setWizardOpen(true)} title="Мастер первичной настройки"
             style={{ height: 32, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-2)', cursor: 'pointer', fontSize: 13 }}>
@@ -416,7 +438,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {nav.map((n) => (
             <button
               key={n.key}
-              onClick={() => { setOpenDash(null); setOpenAppeal(null); setOpenObject(null); setSection(n.key) }}
+              onClick={() => { setOpenDash(null); setOpenAppeal(null); setOpenObject(null); setOpenFolder(null); setOpenDocument(null); setSection(n.key) }}
               style={{
                 display: 'block', width: narrow ? 'auto' : '100%', whiteSpace: 'nowrap', textAlign: 'left',
                 padding: '8px 12px', marginBottom: narrow ? 0 : 4,
@@ -449,9 +471,13 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
               onOpenDashboard={(id) => { setOpenDash(id); setSection('dashboards') }}
               onGoto={(s) => setSection(s)} />
           ) : section === 'uploads' ? (
-            <UploadsPage />
+            <UploadsPage onOpenDocument={(objectId, folderId, docId) => {
+              setOpenObject(objectId); setOpenFolder(folderId); setOpenDocument(docId)
+              setSection('objects')
+            }} />
           ) : section === 'objects' ? (
-            <ObjectsPage canManage={canManage} isSuperadmin={isSuperadmin} initialObjectId={openObject} />
+            <ObjectsPage canManage={canManage} isSuperadmin={isSuperadmin} initialObjectId={openObject}
+              initialFolderId={openFolder} initialDocumentId={openDocument} />
           ) : section === 'metrics' ? (
             <MetricsPage canManage={canManage} isSuperadmin={isSuperadmin} initialMetricId={openMetric} />
           ) : section === 'leadership' ? (

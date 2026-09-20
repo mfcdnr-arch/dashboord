@@ -23,6 +23,9 @@ export interface JournalItem {
   folder_name: string | null
   object_name: string | null
   in_inbox: boolean
+  /** Куда уехал файл — чтобы из журнала открыть его разметку одним нажатием. */
+  folder_id: string | null
+  object_id: string | null
   routed_by: 'template' | 'manual' | null
   routed_note: string | null
   state: string
