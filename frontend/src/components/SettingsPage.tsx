@@ -87,7 +87,7 @@ export default function SettingsPage({ me }: { me: { roles: string[] } }) {
             <input style={inp} type="number" min={1} value={orgForm.stale_days}
               onChange={(e) => setOrgForm({ ...orgForm, stale_days: e.target.value })} />
           </Field>
-          <Field strong label="Ретенция, месяцев" hint="0 — хранить без ограничения; окно скользящего удаления старых данных">
+          <Field strong label="Ретенция, месяцев" hint="0 — хранить без ограничения. Окно, старше которого данные предлагаются к удалению; само удаление — вручную в блоке «Хранение данных» ниже">
             <input style={inp} type="number" min={0} value={orgForm.retention_months}
               onChange={(e) => setOrgForm({ ...orgForm, retention_months: e.target.value })} />
           </Field>
@@ -191,7 +191,7 @@ function RetentionSection({ savedMonths }: { savedMonths: number }) {
       {done && <Notice kind="ok">{done}</Notice>}
       {busy && !preview && <span style={muted}>Загрузка предпросмотра…</span>}
       {preview && !preview.enabled && (
-        <div style={muted}>Ретенция выключена (окно хранения = 0) — старые данные не удаляются.</div>
+        <div style={muted}>Окно хранения = 0: данные хранятся без ограничения и под удаление ничего не попадает.</div>
       )}
       {preview && preview.enabled && (
         <>
@@ -251,8 +251,10 @@ function RetentionSection({ savedMonths }: { savedMonths: number }) {
             </span>
           )}
           <div style={{ ...muted, marginTop: 8 }}>
-            Обычно ретенция выполняется планировщиком (воскресенье, 03:00). Ручной запуск нужен, например,
-            перед первым включением окна хранения. Перед удалением убедитесь, что есть свежая резервная копия.
+            Удаление выполняется <b>только отсюда, по этой кнопке</b>. Планировщик (воскресенье, 03:00)
+            ничего не удаляет — он лишь присылает уведомление, когда под окно хранения что-то попало,
+            чтобы решение принимал человек: удалённые выпуски не восстанавливаются.
+            Перед удалением убедитесь, что есть свежая резервная копия.
           </div>
         </>
       )}

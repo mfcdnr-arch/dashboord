@@ -13,6 +13,7 @@ EVENT_LABELS = {
     "data.stale": "Данные устарели",
     "data.missing": "Ожидаемые данные не поступили",
     "data.retention": "Очистка старых данных (ретенция)",
+    "data.retention_due": "Есть данные старше окна хранения",
     "widget.created.no_explicit_access": "Новый виджет без прав доступа",
     "dashboard.comment": "Новый комментарий к дашборду",
     "dashboard.review_requested": "Дашборд отправлен на проверку",

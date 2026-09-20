@@ -351,7 +351,12 @@ async def retention_preview(conn, org_id, months: int | None = None) -> dict:
 
 
 async def run_retention(conn, org_id, months: int | None = None, notify_admins: bool = True) -> dict:
-    """Удаляет релизы датасетов старше окна (каскадом — значения/поля/связи)."""
+    """Удаляет релизы датасетов старше окна (каскадом — значения/поля/связи).
+
+    Вызывается ТОЛЬКО по кнопке человека, рядом с предпросмотром, который
+    показывает поимённо, что уйдёт. По расписанию работает `warn_retention`
+    (см. ниже) — она ничего не удаляет.
+    """
     m = months
     if m is None:
         m = (await settings_svc.get_org_settings(conn, org_id))["retention_months"]
@@ -367,6 +372,48 @@ async def run_retention(conn, org_id, months: int | None = None, notify_admins: 
             conn, org_id, "data.retention", "organization", str(org_id),
             {"deleted_releases": deleted, "window_months": m}, recipients)
     return {"enabled": True, "months": m, "deleted_releases": deleted}
+
+
+async def warn_retention(conn, org_id) -> dict:
+    """Еженедельная ретенция: ПРЕДУПРЕЖДАЕТ, но не удаляет (20.09.2026).
+
+    Раньше эта же задача каждое воскресенье в 03:00 удаляла выпуски старше
+    окна сама — необратимо, каскадом по значениям, без подтверждения и без
+    предпросмотра. Отчётность и есть то, ради чего система существует, а
+    удаление молчаливое: узнать о нём можно было только из ленты уведомлений
+    постфактум, когда восстанавливать уже нечего (бэкап хранится не вечно).
+
+    Поэтому действует тот же принцип, что принят для выпуска данных:
+    **автомат готовит, решение принимает человек.** Планировщик считает, что
+    попадает под отсечку, и зовёт управляющих в «Настройки», где рядом с
+    кнопкой удаления показан поимённый предпросмотр. Риск здесь несимметричен:
+    рост базы лечится в любой день, потеря отчётности — никогда.
+
+    Молчит в двух случаях: ретенция выключена (окно 0) и под отсечку не
+    попадает ничего — иначе еженедельное «удалять нечего» превратится в шум,
+    и вместе с ним пролистают настоящее предупреждение.
+    """
+    m = (await settings_svc.get_org_settings(conn, org_id))["retention_months"]
+    if not m or m <= 0:
+        return {"enabled": False, "releases": 0, "notified": False}
+    rel = await conn.fetchval(
+        "select count(*) from dataset_releases where organization_id=$1 "
+        "and reporting_period_start < (current_date - make_interval(months => $2))", org_id, m)
+    if not rel:
+        return {"enabled": True, "months": m, "releases": 0, "notified": False}
+    val = await conn.fetchval(
+        "select count(*) from dataset_values v join dataset_releases r on r.id=v.dataset_release_id "
+        "where r.organization_id=$1 and r.reporting_period_start < (current_date - make_interval(months => $2))",
+        org_id, m)
+    oldest = await conn.fetchval(
+        "select min(reporting_period_start) from dataset_releases where organization_id=$1 "
+        "and reporting_period_start < (current_date - make_interval(months => $2))", org_id, m)
+    recipients = await notif.management_user_ids(conn, org_id)
+    await notif.notify(
+        conn, org_id, "data.retention_due", "organization", str(org_id),
+        {"releases": rel, "values": val, "window_months": m,
+         "oldest": oldest.isoformat() if oldest else None}, recipients)
+    return {"enabled": True, "months": m, "releases": rel, "values": val, "notified": True}
 
 
 NOTIFICATION_KEEP_DAYS = 90

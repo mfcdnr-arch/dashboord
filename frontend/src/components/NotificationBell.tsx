@@ -3,6 +3,7 @@ import {
   getNotifications, markAllNotificationsRead, markNotificationRead,
   type NotificationItem, type NotificationsResult,
 } from '../api'
+import { plural } from '../lib/text'
 
 // Колокольчик уведомлений в шапке: непрочитанные + выпадающая лента.
 // Опрос каждые 60с. Служебные события: устаревание данных, ретенция и т.п.
@@ -29,6 +30,17 @@ function message(n: NotificationItem): string {
     return `«${p.dashboard_name}» ждёт проверки${p.author ? ` — отправил ${p.author}` : ''}.`
   }
   if (n.event_type === 'data.retention') return `Ретенция: удалено релизов — ${p.deleted_releases} (окно ${p.window_months} мес.).`
+  // Предупреждение, а не отчёт об удалении: планировщик ничего не удаляет,
+  // он зовёт человека решить. Поэтому в тексте — что именно под отсечкой и
+  // прямое указание, что данные ещё на месте.
+  if (n.event_type === 'data.retention_due') {
+    const n = Number(p.releases) || 0
+    return `Под окно хранения (${p.window_months} мес.) попадает ${n} `
+      + `${plural(n, 'выпуск', 'выпуска', 'выпусков')} данных`
+      + `${p.oldest ? `, самый ранний — за ${ruDate(p.oldest)}` : ''}`
+      + `${p.values ? ` (значений: ${p.values})` : ''}. `
+      + 'Ничего не удалено: откройте «Настройки» → «Хранение данных», посмотрите список и решите сами.'
+  }
   if (n.event_type === 'widget.created.no_explicit_access') return `Новый виджет без явных прав: ${p.widget_name ?? ''}`
   if (n.event_type === 'system.degraded') return `Автопочинка не устранила все проблемы (статус: ${p.status_after ?? 'degraded'}). Посмотрите раздел «Отчёты» → «Здоровье системы».`
   // Воркер перезапущен хостовым сторожем. Сообщаем ОБЯЗАТЕЛЬНО, в том числе об
@@ -74,6 +86,7 @@ function targetOf(n: NotificationItem, staff: boolean): NotifyTarget | null {
     return oid ? { section: 'objects', objectId: oid } : { section: 'objects' }
   }
   if (n.event_type === 'data.retention') return { section: 'settings' }
+  if (n.event_type === 'data.retention_due') return { section: 'settings' }
   if (n.event_type === 'system.degraded') return { section: 'reports' }
   if (n.event_type === 'system.worker_restarted') return { section: 'reports' }
   return null
