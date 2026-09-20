@@ -9,8 +9,11 @@
 `visible_dashboard_ids`, что и список дашбордов; страницы и виджеты наследуют
 видимость своего дашборда, а виджеты вдобавок — whitelist по гранту
 (`visible_widget_ids`), иначе поиск стал бы обходным путём: узнать имя чужого
-виджета, набрав в строке поиска первые буквы. Объекты и показатели читает
-любой авторизованный — так же, как их читают собственные разделы списком.
+виджета, набрав в строке поиска первые буквы. Объекты и показатели —
+ТОЛЬКО управляющим (20.09.2026): их собственные разделы помечены `staffOnly`
+и зрителю не показываются вовсе, поэтому находить их поиском он тоже не
+должен — иначе поиск обходит гейт раздела, а переход по найденному приводит
+на экран, который отвечает отказом на каждое действие.
 
 **Каждая категория ограничена небольшим числом результатов.** Это подсказка
 для быстрого перехода, а не полноценный поисковый индекс: длинный список
@@ -25,6 +28,10 @@ from ..dashboards._rls import visible_dashboard_ids, visible_widget_ids
 
 MIN_QUERY = 2
 LIMIT = 6
+# Те же роли, что открывают разделы «Объекты» и «Метрики» в интерфейсе
+# (`staffOnly` в App.tsx). Списки обязаны совпадать, иначе поиск и меню
+# разойдутся: одно покажет то, чего не показывает другое.
+STAFF_ROLES = {"superadmin", "admin", "moderator"}
 
 
 async def search(conn, org_id, user: dict, q: str) -> dict:
@@ -32,6 +39,7 @@ async def search(conn, org_id, user: dict, q: str) -> dict:
     if len(q) < MIN_QUERY:
         return {"dashboards": [], "pages": [], "widgets": [], "objects": [], "metrics": []}
 
+    staff = bool(set(user.get("roles") or ()) & STAFF_ROLES)
     allowed = await visible_dashboard_ids(conn, org_id, user)
     if not allowed:
         dashboards: List[dict] = []
@@ -46,8 +54,9 @@ async def search(conn, org_id, user: dict, q: str) -> dict:
         "dashboards": dashboards,
         "pages": pages,
         "widgets": widgets,
-        "objects": await _objects(conn, org_id, q),
-        "metrics": await _metrics(conn, org_id, q),
+        # Служебные сущности — только тем, у кого есть их разделы.
+        "objects": await _objects(conn, org_id, q) if staff else [],
+        "metrics": await _metrics(conn, org_id, q) if staff else [],
     }
 
 

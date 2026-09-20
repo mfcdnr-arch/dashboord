@@ -154,6 +154,31 @@ function useIsNarrow(maxWidth = 760): boolean {
   return narrow
 }
 
+/**
+ * Разрешает ли РОЛЬ открыть раздел. Гейт меню прячет пункт, но сам рендер о
+ * ролях ничего не знал: прямая ссылка `/?s=metrics` приводила зрителя на
+ * рабочую кухню, а раздел там отвечает отказом на каждое действие.
+ *
+ * Проверяются ТОЛЬКО синхронные гейты — роли известны сразу. Гейты, которые
+ * зависят от асинхронной загрузки (архив, витрины, подборка, каталог), здесь
+ * не участвуют намеренно: пока их флаг ещё не пришёл, человека выбрасывало бы
+ * с законно открытого раздела.
+ */
+function roleAllowsSection(
+  key: string,
+  who: { canManage: boolean; isAdmin: boolean; canModerate: boolean },
+): boolean {
+  const n = NAV.find((x) => x.key === key) as
+    | { staffOnly?: boolean; userOnly?: boolean; adminOnly?: boolean; modOnly?: boolean }
+    | undefined
+  if (!n) return true // раздел не из меню (или незнакомый) — решает вызывающий
+  if (n.staffOnly && !who.canManage) return false
+  if (n.userOnly && who.canManage) return false
+  if (n.adminOnly && !who.isAdmin) return false
+  if (n.modOnly && !who.canModerate) return false
+  return true
+}
+
 function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const narrow = useIsNarrow()
   const [health, setHealth] = useState<Health | null>(null)
@@ -162,7 +187,19 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const staff = me.roles.some((r) => ['admin', 'moderator', 'superadmin'].includes(r))
   // Пришли по ссылке (п. 6) — начинаем с того места, которое в ней указано.
   const [link0] = useState(initialLink)
-  const [section, setSection] = useState(link0.section || (staff ? 'home' : 'portal'))
+  // Закрытый по роли раздел из ссылки не должен даже мелькнуть: иначе экран
+  // успевает смонтироваться и сходить в API за отказом. Роли считаются здесь
+  // точно (модератор — не администратор), а не через общий `staff`.
+  const [section, setSection] = useState(() => {
+    const who = {
+      canManage: staff,
+      isAdmin: me.roles.includes('admin') || me.roles.includes('superadmin'),
+      canModerate: me.roles.some((r) => ['admin', 'moderator', 'senior_moderator'].includes(r)),
+    }
+    return link0.section && roleAllowsSection(link0.section, who)
+      ? link0.section
+      : (staff ? 'home' : 'portal')
+  })
   const [openDash, setOpenDash] = useState<string | null>(link0.dashboard || null)
   // Страница, на которую нужно попасть при открытии дашборда (из каталога
   // «Главной»): без неё клик по «Динамике» приводил на «Обзор».
@@ -229,6 +266,16 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     getSetupStatus().then((s) => { if (s.fresh_install && !s.setup_dismissed) setWizardOpen(true) }).catch(() => {})
   }, [isAdmin])
   const canModerate = me.roles.some((r) => ['admin', 'moderator', 'senior_moderator'].includes(r))
+  // Одна точка на ВСЕ пути перехода (ссылка, палитра, «назад/вперёд», любой
+  // будущий вызов setSection): раздел, закрытый по роли, возвращает человека
+  // на его главную. Чинить каждый вход по отдельности значило бы пропустить
+  // следующий. Асинхронные гейты (архив, витрины, подборка) здесь не
+  // проверяются — см. докстроку roleAllowsSection.
+  useEffect(() => {
+    if (!roleAllowsSection(section, { canManage, isAdmin, canModerate })) {
+      setSection(canManage ? 'home' : 'portal')
+    }
+  }, [section, canManage, isAdmin, canModerate])
   // Раздел «Архив»: привилегированным — всегда; обычному пользователю — только
   // по допуску, выданному администратором/модератором (спрашиваем сервер).
   const [archiveOk, setArchiveOk] = useState(false)

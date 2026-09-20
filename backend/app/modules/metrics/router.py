@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ... import db
-from ..auth.deps import get_current_user, require_roles
+from ..auth.deps import require_roles
 from .data_suggestions import suggest_from_data
 from .describe import build_info_draft
 from .parser import FormulaError, extract_dependencies
@@ -40,6 +40,14 @@ from .suggestions import suggest_derived_metrics
 from .templates import TEMPLATES, build_formula, suggested_name
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
+# ВЕСЬ модуль показателей — под `manage`, включая чтение (20.09.2026).
+# Соблазн открыть «безобидную» карточку показателя на чтение возникает
+# регулярно, поэтому причина записана здесь: модель доступа в системе
+# построена на уровне ДАШБОРДОВ (гранты, whitelist виджетов) и СТРОК
+# (data_row_acl), а слой показателей своей проверки не имеет — только
+# принадлежность к организации. Открытая карточка отдаёт текст формулы и
+# состав любого KPI организации, а `/versions/{id}/value` ВЫЧИСЛЯЕТ его по
+# данным — мимо всех грантов. Это обход самой модели доступа, а не мелочь.
 manage = require_roles("superadmin", "admin", "moderator")
 # Удаление показателя необратимо (версии формул уходят каскадом), поэтому
 # доступно только владельцу системы — решение заказчика от 11.08.2026.
@@ -273,7 +281,7 @@ async def metric_info_draft(metric_id: str, user: dict = Depends(manage)):
 
 
 @router.get("/{metric_id}")
-async def get_metric(metric_id: str, user: dict = Depends(get_current_user)):
+async def get_metric(metric_id: str, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         m = await conn.fetchrow(
             "select m.id, m.code, m.name, m.description, m.info_text, m.created_at, m.owner_id, "
@@ -345,7 +353,7 @@ async def approve_version(version_id: str, user: dict = Depends(manage)):
 
 
 @router.get("/versions/{version_id}/value")
-async def version_value(version_id: str, user: dict = Depends(get_current_user)):
+async def version_value(version_id: str, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         try:
             return await evaluate_version(conn, user["organization_id"], version_id)
