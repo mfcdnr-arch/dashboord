@@ -397,7 +397,10 @@ async def test_broken_rule_does_not_cancel_the_release(seed_dataset, monkeypatch
         broken = await mapping.quality_warnings(
             conn, org, code=seed_dataset["code"], period=None,
             rows=rows, fields=fields, label_col=0)
-    assert broken == [], "выпуск продолжается — замечаний просто нет"
+    # 1. Не бросило — выпуск не сорван (ради этого страховка и ставилась).
+    # 2. Но и не промолчало: сбой виден отдельным замечанием.
+    assert len(broken) == 1 and broken[0]["code"] == "quality_checks_failed", \
+        "сбой правила снова выдаётся за «замечаний нет»"
 
     # А с исправными правилами проверки по-прежнему работают: страховка не
     # должна была отключить их вовсе.

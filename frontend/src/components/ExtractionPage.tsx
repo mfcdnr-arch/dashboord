@@ -686,22 +686,40 @@ function QualityPanel({ warnings, checking }: { warnings: ValidationWarning[] | 
       </div>
     )
   }
+  // Сбой самих проверок — не замечание к цифрам, а «мы их НЕ проверяли».
+  // В общем жёлтом списке это прочтут как ещё одну придирку, поэтому
+  // показываем отдельно и тревожным тоном.
+  const failed = warnings.find((w) => w.code === 'quality_checks_failed')
+  const rest = warnings.filter((w) => w.code !== 'quality_checks_failed')
   return (
+    <>
+    {failed && (
+      <div style={{
+        border: '1px solid var(--danger)', background: 'var(--danger-bg)', color: 'var(--danger)',
+        borderRadius: 10, padding: '10px 12px', margin: '0 0 12px', fontSize: 13,
+      }}>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>⚠ Данные не проверены</div>
+        <div>{failed.message}</div>
+      </div>
+    )}
+    {rest.length > 0 && (
     <div style={{
       border: '1px solid var(--warn)', background: 'var(--warn-bg)', color: 'var(--warn)',
       borderRadius: 10, padding: '10px 12px', margin: '0 0 12px', fontSize: 13,
     }}>
       <div style={{ fontWeight: 600, marginBottom: 6 }}>
-        ⚠ Проверьте данные перед выпуском ({warnings.length})
+        ⚠ Проверьте данные перед выпуском ({rest.length})
       </div>
       <ul style={{ margin: 0, paddingLeft: 18 }}>
-        {warnings.map((w) => <li key={w.code} style={{ marginBottom: 2 }}>{w.message}</li>)}
+        {rest.map((w) => <li key={w.code} style={{ marginBottom: 2 }}>{w.message}</li>)}
       </ul>
       <div style={{ fontSize: 12, marginTop: 6, opacity: 0.85 }}>
         Это подсказка, а не запрет: выпустить можно, а ошибочный выпуск потом снимается кнопкой
         «Отменить выпуск».
       </div>
     </div>
+    )}
+    </>
   )
 }
 

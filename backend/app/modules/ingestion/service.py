@@ -296,7 +296,12 @@ async def _auto_quality(conn, job, tpl: dict, code: str, period, fields: list) -
     row = await conn.fetchrow(
         "select data, merges, header_rows from extracted_tables where id=$1::uuid", tpl["table_id"])
     if row is None:
-        return []
+        # Пустой список означает «замечаний нет» и открывает авто-выпуск, а
+        # проверять здесь НЕЧЕМ: распознанной таблицы не нашлось. Отдаём
+        # замечание — файл уйдёт человеку.
+        return [{"code": "quality_checks_failed", "count": 1,
+                 "message": ("Проверить данные не удалось: распознанная таблица не найдена. "
+                             "Данные не проверены — сверьте цифры сами.")}]
     import json as _json
     grid = _json.loads(row["data"]) if isinstance(row["data"], str) else (row["data"] or [])
     raw_merges = _json.loads(row["merges"]) if isinstance(row["merges"], str) else (row["merges"] or [])
