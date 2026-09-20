@@ -99,7 +99,9 @@ function useNarrow(max = 900): boolean {
   return n
 }
 
-export default function Login({ onLogin }: { onLogin: (token: string) => void }) {
+export default function Login(
+  { onLogin, expired = false }: { onLogin: (token: string) => void; expired?: boolean },
+) {
   // Подписи связаны с полями: диктор называет поле по его видимой подписи, а не
   // «поле ввода». Через id, а не копией текста в aria-label — копия однажды
   // разошлась бы с подписью на экране.
@@ -209,6 +211,11 @@ export default function Login({ onLogin }: { onLogin: (token: string) => void })
           <input id={`${uid}-login`} style={input} value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
           <label style={label} htmlFor={`${uid}-pwd`}>Пароль</label>
           <input id={`${uid}-pwd`} style={input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          {/* Сессия кончилась сама: без этой строки возврат на вход
+              выглядит сбоем — человек не понимает, почему его «выкинуло». */}
+          {expired && !error && (
+            <Notice kind="ok">Сессия истекла — войдите снова. Вход действует 12 часов.</Notice>
+          )}
           {error && <Notice>{error}</Notice>}
           <button style={{ ...button, opacity: busy || !username || !password ? 0.6 : 1 }} disabled={busy || !username || !password}>
             {busy ? 'Вход…' : 'Войти'}

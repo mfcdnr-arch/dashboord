@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { clearToken, getAppealsStats, getHealth, getMe, getSetupStatus, getToken, type Health, type Me, listServices, listRefDocs } from './api'
+import { clearToken, getAppealsStats, getHealth, getMe, getSetupStatus, getToken, UNAUTHORIZED_EVENT, type Health, type Me, listServices, listRefDocs } from './api'
 import Login from './components/Login'
 import ChangePassword from './components/ChangePassword'
 import ObjectsPage from './components/ObjectsPage'
@@ -39,6 +39,9 @@ export default function App() {
   const [token, setToken] = useState<string | null>(getToken())
   const [me, setMe] = useState<Me | null>(null)
   const [loading, setLoading] = useState<boolean>(!!getToken())
+  // Сессия кончилась сама, а не по кнопке «Выйти»: человеку надо объяснить,
+  // почему он вдруг снова на экране входа, — иначе это выглядит сбоем.
+  const [expired, setExpired] = useState(false)
 
   async function loadMe(t: string) {
     setLoading(true)
@@ -57,7 +60,17 @@ export default function App() {
     if (token) loadMe(token)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Токен протух (api-слой поймал 401 и уже убрал его из хранилища) — уводим
+  // на вход. Раньше вкладка, открытая со вчера, выглядела рабочей и отвечала
+  // «Недействительный токен» на каждое действие.
+  useEffect(() => {
+    const onExpired = () => { setToken(null); setMe(null); setLoading(false); setExpired(true) }
+    window.addEventListener(UNAUTHORIZED_EVENT, onExpired)
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onExpired)
+  }, [])
+
   function onLogin(t: string) {
+    setExpired(false)
     setToken(t)
     loadMe(t)
   }
@@ -67,7 +80,7 @@ export default function App() {
     setMe(null)
   }
 
-  if (!token) return <Login onLogin={onLogin} />
+  if (!token) return <Login onLogin={onLogin} expired={expired} />
   if (loading) return <Centered>Загрузка…</Centered>
   if (me?.must_change_password) return <ChangePassword token={token} onDone={(t) => { setToken(t); loadMe(t) }} />
   return <Shell me={me!} onLogout={onLogout} />

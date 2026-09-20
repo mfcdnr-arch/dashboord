@@ -44,7 +44,39 @@ export class DuplicateError extends Error {
   constructor(message: string) { super(message); this.name = 'DuplicateError' }
 }
 
+/** Событие «сессия кончилась»: его слушает App и возвращает человека на вход. */
+export const UNAUTHORIZED_EVENT = 'dashbord:unauthorized'
+
+// Публичные маршруты входа: 401 там означает «неверный логин или пароль», а
+// вовсе не «сессия истекла». Сбрасывать на них нечего, и сообщение о неверном
+// пароле человек должен увидеть, а не экран входа заново.
+const PUBLIC_AUTH = /\/auth\/(login|password-policy|blocked-appeal)\b/
+
+/**
+ * Истёкший токен возвращает человека на вход (20.09.2026).
+ *
+ * Токен живёт 12 часов, а `clearToken` вызывался только при загрузке страницы
+ * и по кнопке «Выйти». Открытая со вчера вкладка выглядела рабочей, но каждое
+ * действие давало красное «Недействительный токен»; F5 всё лечил, но
+ * догадаться об этом человек не мог.
+ *
+ * Не перезагружаем страницу, а сообщаем приложению событием: токен лежит в
+ * состоянии React, поэтому экран входа покажется сам, и введённое в соседних
+ * полях не пропадёт от внезапного reload.
+ */
+function notifyUnauthorized(res: Response): void {
+  if (res.status !== 401) return
+  if (PUBLIC_AUTH.test(res.url)) return
+  if (!getToken()) return          // не вошли — экран входа и так на месте
+  clearToken()
+  window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+}
+
 export async function errText(res: Response): Promise<string> {
+  // Единственная точка, через которую проходят почти все неуспешные ответы
+  // (243 проверки `!res.ok` в api/ зовут её). Обёртка над fetch потребовала бы
+  // переписать их все — ради одного побочного эффекта это лишний риск.
+  notifyUnauthorized(res)
   try {
     const e = await res.json()
     if (typeof e.detail === 'string') return e.detail
