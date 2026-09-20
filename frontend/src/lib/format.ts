@@ -10,6 +10,19 @@ export function fmtNumber(n: number | null | undefined): string {
 }
 
 /**
+ * Дробное число с ФИКСИРОВАННЫМ числом знаков, по-русски.
+ *
+ * `toFixed` всегда ставит точку, и на одном экране соседствовали две записи
+ * одного числа: целые шли как «929 825», а проценты как «3.50». Тот же
+ * дефект уже чинили в дашбордах (09.08) и в «Статистике услуг» (11.09) —
+ * здесь общий помощник, чтобы не чинить его в третий раз поштучно.
+ */
+export function fmtFixed(n: number | null | undefined, digits = 2): string {
+  if (n == null || !isFinite(n)) return '—'
+  return n.toLocaleString('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+}
+
+/**
  * Стоит ли рисовать график в логарифмической шкале.
  *
  * Когда показатели различаются на два порядка (2 357 470 против 7 078), на

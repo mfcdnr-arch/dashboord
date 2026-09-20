@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { pageRowRank, type RowRank } from '../../api'
-import { fmtNumber } from '../../lib/format'
+import { fmtFixed, fmtNumber } from '../../lib/format'
 
 /**
  * Полоса разбора СТРОКИ: куда человек провалился и как эта строка выглядит на
@@ -64,7 +64,7 @@ export function RowDrillBar(
             {m.rank}-е из {m.rows}
           </b>
           <span style={{ color: 'var(--text-muted)' }}>
-            по «{shortName(m.name)}»{m.share !== null ? ` · ${m.share.toFixed(1)} % от итога` : ''}
+            по «{shortName(m.name)}»{m.share !== null ? ` · ${fmtFixed(m.share, 1)} % от итога` : ''}
             {m.rank > 1 ? ` · впереди «${m.leader}»` : ''}
           </span>
         </span>

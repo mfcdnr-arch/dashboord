@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { fmtNumber } from '../lib/format'
+import { fmtFixed, fmtNumber } from '../lib/format'
 import {
   allowedQuickLinkSections, createQuickLink, deleteQuickLink, listDashboards, listQuickLinks,
   reorderQuickLinks, type Dashboard, type QuickLink,
@@ -94,7 +94,7 @@ export default function QuickLinksPage(
                       marginLeft: 8, fontSize: 12.5, fontWeight: 600,
                       color: l.highlight.delta_pct >= 0 ? 'var(--success)' : 'var(--danger)',
                     }}>
-                      {l.highlight.delta_pct >= 0 ? '▲' : '▼'} {Math.abs(l.highlight.delta_pct).toFixed(2)} %
+                      {l.highlight.delta_pct >= 0 ? '▲' : '▼'} {fmtFixed(Math.abs(l.highlight.delta_pct))} %
                     </span>
                   )}
                   <span style={{ ...sub, marginTop: 2 }}>{elide(l.highlight.name)}</span>

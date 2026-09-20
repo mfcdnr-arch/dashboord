@@ -1,4 +1,5 @@
 import type { KeyKpi } from '../api'
+import { fmtFixed } from '../lib/format'
 
 /**
  * Изменение показателя к прошлому отчёту — рядом с числом на «Главной».
@@ -22,7 +23,7 @@ export default function KpiDelta({ kpi, size = 12.5 }: { kpi: KeyKpi; size?: num
     : 'К прошлому отчёту'
   return (
     <span style={{ fontSize: size, fontWeight: 600, color, whiteSpace: 'nowrap' }} title={title}>
-      {sign} {Math.abs(d).toFixed(2)} {kpi.delta_is_pp ? 'п.п.' : '%'}
+      {sign} {fmtFixed(Math.abs(d))} {kpi.delta_is_pp ? 'п.п.' : '%'}
     </span>
   )
 }

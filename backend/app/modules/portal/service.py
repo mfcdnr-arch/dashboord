@@ -46,7 +46,12 @@ async def list_instructions(conn, org_id, user_id, *, include_drafts: bool = Fal
         "from instructions i "
         "left join instruction_reads r on r.instruction_id = i.id and r.user_id = $" + str(len(args) + 1) + " "
         "where " + " and ".join(where) + " "
-        "order by coalesce(i.section,'') , i.position, i.created_at",
+        # Порядок РАЗДЕЛОВ задаёт наименьшая позиция их материалов, а не
+        # алфавит: иначе рядовой пользователь первым видит «Для
+        # администратора», а «Начало работы» оказывается в середине.
+        # Поле «Позиция» в форме уже есть — теперь оно управляет и разделами.
+        "order by min(i.position) over (partition by coalesce(i.section,'')), "
+        "         coalesce(i.section,''), i.position, i.created_at",
         *args, user_id)
     items = [{
         "id": str(r["id"]), "section": r["section"], "title": r["title"],

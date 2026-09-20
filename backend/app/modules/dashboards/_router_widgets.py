@@ -3,13 +3,13 @@
 """
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from ... import db
+from ...exports import attachment_header
 from ..audit import service as audit_svc
 from ..auth.deps import get_current_user
 from . import service
@@ -48,23 +48,11 @@ class WidgetPreviewIn(BaseModel):
 def _attachment(filename: str) -> str:
     """Заголовок вложения с ИМЕНЕМ ВИДЖЕТА, а не «widget.xlsx».
 
-    Имена у нас русские, а в `filename=` можно только ASCII, поэтому по RFC 5987
-    отдаём оба варианта: ASCII-запасной для старых программ и `filename*` с
-    процентным кодированием для остальных. Из имени убираем то, что файловые
-    системы не примут (слеши, двоеточия, кавычки), — иначе браузер сохранит
-    файл со сломанным именем или откажется вовсе.
+    Сама сборка заголовка — общая (`app.exports.attachment_header`): файл с
+    русским именем отдаётся не только отсюда, и разошедшиеся копии этого
+    правила уже стоили падения отдачи приложенных руководств.
     """
-    from urllib.parse import quote
-
-    clean = re.sub(r'[\\/:*?"<>|\r\n]+', " ", filename).strip() or "widget.xlsx"
-    clean = clean[:120]
-    # Русское имя целиком выпадает из ASCII, и запасной вариант превращался в
-    # «.xlsx» — то есть в скрытый файл без имени. Пусто — берём осмысленное
-    # общее имя; современные браузеры всё равно возьмут filename* с кириллицей.
-    stem, dot, ext = clean.rpartition(".")
-    ascii_stem = (stem or clean).encode("ascii", "ignore").decode().strip()
-    ascii_name = f"{ascii_stem}.{ext}" if ascii_stem and dot else "widget.xlsx"
-    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(clean)}'
+    return attachment_header(filename, "widget.xlsx")
 
 
 # --- Виджеты страницы ---

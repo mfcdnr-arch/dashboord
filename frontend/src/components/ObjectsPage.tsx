@@ -5,6 +5,7 @@ import {
   DuplicateError,
   type Doc, type Folder, type Obj,
 } from '../api'
+import { fmtFixed } from '../lib/format'
 import { folderLabel, folderTree } from '../lib/folderTree'
 import ExtractionPage from './ExtractionPage'
 import RowAclEditor from './RowAclEditor'
@@ -725,8 +726,8 @@ function EditDialog(
 function fmtSize(n: number | null): string {
   if (n == null) return '—'
   if (n < 1024) return `${n} Б`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} КБ`
-  return `${(n / 1024 / 1024).toFixed(1)} МБ`
+  if (n < 1024 * 1024) return `${fmtFixed(n / 1024, 1)} КБ`
+  return `${fmtFixed(n / 1024 / 1024, 1)} МБ`
 }
 
 const crumb: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', cursor: 'pointer', fontSize: 14, padding: 0 }

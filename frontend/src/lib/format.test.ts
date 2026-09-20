@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { heatSteps, logScaleAdvice, sparkSeries } from './format'
+import { fmtFixed, heatSteps, logScaleAdvice, sparkSeries } from './format'
 
 // Палитра тепловой карты — пять оттенков, как в теме.
 const PAL = ['#faf0e9', '#e0b58f', '#e0885f', '#a5563c', '#e04e39']
@@ -77,5 +77,24 @@ describe('sparkSeries', () => {
     const r = sparkSeries([1, 2, 3])
     expect(r.values).toEqual([1, 2, 3])
     expect(r.periods).toEqual([null, null, null])
+  })
+})
+
+describe('fmtFixed — дробные числа по-русски', () => {
+  it('ставит запятую, а не точку: на одном экране не должно быть двух записей числа', () => {
+    expect(fmtFixed(3.5)).toBe('3,50')
+    expect(fmtFixed(13.24, 1)).toBe('13,2')
+    expect(fmtFixed(4)).toBe('4,00')
+  })
+
+  it('держит заданное число знаков и округляет как toFixed', () => {
+    expect(fmtFixed(0.005, 2)).toBe('0,01')
+    expect(fmtFixed(-1.239, 2)).toBe('-1,24')
+  })
+
+  it('пустое значение не превращается в «NaN» на экране', () => {
+    expect(fmtFixed(null)).toBe('—')
+    expect(fmtFixed(undefined)).toBe('—')
+    expect(fmtFixed(Infinity)).toBe('—')
   })
 })

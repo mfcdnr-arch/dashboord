@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFil
 from pydantic import BaseModel, Field
 
 from ... import db
+from ...exports import attachment_header
 from ..audit import service as audit_svc
 from ..auth.deps import get_current_user, require_roles
 from ..documents import storage
@@ -85,11 +86,13 @@ async def download_instruction_file(instruction_id: str, user: dict = Depends(ge
         except PortalError as e:
             raise _bad(e)
     data = storage.get_object(f["path"])
-    name = (f["name"] or "instruction").replace('"', "")
     return Response(
         content=data, media_type="application/octet-stream",
-        # filename* — чтобы кириллица в имени не превращалась в кракозябры.
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{name}"},
+        # Имена руководств русские. Без процентного кодирования (RFC 5987)
+        # заголовок не кодируется в latin-1, и отдача файла падала с 500 —
+        # значок «📎 файл» был, а скачать его было нельзя.
+        headers={"Content-Disposition": attachment_header(
+            f["name"] or "instruction", "instruction")},
     )
 
 
