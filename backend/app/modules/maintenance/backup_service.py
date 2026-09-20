@@ -29,28 +29,67 @@ def _dir_size(p: Path) -> int:
     return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
 
 
+def _set_info(d: Path) -> dict:
+    """Один набор + ответ на главный вопрос: можно ли из него восстановиться.
+
+    🔴 Раньше набор описывался только именем и размерами, а экран брал
+    последний каталог ПО ИМЕНИ. Провалившийся бэкап оставляет каталог со
+    свежей отметкой времени — и выглядел «последним успешным». В день аварии
+    выясняется, что восстанавливаться не из чего.
+
+    Годным считаем набор, в котором есть непустой `db.dump` и нет пометки
+    `FAILED.txt`. Файл `db.dump` появляется только после проверки
+    `pg_restore --list` (до этого он `db.dump.part`), поэтому его наличие —
+    не догадка, а факт: дамп прочитан до конца.
+    """
+    db_dump = d / "db.dump"
+    minio_tgz = d / "minio.tgz"
+    failed = d / "FAILED.txt"
+    db_bytes = db_dump.stat().st_size if db_dump.exists() else None
+    partial = (d / "db.dump.part").exists()
+    ok = bool(db_bytes) and not failed.exists()
+    problem = None
+    if failed.exists():
+        try:
+            problem = failed.read_text(encoding="utf-8").strip()[:300]
+        except OSError:
+            problem = "Бэкап помечен как неудачный"
+    elif partial and not db_bytes:
+        problem = "Дамп не дописан до конца — бэкап оборвался"
+    elif not db_bytes:
+        problem = "Дамп базы отсутствует или пуст"
+    return {
+        "name": d.name,
+        "created_at": datetime.fromtimestamp(d.stat().st_mtime, tz=timezone.utc).isoformat(),
+        "db_dump_bytes": db_bytes,
+        "minio_tgz_bytes": minio_tgz.stat().st_size if minio_tgz.exists() else None,
+        "ok": ok,
+        "problem": problem,
+    }
+
+
 def get_status() -> dict:
     sets = []
     if BACKUPS_DIR.exists():
         for d in sorted((p for p in BACKUPS_DIR.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True)[:10]:
-            db_dump = d / "db.dump"
-            minio_tgz = d / "minio.tgz"
-            sets.append({
-                "name": d.name,
-                "created_at": datetime.fromtimestamp(d.stat().st_mtime, tz=timezone.utc).isoformat(),
-                "db_dump_bytes": db_dump.stat().st_size if db_dump.exists() else None,
-                "minio_tgz_bytes": minio_tgz.stat().st_size if minio_tgz.exists() else None,
-            })
+            sets.append(_set_info(d))
     last_result = None
     if RESULT_FILE.exists():
         try:
             last_result = json.loads(RESULT_FILE.read_text())
         except (json.JSONDecodeError, OSError):
             last_result = None
+    # Отдельно — последний ГОДНЫЙ набор: именно он отвечает на вопрос
+    # «когда мы в последний раз могли бы восстановиться», а не «когда в
+    # последний раз что-то писалось в каталог».
+    last_good = next((s for s in sets if s["ok"]), None)
     return {
         "sets": sets,
         "pending": TRIGGER_FILE.exists(),
         "last_manual_result": last_result,
+        "last_good": last_good,
+        "failed_since_good": sum(1 for s in sets[:sets.index(last_good)] if not s["ok"])
+                             if last_good else sum(1 for s in sets if not s["ok"]),
         "watcher_configured": TRIGGER_DIR.exists(),
     }
 

@@ -333,15 +333,43 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
                 )}
                 {backup.sets.length === 0
                   ? <div style={muted}>Бэкапов ещё не было.</div>
-                  : <div style={{ fontSize: 13, marginBottom: 6 }}>Последний: <b>{fmtDt(backup.sets[0].created_at)}</b>
-                      {backup.sets[0].db_dump_bytes != null && <> · БД {fmtBytes(backup.sets[0].db_dump_bytes)}</>}
-                      {backup.sets[0].minio_tgz_bytes != null && <> · MinIO {fmtBytes(backup.sets[0].minio_tgz_bytes)}</>}
-                      <span style={{ color: 'var(--text-faint)' }}> · хранится {backup.sets.length}</span>
-                    </div>}
+                  : (() => {
+                    // Показываем последний ГОДНЫЙ набор, а не последний каталог:
+                    // провалившийся бэкап оставляет каталог со свежей отметкой
+                    // времени и раньше выглядел успешным. Вопрос, на который
+                    // отвечает эта строка, — «когда мы в последний раз МОГЛИ БЫ
+                    // восстановиться», а не «когда что-то писалось на диск».
+                    const good = backup.last_good
+                    const failedAfter = backup.failed_since_good ?? 0
+                    return (
+                      <>
+                        {good ? (
+                          <div style={{ fontSize: 13, marginBottom: 6 }}>
+                            Последний успешный: <b>{fmtDt(good.created_at)}</b>
+                            {good.db_dump_bytes != null && <> · БД {fmtBytes(good.db_dump_bytes)}</>}
+                            {good.minio_tgz_bytes != null && <> · MinIO {fmtBytes(good.minio_tgz_bytes)}</>}
+                            <span style={{ color: 'var(--text-faint)' }}> · хранится {backup.sets.length}</span>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 13, marginBottom: 6, color: 'var(--danger)', fontWeight: 600 }}>
+                            ⚠ Годного бэкапа нет: наборы на диске есть, но восстановиться не из чего.
+                          </div>
+                        )}
+                        {failedAfter > 0 && (
+                          <div style={{ fontSize: 12.5, color: 'var(--danger)', marginBottom: 6 }}>
+                            {/* «После него» — только когда есть тот самый «он». */}
+                            ⚠ {good ? 'После него неудачных запусков' : 'Неудачных запусков'}: {failedAfter}
+                            {backup.sets[0] && !backup.sets[0].ok && backup.sets[0].problem
+                              ? ` — последний: ${backup.sets[0].problem}` : ''}
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
                 {backup.pending && <div style={{ fontSize: 12, color: 'var(--warn)', marginBottom: 6 }}>⏳ Заявка ожидает обработки хостом (до 1 мин).</div>}
                 {backup.last_manual_result && (
                   <div style={{ fontSize: 12, color: backup.last_manual_result.ok ? 'var(--success)' : 'var(--danger)', marginBottom: 6 }}>
-                    Последний ручной запуск: {backup.last_manual_result.ok ? '✓' : '✗'} {backup.last_manual_result.message}
+                    Последний запуск: {backup.last_manual_result.ok ? '✓' : '✗'} {backup.last_manual_result.message}
                   </div>
                 )}
                 <button style={btnGhost} disabled={backupRequesting || backup.pending} onClick={doBackupNow}>

@@ -41,11 +41,20 @@ export interface BackupSet {
   created_at: string
   db_dump_bytes: number | null
   minio_tgz_bytes: number | null
+  /** Можно ли из набора восстановиться: есть проверенный дамп и нет пометки о сбое. */
+  ok: boolean
+  /** Что именно не так с набором — показывается человеку, если он непригоден. */
+  problem: string | null
 }
 export interface BackupStatus {
   sets: BackupSet[]
   pending: boolean
   last_manual_result: { ts: string; ok: boolean; message: string } | null
+  /** Последний ГОДНЫЙ набор. Провалившийся бэкап оставляет каталог со свежей
+   *  отметкой времени, и «последний по времени» выглядел бы успешным. */
+  last_good: BackupSet | null
+  /** Сколько неудачных запусков было после последнего годного набора. */
+  failed_since_good: number
   watcher_configured: boolean
 }
 

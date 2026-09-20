@@ -189,6 +189,11 @@ services:
       # проверять там нечего, кроме настоящего поведения самого скрипта.
       - ./worker-guard.sh:/deploy/worker-guard.sh:ro
       - ./ops-trigger-watch.sh:/deploy/ops-trigger-watch.sh:ro
+      # backup.sh/restore.sh — их проверяет test_backup_honesty: провалившийся
+      # бэкап не должен выглядеть свежим, а команда восстановления принимает
+      # каталог набора, а не файл дампа.
+      - ./backup.sh:/deploy/backup.sh:ro
+      - ./restore.sh:/deploy/restore.sh:ro
     depends_on: *backend_deps
     command: python -m pytest -q
 
