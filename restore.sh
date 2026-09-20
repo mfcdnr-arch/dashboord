@@ -15,9 +15,27 @@ for a in "$@"; do
     *) SET="$a" ;;
   esac
 done
-[ -n "$SET" ] && [ -d "$SET" ] || { echo "Укажите каталог набора: ./restore.sh backups/<TS>"; exit 2; }
+# Типовая ошибка: передают путь к файлу дампа (так одно время было написано в
+# документации). Команду читают один раз — после аварии и под стрессом, —
+# поэтому не отказываем молча: если это файл внутри набора, берём его каталог
+# и говорим об этом вслух.
+if [ -n "$SET" ] && [ -f "$SET" ]; then
+  PARENT="$(dirname "$SET")"
+  if [ -f "$PARENT/db.dump" ] || [ -f "$PARENT/minio.tgz" ]; then
+    echo "Указан файл «$SET»; аргумент — КАТАЛОГ набора. Беру $PARENT"
+    SET="$PARENT"
+  fi
+fi
+[ -n "$SET" ] && [ -d "$SET" ] || {
+  echo "Укажите КАТАЛОГ набора (не файл): ./restore.sh backups/<TS>"
+  [ -d backups ] && { echo "Доступные наборы:"; ls -1 backups 2>/dev/null | tail -5; }
+  exit 2
+}
 
-env_get() { grep -E "^$1=" .env.prod 2>/dev/null | cut -d= -f2- | tail -1; }
+# `|| true` обязателен: без .env.prod grep возвращает 1, и при `set -e`
+# скрипт аварийного восстановления молча обрывался бы, не сказав ни слова.
+# В backup.sh это уже исправлено — здесь было упущено.
+env_get() { { grep -E "^$1=" .env.prod 2>/dev/null | cut -d= -f2- | tail -1; } || true; }
 PGUSER="$(env_get POSTGRES_USER)"; PGUSER="${PGUSER:-dashbord}"
 PGDB="$(env_get POSTGRES_DB)"; PGDB="${PGDB:-dashbord}"
 MINIO_VOLUME="${MINIO_VOLUME:-dashbord-prod_miniodata}"

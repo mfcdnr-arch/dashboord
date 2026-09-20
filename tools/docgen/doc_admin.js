@@ -181,7 +181,7 @@ const ch = [
     [
       ['Ежедневный бэкап', 'Настроен установщиком автоматически (03:30, хранится 7 наборов). Проверка: sudo ./backup-schedule.sh status'],
       ['Разовый бэкап', './backup.sh, либо кнопка «💾 Запустить сейчас» в «Отчёты → Бэкап и автоархив» (в течение минуты); восстановимость проверяется сразу (pg_restore --list)'],
-      ['Восстановление', './restore.sh backups/<набор>/db.dump'],
+      ['Восстановление', './restore.sh backups/<набор>   (каталог набора, не файл)'],
       ['Обновление версии', './backup.sh → заменить исходники новой версией → ./deploy.sh (накатит только новые миграции)'],
       ['Диагностика', './diag.sh, ./smoke.sh 8443 https, логи: docker compose -f docker-compose.prod.yml --env-file .env.prod logs api'],
       ['Мониторинг Grafana', './install.sh --monitoring при установке или docker compose -f docker-compose.monitoring.yml --env-file .env.prod up -d'],
