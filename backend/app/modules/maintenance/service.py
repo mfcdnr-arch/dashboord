@@ -94,9 +94,35 @@ async def heal_and_log(conn, triggered_by: str, user_id=None, user_org_id=None) 
     return {**result, "status_before": before["status"], "status_after": after["status"]}
 
 
+async def degraded_reasons(health: dict) -> list:
+    """Что именно не так — словами, а не «система в состоянии degraded».
+
+    Без этого человек идёт разбираться вслепую: причина бывает и в упавшем
+    сервисе, и в ресурсах (диск, память, CPU), которые приложение чинить не
+    умеет вовсе.
+    """
+    out = []
+    for s in health.get("services") or []:
+        if not s.get("ok"):
+            out.append(f"{s.get('name') or s.get('code')}: недоступен")
+    for key, label in (("disk", "диск"), ("memory", "память"), ("cpu", "процессор")):
+        res = health.get(key) or {}
+        if res.get("level") == "danger":
+            out.append(f"{label} — {res.get('percent')} %")
+    return out
+
+
 async def notify_degraded(conn, org_id, heal_result: dict) -> None:
-    """Уведомить admin/moderator организации, если автопочинка не устранила деградацию.
-    Антидубль: не чаще раза в час на организацию (иначе watchdog каждые 10 мин спамил бы)."""
+    """Уведомить admin/moderator организации, что система в плохом состоянии.
+
+    Шлётся по СОСТОЯНИЮ после починки, а не по её успеху: чинить приложение
+    умеет только бакет MinIO и связь с Redis, а деградацию чаще вызывают
+    ресурсы — и раньше при переполненном диске починка рапортовала «здоров»
+    и не сообщала никому.
+
+    Антидубль: не чаще раза в час на организацию (иначе watchdog каждые 10
+    мин спамил бы).
+    """
     dup = await conn.fetchval(
         "select 1 from notification_events where organization_id=$1 and event_type='system.degraded' "
         "and created_at > now() - interval '1 hour' limit 1", org_id)
@@ -105,9 +131,12 @@ async def notify_degraded(conn, org_id, heal_result: dict) -> None:
     recipients = await notif.management_user_ids(conn, org_id)
     if not recipients:
         return
+    health = await reports_svc.system_health(conn)
     await notif.notify(
         conn, org_id, "system.degraded", "organization", str(org_id),
-        {"actions": heal_result["actions"], "status_after": heal_result["status_after"]},
+        {"actions": heal_result["actions"], "status_after": heal_result["status_after"],
+         "reasons": await degraded_reasons(health),
+         "healed": heal_result.get("healthy")},
         recipients)
 
 

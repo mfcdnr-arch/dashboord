@@ -42,7 +42,14 @@ function message(n: NotificationItem): string {
       + 'Ничего не удалено: откройте «Настройки» → «Хранение данных», посмотрите список и решите сами.'
   }
   if (n.event_type === 'widget.created.no_explicit_access') return `Новый виджет без явных прав: ${p.widget_name ?? ''}`
-  if (n.event_type === 'system.degraded') return `Автопочинка не устранила все проблемы (статус: ${p.status_after ?? 'degraded'}). Посмотрите раздел «Отчёты» → «Здоровье системы».`
+  if (n.event_type === 'system.degraded') {
+    // Называем ПРИЧИНУ: «автопочинка не помогла» без неё отправляет человека
+    // разбираться вслепую, а чаще всего дело в ресурсах, которые приложение
+    // чинить и не умеет.
+    const why = Array.isArray(p.reasons) && p.reasons.length ? ` Что не так: ${p.reasons.join('; ')}.` : ''
+    return `Система в плохом состоянии (${p.status_after ?? 'degraded'}).${why}`
+      + ' Посмотрите раздел «Отчёты» → «Здоровье системы».'
+  }
   // Воркер перезапущен хостовым сторожем. Сообщаем ОБЯЗАТЕЛЬНО, в том числе об
   // удачном перезапуске: молчание скрыло бы, что воркер падает регулярно.
   if (n.event_type === 'system.worker_restarted') return p.healthy

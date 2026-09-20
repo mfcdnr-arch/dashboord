@@ -118,7 +118,13 @@ async def system_watchdog(ctx) -> None:
         if health["status"] != "degraded":
             return
         result = await maint.heal_and_log(conn, "auto")
-        if not result["healthy"]:
+        # 🔴 Уведомляем по СОСТОЯНИЮ СИСТЕМЫ после починки, а не по успеху
+        # самой починки (20.09.2026). `healthy` означает «удались ли
+        # ДЕЙСТВИЯ» — а действий всего два: создать бакет MinIO и проверить
+        # связь с Redis. Переполненный диск, забитая память и упёршийся CPU
+        # тоже дают degraded, но чинить их приложение не умеет: оба действия
+        # проходят успешно, `healthy` выходит True — и не узнавал никто.
+        if result["status_after"] == "degraded":
             await _for_each_org(lambda c, org_id: maint.notify_degraded(c, org_id, result))
 
 
