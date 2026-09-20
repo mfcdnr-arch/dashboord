@@ -94,7 +94,7 @@ async def list_departments(conn, org_id) -> List[dict]:
     return [{"id": str(r["id"]), "name": r["name"], "users": r["users"]} for r in rows]
 
 
-async def create_department(conn, org_id, name: str) -> dict:
+async def create_department(conn, org_id, name: str, actor: Optional[dict] = None) -> dict:
     name = (name or "").strip()
     if not name:
         raise UsersError("Укажите название отдела")
@@ -102,14 +102,23 @@ async def create_department(conn, org_id, name: str) -> dict:
         raise UsersError("Отдел с таким названием уже есть")
     row = await conn.fetchrow(
         "insert into departments(organization_id, name) values($1,$2) returning id, name", org_id, name)
+    await audit_svc.write_event(
+        conn, org_id, (actor or {}).get("id"), "create", "department", str(row["id"]),
+        new_data={"name": row["name"]})
     return {"id": str(row["id"]), "name": row["name"]}
 
 
-async def delete_department(conn, org_id, department_id: str) -> None:
+async def delete_department(conn, org_id, department_id: str, actor: Optional[dict] = None) -> None:
+    # Отдел участвует в правах на строки — след нужен: снимок берём до удаления.
+    name = await conn.fetchval(
+        "select name from departments where id=$1::uuid and organization_id=$2", department_id, org_id)
     res = await conn.execute(
         "delete from departments where id=$1::uuid and organization_id=$2", department_id, org_id)
     if res.endswith("0"):
         raise UsersError("Отдел не найден")
+    await audit_svc.write_event(
+        conn, org_id, (actor or {}).get("id"), "delete", "department", department_id,
+        old_data={"name": name})
 
 
 # --------------------------------------------------------------------------- #
@@ -170,6 +179,41 @@ async def _dept_ok(conn, org_id, department_id: Optional[str]) -> None:
         raise UsersError("Отдел не найден")
 
 
+
+# --- Журнал действий -------------------------------------------------------
+# Операции с учётными записями не попадали в журнал ВООБЩЕ (20.09.2026):
+# `select count(*) from audit_log where entity_type='user'` давал 0 при
+# сотнях тысяч событий по другим сущностям. Сброс чужого пароля, выдача роли
+# admin, блокировка и удаление не оставляли следа — а это первое, о чём
+# спрашивают при разборе спорной ситуации.
+#
+# Триггера на таблице `users` нет (в отличие от dashboards/widgets/object_acl),
+# поэтому пишем явно и в ТОЙ ЖЕ транзакции, что и само действие.
+#
+# 🔴 Пароли в журнал не попадают ни в каком виде — ни новый, ни хеш: журнал
+# читают люди, и он выгружается в файл. Пишем только ФАКТ сброса.
+AUDIT_ENTITY = "user"
+
+
+async def _audit(conn, org_id, actor, action: str, user_id: str,
+                 old_data: Optional[dict] = None, new_data: Optional[dict] = None) -> None:
+    await audit_svc.write_event(
+        conn, org_id, (actor or {}).get("id"), action, AUDIT_ENTITY, str(user_id),
+        old_data=old_data, new_data=new_data)
+
+
+async def _user_snapshot(conn, user_id: str) -> dict:
+    """Состояние учётной записи для сравнения «было/стало» в журнале."""
+    r = await conn.fetchrow(
+        "select login, full_name, email, department_id, is_active, show_featured "
+        "from users where id=$1::uuid", user_id)
+    if r is None:
+        return {}
+    snap = {k: (str(v) if k == "department_id" and v is not None else v) for k, v in dict(r).items()}
+    snap["roles"] = sorted(await _roles_of(conn, user_id))
+    return snap
+
+
 async def _set_roles(conn, org_id, user_id: str, role_ids: List[str],
                      actor: dict, current_roles: Set[str]) -> None:
     # Коды запрошенных ролей (заодно валидируем принадлежность организации).
@@ -223,6 +267,7 @@ async def create_user(conn, org_id, login: str, password: str, last_name, first_
         org_id, login, hash_password(password), full, last_name, first_name, middle_name, email, department_id)
     uid = str(row["id"])
     await _set_roles(conn, org_id, uid, role_ids, actor, current_roles=set())
+    await _audit(conn, org_id, actor, "create", uid, new_data=await _user_snapshot(conn, uid))
     return {"id": uid, "login": login}
 
 
@@ -231,22 +276,63 @@ async def _user_org(conn, org_id, user_id: str):
         "select id, is_active from users where id=$1::uuid and organization_id=$2", user_id, org_id)
 
 
-async def update_user(conn, org_id, user_id: str, last_name, first_name, middle_name,
-                      email, department_id, role_ids: Optional[List[str]], actor: dict,
-                      show_featured: Optional[bool] = None) -> dict:
+async def update_user(conn, org_id, user_id: str, patch: dict, actor: dict) -> dict:
+    """Частичная правка: трогаем ТОЛЬКО присланные поля.
+
+    🔴 Раньше функция всегда переписывала ФИО, почту и отдел тем, что пришло,
+    а не присланное приходило как None — то есть любой частичный вызов
+    (выдать роль, поставить галочку «Руководителю») СТИРАЛ фамилию, имя,
+    отчество, почту и отдел человека. Через форму это не проявлялось — она
+    шлёт полный набор, — но PATCH по определению частичный, и первый же
+    вызов мимо формы терял данные молча. Найдено 20.09.2026 по журналу
+    действий, как только он начал писать «было/стало».
+
+    Различаем «поле не прислали» (не трогаем) и «прислали пусто» (стираем):
+    тот же приём, что в update_metric и update_instruction.
+    """
     troles = await _guard_manage(conn, org_id, user_id, actor)
-    await _dept_ok(conn, org_id, department_id)
-    full = _full_name(last_name, first_name, middle_name)
-    await conn.execute(
-        "update users set last_name=$2, first_name=$3, middle_name=$4, full_name=$5, "
-        "email=$6, department_id=$7::uuid where id=$1::uuid",
-        user_id, last_name, first_name, middle_name, full, email, department_id)
+    if "department_id" in patch:
+        await _dept_ok(conn, org_id, patch["department_id"])
+    before = await _user_snapshot(conn, user_id)
+
+    sets, args = [], [user_id]
+
+    def add(col: str, value) -> None:
+        args.append(value)
+        sets.append(f"{col}=${len(args)}")
+
+    for col in ("last_name", "first_name", "middle_name", "email"):
+        if col in patch:
+            add(col, patch[col])
+    # ФИО целиком пересобирается, только если менялась хоть одна его часть, —
+    # иначе правка одной лишь почты обнулила бы full_name. Недостающие части
+    # берём из БД, а не из снимка для журнала: в нём лежит только собранное
+    # full_name, и правка одной фамилии затёрла бы имя с отчеством.
+    if any(c in patch for c in ("last_name", "first_name", "middle_name")):
+        cur = await conn.fetchrow(
+            "select last_name, first_name, middle_name from users where id=$1::uuid", user_id)
+        add("full_name", _full_name(
+            patch.get("last_name", cur["last_name"] if cur else None),
+            patch.get("first_name", cur["first_name"] if cur else None),
+            patch.get("middle_name", cur["middle_name"] if cur else None)))
+    if "department_id" in patch:
+        args.append(patch["department_id"])
+        sets.append(f"department_id=${len(args)}::uuid")
+    if sets:
+        await conn.execute(f"update users set {', '.join(sets)} where id=$1::uuid", *args)
+
+    show_featured = patch.get("show_featured")
+    role_ids = patch.get("role_ids")
     if show_featured is not None:
         # Раздел «Руководителю» — по галочке: подборка отчётов для руководства
         # нужна единицам, а роль пришлось бы выдавать вдобавок к существующим.
         await conn.execute("update users set show_featured=$2 where id=$1::uuid", user_id, show_featured)
     if role_ids is not None:
         await _set_roles(conn, org_id, user_id, role_ids, actor, current_roles=troles)
+    # Выдача роли — самое чувствительное здесь: снимок берётся ПОСЛЕ смены
+    # ролей, иначе «кому выдали admin» в журнале не увидеть.
+    await _audit(conn, org_id, actor, "update", user_id,
+                 old_data=before, new_data=await _user_snapshot(conn, user_id))
     return {"id": user_id}
 
 
@@ -256,7 +342,10 @@ async def set_active(conn, org_id, user_id: str, active: bool, actor: dict) -> d
     troles = await _guard_manage(conn, org_id, user_id, actor)
     if not active:  # блокировка суперадмина — беречь последнего
         await _guard_last_superadmin(conn, org_id, user_id, troles)
+    was = await _user_snapshot(conn, user_id)
     await conn.execute("update users set is_active=$2 where id=$1::uuid", user_id, active)
+    await _audit(conn, org_id, actor, "update", user_id,
+                 old_data=was, new_data={**was, "is_active": active})
     return {"id": user_id, "is_active": active}
 
 
@@ -271,9 +360,16 @@ async def delete_user(conn, org_id, user_id: str, actor: dict) -> dict:
     # user_roles/сессии/получатели уведомлений уходят по ON DELETE CASCADE;
     # login_events/комментарии/actor аудита — по ON DELETE SET NULL. Остальные
     # ссылки (created_by/uploaded_by/…) с RESTRICT — заблокируют удаление.
+    # Снимок берём ДО удаления: после него в журнале остался бы голый
+    # идентификатор, по которому не понять, чью запись убрали.
+    gone = await _user_snapshot(conn, user_id)
     try:
         async with conn.transaction():
             res = await conn.execute("delete from users where id=$1::uuid and organization_id=$2", user_id, org_id)
+            # Внутри той же транзакции: при откате по внешнему ключу в журнале
+            # не должно остаться следа несостоявшегося удаления.
+            if not res.endswith("0"):
+                await _audit(conn, org_id, actor, "delete", user_id, old_data=gone)
     except asyncpg.ForeignKeyViolationError:
         raise UsersError("У пользователя есть созданные объекты или история действий — "
                          "жёсткое удаление невозможно. Заблокируйте пользователя (сохранит аудит).")
@@ -429,4 +525,11 @@ async def reset_password(conn, org_id, user_id: str, new_password: str, actor: d
         "update users set password_hash=$2, must_change_password=true, password_changed_at=date_trunc('second', now()) "
         "where id=$1::uuid",
         user_id, hash_password(new_password))
+    # Ни пароля, ни хеша — только факт: сброс выкидывает человека из всех
+    # сессий, и при разборе важно знать, кто и когда это сделал.
+    login = await conn.fetchval("select login from users where id=$1::uuid", user_id)
+    await _audit(conn, org_id, actor, "update", user_id,
+                 old_data={"login": login, "password_reset": False},
+                 new_data={"login": login, "password_reset": True,
+                           "sessions_revoked": True, "must_change_password": True})
     return {"id": user_id}

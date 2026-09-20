@@ -58,7 +58,10 @@ export async function createUser(body: UserInput): Promise<{ id: string; login: 
   return res.json()
 }
 export async function updateUser(id: string, patch: {
-  last_name?: string; first_name?: string; middle_name?: string; email?: string
+  // null — «стереть значение», отсутствие поля — «не трогать». Сервер
+  // различает эти случаи (PATCH частичный), поэтому и тип должен различать.
+  last_name?: string | null; first_name?: string | null; middle_name?: string | null
+  email?: string | null
   department_id?: string | null; role_ids?: string[]; show_featured?: boolean
 }): Promise<void> {
   const res = await fetch(`/users/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify(patch) })

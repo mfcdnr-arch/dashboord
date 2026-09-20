@@ -413,7 +413,14 @@ function UserEditor({ user, depts, roles, canGrantSuper, onClose, onSaved }: {
     try {
       const common = { last_name: last.trim() || undefined, first_name: first.trim() || undefined, middle_name: middle.trim() || undefined, email: email.trim() || undefined, department_id: deptId || undefined, role_ids: [...roleIds], show_featured: showFeatured }
       if (isNew) await createUser({ login: login.trim(), password, ...common })
-      else await updateUser(user!.id, { ...common, department_id: deptId || null })
+      // Правка частичная: сервер не трогает поля, которых нет в запросе.
+      // Поэтому очищенное поле шлём ЯВНЫМ null — это «стереть», а не
+      // «не менять»; иначе стереть фамилию через форму стало бы нельзя.
+      else await updateUser(user!.id, {
+        last_name: last.trim() || null, first_name: first.trim() || null,
+        middle_name: middle.trim() || null, email: email.trim() || null,
+        department_id: deptId || null, role_ids: [...roleIds], show_featured: showFeatured,
+      })
       onSaved()
     } catch (e) { setErr((e as Error).message); setBusy(false) }
   }

@@ -81,7 +81,7 @@ async def list_departments(user: dict = Depends(manage)):
 async def create_department(body: DepartmentIn, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         try:
-            return await service.create_department(conn, user["organization_id"], body.name)
+            return await service.create_department(conn, user["organization_id"], body.name, user)
         except UsersError as e:
             raise _bad(e)
 
@@ -90,7 +90,7 @@ async def create_department(body: DepartmentIn, user: dict = Depends(manage)):
 async def delete_department(department_id: str, user: dict = Depends(manage)):
     async with db.get_pool().acquire() as conn:
         try:
-            await service.delete_department(conn, user["organization_id"], department_id)
+            await service.delete_department(conn, user["organization_id"], department_id, user)
         except UsersError as e:
             raise _bad(e)
 
@@ -177,10 +177,11 @@ async def update_user(user_id: str, body: UserPatch, user: dict = Depends(manage
     async with db.get_pool().acquire() as conn:
         try:
             async with conn.transaction():
+                # exclude_unset — «поле не прислали» и «прислали пусто» это
+                # разные вещи: второе стирает значение, первое не трогает.
                 return await service.update_user(
-                    conn, user["organization_id"], user_id, body.last_name, body.first_name,
-                    body.middle_name, body.email, body.department_id, body.role_ids, user,
-                    show_featured=body.show_featured)
+                    conn, user["organization_id"], user_id,
+                    body.model_dump(exclude_unset=True), user)
         except UsersError as e:
             raise _bad(e)
 

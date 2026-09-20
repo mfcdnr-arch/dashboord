@@ -26,6 +26,11 @@ ENTITY_LABELS = {
     "history": "История (очистка журналов)",
     "announcement": "Объявление",
     "mfc_office": "Отделение МФЦ",
+    "user": "Учётная запись",
+    "archive": "Слепок архива",
+    "dashboard_page": "Страница дашборда",
+    "dashboard_comment": "Комментарий к дашборду",
+    "department": "Отдел",
 }
 # Все значения enum audit_action (порядок — для фасета фильтра).
 ACTIONS = ["create", "update", "delete", "publish", "grant_access", "revoke_access", "view",

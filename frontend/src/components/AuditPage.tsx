@@ -17,6 +17,7 @@ const ACTION_LABEL: Record<string, string> = {
   create: 'Создание', update: 'Изменение', delete: 'Удаление', publish: 'Публикация',
   grant_access: 'Выдача доступа', revoke_access: 'Отзыв доступа', view: 'Просмотр',
   archive: 'Архивация', unarchive: 'Разархивация', heal: 'Автопочинка',
+  export: 'Выгрузка',
 }
 const ACTION_COLOR: Record<string, string> = {
   create: 'var(--success)', update: 'var(--warn)', delete: 'var(--danger)', publish: 'var(--accent-text)',
