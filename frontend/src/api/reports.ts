@@ -34,6 +34,16 @@ export interface SystemReport {
               guard?: { watcher: 'never' | 'stale' | 'ok'; watcher_seen_at: string | null;
                         watcher_hint: string | null; paused: boolean; paused_by: string | null;
                         attempts_last_hour: number } }[]
+  // Сигнал наружу (health-watch.sh на хосте) — отдельным полем, а не чипом в
+  // services: там «доступна ли зависимость», здесь «узнает ли кто-нибудь о
+  // падении самой системы». null — состояние прочитать не удалось.
+  outside_signal?: {
+    watcher: 'never' | 'stale' | 'ok' | 'paused'
+    watcher_hint: string | null
+    checked_at: string | null
+    state: string | null      // ok | down | degraded | wrong | alarm | broken
+    detail: string | null
+  } | null
 }
 export interface AttendanceReport {
   period?: PeriodInfo

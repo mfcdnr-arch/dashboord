@@ -15,6 +15,12 @@ from ..audit import service as audit_svc
 from . import resolver
 from .cycles import CycleError, validate_and_topo_sort
 from .parser import FormulaError, extract_dependencies, parse
+from .versions import best_version_order
+
+# Действующая версия формулы: правило одно на систему (metrics/versions.py).
+# Своя копия `order by` здесь однажды разошлась бы с подсказкой ⓘ и с разбором
+# «из чего складывается» — так и было до 21.09.2026.
+_BEST_VER = best_version_order()
 
 
 class MetricError(Exception):
@@ -377,15 +383,13 @@ async def list_data_sources(conn, org_id) -> dict:
             "rows": [r["row_label"] for r in rows],
         })
 
-    # метрики + подсказки: единица и формула лучшей версии (approved→validated→draft)
+    # метрики + подсказки: единица и формула действующей версии (metrics/versions.py)
     metrics = await conn.fetch(
         "select m.code, m.name, "
         "(select mv.unit from metric_versions mv where mv.metric_id=m.id "
-        " order by (case mv.status when 'approved' then 0 when 'validated' then 1 else 2 end), "
-        " mv.version_no desc limit 1) as unit, "
+        f" order by {_BEST_VER} limit 1) as unit, "
         "(select mv.formula_expression from metric_versions mv where mv.metric_id=m.id "
-        " order by (case mv.status when 'approved' then 0 when 'validated' then 1 else 2 end), "
-        " mv.version_no desc limit 1) as formula "
+        f" order by {_BEST_VER} limit 1) as formula "
         "from metrics m where m.organization_id=$1 order by m.name", org_id
     )
     return {"datasets": datasets, "metrics": [dict(m) for m in metrics]}
@@ -431,11 +435,9 @@ async def current_values(conn, org_id, codes: Optional[List[str]] = None, limit:
     rows = await conn.fetch(
         "select m.code, m.name, "
         "  (select mv.id from metric_versions mv where mv.metric_id=m.id "
-        "     order by case mv.status when 'approved' then 0 when 'validated' then 1 "
-        "                             when 'draft' then 2 else 3 end, mv.version_no desc limit 1) as version_id, "
+        f"     order by {_BEST_VER} limit 1) as version_id, "
         "  (select mv.status from metric_versions mv where mv.metric_id=m.id "
-        "     order by case mv.status when 'approved' then 0 when 'validated' then 1 "
-        "                             when 'draft' then 2 else 3 end, mv.version_no desc limit 1) as status "
+        f"     order by {_BEST_VER} limit 1) as status "
         f"from metrics m where {where} order by m.name limit {int(limit)}", *params)
 
     out = []

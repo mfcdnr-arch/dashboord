@@ -189,6 +189,11 @@ services:
       # проверять там нечего, кроме настоящего поведения самого скрипта.
       - ./worker-guard.sh:/deploy/worker-guard.sh:ro
       - ./ops-trigger-watch.sh:/deploy/ops-trigger-watch.sh:ro
+      # health-watch.sh — его проверяет test_health_watch: единственный сигнал,
+      # уходящий наружу, и потому единственный, который некому проверить изнутри.
+      - ./health-watch.sh:/deploy/health-watch.sh:ro
+      - ./http-lib.sh:/deploy/http-lib.sh:ro
+      - ./deploy.sh:/deploy/deploy.sh:ro
       # backup.sh/restore.sh — их проверяет test_backup_honesty: провалившийся
       # бэкап не должен выглядеть свежим, а команда восстановления принимает
       # каталог набора, а не файл дампа.

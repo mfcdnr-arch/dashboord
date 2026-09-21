@@ -232,6 +232,48 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
                 </div>
               )
             })()}
+            {/* Сигнал наружу. Отдельной строкой рядом со сторожем воркера: оба
+                отвечают на вопрос «работает ли автоматика, которую не видно».
+                Показываем ВСЕГДА — «сигнала нет» это ровно то сообщение, ради
+                которого экран и открывают, а его отсутствие иначе неотличимо
+                от нормы. */}
+            {(() => {
+              const o = sys.outside_signal
+              if (!o) return null
+              const bad = o.watcher === 'never' || o.watcher === 'stale' || o.state === 'alarm' || o.state === 'broken'
+              const warn = !bad && o.watcher === 'paused'
+              const tone = bad ? 'var(--danger)' : warn ? 'var(--warn)' : 'var(--border)'
+              const head = o.state === 'alarm' ? '🔔 Объявлена тревога: система была недоступна'
+                : o.state === 'broken' ? '⚠ Сторожу нечем выполнить проверку'
+                : o.watcher === 'never' ? '⚠ Сигнал о недоступности наружу не уходит'
+                : o.watcher === 'stale' ? '⚠ Сторож доступности перестал отмечаться'
+                : o.watcher === 'paused' ? '⏸ Сторож доступности приостановлен на время обслуживания'
+                : '📡 Сигнал о недоступности включён'
+              return (
+                <div style={{
+                  marginTop: 10, padding: '8px 12px', borderRadius: 10, fontSize: 13,
+                  display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap',
+                  border: '1px solid ' + tone,
+                  background: bad ? 'var(--danger-bg)' : warn ? 'var(--warn-bg)' : 'var(--surface-2)',
+                  color: bad ? 'var(--danger)' : 'var(--text-2)',
+                }}>
+                  <span style={{ flex: 1, minWidth: 220 }}>
+                    <b>{head}.</b>{' '}
+                    {o.watcher_hint ? o.watcher_hint + '. ' : ''}
+                    {/* С заглавной: строка идёт сразу после точки заголовка, и
+                        «недоступна. сервер не отвечает» читается как опечатка. */}
+                    {o.detail && o.state !== 'ok'
+                      ? o.detail[0].toUpperCase() + o.detail.slice(1) + '. ' : ''}
+                    {o.watcher === 'ok' && (
+                      <span style={{ color: 'var(--text-faint)' }}>
+                        Проверял {timeAgo(o.checked_at)} · при недоступности пишет в системный журнал
+                        сервера (journalctl -t dashbord-health) и в ops-triggers/health.state
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )
+            })()}
             {heal && (
               <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface-2)' }}>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Результат починки {heal.healthy ? '✓' : '⚠'}</div>

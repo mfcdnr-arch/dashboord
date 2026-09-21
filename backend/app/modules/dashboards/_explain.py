@@ -15,8 +15,14 @@ from __future__ import annotations
 
 from typing import Dict, List
 
+from ..metrics.versions import best_version_order
 from ._aggregate import is_share
 from ._alerts import _cfg
+
+# Действующая версия формулы: правило одно на систему (metrics/versions.py).
+# Своя копия `order by` здесь однажды разошлась бы с подсказкой ⓘ и с разбором
+# «из чего складывается» — так и было до 21.09.2026.
+_BEST_VER = best_version_order()
 
 # Подсказка — не статья: длинный текст в облачке никто не дочитывает, а
 # полный разбор доступен по кнопке «🔍 подробнее».
@@ -26,7 +32,10 @@ _STATUS_RU = {
     "approved": "формула одобрена",
     "validated": "формула проверена, ждёт одобрения",
     "draft": "формула в черновике — значение предварительное",
-    "deprecated": "формула устарела",
+    # Про снятую с эксплуатации молчать нельзя ровно по той же причине, что
+    # и про черновик: на карточке её значение выглядит как утверждённое.
+    "deprecated": "формула снята с эксплуатации — действующей у показателя нет",
+    "archived": "формула в архиве — действующей у показателя нет",
 }
 
 
@@ -70,14 +79,11 @@ async def _metrics_info(conn, org_id, codes: set) -> dict:
         # часть ответа на «что это за цифра», а не отдельная справка.
         "  (select coalesce(nullif(u.full_name,''), u.login) from users u where u.id=m.owner_id) as owner_name, "
         "  (select mv.formula_expression from metric_versions mv where mv.metric_id=m.id "
-        "   order by case mv.status when 'approved' then 0 when 'validated' then 1 "
-        "                           when 'draft' then 2 else 3 end, mv.version_no desc limit 1) as formula, "
+        f"   order by {_BEST_VER} limit 1) as formula, "
         "  (select mv.status::text from metric_versions mv where mv.metric_id=m.id "
-        "   order by case mv.status when 'approved' then 0 when 'validated' then 1 "
-        "                           when 'draft' then 2 else 3 end, mv.version_no desc limit 1) as status, "
+        f"   order by {_BEST_VER} limit 1) as status, "
         "  (select mv.unit from metric_versions mv where mv.metric_id=m.id "
-        "   order by case mv.status when 'approved' then 0 when 'validated' then 1 "
-        "                           when 'draft' then 2 else 3 end, mv.version_no desc limit 1) as unit "
+        f"   order by {_BEST_VER} limit 1) as unit "
         "from metrics m where m.organization_id=$1 and m.code = any($2::text[])",
         org_id, list(codes))
     return {r["code"]: dict(r) for r in rows}

@@ -38,6 +38,13 @@ from .service import (
 )
 from .suggestions import suggest_derived_metrics
 from .templates import TEMPLATES, build_formula, suggested_name
+from .versions import best_version_order
+
+# Действующая версия формулы: правило одно на систему (metrics/versions.py).
+# Своя копия `order by` здесь однажды разошлась бы с подсказкой ⓘ и с разбором
+# «из чего складывается» — так и было до 21.09.2026.
+_BEST_VER = best_version_order()
+_BEST_VER_NOALIAS = best_version_order("")
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 # ВЕСЬ модуль показателей — под `manage`, включая чтение (20.09.2026).
@@ -243,8 +250,7 @@ async def metric_info_draft(metric_id: str, user: dict = Depends(manage)):
             raise HTTPException(404, "Метрика не найдена")
         v = await conn.fetchrow(
             "select formula_expression, formula_ast, unit, status from metric_versions "
-            "where metric_id=$1::uuid order by case status when 'approved' then 0 "
-            "when 'validated' then 1 else 2 end, version_no desc limit 1", metric_id)
+            f"where metric_id=$1::uuid order by {_BEST_VER_NOALIAS} limit 1", metric_id)
         if v is None:
             raise HTTPException(400, "У метрики нет ни одной версии формулы — сначала задайте формулу")
 

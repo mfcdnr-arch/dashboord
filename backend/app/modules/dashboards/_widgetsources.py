@@ -12,8 +12,14 @@ from typing import Dict, List, Optional
 
 from ..metrics import resolver as mr
 from ..metrics.parser import FormulaError, parse
+from ..metrics.versions import best_version_order
 from . import _pagecalc
 from ._base import DashboardError
+
+# Действующая версия формулы: правило одно на систему (metrics/versions.py).
+# Своя копия `order by` здесь однажды разошлась бы с подсказкой ⓘ и с разбором
+# «из чего складывается» — так и было до 21.09.2026.
+_BEST_VER = best_version_order()
 
 
 async def _widget_org(conn, org_id, widget_id: str):
@@ -28,7 +34,8 @@ async def _page_org(conn, org_id, page_id: str):
 
 
 async def _best_metric_version(conn, org_id, code: str):
-    # приоритет версии: одобренная → проверенная → любая (черновик не берётся вперёд проверенной)
+    # Порядок версий задаёт metrics/versions.py — там же объяснено, почему
+    # снятые с эксплуатации версии не исключаются, а называются словами в ⓘ.
     return await conn.fetchrow(
         "select m.name, m.info_text, m.description, "
         # Ответственный за показатель (п. 11) — его показывает разбор «из чего
@@ -37,8 +44,7 @@ async def _best_metric_version(conn, org_id, code: str):
         "  mv.formula_expression, mv.formula_ast, mv.unit, mv.version_no, mv.status "
         "from metrics m join metric_versions mv on mv.metric_id=m.id "
         "where m.organization_id=$1 and m.code=$2 "
-        "order by (case mv.status when 'approved' then 0 when 'validated' then 1 else 2 end), "
-        "mv.version_no desc limit 1",
+        f"order by {_BEST_VER} limit 1",
         org_id, code,
     )
 

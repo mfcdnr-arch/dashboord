@@ -82,3 +82,34 @@ async def test_viewer_cannot_read_pipeline_and_metrics(client, admin_headers, vi
     # «нет такого» от «есть, но не для вас» — оба ответа внутри DENIED
     fake = "00000000-0000-0000-0000-000000000000"
     assert (await client.get(f"/extraction-jobs/{fake}", headers=vh)).status_code in DENIED
+
+
+async def test_viewer_cannot_list_folder_documents(client, admin_headers, viewer, seed_dataset):
+    """Имена файлов папки — тоже служебные сведения.
+
+    По ним видно, какие формы и за какие периоды ведёт подразделение. Список
+    папок объекта закрыт под manage с самого начала, а список ДОКУМЕНТОВ внутри
+    папки остался под get_current_user — то есть последний вход в тот же слой,
+    не добитый 20.09.
+
+    КОНТРОЛЬНАЯ ГРУППА обязательна: без неё «зрителю всё закрыто» неотличимо от
+    «учётка заперта целиком» — на этом уже наступали дважды (14.09 и 20.09).
+    """
+    async with db.acquire() as conn:
+        obj = await conn.fetchval("select id from objects where name='t_obj'")
+        folder = await conn.fetchval(
+            "insert into folders(organization_id,object_id,name) values($1,$2,'ztest_docs_folder') "
+            "returning id", (await conn.fetchval("select organization_id from objects where id=$1", obj)), obj)
+    vh = viewer["headers"]
+    try:
+        # Контроль: учётка жива и работает — иначе проверка ниже ничего не доказывает
+        assert (await client.get("/auth/me", headers=vh)).status_code == 200
+        assert (await client.get("/dashboards", headers=vh)).status_code == 200
+
+        assert (await client.get(f"/folders/{folder}/documents", headers=vh)).status_code in DENIED
+        ok = await client.get(f"/folders/{folder}/documents", headers=admin_headers)
+        assert ok.status_code == 200 and "items" in ok.json()
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from securable_objects where object_type='folder' and object_id=$1", folder)
+            await conn.execute("delete from folders where id=$1", folder)

@@ -13,9 +13,15 @@ from typing import List, Optional
 
 from ..metrics import resolver as mr
 from ..metrics.data_suggestions import _clean, _is_main_slice, _split_name, _subject_key
+from ..metrics.versions import best_version_order
 from ._aggregate import is_share, is_total_column, subject_with_measure
 from ._alerts import _cfg
 from ._base import DashboardError
+
+# Действующая версия формулы: правило одно на систему (metrics/versions.py).
+# Своя копия `order by` здесь однажды разошлась бы с подсказкой ⓘ и с разбором
+# «из чего складывается» — так и было до 21.09.2026.
+_BEST_VER = best_version_order()
 
 # Потолок карточек в авто-сборке на один датасет. Показываем ВСЕ показатели
 # формы (у госформ их бывает полтора десятка), но у файла на сотню граф
@@ -1597,15 +1603,14 @@ async def place_metric_widget(conn, org_id, user_id, *, page_id: str, metric_cod
 async def _metric_fields(conn, org_id, metric_code: str) -> dict:
     """Поля, датасеты и функции, из которых собрана формула показателя.
 
-    Берём лучшую версию (одобренная → проверенная → черновик) — ту же, по
+    Берём действующую версию (порядок — metrics/versions.py) — ту же, по
     которой виджет и будет считать. Разбираем разобранный AST, а не текст:
     в тексте те же ссылки пришлось бы искать регулярками.
     """
     ast = await conn.fetchval(
         "select mv.formula_ast from metric_versions mv join metrics m on m.id = mv.metric_id "
         "where m.organization_id=$1 and m.code=$2 "
-        "order by case mv.status when 'approved' then 0 when 'validated' then 1 "
-        "                        when 'draft' then 2 else 3 end, mv.version_no desc limit 1",
+        f"order by {_BEST_VER} limit 1",
         org_id, metric_code)
     if not ast:
         return {"fields": [], "datasets": [], "funcs": []}

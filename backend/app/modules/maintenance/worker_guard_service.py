@@ -147,3 +147,49 @@ def reset_attempts(login: str) -> int:
         except OSError:
             pass
     return had
+
+
+# --------------------------------------------------------------------------- #
+# Сторож ДОСТУПНОСТИ (health-watch.sh) — единственный сигнал, уходящий наружу
+# --------------------------------------------------------------------------- #
+# Он существует ровно для того случая, когда этот экран не открывается, поэтому
+# читать его состояние отсюда — не подмена, а проверка: «сигнал наружу заряжен».
+# Без неё «сторож установлен» неотличимо от «сторож не запускается ни разу» —
+# тот же тихий отказ, из-за которого сторож воркера научили самонаблюдению.
+HEALTH_STATE_FILE = TRIGGER_DIR / "health.state"
+HEALTH_LAST_FILE = TRIGGER_DIR / "health.last"
+HEALTH_OFF_FILE = TRIGGER_DIR / "health-watch.off"
+
+# Спрашивает раз в 5 минут; полчаса молчания — уже отказ, а не задержка.
+HEALTH_STALE_SEC = 1800
+
+HEALTH_INSTALL_HINT = (
+    "Наружу не уходит ни один сигнал: если система станет недоступна, никто об "
+    "этом не узнает, пока не попробует войти. Зарегистрируйте таймер на сервере — "
+    "`./backup-schedule.sh install`")
+
+
+def health_watch_status() -> dict:
+    """Состояние хостового сторожа доступности для «Здоровья системы»."""
+    seen = _read_int(HEALTH_LAST_FILE)
+    if HEALTH_OFF_FILE.exists():
+        watcher, hint = "paused", "Приостановлен на время обслуживания (обычно это идущее обновление)"
+    elif seen is None:
+        watcher, hint = "never", HEALTH_INSTALL_HINT
+    elif time.time() - seen > HEALTH_STALE_SEC:
+        watcher, hint = "stale", (
+            "Сторож перестал отмечаться — проверьте таймер dashbord-backup-watch на сервере")
+    else:
+        watcher, hint = "ok", None
+
+    state, detail = None, None
+    if HEALTH_STATE_FILE.exists():
+        try:
+            lines = HEALTH_STATE_FILE.read_text().splitlines()
+            state = lines[0].strip() if lines else None
+            detail = lines[2].strip() if len(lines) > 2 else None
+        except OSError:
+            pass
+    return {"watcher": watcher, "watcher_hint": hint,
+            "checked_at": _iso(seen) if seen else None,
+            "state": state, "detail": detail}

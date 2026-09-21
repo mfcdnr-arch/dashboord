@@ -29,6 +29,12 @@ import re
 from typing import Dict, List, Optional
 
 from .parser import extract_dependencies
+from .versions import best_version_order
+
+# Действующая версия формулы: правило одно на систему (metrics/versions.py).
+# Своя копия `order by` здесь однажды разошлась бы с подсказкой ⓘ и с разбором
+# «из чего складывается» — так и было до 21.09.2026.
+_BEST_VER = best_version_order()
 
 MAX_PAIR_SUGGESTIONS = 10  # разница+доля порознь — иначе N² быстро перегружает список
 MAX_TOTAL_SUGGESTIONS = 30
@@ -75,12 +81,11 @@ def _plan_fact_key(code: str, name: str) -> Optional[tuple]:
 
 async def _org_metrics(conn, org_id) -> List[dict]:
     """Все метрики организации + датасеты, от которых зависит их ЛУЧШАЯ версия
-    (approved→validated→draft, как и везде в проекте — см. list_data_sources)."""
+    (порядок задаёт metrics/versions.py — один на всю систему)."""
     rows = await conn.fetch(
         "select m.id, m.code, m.name, "
         "(select mv.id from metric_versions mv where mv.metric_id=m.id "
-        " order by (case mv.status when 'approved' then 0 when 'validated' then 1 else 2 end), "
-        " mv.version_no desc limit 1) as best_version_id "
+        f" order by {_BEST_VER} limit 1) as best_version_id "
         "from metrics m where m.organization_id=$1", org_id)
     out = []
     for r in rows:

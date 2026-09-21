@@ -21,7 +21,14 @@ from ..dashboards import service as dash_svc
 from ..documents import storage
 from ..metrics import resolver as mr
 from ..metrics.parser import FormulaError
+from ..metrics.versions import best_version_order
 from ..system import settings_service as settings_svc
+
+# Действующая версия формулы: правило одно на систему (metrics/versions.py).
+# Своя копия `order by` здесь однажды разошлась бы с подсказкой ⓘ и с разбором
+# «из чего складывается» — так и было до 21.09.2026.
+_BEST_VER = best_version_order()
+_BEST_VER_NOALIAS = best_version_order("")
 
 # --------------------------------------------------------------------------- #
 # Период отчёта (п. 4 списка заказчика: фильтрация)
@@ -165,6 +172,7 @@ async def system_health(conn) -> dict:
         pass
     services.append(wsvc)
 
+
     # Общий статус: degraded, если любой сервис недоступен или ресурс в danger.
     # Пороги настраиваются в UI «Настройки» (system_settings), а не только в .env.
     res_danger = any((
@@ -173,8 +181,23 @@ async def system_health(conn) -> dict:
         _level(du.percent, th["disk_warn"], th["disk_crit"]) == "danger",
     ))
     overall = "degraded" if (not all(s["ok"] for s in services) or res_danger) else "ok"
+
+    # Сигнал наружу (health-watch.sh) — ОТДЕЛЬНЫМ полем, а не чипом в списке
+    # сервисов. Список отвечает на «доступна ли зависимость», а здесь другой
+    # вопрос: узнает ли кто-нибудь о падении САМОЙ системы. И главное — «сторож
+    # ни разу не отмечался» это сообщение, ради которого экран и открывают;
+    # спрятать его под наведение на чип значило бы не сказать вовсе.
+    # На общий статус НЕ влияет: незаряженный сигнал — не отказ обслуживания,
+    # а по нему healthcheck решает, не перезапустить ли API.
+    try:
+        from ..maintenance import worker_guard_service as _wg2
+        outside = _wg2.health_watch_status()
+    except Exception:
+        outside = None
+
     return {
         "status": overall,
+        "outside_signal": outside,
         "cpu": {"percent": round(cpu, 1), "level": _level(cpu, th["cpu_warn"], th["cpu_crit"])},
         "memory": {"percent": round(vm.percent, 1), "used": vm.used, "total": vm.total,
                    "level": _level(vm.percent, th["ram_warn"], th["ram_crit"])},
@@ -206,7 +229,7 @@ async def data_quality(conn, org_id) -> dict:
         "select m.code, m.name, mv.formula_ast "
         "from metrics m join lateral ("
         "  select formula_ast from metric_versions where metric_id=m.id "
-        "  order by (case status when 'approved' then 0 when 'validated' then 1 else 2 end), version_no desc limit 1"
+        f"  order by {_BEST_VER_NOALIAS} limit 1"
         ") mv on true where m.organization_id=$1 order by m.name", org_id)
     metric_errors = []
     for m in metrics:
@@ -233,7 +256,7 @@ async def business(conn, org_id, user: dict) -> dict:
         "select m.code, m.name, mv.formula_ast, mv.unit "
         "from metrics m join lateral ("
         "  select formula_ast, unit from metric_versions where metric_id=m.id "
-        "  order by (case status when 'approved' then 0 when 'validated' then 1 else 2 end), version_no desc limit 1"
+        f"  order by {_BEST_VER_NOALIAS} limit 1"
         ") mv on true where m.organization_id=$1 order by m.name", org_id)
     metrics = []
     for m in rows:

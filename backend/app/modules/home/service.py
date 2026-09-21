@@ -11,6 +11,12 @@ from typing import List, Optional
 from ..dashboards import service as dash_svc
 from ..metrics import resolver as mr
 from ..metrics.parser import FormulaError
+from ..metrics.versions import best_version_order
+
+# Действующая версия формулы: правило одно на систему (metrics/versions.py).
+# Своя копия `order by` здесь однажды разошлась бы с подсказкой ⓘ и с разбором
+# «из чего складывается» — так и было до 21.09.2026.
+_BEST_VER = best_version_order()
 
 
 class HomeError(Exception):
@@ -27,8 +33,7 @@ async def _metric_value(conn, org_id, code: str):
         "select m.name, mv.formula_ast, mv.unit from metrics m "
         "join metric_versions mv on mv.metric_id=m.id "
         "where m.organization_id=$1 and m.code=$2 "
-        "order by (case mv.status when 'approved' then 0 when 'validated' then 1 else 2 end), "
-        "mv.version_no desc limit 1",
+        f"order by {_BEST_VER} limit 1",
         org_id, code,
     )
     if row is None:

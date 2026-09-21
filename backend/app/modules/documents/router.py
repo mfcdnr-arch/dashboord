@@ -25,7 +25,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from ... import db
 from ..audit.service import write_event
-from ..auth.deps import get_current_user, require_roles
+from ..auth.deps import require_roles
 from . import service as svc
 from . import storage
 
@@ -241,9 +241,16 @@ async def list_documents(
     folder_id: str,
     limit: int = Query(50, ge=1, le=MAX_DOCS_LIMIT),
     offset: int = Query(0, ge=0),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(manage),
 ):
     """Постранично: {total, limit, offset, items}. Сортировка — новые сверху.
+
+    Под `manage`, как загрузка и удаление рядом и как список папок объекта
+    (`objects.list_folders`). Имена файлов — служебные сведения: по ним видно,
+    какие формы и за какие периоды ведёт подразделение. Раздел «Объекты» и так
+    помечен staffOnly, поэтому зритель сюда не попадал через интерфейс — но
+    прямым запросом получал перечень файлов ЛЮБОЙ папки организации, то есть
+    обходил модель доступа так же, как обходил её слой показателей до 20.09.
 
     Пагинация нужна, чтобы папка с тысячами документов не выгружалась целиком
     на каждый заход. Индексы ix_documents_folder_created / ix_document_versions_doc
