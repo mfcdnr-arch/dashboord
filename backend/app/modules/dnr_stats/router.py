@@ -43,6 +43,15 @@ async def overview(user: dict = Depends(view_access)):
         return await service.overview(conn, user["organization_id"])
 
 
+@router.get("/readiness")
+async def readiness(user: dict = Depends(view_access)):
+    """Есть ли в разделе данные — для меню: пустой пункт рядовому пользователю
+    не показываем. Отдельно от `/overview`, потому что тот читает значения всех
+    выпусков, а меню строится на каждом входе."""
+    async with db.get_pool().acquire() as conn:
+        return await service.readiness(conn, user["organization_id"])
+
+
 @router.get("/offices")
 async def offices(q: Optional[str] = None, sort: str = Query("total_desc"),
                   dept: Optional[str] = None, user: dict = Depends(view_access)):

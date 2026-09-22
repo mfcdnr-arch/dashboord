@@ -273,3 +273,46 @@ async def test_overview_is_silent_when_the_series_is_whole(client, admin_headers
     d = (await client.get("/dnr-stats/overview", headers=admin_headers)).json()
     assert d["missing_periods"] == [], d["missing_periods"]
     assert not [a for a in d["alerts"] if a["kind"] == "period_gap"], d["alerts"]
+
+
+async def test_empty_section_says_so_instead_of_printing_zeros(client, admin_headers, monkeypatch):
+    """🔴 Пустой раздел обязан объяснить себя, а не показать стену нулей.
+
+    Найдено на боевом 22.09.2026: ведомственных файлов там нет вовсе, и раздел
+    открывался нулями во всех карточках и «Замечаний нет» — читается как
+    «система сломалась», а не как «файлов ещё не было». Прежнее допущение
+    «раздел не пуст, пока размечено хоть одно ведомство» верно только там, где
+    ведомства уже размечены; на свежей установке их ноль.
+    """
+    monkeypatch.setattr(service, "DEPARTMENTS", {
+        "ztest_nodata": {"name": "Ведомство без данных",
+                         "dataset_code": "ztest_nodata_offices", "services": ["Услуга"]},
+    })
+    r = await client.get("/dnr-stats/readiness", headers=admin_headers)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"departments_with_data": 0, "departments_total": 1, "ready": False}
+
+    d = (await client.get("/dnr-stats/overview", headers=admin_headers)).json()
+    assert d["ready"] is False, d
+    assert d["departments_with_data"] == 0
+    # Числа при этом остаются нулями — но страница по признаку `ready` их не
+    # покажет вовсе. Проверяем именно признак: он и есть контракт с экраном.
+    assert d["totals"]["prinyato"] == 0
+
+
+async def test_readiness_counts_only_departments_that_have_data(
+        client, admin_headers, dnr_object, monkeypatch):
+    """Признак считает РАЗМЕЧЕННЫЕ ведомства, а не заведённые в каталоге.
+
+    Иначе пункт меню появился бы от одного лишь пополнения справочника
+    ведомств — и привёл бы человека в пустой раздел.
+    """
+    r = (await client.get("/dnr-stats/readiness", headers=admin_headers)).json()
+    assert r == {"departments_with_data": 1, "departments_total": 1, "ready": True}
+
+    # Каталог знает про два ведомства, данные есть у одного.
+    two = dict(TEST_DEPARTMENTS)
+    two["ztest2"] = {"name": "Второе", "dataset_code": "ztest2_offices", "services": ["Услуга"]}
+    monkeypatch.setattr(service, "DEPARTMENTS", two)
+    r2 = (await client.get("/dnr-stats/readiness", headers=admin_headers)).json()
+    assert r2 == {"departments_with_data": 1, "departments_total": 2, "ready": True}

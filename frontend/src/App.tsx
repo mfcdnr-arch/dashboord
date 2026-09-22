@@ -30,6 +30,7 @@ import Logo from './components/Logo'
 import SetupWizard from './components/SetupWizard'
 import ArchivePage from './components/ArchivePage'
 import { archiveMe } from './api/archive'
+import { getDnrStatsReadiness } from './api/dnrstats'
 import { listShowcases } from './api/showcases'
 import { listFeatured } from './api'
 import LeadershipPage from './components/LeadershipPage'
@@ -316,6 +317,17 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     if (canManage) return
     listOffices().then((r) => setMapOk(r.length > 0)).catch(() => setMapOk(false))
   }, [canManage])
+  // «Статистика услуг»: у управляющего пункт есть всегда (ему и наполнять), у
+  // остальных — когда размечено хоть одно ведомство. Пустой раздел печатал
+  // стену нулей и читался как поломка — так и вышло на боевом 22.09.2026,
+  // где ведомственных файлов нет вовсе. Прежнее допущение «раздел не пуст,
+  // пока размечено хоть одно ведомство» верно там, где они уже размечены;
+  // на свежей установке их ноль.
+  const [dnrStatsOk, setDnrStatsOk] = useState(false)
+  useEffect(() => {
+    if (canManage) return
+    getDnrStatsReadiness().then((r) => setDnrStatsOk(r.ready)).catch(() => setDnrStatsOk(false))
+  }, [canManage])
   // «Руководителю»: у управляющего пункт есть всегда (ему туда класть), у
   // остальных — когда в подборке есть хоть что-то, доступное лично им.
   const [featuredOk, setFeaturedOk] = useState(false)
@@ -358,9 +370,10 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     // Подборка «Руководителю»: управляющим всегда, остальным — по галочке
     // (одного лишь наличия доступа к отчёту из подборки теперь мало).
     && (!(n as { featuredGate?: boolean }).featuredGate || canManage || (me.show_featured && featuredOk))
-    // «Статистика услуг»: та же галочка, без доп. проверки «есть ли что
-    // показать» — раздел не пуст, пока размечено хоть одно ведомство.
-    && (!(n as { dnrStatsGate?: boolean }).dnrStatsGate || canManage || me.show_featured)
+    // «Статистика услуг»: та же галочка И проверка «есть ли что показать».
+    // Одной галочки мало: на установке без ведомственных файлов раздел
+    // открывался стеной нулей.
+    && (!(n as { dnrStatsGate?: boolean }).dnrStatsGate || canManage || (me.show_featured && dnrStatsOk))
     && (!(n as { catalogGate?: boolean }).catalogGate || isAdmin || catalogOk))
 
   // Быстрый поиск (п. 9, Ctrl+K): выбор результата ведёт либо через ОБЩИЙ

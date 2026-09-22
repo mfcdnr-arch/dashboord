@@ -331,6 +331,28 @@ def _service_label(text: str, limit: int = 90) -> str:
     return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
+async def readiness(conn, org_id) -> dict:
+    """Есть ли в разделе хоть что-нибудь — ОДНИМ дешёвым запросом.
+
+    Нужна двум местам: меню решает, показывать ли пункт рядовому пользователю,
+    а сам раздел — объяснять ли пустоту вместо стены нулей. Гонять ради этого
+    `overview()` нельзя: он читает значения всех выпусков всех ведомств.
+
+    🔴 Раздел, показывающий нули, читается как «система сломалась» — так и
+    случилось на боевом 22.09.2026, где ведомственных файлов нет вовсе.
+    Допущение «раздел не пуст, пока размечено хоть одно ведомство» верно только
+    там, где ведомства уже размечены; на свежей установке их нет ни одного.
+    """
+    codes = [d["dataset_code"] for d in DEPARTMENTS.values()]
+    ready = await conn.fetchval(
+        "select count(distinct code) from dataset_releases "
+        "where organization_id=$1 and code = any($2::text[]) and status <> 'superseded'",
+        org_id, codes)
+    return {"departments_with_data": int(ready or 0),
+            "departments_total": len(codes),
+            "ready": bool(ready)}
+
+
 async def overview(conn, org_id) -> dict:
     """Сводный «Обзор» — верхний уровень над списком отделений: главные
     KPI-карточки, тренд по ВСЕМ накопленным датам срезов, разбивка по
@@ -521,7 +543,13 @@ async def overview(conn, org_id) -> dict:
                      for x in (g["refused"] or g["unknown"])[:3]],
     } for g in gaps[:15]]
 
+    ready = await readiness(conn, org_id)
     return {
+        # Пустой раздел обязан объяснить себя сам: без этих полей страница
+        # печатает нули и выглядит поломанной.
+        "ready": ready["ready"],
+        "departments_with_data": ready["departments_with_data"],
+        "departments_total": ready["departments_total"],
         "as_of": trend[-1]["period"] if trend else None,
         "period_prev": trend[-2]["period"] if len(trend) >= 2 else None,
         "kpi_as_of": kpi["as_of"] if kpi else None,
