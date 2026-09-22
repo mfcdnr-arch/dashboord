@@ -6,7 +6,7 @@ import {
 import { WidgetPreviewBody } from '../WidgetView'
 import FormulaBuilder from '../FormulaBuilder'
 import { dataUriBytes, fileToEmbeddableDataUri } from '../../lib/image'
-import { DEFAULT_SIZE, WT, btn, btnAuto, btnGhost, sel, tab, tabActive, wtBadge } from './shared'
+import { DEFAULT_SIZE, WT, btn, btnAuto, btnGhost, resizeOnTypeChange, sel, tab, tabActive, wtBadge } from './shared'
 import { WidgetPicker, WIDGET_META } from './WidgetPicker'
 import Field from '../Field'
 
@@ -561,7 +561,15 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     const body: { name: string; widget_type: string; config: Record<string, unknown>; width?: number; height?: number } = {
       name: name.trim() || WT.find((x) => x.v === type)?.t || type, widget_type: type, config,
     }
-    if (!initial) { const sz = DEFAULT_SIZE[type] || { w: 4, h: 4 }; body.width = sz.w; body.height = sz.h } // размер только для новых
+    if (!initial) {
+      const sz = DEFAULT_SIZE[type] || { w: 4, h: 4 }
+      body.width = sz.w; body.height = sz.h
+    } else {
+      // Сменили вид — размер пересчитываем (правило в `resizeOnTypeChange`:
+      // подогнанный руками не трогаем).
+      const sz = resizeOnTypeChange(initial, type)
+      if (sz) { body.width = sz.w; body.height = sz.h }
+    }
     onCreate(body)
     if (!initial) setName('')
   }

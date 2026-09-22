@@ -15,6 +15,30 @@ export const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
   funnel: { w: 6, h: 7 }, status_grid: { w: 6, h: 6 },
 }
 
+/**
+ * Новый размер виджета при СМЕНЕ ВИДА — или null, если трогать нельзя.
+ *
+ * 🔴 Жалоба заказчика 22.09.2026: «хотел поменять размер и вид виджета — не
+ * получилось». Смена вида работала, но размер оставался прежним: карточка
+ * 3×3, превращённая в таблицу, оставалась рамкой на три строки и выглядела
+ * сломанной. Размер прежнего вида к новому отношения не имеет.
+ *
+ * Но подогнанный РУКАМИ размер перебивать нельзя: человек подгонял его под
+ * свою страницу, а не под тип. Отличаем одно от другого единственным
+ * доступным признаком — стоит ли виджет ровно в умолчании своего прежнего
+ * вида. Стоит — значит размер никто не выбирал, и его можно пересчитать.
+ */
+export function resizeOnTypeChange(
+  prev: { widget_type: string; width?: number; height?: number },
+  nextType: string,
+): { w: number; h: number } | null {
+  if (nextType === prev.widget_type) return null
+  const was = DEFAULT_SIZE[prev.widget_type] || { w: 4, h: 4 }
+  if (prev.width !== was.w || prev.height !== was.h) return null
+  const now = DEFAULT_SIZE[nextType] || { w: 4, h: 4 }
+  return now.w === was.w && now.h === was.h ? null : now
+}
+
 export const WT = [
   { v: 'kpi', t: 'KPI (число)' }, { v: 'gauge', t: 'Спидометр (gauge)' }, { v: 'bar', t: 'Столбцы' }, { v: 'line', t: 'Линия' },
   { v: 'pie', t: 'Круговая' }, { v: 'table', t: 'Таблица' }, { v: 'plan_fact', t: 'План-факт' },
