@@ -45,10 +45,17 @@ from datetime import date
 
 import asyncpg
 
+# 🔴 Путь к приложению проставляем ДО первого импорта из `app`, а не перед
+# вторым. Раньше `sys.path.insert` стоял ниже, и скрипт работал только когда
+# его подавали на stdin из рабочего каталога `/app` (тогда путь давал сам
+# Python). Запуск файлом — `docker exec … python3 /tmp/load_weekly_file.py` —
+# падал с «No module named 'app'». Найдено загрузкой на боевой 22.09.2026.
+sys.path.insert(0, "/app")
+
 # Отпечаток значений считает ОБЩИЙ код приложения: скрипт запускается внутри
 # контейнера api, где `app` доступен. Своя копия правила «те же это данные или
 # другие» разошлась бы со штатным выпуском при первой же правке.
-from app.modules.ingestion import mapping
+from app.modules.ingestion import mapping  # noqa: E402
 
 # --- Править перед каждым новым файлом ---
 SOURCE_FILE = "/tmp/dnr_week.xlsx"
@@ -85,7 +92,6 @@ async def _object_for(conn, dataset_code: str, dept_name: str) -> str:
         "Заведите его в разделе «Объекты» — грузить ведомство в чужой объект нельзя: "
         "его данные попадут в чужие дашборды.")
 
-sys.path.insert(0, "/app")
 from app.modules.dnr_stats.departments import DEPARTMENTS, field  # noqa: E402
 
 SHEET_BY_CODE = {
