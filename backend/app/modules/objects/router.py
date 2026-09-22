@@ -7,12 +7,13 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ... import db
 from ..audit.service import write_event
 from ..auth.deps import get_current_user, require_roles
+from ..ingestion import review as review_svc
 from . import analytics
 from . import calendar as calendar_svc
 from . import levels as levels_svc
@@ -273,6 +274,29 @@ async def confirm_levels(object_id: str, body: LevelsIn, user: dict = Depends(ma
             new_data={"levels": [lv["name"] for lv in saved["levels"]],
                       "row_level": saved["row_level"]})
         return saved
+
+
+@router.get("/{object_id}/quality-review")
+async def quality_review(
+    object_id: str,
+    code: Optional[str] = None,
+    limit: int = Query(review_svc.DEFAULT_LIMIT, ge=1, le=review_svc.MAX_LIMIT),
+    user: dict = Depends(manage),
+):
+    """Замечания к данным по ВСЕЙ истории формы, а не по последнему отчёту.
+
+    Считает та же `check_release`, что показывает замечания модератору при
+    выпуске: двух мнений об одних данных быть не должно. Глубина — осознанный
+    выбор человека: проверка читает значения каждого отчёта целиком.
+    """
+    async with db.get_pool().acquire() as conn:
+        obj = await conn.fetchrow(
+            "select id from objects where id=$1::uuid and organization_id=$2",
+            object_id, user["organization_id"])
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
+        return await review_svc.quality_review(
+            conn, user["organization_id"], obj["id"], code=code, limit=limit)
 
 
 @router.get("/{object_id}/folders")

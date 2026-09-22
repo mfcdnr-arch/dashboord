@@ -297,3 +297,34 @@ export async function confirmFormLevels(
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+/** Замечание правила качества: код правила, сколько случаев и текст с числами. */
+export interface QualityWarning { code: string; count?: number; message: string }
+export interface QualityIssue {
+  code: string; title: string; releases: number; periods: string[]; example?: string
+}
+export interface QualityReview {
+  code: string | null
+  /** Всего отчётов формы и сколько из них проверено (глубину выбирает человек). */
+  total: number; checked: number; clean: number
+  first_period?: string; last_period?: string
+  issues: QualityIssue[]
+  items: { period: string; release_id: string; warnings: QualityWarning[] }[]
+}
+
+/**
+ * Проверка качества по ВСЕЙ истории формы.
+ *
+ * Отдельный вызов, а не часть экрана объекта: проверка читает значения каждого
+ * отчёта целиком, и на двух сотнях широких отчётов это десятки секунд —
+ * запускать её при каждом открытии раздела нельзя.
+ */
+export async function getQualityReview(
+  objectId: string, limit: number, code?: string | null,
+): Promise<QualityReview> {
+  const q = new URLSearchParams({ limit: String(limit) })
+  if (code) q.set('code', code)
+  const res = await fetch(`/objects/${objectId}/quality-review?${q}`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

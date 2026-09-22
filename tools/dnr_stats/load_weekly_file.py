@@ -6,10 +6,15 @@
 столбцов) — это устройство самой формы, не наша прихоть. Скрипт извлекает из
 каждого листа-ведомства ОБЕ точки и заводит по НЕДОСТАЮЩЕЙ из них новый
 `dataset_release` (код `<dept>_offices`, `reporting_period_start` = дата).
-Идемпотентно: если release с этой (code, period) уже существует и активен —
-пропускается, повторный запуск на том же файле ничего не задвоит. Именно
-поэтому один и тот же файл можно (и нужно) прогонять и как «текущий», и
-как источник данных за предыдущую дату — типичный сценарий, когда следующий
+Идемпотентно ПО СОДЕРЖИМОМУ, а не по дате (правило то же, что у штатного
+«выпуска по листам», 22.09.2026): если release с этой (code, period) уже есть,
+скрипт сверяет отпечаток значений — совпал, выпуск остаётся нетронутым;
+разошёлся, прежний выпуск замещается (обратимо: он остаётся со статусом
+`superseded`). Простое «дата уже есть — пропускаем» здесь не годится: ведомство
+присылает исправленный файл за ту же неделю, и пропуск терял бы исправление
+молча. Повторный запуск на ТОМ ЖЕ файле по-прежнему ничего не задваивает,
+поэтому один и тот же файл можно (и нужно) прогонять и как «текущий», и как
+источник данных за предыдущую дату — типичный сценарий, когда следующий
 недельный файл приходит раньше, чем успели прогнать этот скрипт для прошлого.
 
 Структура листа (проверена программно на файлах 12.08 и 19.08.2026, едина
@@ -39,6 +44,11 @@ import sys
 from datetime import date
 
 import asyncpg
+
+# Отпечаток значений считает ОБЩИЙ код приложения: скрипт запускается внутри
+# контейнера api, где `app` доступен. Своя копия правила «те же это данные или
+# другие» разошлась бы со штатным выпуском при первой же правке.
+from app.modules.ingestion import mapping
 
 # --- Править перед каждым новым файлом ---
 SOURCE_FILE = "/tmp/dnr_week.xlsx"
@@ -180,39 +190,55 @@ def _num(v):
 
 async def _build_release(conn, org_id, object_id, dept_code, dataset_code, name_suffix,
                           period, admin_id, offices, which):
-    """which: 'prev' или 'cur' — какую из двух колонок файла брать за значения."""
-    if await _existing_release(conn, org_id, dataset_code, period):
-        return 0
+    """which: 'prev' или 'cur' — какую из двух колонок файла брать за значения.
+
+    Возвращает (сколько значений записано, что произошло словами).
+    """
+    numbers, texts = [], []
+    for i, (addr, off) in enumerate(offices.items()):
+        texts.append((i, addr, "gorod", off["city"]))
+        for svc_i, blk in enumerate(off["blocks"], start=1):
+            if (pn := _num(blk[f"prinyato_{which}"])) is not None:
+                numbers.append((i, addr, field(dept_code, svc_i, "prinyato"), pn))
+            if (vn := _num(blk[f"vydano_{which}"])) is not None:
+                numbers.append((i, addr, field(dept_code, svc_i, "vydano"), vn))
+            if blk["prioritet"] is not None:
+                texts.append((i, addr, field(dept_code, svc_i, "prioritet"), str(blk["prioritet"])))
+            if blk["okazyvaetsya"] is not None:
+                texts.append((i, addr, field(dept_code, svc_i, "okazyvaetsya"), str(blk["okazyvaetsya"])))
+            if blk["kommentarii"]:
+                texts.append((i, addr, field(dept_code, svc_i, "kommentarii"), str(blk["kommentarii"])))
+
+    # 🔴 Решение принимается по СОДЕРЖИМОМУ, а не по наличию даты. Отпечаток
+    # считает общий код приложения (`mapping.values_digest`) — тот же, которым
+    # сверяется штатный «выпуск по листам»: заведи здесь свой, и два загрузчика
+    # однажды разошлись бы в том, что считать «тем же самым файлом».
+    fresh = [(i, addr, code, None, val, None) for i, addr, code, val in numbers]
+    fresh += [(i, addr, code, val, None, None) for i, addr, code, val in texts]
+    digest = mapping.values_digest(fresh)
+
+    existing = await _existing_release(conn, org_id, dataset_code, period)
+    if existing is not None:
+        if await mapping.released_values_digest(conn, existing) == digest:
+            return 0, "не изменился — выпуск оставлен"
+        # Замещаем ДО вставки нового: частичный unique-индекс активных выпусков
+        # иначе не даст создать второй за ту же дату.
+        await conn.execute("update dataset_releases set status='superseded' where id=$1", existing)
 
     rel = await conn.fetchval(
         "insert into dataset_releases(organization_id,code,name,status,reporting_period_start,"
         "created_by,object_id) values($1,$2,$3,'validated',$4,$5,$6::uuid) returning id",
         org_id, dataset_code, f"{name_suffix} — {period.isoformat()}", period, admin_id, object_id)
 
-    numbers, texts = [], []
-    for i, (addr, off) in enumerate(offices.items()):
-        texts.append((rel, i, addr, "gorod", off["city"]))
-        for svc_i, blk in enumerate(off["blocks"], start=1):
-            if (pn := _num(blk[f"prinyato_{which}"])) is not None:
-                numbers.append((rel, i, addr, field(dept_code, svc_i, "prinyato"), pn))
-            if (vn := _num(blk[f"vydano_{which}"])) is not None:
-                numbers.append((rel, i, addr, field(dept_code, svc_i, "vydano"), vn))
-            if blk["prioritet"] is not None:
-                texts.append((rel, i, addr, field(dept_code, svc_i, "prioritet"), str(blk["prioritet"])))
-            if blk["okazyvaetsya"] is not None:
-                texts.append((rel, i, addr, field(dept_code, svc_i, "okazyvaetsya"), str(blk["okazyvaetsya"])))
-            if blk["kommentarii"]:
-                texts.append((rel, i, addr, field(dept_code, svc_i, "kommentarii"), str(blk["kommentarii"])))
-
     if numbers:
         await conn.executemany(
             "insert into dataset_values(dataset_release_id,row_index,row_label,canonical_field_code,value_number) "
-            "values($1,$2,$3,$4,$5)", numbers)
+            "values($1,$2,$3,$4,$5)", [(rel, *r) for r in numbers])
     if texts:
         await conn.executemany(
             "insert into dataset_values(dataset_release_id,row_index,row_label,canonical_field_code,value_text) "
-            "values($1,$2,$3,$4,$5)", texts)
-    return len(numbers) + len(texts)
+            "values($1,$2,$3,$4,$5)", [(rel, *r) for r in texts])
+    return len(numbers) + len(texts), ("перевыпущен — данные изменились" if existing else "выпущен")
 
 
 async def main():
@@ -238,14 +264,18 @@ async def main():
 
         object_id = await _object_for(conn, meta["dataset_code"], meta["name"])
         await _ensure_canonical_fields(conn, object_id, code, n_blocks, admin_id)
-        n1 = await _build_release(conn, org_id, object_id, code, meta["dataset_code"],
-                                   meta["name"], date_prev, admin_id, offices, "prev")
-        n2 = await _build_release(conn, org_id, object_id, code, meta["dataset_code"],
-                                   meta["name"], date_cur, admin_id, offices, "cur")
-        print(f"{code:12s} услуг={n_blocks:2d}  {date_prev} новых_знач={n1:6d}  |  {date_cur} новых_знач={n2:6d}")
+        n1, how1 = await _build_release(conn, org_id, object_id, code, meta["dataset_code"],
+                                         meta["name"], date_prev, admin_id, offices, "prev")
+        n2, how2 = await _build_release(conn, org_id, object_id, code, meta["dataset_code"],
+                                         meta["name"], date_cur, admin_id, offices, "cur")
+        # Судьбу КАЖДОЙ даты называем словами: «0 значений» не различает
+        # «этот файл мы уже грузили» и «данные за эту дату исправлены».
+        print(f"{code:12s} услуг={n_blocks:2d}  {date_prev} {how1} ({n1})  |  {date_cur} {how2} ({n2})")
 
     await conn.close()
-    print("\nГотово. 0 новых значений у обеих дат = release'ы уже существовали (идемпотентно).")
+    print("\nГотово. «не изменился» = данные за эту дату совпали с уже выпущенными; "
+          "«перевыпущен» = файл принёс другие цифры, прежний выпуск снят с использования "
+          "и возвращается кнопкой.")
 
 
 asyncio.run(main())

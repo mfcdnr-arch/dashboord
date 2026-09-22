@@ -172,9 +172,15 @@ export async function layoutPreview(jobId: string, body: Layout & { table_id: st
   return res.json()
 }
 
-export interface SheetOutcome { sheet: string; period?: string; values?: number; fields?: number; reason?: string; error?: string }
+export interface SheetOutcome {
+  sheet: string; period?: string; values?: number; fields?: number; reason?: string; error?: string
+  /** Лист заместил прежний выпуск (в книге исправили цифры за эту дату). */
+  replaced?: boolean
+}
 export interface ReleaseBySheetResult {
   sheets: number; released: number
+  /** Сколько из выпущенных заместили прежние данные, а не легли на пустое место. */
+  replaced?: number
   created: SheetOutcome[]; skipped: SheetOutcome[]; failed: SheetOutcome[]
 }
 

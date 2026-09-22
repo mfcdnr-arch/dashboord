@@ -1120,11 +1120,15 @@ function SheetReport({ res }: { res: ReleaseBySheetResult }) {
     <div style={{ marginTop: 10, maxHeight: 220, overflow: 'auto' }}>
       <div style={{ fontSize: 13, marginBottom: 4 }}>
         Листов: <b>{res.sheets}</b> · выпущено: <b>{res.released}</b>
+        {res.replaced ? ` · из них перевыпущено: ${res.replaced}` : ''}
         {res.skipped.length ? ` · пропущено: ${res.skipped.length}` : ''}
         {res.failed.length ? ` · с ошибкой: ${res.failed.length}` : ''}
       </div>
+      {/* «Перевыпущен» и «выпущен впервые» — разные события: первое означает,
+          что в присланной книге цифры за этот день изменились. */}
       {res.failed.map((o) => row(o, 'var(--danger)', `⚠ ${o.error}`))}
-      {res.created.map((o) => row(o, 'var(--success)', `значений ${o.values}, граф ${o.fields}`))}
+      {res.created.map((o) => row(o, 'var(--success)',
+        `${o.replaced ? 'перевыпущен — данные изменились; ' : ''}значений ${o.values}, граф ${o.fields}`))}
       {res.skipped.map((o) => row(o, 'var(--text-faint)', o.reason || 'пропущен'))}
     </div>
   )

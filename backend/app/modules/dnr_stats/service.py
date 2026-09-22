@@ -26,8 +26,10 @@
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Optional
 
+from ..maintenance.service import infer_cadence, missing_periods
 from .departments import (
     DEPARTMENTS,
     KPI_ALERT_BELOW_PCT,
@@ -364,6 +366,18 @@ async def overview(conn, org_id) -> dict:
         if any_data:
             trend.append({"period": period, "prinyato": tp, "vydano": tv})
 
+    # 🔴 Пропущенная НЕДЕЛЯ в ряду. На графике выпавшая неделя выглядит обычным
+    # отрезком между соседними точками — заметить её глазами нельзя, а сумма
+    # «за месяц» молча считается по четырём отчётам вместо пяти. Правило берём
+    # общее (`infer_cadence` + `missing_periods`) — то же, которым шлётся
+    # уведомление о пропуске и которым аналитика папки пишет «не хватает
+    # отчётов»: двух понятий о пропуске в системе быть не должно.
+    # str(...) — ради типизации: в точке тренда соседствуют дата и числа,
+    # и значение словаря выводится как object.
+    trend_days = [date.fromisoformat(str(t["period"])) for t in trend]
+    cadence = infer_cadence(trend_days)
+    gap_days = missing_periods(trend_days, cadence) if cadence else []
+
     # --- По ведомствам: последняя точка + прирост к СВОЕЙ предыдущей. ---
     dept_summary = []
     offices_now: set[str] = set()
@@ -456,6 +470,18 @@ async def overview(conn, org_id) -> dict:
                   and r["dostizheniya_pokazatelya"] < KPI_ALERT_BELOW_PCT]
 
     alerts = []
+    # Первым — пробел в самих данных: пока он не назван, все цифры ниже
+    # обсуждать рано (за пропущенную неделю их просто нет).
+    if gap_days:
+        dates = ", ".join(d.strftime("%d.%m.%Y") for d in gap_days[:5])
+        more = f" и ещё {len(gap_days) - 5}" if len(gap_days) > 5 else ""
+        many = len(gap_days) > 1
+        alerts.append({
+            "kind": "period_gap",
+            "text": (f"В ряду нет {'отчётов' if many else 'отчёта'} за {dates}{more} "
+                     f"(форма приходит раз в {cadence} дн.) — "
+                     f"{'за эти дни' if many else 'за этот день'} данных нет ни у одного ведомства"),
+        })
     for label, _g in zero_growth_offices[:5]:
         alerts.append({"kind": "zero_growth", "text": f"Нулевой прирост заявлений за период: {label}"})
     if services_missing:
@@ -518,6 +544,10 @@ async def overview(conn, org_id) -> dict:
         "leader": leader,
         "departments": dept_summary,
         "trend": trend,
+        # Пропущенные отчётные даты ряда — отдельным полем, а не только строкой
+        # алерта: график обязан показать разрыв там, где отчёта не было.
+        "missing_periods": [d.isoformat() for d in gap_days],
+        "cadence_days": cadence,
         "satisfaction": satisfaction,
         "wait_time": wait_time,
         "alerts": alerts,

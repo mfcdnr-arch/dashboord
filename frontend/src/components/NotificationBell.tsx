@@ -26,6 +26,16 @@ function message(n: NotificationItem): string {
     return `Объект «${p.object_name}»: отчёт за ${ruDate(p.expected_period)} не поступил `
       + `(форма приходит раз в ${p.cadence_days} дн., последний — за ${ruDate(p.last_period)}).`
   }
+  // Дыра ВНУТРИ ряда: ряд продолжился, и «отчёт не поступил» тут неверно —
+  // отчёты идут, просто одного дня в них нет. Даты называем поимённо: без них
+  // человеку негде начать искать.
+  if (n.event_type === 'data.gap') {
+    const miss = (Array.isArray(p.missing) ? p.missing : []).map(ruDate)
+    const shown = miss.slice(0, 5).join(', ')
+    return `Объект «${p.object_name}»: в ряду отчётов пропуск — нет ${miss.length > 1 ? 'отчётов' : 'отчёта'} за `
+      + `${shown}${miss.length > 5 ? ` и ещё ${miss.length - 5}` : ''} `
+      + `(форма приходит раз в ${p.cadence_days} дн.). Данные за этот период на дашбордах не учтены.`
+  }
   if (n.event_type === 'dashboard.review_requested') {
     return `«${p.dashboard_name}» ждёт проверки${p.author ? ` — отправил ${p.author}` : ''}.`
   }
@@ -83,7 +93,7 @@ function targetOf(n: NotificationItem, staff: boolean): NotifyTarget | null {
   if (n.event_type === 'dashboard.comment' || n.event_type === 'dashboard.review_requested') {
     return { section: 'dashboards', dashboardId: id }
   }
-  if (n.event_type === 'data.stale' || n.event_type === 'data.missing') {
+  if (n.event_type === 'data.stale' || n.event_type === 'data.missing' || n.event_type === 'data.gap') {
     return { section: 'objects', objectId: id }
   }
   // У выпуска своего экрана нет — ведём к объекту, где лежит файл (id берём из

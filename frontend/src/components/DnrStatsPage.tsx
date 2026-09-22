@@ -132,6 +132,9 @@ type Overview = {
   services_missing?: MissingService[]
   office_gaps?: OfficeGap[]
   office_gaps_total?: number
+  /** Отчётные даты, которых в ряду нет (ряд при этом продолжился). */
+  missing_periods?: string[]
+  cadence_days?: number | null
 }
 
 function alertColor(kind: string): string {
@@ -258,6 +261,21 @@ function OverviewView({ onOpenList }: { onOpenList: () => void }) {
                 Накопительные итоги по всем ведомствам; каждая точка — дата среза из загруженных файлов.
                 По мере поступления новых еженедельных файлов на графике сама появится следующая точка.
               </div>
+              {/* 🔴 Пропущенная неделя — единственное, чего по этому графику
+                  увидеть нельзя: линия соединяет соседние точки напрямую, и
+                  отсутствующий отчёт выглядит обычным отрезком. Поэтому о нём
+                  сказано словами прямо над графиком. */}
+              {(d.missing_periods || []).length > 0 && (
+                <div style={{
+                  fontSize: 12, marginBottom: 8, padding: '6px 10px', borderRadius: 8,
+                  background: 'var(--alert-warn-bg)', color: 'var(--alert-warn)',
+                }}>
+                  ⚠ В ряду нет {(d.missing_periods || []).length > 1 ? 'отчётов' : 'отчёта'} за{' '}
+                  {(d.missing_periods || []).map(ruDate).join(', ')}
+                  {d.cadence_days ? ` (файлы приходят раз в ${d.cadence_days} дн.)` : ''} —
+                  линия соединяет соседние точки напрямую, провала на ней не будет.
+                </div>
+              )}
               <EChart option={trendOption as any} height={260} />
             </div>
           )}

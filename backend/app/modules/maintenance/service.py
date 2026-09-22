@@ -3,7 +3,10 @@
 - check_freshness: по каждому объекту смотрит дату последней загрузки; если
   данные не поступали дольше stale_days — создаёт уведомление (антидубль 7 дней).
 - check_cadence: вычисляет ритм поступления формы по её же истории и сообщает
-  о ПРОПУЩЕННОМ отчёте («приходило каждую неделю, за 12.08 файла нет»).
+  о ПРОПУЩЕННОМ отчёте — и о том, что не пришёл последний («приходило каждую
+  неделю, за 12.08 файла нет»), и о дыре ВНУТРИ ряда («неделя 26.08 пропущена,
+  а ряд продолжился»). Второе — разные события: дыра внутри сама собой не
+  закроется и о ней надо сказать один раз, а не каждый день.
 - retention_preview / run_retention: считает/удаляет релизы датасетов старше окна
   (reporting_period_start < сегодня − N месяцев). Каскад чистит values/поля/связи.
 """
@@ -303,10 +306,36 @@ async def check_cadence(conn, org_id) -> dict:
     missing, created = [], 0
     today = await conn.fetchval("select current_date")
 
+    gaps_found: list[dict] = []
     for row in rows:
+        periods = sorted(p for p in row["periods"] if p is not None)
         cadence = infer_cadence(list(row["periods"]))
         if cadence is None:
             continue
+
+        # 🔴 Дыра ВНУТРИ ряда — отдельное событие, и до 22.09.2026 его не было
+        # вовсе. Проверка ниже смотрит только на хвост: пришёл ли отчёт ПОСЛЕ
+        # последнего. Поэтому пропущенная неделя, за которой ряд продолжился,
+        # не давала ни уведомления, ни строки нигде — «Статистика услуг ДНР»
+        # полгода показывала четыре недели вместо пяти и молчала об этом.
+        #
+        # Правило берём общее (`missing_periods`) — то же, которым аналитика
+        # папки пишет «не хватает отчётов», а календарь красит плитку. Разойдись
+        # они, один экран называл бы пропуском то, о чём молчит другой.
+        gaps = missing_periods(periods, cadence)
+        if gaps:
+            gap_item = {"dataset_code": row["code"], "object_name": row["object_name"],
+                        "object_id": row["object_id"], "cadence_days": cadence,
+                        "missing": [d.isoformat() for d in gaps]}
+            gaps_found.append(gap_item)
+            # Дыра, которую никто не закроет, — факт постоянный, и напоминать о
+            # нём каждый день значит приучить не читать уведомления. Шлём, когда
+            # НАБОР дыр изменился: появилась новая или закрыли старую.
+            if await _gaps_changed(conn, org_id, row["object_id"], gap_item["missing"]):
+                await notif.notify(conn, org_id, "data.gap", "object", row["object_id"],
+                                   gap_item, recipients)
+                created += 1
+
         last = max(p for p in row["periods"] if p is not None)
         expected = last + timedelta(days=cadence)
         # Полритма форы: отчёт за период почти никогда не кладут день в день.
@@ -323,7 +352,26 @@ async def check_cadence(conn, org_id) -> dict:
             continue
         await notif.notify(conn, org_id, "data.missing", "object", row["object_id"], item, recipients)
         created += 1
-    return {"missing": missing, "notifications_created": created}
+    return {"missing": missing, "gaps": gaps_found, "notifications_created": created}
+
+
+async def _gaps_changed(conn, org_id, object_id, missing: list) -> bool:
+    """Изменился ли набор пропущенных отчётов с прошлого уведомления.
+
+    Сравниваем со СПИСКОМ из последнего события, а не полагаемся на окно
+    времени: пропуск внутри ряда живёт, пока не пришлёт файл ведомство, то есть
+    иногда вечно, и любое окно превратило бы сигнал в регулярный шум. Зато
+    новая дыра обязана прозвучать сразу, каким бы старым ни было прошлое
+    уведомление.
+    """
+    prev = await conn.fetchval(
+        "select payload from notification_events where organization_id=$1 "
+        "and event_type='data.gap' and entity_id=$2::uuid "
+        "order by created_at desc limit 1", org_id, object_id)
+    if prev is None:
+        return True
+    was = json.loads(prev) if isinstance(prev, str) else prev
+    return list(was.get("missing") or []) != list(missing)
 
 
 PREVIEW_ITEMS_LIMIT = 100

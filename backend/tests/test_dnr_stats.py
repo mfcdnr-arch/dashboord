@@ -228,3 +228,48 @@ async def test_office_gap_separates_refusal_from_an_empty_cell(client, admin_hea
     assert "Растущее" not in gaps
     # И услуга больше не числится «не оказываемой нигде».
     assert d["services_missing"] == []
+
+
+async def test_overview_names_a_missing_week(client, admin_headers, dnr_object, ids):
+    """🔴 Выпавшая неделя названа датой прямо в сводке.
+
+    На графике пропущенная неделя выглядит обычным отрезком между соседними
+    точками — заметить её глазами нельзя, а «за месяц» молча считается по
+    четырём отчётам вместо пяти. Ровно это и случилось с настоящими данными:
+    ряд ведомств шёл 05.08, 12.08, 19.08, 02.09, 09.09, недели 26.08 не было, и
+    не сказал об этом никто.
+
+    Правило общее с уведомлением о пропуске и аналитикой папки: двух понятий о
+    пропуске в системе быть не должно.
+    """
+    async with db.acquire() as conn:
+        object_id = await conn.fetchval(
+            "select id from objects where name=$1 and organization_id=$2", OBJECT_NAME, ids["org"])
+        # Дополняем ряд до недельного, пропуская 22.01: 01, 08, 15, [—], 29, 05.02.
+        for period, prinyato in (("2026-01-15", 130), ("2026-01-29", 150), ("2026-02-05", 160)):
+            await _seed_release(conn, ids["org"], object_id, period, ids["admin"], {
+                "Растущее": {"s1": (prinyato, 100, "да"), "s2": (0, 0, "нет")},
+                "Застойное": {"s1": (50, 45, "да"), "s2": (0, 0, "нет")},
+            })
+
+    d = (await client.get("/dnr-stats/overview", headers=admin_headers)).json()
+    assert d["cadence_days"] == 7, d["cadence_days"]
+    assert d["missing_periods"] == ["2026-01-22"], d["missing_periods"]
+    gap = next((a for a in d["alerts"] if a["kind"] == "period_gap"), None)
+    assert gap is not None, d["alerts"]
+    assert "22.01.2026" in gap["text"], gap["text"]
+
+
+async def test_overview_is_silent_when_the_series_is_whole(client, admin_headers, dnr_object, ids):
+    """Ряд без дыр — молчим: ложный пропуск подорвал бы доверие к настоящему."""
+    async with db.acquire() as conn:
+        object_id = await conn.fetchval(
+            "select id from objects where name=$1 and organization_id=$2", OBJECT_NAME, ids["org"])
+        for period, prinyato in (("2026-01-15", 130), ("2026-01-22", 140), ("2026-01-29", 150)):
+            await _seed_release(conn, ids["org"], object_id, period, ids["admin"], {
+                "Растущее": {"s1": (prinyato, 100, "да"), "s2": (0, 0, "нет")},
+                "Застойное": {"s1": (50, 45, "да"), "s2": (0, 0, "нет")},
+            })
+    d = (await client.get("/dnr-stats/overview", headers=admin_headers)).json()
+    assert d["missing_periods"] == [], d["missing_periods"]
+    assert not [a for a in d["alerts"] if a["kind"] == "period_gap"], d["alerts"]

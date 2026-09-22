@@ -450,3 +450,37 @@ def test_tiny_form_does_not_trigger_the_rule():
     assert not [x for x in quality.compare_with_previous(cur, prev, {}, "01.07.2026")
                 if x["code"] == "almost_empty"]
 
+
+
+def test_a_row_of_zeros_repeated_is_not_a_copy():
+    """🔴 Повторившийся НОЛЬ — не признак переноса цифр.
+
+    Найдено проверкой истории РЦО 22.09.2026: правило срабатывало на 63 отчётах
+    из 201, и почти все срабатывания были про отделения, которые за день не
+    работали. В ежедневном отчёте на 62 отделения таких строк десятки, и
+    сигнал, поднимаемый зря, перестают читать — тогда он не сработает в
+    настоящий раз.
+
+    Случай «весь отчёт из нулей» при этом не теряется: о нём говорит
+    собственное правило `all_zeros`.
+    """
+    names = {"prinyato": "ИТОГО · Принято, ед.", "vydano": "ИТОГО · Выдано, ед."}
+    zeros = {("Пустое отделение", "prinyato"): 0.0, ("Пустое отделение", "vydano"): 0.0}
+    w = quality.compare_with_previous(zeros, dict(zeros), names, "08.09.2026")
+    assert not [x for x in w if x["code"] == "same_as_previous"], w
+
+    # А вот настоящие цифры, повторившиеся один в один, — по-прежнему замечание.
+    real = {("Работающее отделение", "prinyato"): 125.0, ("Работающее отделение", "vydano"): 118.0}
+    w2 = quality.compare_with_previous(real, dict(real), names, "08.09.2026")
+    same = [x for x in w2 if x["code"] == "same_as_previous"]
+    assert same, w2
+    # Совпали ВСЕ непустые строки — формулировка про весь выпуск, а не про одну.
+    assert "Все данные совпадают" in same[0]["message"], same
+
+    # Смешанный отчёт: пустое отделение молчит, работающее — названо.
+    both = {**zeros, **real}
+    w3 = quality.compare_with_previous(both, dict(both), names, "08.09.2026")
+    same3 = next(x for x in w3 if x["code"] == "same_as_previous")
+    assert "Работающее отделение" in same3["message"]
+    assert "Пустое отделение" not in same3["message"]
+    assert same3["count"] == 1, same3

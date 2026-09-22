@@ -727,6 +727,92 @@ def _validate_grid(rows, value_fields, label_col, field_type) -> list:
 _SHEET_DATE_RE = re.compile(r"^\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})(?:\s*[.\-/]\s*(\d{2,4}))?\s*$")
 
 
+def sheet_values(table_row, *, layout: Optional[dict], fields: List[dict]) -> dict:
+    """Что именно уехало бы в `dataset_values` с этого листа при этой разметке.
+
+    Один источник правды для ДВУХ разных задач, и в этом весь смысл выноса:
+    выпуск по этим кортежам делает вставку, а сверка «изменился ли лист»
+    (`build_releases_by_sheet`) считает по ним отпечаток. Собери их разным
+    кодом — и сверка однажды объявила бы лист неизменившимся там, где выпуск
+    записал бы другие числа; расхождение было бы тихим и необратимым.
+
+    Возвращает и саму сетку разметки (`area`): по ней же считается отпечаток
+    структуры для шаблона объекта, и второй разбор той же таблицы был бы
+    лишней работой.
+    """
+    grid = json.loads(table_row["data"]) if table_row["data"] else []
+    merges = [tuple(m) for m in (json.loads(table_row["merges"]) if table_row["merges"] else [])]
+    lay = {**DEFAULT_LAYOUT, **(layout or {})}
+    rect = lay["data_rect"] or (json.loads(table_row["data_rect"]) if table_row["data_rect"] else None)
+    header_rows = table_row["header_rows"] if lay["header_rows"] is None else lay["header_rows"]
+    header_rows = int(header_rows or 0)
+
+    label_field = next((f for f in fields if f.get("is_row_label")), None)
+    label_col = label_field["column_index"] if label_field else None
+    value_fields = [f for f in fields if not f.get("is_row_label")]
+    field_type = {f["field_code"]: f["data_type"] for f in value_fields}
+
+    # Область данных, ориентация, развёрнутые объединения: без области в
+    # значения уехал бы текст письма над таблицей.
+    area = analysis_grid(grid, merges, rect, lay["orientation"])
+    rows_used = data_rows(area, header_rows, lay["skip_rows"] or [])
+
+    values: List[tuple] = []
+    for row_index, row in enumerate(rows_used):
+        row_label = analyze.clean_row_label(
+            row[label_col] if label_col is not None and label_col < len(row) else None)
+        for f in value_fields:
+            ci = f["column_index"]
+            raw = row[ci] if ci < len(row) else ""
+            casted = _cast(raw, field_type[f["field_code"]])
+            values.append((row_index, row_label, f["field_code"],
+                           casted["value_text"], casted["value_number"], casted["value_date"]))
+
+    return {"grid": grid, "merges": merges, "area": area, "rect": rect,
+            "header_rows": header_rows, "rows_used": rows_used, "values": values,
+            "label_col": label_col, "value_fields": value_fields, "field_type": field_type}
+
+
+def _digest_number(v) -> str:
+    """Число в каноническую строку — иначе сверка сравнивала бы записи, а не числа.
+
+    Свежее значение приходит из `_cast` типом float, а прочитанное из БД — из
+    колонки `numeric`, то есть Decimal. `Decimal('1.00')` и `1.0` — одно и то
+    же число в двух записях, и прямое сравнение строк объявило бы лист
+    изменившимся на ровном месте, запустив перезаливку всей истории.
+    """
+    if v is None:
+        return ""
+    return format(float(v), ".12g")
+
+
+def values_digest(values) -> str:
+    """Отпечаток ДАННЫХ выпуска: одинаковый отпечаток — те же значения.
+
+    Порядок в выборке из БД не определён, поэтому кортежи сортируются с обеих
+    сторон. В отпечаток входит и код графы: файл, где у услуги появился лишний
+    столбец, обязан считаться изменившимся, даже если все числа совпали.
+    """
+    h = hashlib.sha256()
+    rows = sorted(
+        ((int(r[0]), r[1] or "", r[2], r[3] or "", _digest_number(r[4]),
+          r[5].isoformat() if r[5] else "") for r in values))
+    for r in rows:
+        h.update("\x1f".join(str(x) for x in r).encode("utf-8"))
+        h.update(b"\x1e")
+    return h.hexdigest()
+
+
+async def released_values_digest(conn, release_id) -> str:
+    """Отпечаток уже выпущенных данных — тем же правилом, что и у свежего листа."""
+    rows = await conn.fetch(
+        "select row_index, row_label, canonical_field_code, value_text, value_number, value_date "
+        "from dataset_values where dataset_release_id=$1", release_id)
+    return values_digest(
+        (r["row_index"], r["row_label"], r["canonical_field_code"],
+         r["value_text"], r["value_number"], r["value_date"]) for r in rows)
+
+
 def sheet_date(title: str, year: int):
     """Отчётная дата из имени листа: «17.08», «17.08.2026», «17/08». Иначе None.
 
@@ -747,6 +833,29 @@ def sheet_date(title: str, year: int):
         return date(year, month, day)
     except ValueError:
         return None          # «40.09» — не дата, а опечатка в имени листа
+
+
+def _resupply_skip_reason(existing, incoming_version, incoming_uploaded) -> Optional[str]:
+    """Можно ли вообще трогать уже выпущенную дату — и если нет, то почему.
+
+    Возвращает причину пропуска словами либо None («файл имеет право заместить
+    выпуск — сверяйте содержимое»). Вынесено отдельной чистой функцией, потому
+    что это единственное место, где решается судьба чужих данных: ошибка тут
+    либо теряет присланные исправления, либо даёт старому файлу затереть
+    свежий, и проверять такое надо тестом, а не на живой книге.
+
+    Дата загрузки берётся у ВЕРСИИ документа, а не у выпуска: выпуск могли
+    сделать спустя неделю после загрузки, и по нему «свежесть» файла не
+    определить. Если у прежнего выпуска источника нет вовсе (данные пришли не
+    из файла), считаем, что спорить не с чем, и идём на сверку содержимого —
+    решение примет отпечаток, а не догадка.
+    """
+    if existing["source_document_version_id"] == incoming_version:
+        return "выпуск за эту дату уже сделан из этого же файла"
+    was = existing["uploaded_at"]
+    if was is not None and incoming_uploaded is not None and was > incoming_uploaded:
+        return "выпуск сделан из более свежего файла — загружаемый старше"
+    return None
 
 
 async def build_releases_by_sheet(
@@ -771,10 +880,27 @@ async def build_releases_by_sheet(
        уже заведёнными полями. Иначе добавление услуги в марте разорвало бы
        ряд каждого показателя правее неё.
 
-    3. **Идемпотентность по датам.** Заказчик присылает ТОТ ЖЕ файл с
-       дописанными листами, поэтому даты, по которым активный выпуск уже есть,
-       пропускаются. Без этого каждое обновление перезаливало бы всю историю —
-       под миллион значений ради десятка новых дат.
+    3. **Побеждает более свежий файл, но переливается только изменившееся.**
+       Заказчик присылает книгу целиком: тот же год плюс дописанные листы, а
+       иногда — с исправленными задним числом цифрами. Правило «дата уже
+       загружена — пропускаем» теряло такие исправления молча, а правило
+       «загружаем всё заново» переливало бы под миллион значений ради десятка
+       новых дат и удваивало базу (замещённые выпуски остаются — их возвращают
+       кнопкой).
+
+       Поэтому решение принимается по СОДЕРЖИМОМУ, а не по дате:
+
+       * выпуск сделан из ЭТОГО ЖЕ файла → пропускаем, не разбирая лист. Это
+         дозаливка прерванного прогона, и она обязана быть мгновенной;
+       * выпуск сделан из БОЛЕЕ СВЕЖЕГО файла → пропускаем: старый файл не
+         должен затирать новый, даже если его загрузили позже;
+       * иначе лист разбирается и сверяется с выпущенными значениями по
+         отпечатку (`values_digest`). Совпал — выпуск остаётся как был; не
+         совпал — перевыпускаем, замещая прежний.
+
+       Отчёт называет судьбу каждого листа своими словами: «не изменился» и
+       «перевыпущен» — разные события, и молчаливое «пропущено» скрыло бы, что
+       ведомство переписало цифры за март.
     """
     ctx = await resolve_context(conn, job_id)
     if ctx is None:
@@ -791,6 +917,12 @@ async def build_releases_by_sheet(
     lay.update(layout or {})
     drop = {_norm_name(x) for x in exclude_row_labels}
 
+    # Когда загружен сам файл: по этой дате решается, чей выпуск главнее, если
+    # за дату уже что-то выпущено из ДРУГОЙ книги.
+    incoming_version = ctx["document_version_id"]
+    incoming_uploaded = await conn.fetchval(
+        "select created_at from document_versions where id=$1", incoming_version)
+
     created, skipped, failed = [], [], []
     for t in tables:
         period = sheet_date(t["sheet_or_page"], year)
@@ -800,15 +932,22 @@ async def build_releases_by_sheet(
         if since and period < since:
             skipped.append({"sheet": t["sheet_or_page"], "reason": "раньше выбранной глубины истории"})
             continue
-        # Уже загруженную дату не трогаем: файл приходит целиком, и повторная
-        # заливка стоила бы всей истории при десятке новых дат.
-        exists = await conn.fetchval(
-            "select id from dataset_releases where organization_id=$1 and code=$2 "
-            "and reporting_period_start=$3 and status <> 'superseded'", org_id, code, period)
-        if exists and not supersede:
-            skipped.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
-                            "reason": "выпуск за эту дату уже есть"})
-            continue
+        existing = await conn.fetchrow(
+            "select r.id, r.source_document_version_id, v.created_at as uploaded_at "
+            "from dataset_releases r "
+            "left join document_versions v on v.id = r.source_document_version_id "
+            "where r.organization_id=$1 and r.code=$2 and r.reporting_period_start=$3 "
+            "  and r.status <> 'superseded'", org_id, code, period)
+        replace = bool(supersede)
+        # id выпуска, с которым сверяем содержимое листа (None — сверять не с чем)
+        compare_with = None
+        if existing is not None and not supersede:
+            reason = _resupply_skip_reason(existing, incoming_version, incoming_uploaded)
+            if reason is not None:
+                skipped.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
+                                "reason": reason})
+                continue
+            compare_with = existing["id"]
 
         try:
             # 🔴 Транзакция на ЛИСТ, а не на всю загрузку. В asyncpg первая же
@@ -843,19 +982,40 @@ async def build_releases_by_sheet(
                             header_rows=lay.get("header_rows"), orientation=lay["orientation"],
                             skip_rows=skip, sample=0)
                 fields = [c for c in prev["columns"] if not c.get("is_counter")]
+                if compare_with is not None:
+                    # Лист разбираем ТЕМ ЖЕ кодом, что и выпуск, и сравниваем
+                    # отпечатки: совпали — переливать нечего, и мы экономим
+                    # двадцать тысяч вставок на каждом неизменившемся дне.
+                    table_row = await conn.fetchrow(
+                        "select header_rows, data, merges, data_rect "
+                        "from extracted_tables where id=$1::uuid", t["id"])
+                    fresh = sheet_values(table_row, layout={**lay, "skip_rows": skip},
+                                         fields=fields)
+                    if values_digest(fresh["values"]) == await released_values_digest(
+                            conn, compare_with):
+                        skipped.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
+                                        "reason": "лист не изменился — выпуск оставлен как был"})
+                        continue
+                    replace = True
                 rel = await build_release(
                     conn, job_id=job_id, table_id=str(t["id"]), code=code, name=name,
                     reporting_period_start=period, reporting_period_end=period,
-                    fields=fields, supersede=supersede, user=user,
+                    fields=fields, supersede=replace, user=user,
                     layout={**lay, "skip_rows": skip}, auto=True)
                 created.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
-                                "values": rel.get("values_count"), "fields": len(fields)})
+                                "values": rel.get("values_count"), "fields": len(fields),
+                                # «Заместил прежний выпуск» берём у самого
+                                # выпуска, а не у решения выше: при явном
+                                # «заместить» часть листов ложится на пустое
+                                # место, и назвать их перевыпущенными — соврать.
+                                "replaced": bool(rel.get("superseded_release_id"))})
         except Exception as e:                       # noqa: BLE001 — причина уезжает в отчёт
             failed.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
                            "error": str(e)[:200]})
 
     return {"created": created, "skipped": skipped, "failed": failed,
-            "sheets": len(tables), "released": len(created)}
+            "sheets": len(tables), "released": len(created),
+            "replaced": sum(1 for c in created if c.get("replaced"))}
 
 
 async def build_release(conn, *, job_id: str, table_id: str, code: str, name: str,
@@ -985,17 +1145,15 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         "select header_rows, data, merges, data_rect from extracted_tables where id=$1::uuid",
         table_id,
     )
-    grid = json.loads(table["data"]) if table["data"] else []
-    merges = [tuple(m) for m in (json.loads(table["merges"]) if table["merges"] else [])]
+    # Разбор листа и кортежи значений считает общая `sheet_values`: по ним же
+    # сверяется «изменился ли лист» при повторной загрузке книги, и второй
+    # разбор тем же кодом гарантирует, что сверка и вставка видят одно и то же.
+    # Сетка разметки (`area`) нужна обоим режимам: по ней материализуются
+    # значения и по ней же считается отпечаток структуры для шаблона объекта.
+    sv = sheet_values(table, layout=layout, fields=fields)
+    grid, merges, area = sv["grid"], sv["merges"], sv["area"]
+    rect, header_rows = sv["rect"], sv["header_rows"]
     lay = {**DEFAULT_LAYOUT, **(layout or {})}
-    rect = lay["data_rect"] or (json.loads(table["data_rect"]) if table["data_rect"] else None)
-    header_rows = table["header_rows"] if lay["header_rows"] is None else lay["header_rows"]
-    header_rows = int(header_rows or 0)
-    field_type = {f["field_code"]: f["data_type"] for f in value_fields}
-
-    # Сетка разметки нужна обоим режимам: по ней материализуются значения и по
-    # ней же считается отпечаток структуры для шаблона объекта.
-    area = analysis_grid(grid, merges, rect, lay["orientation"])
 
     n_values = 0
     if cells:
@@ -1019,22 +1177,16 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
     else:
         # Область данных, ориентация, развёрнутые объединения: без области в
         # значения уехал бы текст письма над таблицей.
-        rows_used = data_rows(area, header_rows, lay["skip_rows"] or [])
-        for row_index, row in enumerate(rows_used):
-            row_label = analyze.clean_row_label(row[label_col] if label_col is not None and label_col < len(row) else None)
-            for f in value_fields:
-                ci = f["column_index"]
-                raw = row[ci] if ci < len(row) else ""
-                casted = _cast(raw, field_type[f["field_code"]])
-                await conn.execute(
-                    "insert into dataset_values(dataset_release_id, row_index, row_label, "
-                    "canonical_field_code, value_text, value_number, value_date) "
-                    "values($1,$2,$3,$4,$5,$6,$7)",
-                    release_id, row_index, row_label, f["field_code"],
-                    casted["value_text"], casted["value_number"], casted["value_date"],
-                )
-                n_values += 1
-        warnings = _validate_grid(rows_used, value_fields, label_col, field_type)
+        rows_used = sv["rows_used"]
+        for row_index, row_label, field_code, v_text, v_number, v_date in sv["values"]:
+            await conn.execute(
+                "insert into dataset_values(dataset_release_id, row_index, row_label, "
+                "canonical_field_code, value_text, value_number, value_date) "
+                "values($1,$2,$3,$4,$5,$6,$7)",
+                release_id, row_index, row_label, field_code, v_text, v_number, v_date,
+            )
+            n_values += 1
+        warnings = _validate_grid(rows_used, value_fields, label_col, sv["field_type"])
         # Сверка с прошлой неделей: перенесённые без обновления цифры — самая
         # дорогая ошибка в этих формах, и заметить её по одному файлу нельзя.
         warnings += await quality_warnings(
@@ -1086,7 +1238,7 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         "new_form": is_first_template,
         "dataset_code": code,
         "numeric_fields": [{"field_code": f["field_code"], "field_name": f["field_name"]}
-                           for f in value_fields if field_type.get(f["field_code"]) == "number"],
+                           for f in value_fields if sv["field_type"].get(f["field_code"]) == "number"],
         "validation": {"warnings": warnings, "ok": len(warnings) == 0},
     }
 

@@ -11,6 +11,7 @@ import ExtractionPage from './ExtractionPage'
 import RowAclEditor from './RowAclEditor'
 import FolderAnalytics from './objects/FolderAnalytics'
 import FormLevels from './objects/FormLevels'
+import QualityReview from './objects/QualityReview'
 import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
 import AutoBuildWizard from './dashboards/AutoBuildWizard'
 import { getBuildSuggestion, type BuildSuggestion } from '../api/objects'
@@ -421,6 +422,11 @@ export default function ObjectsPage(
           форма принадлежит объекту (объект = одна форма), там же живёт и её
           разметка. */}
       {obj && !folder && canManage && <FormLevels objectId={obj.id} />}
+
+      {/* Проверка качества по истории. Стоит рядом со ступенями и по той же
+          причине: форма принадлежит объекту, а вопрос «где расходится» — про
+          форму целиком, а не про отдельную папку с файлами. */}
+      {obj && !folder && canManage && <QualityReview objectId={obj.id} />}
 
       {obj && !folder && (
         <Section title={`Папки объекта «${obj.name}»`}>
