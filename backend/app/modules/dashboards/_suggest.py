@@ -546,6 +546,10 @@ MAX_AUTO_PERIOD_PAGES = 8
 # самого виджета: собранная мастером страница не должна отличаться от той, где
 # матрицу добавили руками.
 MATRIX_PERIODS = 12
+# Сколько точек «Динамика» ещё показывает по отчётам. Выше — сворачиваем в
+# месяцы: в карточке шириной в треть ряда (≈420 px) на 60 точках остаётся по
+# семь пикселей на точку, и это предел, за которым линия читается как шум.
+DYN_PERIODS = 60
 # Сколько показателей помещается в матрицу «показатель × дата», не превращая её
 # в стену: у госформы их полтора десятка, и все они осмысленны.
 MATRIX_FIELDS = 20
@@ -1118,10 +1122,20 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
         limit = MAX_TRENDS_WITH_MATRIX if matrix_added else MAX_AUTO_DYNAMICS
         trends = ([f for f in shown if view_of(f) in ("dynamics", "both")][:limit]
                   if has_dyn and "dynamics" in blocks else [])
+        # 🔴 Длинный ряд сворачиваем в месяцы — тем же правилом, что и матрицу.
+        # У ежедневного отчёта РЦО 201 выпуск: линия по отчётам в карточке
+        # шириной в треть ряда даёт 1,5 пикселя на точку, то есть частокол, из
+        # которого не читается ни уровень, ни направление. Порог — DYN_PERIODS:
+        # выше него подробность уже не видна глазу, а свёрнутый ряд отвечает на
+        # «как менялось» одним взглядом. Короткий ряд (недельная форма за
+        # месяц) подробнее по отчётам, его не трогаем.
+        dyn_by_month = d["periods"] > DYN_PERIODS
+        dyn_group = {"period_group": "month"} if dyn_by_month else {}
+        dyn_when = " по месяцам" if dyn_by_month else ""
         for i, f in enumerate(trends):
-            specs.append({"page": PAGE_DYNAMICS, "name": f"Динамика: {f['name']}",
+            specs.append({"page": PAGE_DYNAMICS, "name": f"Динамика: {f['name']}{dyn_when}",
                           "widget_type": "dynamics",
-                          "config": {"dataset_code": code, "value_field": f["code"]},
+                          "config": {"dataset_code": code, "value_field": f["code"], **dyn_group},
                           "position_x": (i % 3) * 4, "position_y": dyn_y + (i // 3) * 6,
                           "width": 4, "height": 6})
         if trends:

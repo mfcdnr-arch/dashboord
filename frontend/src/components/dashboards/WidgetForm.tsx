@@ -510,6 +510,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     }
     if (type === 'dynamics') return (dataset && valueField) ? {
       dataset_code: dataset, value_field: valueField,
+      ...(periodGroup === 'month' ? { period_group: 'month' } : {}),
       ...(trend ? { trend: true } : {}),
       ...(growthIndex ? { growth_index: true } : {}),
       ...(growthIndex && indexBase ? { index_base_period: indexBase } : {}),
@@ -861,6 +862,22 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       )}
       {type === 'dynamics' && (
         <>
+          {/* 🔴 Точка линии — отчёт или месяц. У ежедневной формы 201 выпуск, и
+              по отчётам линия в карточке шириной в треть ряда даёт полтора
+              пикселя на точку: формально показано всё, а прочитать нельзя
+              ни уровень, ни направление. */}
+          <Field size="sm" label="Точки линии">
+            <select style={sel} value={periodGroup} onChange={(e) => setPeriodGroup(e.target.value)}
+              title="У ежедневной формы двести отчётов: по отчётам линия превращается в частокол, по месяцам видно движение">
+              <option value="report">Отчётные даты</option>
+              <option value="month">Месяцы</option>
+            </select>
+            <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4, maxWidth: 340 }}>
+              {periodGroup === 'month'
+                ? 'Месяц собирается из отчётов по смыслу показателя: потоки складываются, накопительный итог берётся последним отчётом месяца, доли усредняются. Число отчётов в каждом месяце виджет назовёт сам — месяцы неравны между собой.'
+                : 'Точка на каждый отчёт. Для длинного ряда (больше шестидесяти) читается плохо.'}
+            </div>
+          </Field>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }} title="Наложить линию линейного тренда (метод наименьших квадратов)">
             <input type="checkbox" checked={trend} onChange={(e) => setTrend(e.target.checked)} />Линия тренда
           </label>

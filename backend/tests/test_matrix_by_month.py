@@ -372,3 +372,82 @@ async def test_widget_list_says_which_form_the_number_comes_from(client, admin_h
         assert by_name["Заголовок"]["caption"] is None
     finally:
         await _cleanup(did)
+
+
+async def _dyn(client, headers, pid, cfg):
+    r = await client.post(f"/dashboard-pages/{pid}/widgets", headers=headers,
+                          json={"name": "Динамика", "widget_type": "dynamics", "config": cfg})
+    assert r.status_code == 201, r.text
+    return (await client.get(f"/widgets/{r.json()['id']}/data", headers=headers)).json()
+
+
+async def test_dynamics_folds_a_long_series_into_months(client, admin_headers, mm_ds):
+    """🔴 «Динамика» сворачивает точки в месяцы — тем же правилом, что матрица.
+
+    Жалоба заказчика 22.09.2026 на график по ежедневному отчёту: 201 точка в
+    карточке шириной в треть ряда даёт полтора пикселя на точку — формально
+    показано всё, а прочитать нельзя ни уровень, ни направление.
+
+    Свёртка берётся ОБЩАЯ (`_month_buckets`): доля усредняется, накопительный
+    итог берётся последним отчётом месяца, поток складывается. Второго понятия
+    о том, как собирается месяц, в системе быть не должно.
+    """
+    did, pid = await _page(client, admin_headers, "zmm_dyn")
+    try:
+        d = await _dyn(client, admin_headers, pid,
+                       {"dataset_code": mm_ds, "value_field": "flow", "period_group": "month"})
+        assert d["period_group"] == "month"
+        # Поток складывается: июль 100+200+300, август 400+500.
+        assert d["periods"] == ["2026-07", "2026-08"], d["periods"]
+        assert d["values"] == [600.0, 900.0], d["values"]
+        assert d["fold"] == "sum"
+        # Месяцы неравны — число отчётов обязано вернуться, иначе сравнение
+        # месяцев вводит в заблуждение уверенным тоном.
+        assert d["reports"] == [3, 2] and d["total_reports"] == 5
+        # Свежесть виджета — последняя ПОКАЗАННАЯ точка.
+        assert d["as_of"] == "2026-08"
+    finally:
+        await _cleanup(did)
+
+
+async def test_dynamics_by_reports_is_unchanged(client, admin_headers, mm_ds):
+    """Без настройки поведение прежнее: точка на каждый отчёт.
+
+    У виджетов, заведённых раньше, `period_group` в конфигурации нет, и менять
+    им смысл молча нельзя.
+    """
+    did, pid = await _page(client, admin_headers, "zmm_dyn2")
+    try:
+        d = await _dyn(client, admin_headers, pid,
+                       {"dataset_code": mm_ds, "value_field": "flow"})
+        assert d["period_group"] == "report"
+        assert len(d["periods"]) == 5 and d["reports"] is None
+    finally:
+        await _cleanup(did)
+
+
+async def test_dynamics_does_not_sum_a_cumulative_total(client, admin_headers, mm_ds):
+    """🔴 Накопительный итог берётся ПОСЛЕДНИМ отчётом месяца, а не суммой.
+
+    Сложи его — выйдет число, которого не существует: значение уже содержит в
+    себе все предыдущие (замер на форме МАХ: 2 731 459 вместо 943 442).
+    """
+    did, pid = await _page(client, admin_headers, "zmm_dyn3")
+    try:
+        d = await _dyn(client, admin_headers, pid,
+                       {"dataset_code": mm_ds, "value_field": "cum", "period_group": "month"})
+        assert d["fold"] == "last", d["fold"]
+        assert d["values"] == [1500.0, 2000.0], d["values"]
+    finally:
+        await _cleanup(did)
+
+
+def test_auto_build_folds_dynamics_only_for_a_long_series():
+    """Порог свёртки «Динамики» — по длине ряда, а не «всегда месяцы».
+
+    Недельная форма за месяц подробнее по отчётам; год ежедневной — нет.
+    Порог держим в разумных границах: слишком низкий свернёт то, что и так
+    читается, слишком высокий оставит частокол.
+    """
+    from app.modules.dashboards._suggest import DYN_PERIODS
+    assert 30 <= DYN_PERIODS <= 120, f"порог {DYN_PERIODS} вне разумного"

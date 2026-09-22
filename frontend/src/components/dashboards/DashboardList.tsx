@@ -199,7 +199,7 @@ export function DashboardList({
             или фильтре человек ищет ЧТО-ТО КОНКРЕТНОЕ, и полоса сверху
             отодвигала бы найденное вниз, отвечая на другой вопрос. */}
         {!query.trim() && !favOnly && !dashFrom && !dashTo && !folderFilter && !docFilter && (
-          <RecentStrip items={recent} onOpen={openDashboard} />
+          <RecentStrip items={recent} onOpen={openDashboard} showFolder={canManage} />
         )}
         {dashboards.length === 0 ? (
           <div style={muted}>{query.trim() || favOnly || dashFrom || dashTo || folderFilter ? 'Ничего не найдено.' : 'Пока нет дашбордов.'}</div>
@@ -263,7 +263,11 @@ export function DashboardList({
                   )}
                   {d.name}
                   {!!d.comments_count && <span title={`Комментариев: ${d.comments_count}`} style={{ fontSize: 12, color: 'var(--accent-text)' }}>💬{d.comments_count}</span>}
-                  {d.folder_name && (
+                  {/* 🔴 Папка — служебная раскладка файлов, зрителю она ничего
+                      не объясняет: список и так сгруппирован по объекту
+                      заголовком выше. Показываем только тем, кто с папками
+                      работает. */}
+                  {canManage && d.folder_name && (
                     <span title={`${d.object_name ?? ''} / ${d.folder_name}`} style={{ fontSize: 11, padding: '1px 8px', borderRadius: 9, background: 'var(--surface-3)', color: 'var(--text-2)' }}>
                       📁 {d.folder_name}
                     </span>
@@ -289,7 +293,12 @@ export function DashboardList({
                       {d.description}
                     </span>
                   )}
-                  {d.updated_at && <span>изменён {new Date(d.updated_at).toLocaleDateString('ru-RU')}</span>}
+                  {/* 🔴 «Изменён» — про правку САМОГО отчёта, а не про свежесть
+                      данных, и зритель читает это ровно наоборот: видит дату и
+                      решает, что данные по неё. Свежесть данных виджет называет
+                      внутри отчёта своей меткой «🕓 данные на …». Оставляем
+                      только тем, кто отчёты и правит. */}
+                  {canManage && d.updated_at && <span>изменён {new Date(d.updated_at).toLocaleDateString('ru-RU')}</span>}
                 </span>
               </div>
             ))}

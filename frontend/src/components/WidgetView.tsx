@@ -1644,8 +1644,24 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     // Когда точек всего две, «за весь период» и «к пред. периоду» — одно и то же число:
     // вторую строку в этом случае не показываем, чтобы не дублировать.
     const showTotal = tot != null && (data.periods_count ?? 0) > 2
+    // Оговорку про неравные месяцы даём, только когда они ДЕЙСТВИТЕЛЬНО
+    // неравны: на ровном ряде это был бы шум.
+    const monthsUneven = data.period_group === 'month'
+      && (data.reports || []).length > 1 && new Set(data.reports).size > 1
     return (
       <div ref={fit.box} style={{ height: '100%' }}>
+        {/* 🔴 Точка = месяц, а не отчёт: об этом надо сказать ДО графика.
+            У ежедневного отчёта 201 выпуск, и линия по отчётам в карточке —
+            частокол; свёрнутая читается, но человек обязан знать, что одна
+            точка это месяц, и что месяцы неравны между собой. */}
+        {data.period_group === 'month' && (
+          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 3 }}>
+            точка — месяц (по {data.total_reports}{' '}
+            {plural(data.total_reports || 0, 'отчёту', 'отчётам', 'отчётам')})
+            {monthsUneven && `; в месяцах разное число отчётов: ${
+              periods.map((p: string, i: number) => `${fmtPeriod(p)} — ${(data.reports || [])[i]}`).join(', ')}`}
+          </div>
+        )}
         <EChart option={P(opt)} height={fit.h} />
         <div ref={fit.labels}>
         {idxVals && data.index_base_period && (

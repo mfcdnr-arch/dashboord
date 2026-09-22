@@ -8,9 +8,11 @@
 import type { RecentDashboard } from '../../api'
 import { timeAgo } from '../../lib/time'
 
-export function RecentStrip({ items, onOpen }: {
+export function RecentStrip({ items, onOpen, showFolder = true }: {
   items: RecentDashboard[]
   onOpen: (id: string) => void
+  /** Папка — служебная раскладка файлов; зрителю её не показываем. */
+  showFolder?: boolean
 }) {
   // Одна плитка полосу не оправдывает: она просто повторила бы строку списка,
   // заняв место над ним. Полоса нужна там, где есть ИЗ ЧЕГО выбирать.
@@ -48,7 +50,7 @@ export function RecentStrip({ items, onOpen }: {
               fontSize: 11, color: 'var(--text-muted)', maxWidth: '100%',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
-              {d.folder_name ? `📁 ${d.folder_name} · ` : ''}{timeAgo(d.viewed_at)}
+              {showFolder && d.folder_name ? `📁 ${d.folder_name} · ` : ''}{timeAgo(d.viewed_at)}
             </span>
           </button>
         ))}

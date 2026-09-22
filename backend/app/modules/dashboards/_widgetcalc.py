@@ -1429,6 +1429,25 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             raise DashboardError("Динамика: укажите dataset_code и value_field")
         series = await _dataset_period_series(
             conn, org_id, cfg["dataset_code"], cfg["value_field"], from_date, to_date, row, allowed)
+        # 🔴 Точки — отчёты или МЕСЯЦЫ. У ежедневного отчёта РЦО 201 выпуск, и
+        # линия по отчётам в половине ряда превращается в частокол: на вопрос
+        # «как менялось» она не отвечает, хотя формально показывает всё.
+        # Свёртка — та же `_month_buckets`, что у матрицы и месячного бакета
+        # «Сравнения источников»: доля усредняется, накопительный итог берётся
+        # последним отчётом месяца, поток складывается. Второго понятия о том,
+        # как собирается месяц, в системе быть не должно.
+        month_reports: Optional[List[int]] = None
+        month_fold: Optional[str] = None
+        total_reports: Optional[int] = None
+        if cfg.get("period_group") == "month" and series:
+            total_reports = len(series)
+            # Способ свёртки определяется ИМЕНЕМ графы, а не её кодом: правило
+            # смотрит на «нарастающим итогом» и «%» в человеческом названии.
+            fold_title = await _field_title(
+                conn, org_id, cfg["dataset_code"], cfg["value_field"]) or cfg["value_field"]
+            vmap, month_fold, per_month = _month_buckets(series, fold_title)
+            series = [(k, vmap[k]) for k in vmap]
+            month_reports = [per_month[k] for k in vmap]
         periods = [p for p, _ in series]
         values = [v for _, v in series]
         change = values[-1] - values[-2] if len(values) >= 2 else None
@@ -1437,7 +1456,13 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
                "change": change, "change_pct": change_pct,
                # Та же логика, что у матрицы: свежесть виджета — его последняя
                # показанная точка, а не последний выпуск набора данных.
-               "as_of": (periods[-1] if periods else None)}
+               "as_of": (periods[-1] if periods else None),
+               "period_group": ("month" if month_reports is not None else "report"),
+               # Число отчётов в каждом месяце возвращаем ВСЕГДА, когда свернули:
+               # месяцы неравны между собой (у РЦО в июле 27 отчётов, в августе
+               # 26), и без этой цифры сравнение вводит в заблуждение.
+               "reports": month_reports, "total_reports": total_reports,
+               "fold": month_fold}
         if len(values) >= 2:
             # К какой ПАРЕ дат относится «к пред. периоду»: когда точек больше двух,
             # по одному числу не понять, между чем и чем прирост.
