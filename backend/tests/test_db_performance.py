@@ -33,8 +33,15 @@ async def test_kolonki_tablitsy_ischutsya_po_indeksu():
 
 
 async def test_plan_zaprosa_kolonok_ne_skaniruet_tablitsu():
-    """Проверяем не наличие индекса, а то, что планировщик им пользуется."""
-    async with db.acquire() as conn:
+    """Проверяем не наличие индекса, а то, что планировщик МОЖЕТ им пользоваться.
+
+    Полный просмотр запрещён на время запроса: на крошечной таблице (чистая
+    база CI) он дешевле индекса, и планировщик выбирает его честно — тест
+    падал бы, хотя индекс на месте. С запретом Seq Scan остаётся в плане
+    только тогда, когда подходящего индекса нет вовсе.
+    """
+    async with db.acquire() as conn, conn.transaction():
+        await conn.execute("set local enable_seqscan = off")
         plan = await conn.fetch(
             "explain select id, column_index from extracted_columns "
             "where extracted_table_id='00000000-0000-0000-0000-000000000000'::uuid order by column_index")

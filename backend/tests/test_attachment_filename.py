@@ -40,8 +40,23 @@ def test_header_keeps_the_real_name_and_a_usable_fallback():
     assert "/" not in attachment_header("итоги/2026.xlsx", "file").split("filename*")[0]
 
 
-async def test_instruction_file_downloads(client, admin_headers, viewer):
-    """Сквозной путь: приложили файл с русским именем — он скачивается."""
+async def test_instruction_file_downloads(client, admin_headers, viewer, monkeypatch):
+    """Сквозной путь: приложили файл с русским именем — он скачивается.
+
+    Хранилище подменено памятью: проверяется заголовок отдачи и путь
+    загрузка → скачивание, а не сам MinIO (в CI его нет, и тест падал на
+    сети, а не на том, что проверяет).
+    """
+    from app.modules.documents import storage
+    blobs: dict = {}
+
+    def _put(name, data, _ct):
+        blobs[f"documents/{name}"] = data
+        return f"documents/{name}"
+
+    monkeypatch.setattr(storage, "put_object", _put)
+    monkeypatch.setattr(storage, "get_object", lambda path: blobs[path])
+    monkeypatch.setattr(storage, "remove_object", lambda path: blobs.pop(path, None))
     created = await client.post("/instructions", headers=admin_headers, json={
         "title": "ztest материал с файлом", "section": "ztest", "is_published": True})
     iid = created.json()["id"]

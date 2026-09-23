@@ -89,6 +89,17 @@ jobs:
     name: Тесты (pytest + БД)
     runs-on: ubuntu-latest
     services:
+      # Redis нужен тестам здоровья фонового воркера: живость воркера читается
+      # из его health-ключа в Redis. Без сервиса эти тесты падали на сети, а не
+      # на том, что проверяют (CI был красным с 15.09.2026, 54 прогона подряд).
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
       postgres:
         image: postgres:16-alpine
         env:
@@ -107,6 +118,11 @@ jobs:
       POSTGRES_DB: dashbord
       POSTGRES_USER: dashbord
       POSTGRES_PASSWORD: dashbord
+      REDIS_HOST: localhost
+      # Каталог файлов-триггеров хостовых скриптов (бэкап, сторож воркера).
+      # Умолчание — путь внутри контейнера (/app/ops-triggers), которого на
+      # раннере нет и создать который нельзя.
+      OPS_TRIGGER_DIR: ${{ runner.temp }}/ops-triggers
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
