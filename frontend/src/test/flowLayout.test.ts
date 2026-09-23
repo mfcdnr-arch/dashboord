@@ -24,13 +24,20 @@ describe('flowItems', () => {
   })
 
   it('графики идут по два в ряд, таблицы — во всю ширину', () => {
-    const items = flowItems([w('a', 'table'), w('b', 'compare'), w('c', 'pie'), w('d', 'bar')], 1500)
+    const items = flowItems([w('a', 'table'), w('b', 'yoy'), w('c', 'pie'), w('d', 'bar')], 1500)
     expect(items.map((i) => i.span)).toEqual([12, 6, 6, 6])
   })
 
   it('графики не уплотняются дальше половины ряда — им нужна ширина', () => {
-    const items = flowItems([w('a', 'bar'), w('b', 'compare')], 2400)
+    const items = flowItems([w('a', 'bar'), w('b', 'line')], 2400)
     expect(items.map((i) => i.span)).toEqual([6, 6])
+  })
+
+  it('«Сравнение показателей» — во всю ширину: серий бывает до полутора десятков', () => {
+    // Как у таблицы и тепловой карты: узкая карточка ставит столбики и подписи
+    // над ними впритык до наложения (замечание заказчика на форме из 13 серий).
+    const items = flowItems([w('a', 'compare'), w('b', 'cross_dataset_compare')], 1500)
+    expect(items.map((i) => i.span)).toEqual([12, 12])
   })
 
   it('ширина всегда делитель 12 — иначе ряд из «двух с половиной» карточек', () => {
