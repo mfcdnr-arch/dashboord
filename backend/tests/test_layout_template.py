@@ -179,11 +179,13 @@ async def test_template_not_applied_when_form_changed(client, admin_headers, obj
     assert tpl["table_id"] is None, "применять шаблон к изменившейся форме нельзя"
 
 
-async def test_row_count_change_drops_skipped_rows(client, admin_headers, obj, monkeypatch):
-    """Строк стало больше — снятые строки не переносятся: они позиционные.
+async def test_row_count_change_moves_skipped_rows_by_label(client, admin_headers, obj, monkeypatch):
+    """Строк стало больше — снятые строки переносятся ПО ПОДПИСИ, а не по номеру.
 
-    Иначе исключение «строка 4» выбросило бы данные нового субъекта, который
-    встал на её место, и показатель молча просел бы.
+    По номеру исключение «строка 4» выбросило бы данные нового субъекта,
+    вставшего на её место. А если не переносить вовсе (так было до 23.09.2026),
+    снятые итоговые блоки попадают в данные: у РЦО за год строк стало на 13
+    больше, и итоги сложились бы с отделениями.
     """
     job1 = await _upload_and_extract(
         client, admin_headers, obj["folder_id"], _form(WEEK1), "2026-07-22", monkeypatch)
@@ -197,7 +199,10 @@ async def test_row_count_change_drops_skipped_rows(client, admin_headers, obj, m
     tpl = job2["layout_template"]
     assert tpl["match"] == "exact", "состав граф не менялся — форма та же"
     assert tpl["rows_differ"] is True
-    assert tpl["layout"]["skip_rows"] == []
+    # Снята та же пустая строка-заготовка, что и в прошлый раз (её номер 3),
+    # а новый субъект (строка 4) остался в данных.
+    assert tpl["layout"]["skip_rows"] == [3]
+    assert "по подписи" in tpl["note"]
     # Область расширена до последней заполненной строки — новый субъект не отрезан.
     assert tpl["layout"]["data_rect"][2] >= 4
 

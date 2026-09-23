@@ -11,6 +11,7 @@ import ExtractionPage from './ExtractionPage'
 import RowAclEditor from './RowAclEditor'
 import FolderAnalytics from './objects/FolderAnalytics'
 import FormLevels from './objects/FormLevels'
+import LayoutTemplates from './objects/LayoutTemplates'
 import QualityReview from './objects/QualityReview'
 import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
 import AutoBuildWizard from './dashboards/AutoBuildWizard'
@@ -422,6 +423,7 @@ export default function ObjectsPage(
           форма принадлежит объекту (объект = одна форма), там же живёт и её
           разметка. */}
       {obj && !folder && canManage && <FormLevels objectId={obj.id} />}
+      {obj && !folder && canManage && <LayoutTemplates objectId={obj.id} />}
 
       {/* Проверка качества по истории. Стоит рядом со ступенями и по той же
           причине: форма принадлежит объекту, а вопрос «где расходится» — про

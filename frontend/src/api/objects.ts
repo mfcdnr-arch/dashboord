@@ -328,3 +328,26 @@ export async function getQualityReview(
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+/** Шаблон разметки объекта: действующий и прежние (с 23.09.2026 не теряются). */
+export interface TemplateInfo {
+  dataset_code: string | null; fields: number; headers: number; period: string | null
+}
+export interface TemplateHistory {
+  current: (TemplateInfo & { updated_at: string }) | null
+  history: (TemplateInfo & { id: string; replaced_at: string; replaced_by: string | null; reason: string | null })[]
+}
+
+export async function getLayoutTemplates(objectId: string): Promise<TemplateHistory> {
+  const res = await fetch(`/objects/${objectId}/layout-templates`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function restoreLayoutTemplate(objectId: string, historyId: string): Promise<TemplateHistory> {
+  const res = await fetch(`/objects/${objectId}/layout-templates/${historyId}/restore`, {
+    method: 'POST', headers: authH(),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

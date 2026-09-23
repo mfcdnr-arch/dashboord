@@ -95,10 +95,38 @@ export interface ReleaseResult {
   dataset_code?: string
   numeric_fields?: { field_code: string; field_name: string }[]
   validation?: { warnings: ValidationWarning[]; ok: boolean }
+  /** Выпущена чужая форма по подтверждению — шаблон объекта оставлен прежним. */
+  template_kept?: boolean
 }
 export interface ReleaseConflict {
   conflict: true
   existing: { id: string; name: string; status: string; created_at: string; auto?: boolean }
+}
+
+/** Файл не похож на форму, которая ведётся в объекте (или идёт под другим кодом). */
+export interface OtherForm {
+  kind: 'other_form'
+  message: string
+  shared: number; template_total: number; new_total: number
+  template_code: string | null; code: string
+}
+export interface OtherFormStop { otherForm: OtherForm }
+
+async function otherFormOf(res: Response): Promise<OtherForm | null> {
+  if (res.status !== 409) return null
+  const e = await res.clone().json().catch(() => ({}))
+  return e?.detail?.kind === 'other_form' ? (e.detail as OtherForm) : null
+}
+
+/** Завести файлу другой формы свой объект и перенести файл туда. */
+export async function moveToNewObject(jobId: string, name: string):
+  Promise<{ object_id: string; folder_id: string; name: string }> {
+  const res = await fetch(`/extraction-jobs/${jobId}/move-to-new-object`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
 }
 
 export async function startExtraction(versionId: string): Promise<{ job_id: string; status: string }> {
@@ -196,13 +224,16 @@ export async function createReleasesBySheet(
   body: {
     code: string; name: string; year: number; since?: string | null
     layout?: Layout; exclude_row_labels?: string[]; supersede?: boolean
+    confirm_other_form?: boolean
   },
-): Promise<ReleaseBySheetResult> {
+): Promise<ReleaseBySheetResult | OtherFormStop> {
   const res = await fetch(`/extraction-jobs/${jobId}/release-by-sheet`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authH() },
     body: JSON.stringify(body),
   })
+  const other = await otherFormOf(res)
+  if (other) return { otherForm: other }
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
@@ -212,13 +243,16 @@ export async function createRelease(
   body: {
     table_id: string; code: string; name: string; reporting_period_start: string | null
     fields: FieldMap[]; supersede: boolean; layout?: Layout; cells?: CellPick[]
+    confirm_other_form?: boolean
   },
-): Promise<ReleaseResult | ReleaseConflict> {
+): Promise<ReleaseResult | ReleaseConflict | OtherFormStop> {
   const res = await fetch(`/extraction-jobs/${jobId}/release`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authH() },
     body: JSON.stringify(body),
   })
+  const other = await otherFormOf(res)
+  if (other) return { otherForm: other }
   if (res.status === 409) {
     const e = await res.json().catch(() => ({}))
     return { conflict: true, existing: e?.detail?.existing } as ReleaseConflict

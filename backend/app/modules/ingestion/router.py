@@ -227,6 +227,9 @@ class ReleaseIn(BaseModel):
     layout: Optional[LayoutIn] = None
     cells: List[CellPick] = Field(default_factory=list)
     supersede: bool = False
+    # «Это та же форма» — человек подтвердил выпуск, несмотря на сверку с формой
+    # объекта. Шаблон объекта при этом не перезаписывается.
+    confirm_other_form: bool = False
 
 
 class ReleaseBySheetIn(BaseModel):
@@ -247,6 +250,7 @@ class ReleaseBySheetIn(BaseModel):
     # «Накопительный»), и приняв их за отделения, суммы утроились бы.
     exclude_row_labels: List[str] = Field(default_factory=list)
     supersede: bool = False
+    confirm_other_form: bool = False
 
 
 class CanonicalFieldIn(BaseModel):
@@ -373,6 +377,7 @@ async def create_release(job_id: str, body: ReleaseIn, user: dict = Depends(mana
                     layout=body.layout.model_dump() if body.layout else None,
                     cells=[c.model_dump() for c in body.cells],
                     supersede=body.supersede, user=user,
+                    confirm_other_form=body.confirm_other_form,
                 )
                 # Создание выпуска пишется в журнал наравне с автоматическим:
                 # после него меняются цифры на дашбордах, и вопрос «кто это
@@ -386,6 +391,8 @@ async def create_release(job_id: str, body: ReleaseIn, user: dict = Depends(mana
                               "rows": res.get("rows"),
                               "superseded": res.get("superseded_release_id")})
                 return res
+        except mapping.FormMismatch as mismatch:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=mismatch.info)
         except mapping.ReleaseConflict as conflict:
             # Отказ должен объяснять ПРИЧИНУ и показывать выход. Раньше он
             # сообщал только факт, и человек, который сам ничего не выпускал,
@@ -403,6 +410,44 @@ async def create_release(job_id: str, body: ReleaseIn, user: dict = Depends(mana
             )
         except ValueError as err:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(err))
+
+
+class MoveToNewObjectIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/extraction-jobs/{job_id}/move-to-new-object", status_code=status.HTTP_201_CREATED)
+async def move_to_new_object(job_id: str, body: MoveToNewObjectIn, user: dict = Depends(manage)):
+    """Файл оказался другой формой — завести ей свой объект и перенести файл туда.
+
+    Одним действием то, что 22.09.2026 делалось руками в три шага: объект, папка
+    «Отчёты», перенос файла. Объект файла берётся из ПАПКИ документа, поэтому
+    после переноса выпуск этого же задания ляжет в новый объект.
+    """
+    from ..uploads import service as uploads_svc
+    name = body.name.strip()
+    org = user["organization_id"]
+    async with db.get_pool().acquire() as conn:
+        if not await _job_in_org(conn, job_id, org):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание извлечения не найдено")
+        doc_id = await conn.fetchval(
+            "select dv.document_id from extraction_jobs j "
+            "join document_versions dv on dv.id = j.document_version_id where j.id=$1::uuid", job_id)
+        if await conn.fetchval("select 1 from objects where organization_id=$1 and name=$2", org, name):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Объект с таким именем уже есть")
+        async with conn.transaction():
+            obj = await conn.fetchval(
+                "insert into objects(organization_id, name, created_by) values($1,$2,$3) returning id",
+                org, name, user["id"])
+            folder = await conn.fetchval(
+                "insert into folders(organization_id, object_id, name, created_by) "
+                "values($1,$2,'Отчёты',$3) returning id", org, obj, user["id"])
+            await uploads_svc.route_manually(conn, org, str(doc_id), str(folder), user["id"])
+            await audit_svc.write_event(
+                conn, org, user["id"], "create", "object", str(obj),
+                new_data={"name": name, "reason": "файл другой формы перенесён из прежнего объекта",
+                          "document_id": str(doc_id)})
+    return {"object_id": str(obj), "folder_id": str(folder), "name": name}
 
 
 @router.get("/objects/{object_id}/canonical-fields")
@@ -462,7 +507,9 @@ async def create_releases_by_sheet(job_id: str, body: ReleaseBySheetIn,
                 year=body.year, user=user, since=body.since,
                 layout=body.layout.model_dump() if body.layout else None,
                 exclude_row_labels=body.exclude_row_labels,
-                supersede=body.supersede)
+                supersede=body.supersede, confirm_other_form=body.confirm_other_form)
+        except mapping.FormMismatch as mismatch:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=mismatch.info) from mismatch
         except ValueError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
         # В журнал — одно событие на загрузку, а не на каждый лист: это одно

@@ -243,6 +243,40 @@ async def build_suggestion(object_id: str, user: dict = Depends(manage)):
         }
 
 
+@router.get("/{object_id}/layout-templates")
+async def get_layout_templates(object_id: str, user: dict = Depends(manage)):
+    """Действующий шаблон разметки и прежние — с возвратом одной кнопкой."""
+    from ..ingestion import mapping
+    async with db.get_pool().acquire() as conn:
+        obj = await conn.fetchval(
+            "select id from objects where id=$1::uuid and organization_id=$2",
+            object_id, user["organization_id"])
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
+        return await mapping.template_history(conn, obj)
+
+
+@router.post("/{object_id}/layout-templates/{history_id}/restore")
+async def restore_layout_template(object_id: str, history_id: str, user: dict = Depends(manage)):
+    """Вернуть прежний шаблон разметки; действующий уходит в историю, а не пропадает."""
+    from ..ingestion import mapping
+    async with db.get_pool().acquire() as conn:
+        obj = await conn.fetchval(
+            "select id from objects where id=$1::uuid and organization_id=$2",
+            object_id, user["organization_id"])
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
+        async with conn.transaction():
+            try:
+                await mapping.restore_template(conn, obj, history_id, user["id"])
+            except LookupError as e:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+            await write_event(
+                conn, user["organization_id"], user["id"], "update", "object", object_id,
+                new_data={"layout_template": "возвращён прежний шаблон", "history_id": history_id})
+        return await mapping.template_history(conn, obj)
+
+
 @router.get("/{object_id}/levels")
 async def get_levels(object_id: str, user: dict = Depends(manage)):
     """Ступени формы: что предлагает система и что подтвердил человек."""

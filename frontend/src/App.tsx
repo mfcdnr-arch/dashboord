@@ -325,9 +325,11 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   // на свежей установке их ноль.
   const [dnrStatsOk, setDnrStatsOk] = useState(false)
   useEffect(() => {
-    if (canManage) return
+    // Без галочки «Руководителю» раздел закрыт и сервер ответит 403 — запрос,
+    // заведомо получающий отказ, не отправляем (он сыпал ошибками в консоль).
+    if (canManage || !me?.show_featured) return
     getDnrStatsReadiness().then((r) => setDnrStatsOk(r.ready)).catch(() => setDnrStatsOk(false))
-  }, [canManage])
+  }, [canManage, me?.show_featured])
   // «Руководителю»: у управляющего пункт есть всегда (ему туда класть), у
   // остальных — когда в подборке есть хоть что-то, доступное лично им.
   const [featuredOk, setFeaturedOk] = useState(false)

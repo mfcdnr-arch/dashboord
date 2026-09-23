@@ -11,7 +11,7 @@ import InfoTip from './InfoTip'
 import SheetGrid, { colName, fillMerges, type PickedCell, type Rect } from './SheetGrid'
 import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
 import { buildReleaseFields } from '../lib/releaseFields'
-import { cancelRelease, deleteRelease, listVersionReleases, restoreRelease, type ReleaseBySheetResult, type ReleaseImpact, type SheetOutcome, type VersionRelease } from '../api/ingestion'
+import { cancelRelease, deleteRelease, listVersionReleases, moveToNewObject, restoreRelease, type OtherForm, type ReleaseBySheetResult, type ReleaseImpact, type SheetOutcome, type VersionRelease } from '../api/ingestion'
 import ImpactPanel from './ingestion/ImpactPanel'
 import { Modal, ModalTitle } from './Modal'
 import Notice from './Notice'
@@ -75,6 +75,11 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
   const [checking, setChecking] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [conflict, setConflict] = useState<{ id: string; name: string; created_at: string } | null>(null)
+  // Файл не похож на форму объекта: выпуск остановлен до решения человека.
+  // `retry` помнит, каким выпуском его остановили, — «это та же форма»
+  // повторяет ровно его, с подтверждением.
+  const [otherForm, setOtherForm] = useState<{ info: OtherForm; retry: (confirm: boolean) => void } | null>(null)
+  const [movedTo, setMovedTo] = useState<string | null>(null)
   const [result, setResult] = useState<ReleaseResult | null>(null)
 
   const fail = (e: unknown) => setError((e as Error).message)
@@ -358,7 +363,7 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
   const [excludeLabels, setExcludeLabels] = useState('')
   const [sheetResult, setSheetResult] = useState<ReleaseBySheetResult | null>(null)
 
-  async function submitBySheet() {
+  async function submitBySheet(confirmOther = false) {
     if (!job?.job_id) return
     if (!code.trim() || !name.trim()) { setError('Заполните код и название датасета'); return }
     setSubmitting(true); setError(null)
@@ -368,12 +373,14 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
         since: sheetSince || null,
         layout: { data_rect: rect, header_rows: headerRows, orientation, skip_rows: skipRows },
         exclude_row_labels: excludeLabels.split('\n').map((x) => x.trim()).filter(Boolean),
+        confirm_other_form: confirmOther,
       })
-      setSheetResult(r)
+      if ('otherForm' in r) setOtherForm({ info: r.otherForm, retry: (c) => { void submitBySheet(c) } })
+      else { setSheetResult(r); setOtherForm(null) }
     } catch (e) { fail(e) } finally { setSubmitting(false) }
   }
 
-  async function submit(supersede: boolean) {
+  async function submit(supersede: boolean, confirmOther = false) {
     if (!job?.job_id || !tableId) return
     if (!code.trim() || !name.trim()) { setError('Заполните код и название датасета'); return }
 
@@ -402,10 +409,11 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
         table_id: tableId, code: code.trim(), name: name.trim(),
         reporting_period_start: period || null, fields, supersede,
         layout: { data_rect: rect, header_rows: headerRows, orientation, skip_rows: skipRows },
-        cells,
+        cells, confirm_other_form: confirmOther,
       })
-      if ('conflict' in r) setConflict(r.existing)
-      else { setResult(r); setConflict(null) }
+      if ('otherForm' in r) setOtherForm({ info: r.otherForm, retry: (c) => { void submit(supersede, c) } })
+      else if ('conflict' in r) setConflict(r.existing)
+      else { setResult(r); setConflict(null); setOtherForm(null) }
     } catch (e) { fail(e) } finally { setSubmitting(false) }
   }
 
@@ -424,6 +432,12 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
       </div>
 
       {error && <Notice>{error}</Notice>}
+      {movedTo && (
+        <Notice kind="ok">
+          Файл перенесён в новый объект «{movedTo}». Задайте ему свой код набора данных и выпустите —
+          разметка этой формы запомнится уже в новом объекте.
+        </Notice>
+      )}
       {job?.warnings?.map((w, i) => <div key={i} style={warnBox}>⚠ {w}</div>)}
 
       {doc.version_id && canManage && (
@@ -641,7 +655,7 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
                             placeholder={'Принято\nВыдано\nОтказ\nНа вчера'}
                             title="Блоки итогов под таблицей. Приняв их за строки данных, система удвоит или утроит суммы." />
                         </Field>
-                        <button style={{ ...btn, alignSelf: 'flex-end' }} disabled={submitting} onClick={submitBySheet}>
+                        <button style={{ ...btn, alignSelf: 'flex-end' }} disabled={submitting} onClick={() => submitBySheet()}>
                           {submitting ? 'Загрузка…' : `Выпустить по листам (${sheetDates.length})`}
                         </button>
                       </div>
@@ -658,6 +672,18 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
       {conflict && (
         <ConflictDialog conflict={conflict} busy={submitting}
           onSupersede={() => submit(true)} onCancel={() => setConflict(null)} />
+      )}
+      {otherForm && job?.job_id && (
+        <OtherFormDialog info={otherForm.info} busy={submitting} jobId={job.job_id}
+          defaultName={name.trim() || doc.original_filename.replace(/\.[^.]+$/, '')}
+          onConfirm={() => { const again = otherForm.retry; setOtherForm(null); again(true) }}
+          onMoved={(objName) => {
+            setOtherForm(null); setMovedTo(objName)
+            // Код набора прежнего объекта здесь не годится: он занят им.
+            setCode('')
+          }}
+          onError={setError}
+          onCancel={() => setOtherForm(null)} />
       )}
     </div>
   )
@@ -1091,6 +1117,47 @@ function ConflictDialog({ conflict, busy, onSupersede, onCancel }: {
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <button style={btnGhost} onClick={onCancel} disabled={busy}>Отмена</button>
         <button style={btnDanger} onClick={onSupersede} disabled={busy}>{busy ? 'Замещение…' : 'Заместить'}</button>
+      </div>
+    </Modal>
+  )
+}
+
+/**
+ * Файл не похож на форму объекта — выпуск остановлен.
+ *
+ * Отказ, а не предупреждение: 22.09.2026 перечень услуг выпустили в объект
+ * формы МАХ, и данные двух форм смешались, а разметка МАХ перестала бы
+ * узнаваться сама. Правильный выход обычно один — свой объект для этой формы.
+ */
+function OtherFormDialog({ info, busy, jobId, defaultName, onConfirm, onMoved, onError, onCancel }: {
+  info: OtherForm; busy: boolean; jobId: string; defaultName: string
+  onConfirm: () => void; onMoved: (name: string) => void; onError: (m: string) => void; onCancel: () => void
+}) {
+  const [objName, setObjName] = useState(defaultName)
+  const [moving, setMoving] = useState(false)
+  async function move() {
+    if (!objName.trim()) return
+    setMoving(true)
+    try { const r = await moveToNewObject(jobId, objName.trim()); onMoved(r.name) }
+    catch (e) { onError((e as Error).message) } finally { setMoving(false) }
+  }
+  return (
+    <Modal onClose={onCancel} width={520}>
+      <ModalTitle style={{ fontSize: 15, marginBottom: 8 }}>Это другая форма?</ModalTitle>
+      <div style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: 14, lineHeight: 1.45 }}>{info.message}</div>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12.5, color: 'var(--text-2)', marginBottom: 14 }}>
+        Название нового объекта для этой формы
+        <input style={{ ...input, width: '100%' }} value={objName} onChange={(e) => setObjName(e.target.value)} />
+      </label>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+        <button style={btnGhost} onClick={onCancel} disabled={busy || moving}>Отмена</button>
+        <button style={btnGhost} onClick={onConfirm} disabled={busy || moving}
+          title="Выпустить в этот объект. Разметка объекта при этом не изменится.">
+          Это та же форма — выпустить
+        </button>
+        <button style={btn} onClick={move} disabled={busy || moving || !objName.trim()}>
+          {moving ? 'Переносим…' : 'Перенести в новый объект'}
+        </button>
       </div>
     </Modal>
   )

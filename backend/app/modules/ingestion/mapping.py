@@ -448,10 +448,77 @@ def fit_rect(rect, grid: List[List[str]]) -> tuple[Optional[List[int]], bool]:
     return [r1, c1, r2, c2], extended
 
 
+class FormMismatch(Exception):
+    """Выпуск несёт ДРУГУЮ форму, чем та, что ведётся в объекте.
+
+    Отказ, а не предупреждение: цена ошибки — перепутанные данные на
+    дашбордах и испорченный шаблон разметки (22.09.2026 на боевом так и
+    вышло). Продолжить можно явным подтверждением — но и тогда шаблон
+    объекта не перезаписывается.
+    """
+
+    def __init__(self, info: dict):
+        super().__init__(info.get("message") or "Другая форма")
+        self.info = info
+
+
+# Доля общих граф, начиная с которой файл считается той же формой. Живая форма
+# растёт и меняется (у РЦО за год 282 → 334 столбца), поэтому равенства не
+# требуем; а чужая форма совпадает с ведущейся на единицы граф (перечень услуг
+# против формы МАХ — 1 графа из 15).
+FORM_MIN_SHARED = 0.5
+
+
+def _header_set(headers: Sequence[str]) -> set:
+    return {_norm_name(h) for h in headers if (h or "").strip()}
+
+
+async def compare_with_object_form(conn, object_id, code: str,
+                                   headers: Sequence[str]) -> Optional[dict]:
+    """Та ли это форма, что ведётся в объекте? None — та (или сравнивать не с чем).
+
+    Сравнение по составу граф, а не по отпечатку: отпечаток меняется от любой
+    добавленной графы, а выросшая форма — всё ещё та же форма. Другой код
+    набора в том же объекте — тоже сигнал: «объект = одна форма», и второй код
+    либо чужая форма, либо ряд прошлых отчётов, разорванный новым именем.
+    """
+    tpl = await conn.fetchrow(
+        "select t.dataset_code, t.headers, r.reporting_period_start as period "
+        "from object_layout_templates t left join dataset_releases r on r.id = t.source_release_id "
+        "where t.object_id = $1", object_id)
+    if tpl is None:
+        return None
+    old = _header_set(_jsonb(tpl["headers"], []))
+    new = _header_set(headers)
+    if not old or not new:
+        return None
+    shared = len(old & new)
+    share = max(shared / len(old), shared / len(new))
+    other_code = bool(tpl["dataset_code"]) and tpl["dataset_code"] != code
+    if share >= FORM_MIN_SHARED and not other_code:
+        return None
+    since = f" (прошлый выпуск — за {tpl['period'].strftime('%d.%m.%Y')})" if tpl["period"] else ""
+    if share < FORM_MIN_SHARED:
+        what = (f"Этот файл не похож на форму, которая ведётся в объекте{since}: "
+                f"совпадает {shared} из {len(old)} граф.")
+    else:
+        what = (f"В объекте ведётся форма под кодом «{tpl['dataset_code']}»{since}, "
+                f"а выпуск идёт под кодом «{code}».")
+    return {
+        "kind": "other_form",
+        "shared": shared, "template_total": len(old), "new_total": len(new),
+        "template_code": tpl["dataset_code"], "code": code,
+        "message": (what + " Одна форма — один объект: иначе данные двух форм смешаются "
+                    "на дашбордах, а разметка этой формы перестанет узнаваться сама. "
+                    "Перенесите файл в новый объект или подтвердите, что это та же форма."),
+    }
+
+
 async def save_layout_template(conn, *, object_id, fingerprint: str, mode: str, layout: dict,
                                fields: List[dict], cells: List[dict], row_count: int,
                                dataset_code: str, release_id, user_id,
-                               headers: Optional[List[str]] = None) -> bool:
+                               headers: Optional[List[str]] = None,
+                               reason: Optional[str] = None) -> bool:
     """Запоминает разметку последнего выпуска. Один шаблон на объект.
 
     Возвращает True, если строка была ЗАВЕДЕНА этим вызовом (а не обновлена) —
@@ -461,6 +528,17 @@ async def save_layout_template(conn, *, object_id, fingerprint: str, mode: str, 
     формы» — от него зависит, стоит ли предлагать вынести показатели на
     «Главную» (FR: спросить один раз, при первом выпуске новой формы).
     """
+    # Прежний шаблон — в историю, если меняется форма или код набора. Очередной
+    # отчёт той же формы (отпечаток совпал) историю не засоряет.
+    await conn.execute(
+        "insert into object_layout_template_history(object_id, fingerprint, mode, layout, fields, "
+        "cells, row_count, dataset_code, source_release_id, headers, levels, valid_from, "
+        "replaced_by, replaced_reason) "
+        "select object_id, fingerprint, mode, layout, fields, cells, row_count, dataset_code, "
+        "source_release_id, headers, levels, updated_at, $2, $5 from object_layout_templates "
+        "where object_id=$1 and (fingerprint <> $3 or dataset_code is distinct from $4)",
+        object_id, user_id, fingerprint, dataset_code,
+        reason or "разметку заменил новый выпуск")
     row = await conn.fetchrow(
         "insert into object_layout_templates(object_id, fingerprint, mode, layout, fields, cells, "
         "row_count, dataset_code, source_release_id, updated_by, updated_at, headers) "
@@ -479,6 +557,64 @@ async def save_layout_template(conn, *, object_id, fingerprint: str, mode: str, 
         json.dumps(list(headers or []), ensure_ascii=False, default=str),
     )
     return bool(row["inserted"])
+
+
+async def template_history(conn, object_id) -> dict:
+    """Действующий шаблон объекта и прежние — для экрана объекта."""
+    def _row(r) -> dict:
+        return {
+            "dataset_code": r["dataset_code"],
+            "fields": len(_jsonb(r["fields"], [])),
+            "headers": len(_jsonb(r["headers"], [])),
+            "period": r["period"].isoformat() if r["period"] else None,
+        }
+    cur = await conn.fetchrow(
+        "select t.*, r.reporting_period_start as period from object_layout_templates t "
+        "left join dataset_releases r on r.id = t.source_release_id where t.object_id=$1", object_id)
+    hist = await conn.fetch(
+        "select h.*, r.reporting_period_start as period, u.login as replaced_by_login "
+        "from object_layout_template_history h "
+        "left join dataset_releases r on r.id = h.source_release_id "
+        "left join users u on u.id = h.replaced_by "
+        "where h.object_id=$1 order by h.replaced_at desc limit 20", object_id)
+    return {
+        "current": ({**_row(cur), "updated_at": cur["updated_at"].isoformat()} if cur else None),
+        "history": [{**_row(h), "id": str(h["id"]), "replaced_at": h["replaced_at"].isoformat(),
+                     "replaced_by": h["replaced_by_login"], "reason": h["replaced_reason"]}
+                    for h in hist],
+    }
+
+
+async def restore_template(conn, object_id, history_id: str, user_id) -> None:
+    """Вернуть прежний шаблон. Действующий при этом не пропадает — уходит в историю.
+
+    Транзакция — снаружи.
+    """
+    h = await conn.fetchrow(
+        "select * from object_layout_template_history where id=$1::uuid and object_id=$2",
+        history_id, object_id)
+    if h is None:
+        raise LookupError("Прежний шаблон не найден")
+    await conn.execute(
+        "insert into object_layout_template_history(object_id, fingerprint, mode, layout, fields, "
+        "cells, row_count, dataset_code, source_release_id, headers, levels, valid_from, "
+        "replaced_by, replaced_reason) "
+        "select object_id, fingerprint, mode, layout, fields, cells, row_count, dataset_code, "
+        "source_release_id, headers, levels, updated_at, $2, 'вместо него возвращён прежний шаблон' "
+        "from object_layout_templates where object_id=$1", object_id, user_id)
+    await conn.execute(
+        "insert into object_layout_templates(object_id, fingerprint, mode, layout, fields, cells, "
+        "row_count, dataset_code, source_release_id, headers, levels, updated_by, updated_at) "
+        "values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now()) "
+        "on conflict (object_id) do update set fingerprint=excluded.fingerprint, mode=excluded.mode, "
+        "layout=excluded.layout, fields=excluded.fields, cells=excluded.cells, "
+        "row_count=excluded.row_count, dataset_code=excluded.dataset_code, "
+        "source_release_id=excluded.source_release_id, headers=excluded.headers, "
+        "levels=excluded.levels, updated_by=excluded.updated_by, updated_at=now()",
+        object_id, h["fingerprint"], h["mode"], h["layout"], h["fields"], h["cells"],
+        h["row_count"], h["dataset_code"], h["source_release_id"], h["headers"], h["levels"], user_id)
+    await conn.execute("delete from object_layout_template_history where id=$1", h["id"])
+    await refresh_template_verdicts(conn, object_id)
 
 
 async def refresh_template_verdicts(conn, object_id, limit: int = 50) -> int:
@@ -515,6 +651,21 @@ async def refresh_template_verdicts(conn, object_id, limit: int = 50) -> int:
             j["id"], tpl["match"], tpl["note"])
         updated += 1
     return updated
+
+
+def skip_rows_by_labels(area: List[List[str]], header_rows: int, fields: List[dict],
+                        labels: Sequence[str]) -> List[int]:
+    """Номера строк новой сетки, чьи подписи совпали со снятыми в прошлый раз.
+
+    Сравнение по `_norm_name`: подпись итогового блока несёт период («Накопительный
+    с 01.01.2026»), и без нормализации даты новая неделя не узнала бы свою же строку.
+    """
+    want = {_norm_name(x) for x in labels}
+    col = next((f.get("column_index") for f in fields if f.get("is_row_label")), None)
+    if not want or col is None:
+        return []
+    return [i for i in range(header_rows, len(area))
+            if col < len(area[i]) and _norm_name(str(area[i][col])) in want]
 
 
 async def layout_template_for_tables(conn, object_id, table_ids: Sequence[str]) -> Optional[dict]:
@@ -577,11 +728,23 @@ async def layout_template_for_tables(conn, object_id, table_ids: Sequence[str]) 
 
         rows_now = max(0, len(area) - hdr)
         same_rows = tpl["row_count"] in (None, 0) or rows_now == tpl["row_count"]
+        skip = list(lay["skip_rows"] or []) if same_rows else []
+        by_label = []
+        if not same_rows:
+            # Номера снятых строк при другом числе строк указали бы на ЧУЖИЕ
+            # строки. Подписи переживают рост формы: снимаем то же, что сняли
+            # в прошлый раз, но по имени строки.
+            by_label = skip_rows_by_labels(area, hdr, _jsonb(tpl["fields"], []),
+                                           lay.get("skip_labels") or [])
+            skip = by_label
         note = "Разметка подставлена из прошлого выпуска — проверьте и подтвердите выпуск."
         if not same_rows or extended:
+            moved = (f" Снятые в прошлый раз строки найдены по подписи и сняты снова: {len(by_label)}."
+                     if by_label else
+                     " Снятые в прошлый раз строки перенести нельзя — проверьте, нет ли в данных итогов.")
             note = (f"Разметка подставлена из прошлого выпуска, но строк в файле другое количество "
                     f"({rows_now} вместо {tpl['row_count']}). Область данных расширена до последней "
-                    "заполненной строки, исключённые ранее строки не перенесены — проверьте область.")
+                    "заполненной строки." + moved)
         out.update({
             "table_id": str(tid),
             "match": "exact",
@@ -590,8 +753,9 @@ async def layout_template_for_tables(conn, object_id, table_ids: Sequence[str]) 
                 "header_rows": hdr,
                 "orientation": lay["orientation"],
                 # Исключённые строки позиционные: при другом числе строк они
-                # указали бы на ЧУЖИЕ строки и молча выбросили бы данные.
-                "skip_rows": list(lay["skip_rows"] or []) if same_rows else [],
+                # указали бы на ЧУЖИЕ строки — тогда берём их по подписям.
+                "skip_rows": skip,
+                "skip_labels": list(lay.get("skip_labels") or []),
             },
             "rows_differ": (not same_rows) or extended,
             "note": note,
@@ -885,6 +1049,7 @@ async def build_releases_by_sheet(
     conn, *, job_id: str, code: str, name: str, year: int, user: dict,
     layout: Optional[dict] = None, since=None,
     exclude_row_labels: Sequence[str] = (), supersede: bool = False,
+    confirm_other_form: bool = False,
 ) -> dict:
     """Выпуск на КАЖДЫЙ лист книги: лист даёт отчётную дату, разметка общая.
 
@@ -1024,7 +1189,8 @@ async def build_releases_by_sheet(
                     conn, job_id=job_id, table_id=str(t["id"]), code=code, name=name,
                     reporting_period_start=period, reporting_period_end=period,
                     fields=fields, supersede=replace, user=user,
-                    layout={**lay, "skip_rows": skip}, auto=True)
+                    layout={**lay, "skip_rows": skip}, auto=True,
+                    confirm_other_form=confirm_other_form)
                 created.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
                                 "values": rel.get("values_count"), "fields": len(fields),
                                 # «Заместил прежний выпуск» берём у самого
@@ -1032,6 +1198,10 @@ async def build_releases_by_sheet(
                                 # «заместить» часть листов ложится на пустое
                                 # место, и назвать их перевыпущенными — соврать.
                                 "replaced": bool(rel.get("superseded_release_id"))})
+        except FormMismatch:
+            # Чужая форма — это про всю книгу, а не про лист: одно решение
+            # человека, а не двести одинаковых строк в отчёте об ошибках.
+            raise
         except Exception as e:                       # noqa: BLE001 — причина уезжает в отчёт
             failed.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
                            "error": str(e)[:200]})
@@ -1046,7 +1216,7 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
                         fields: List[dict], supersede: bool, user: dict,
                         layout: Optional[dict] = None,
                         cells: Optional[List[dict]] = None,
-                        auto: bool = False) -> dict:
+                        auto: bool = False, confirm_other_form: bool = False) -> dict:
     """Создаёт dataset_release, поля и материализует значения. Транзакция — снаружи.
 
     `layout` — что именно пользователь выделил в конструкторе разметки:
@@ -1091,6 +1261,25 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         seen_codes[code_] = f["field_name"]
 
     await assert_code_free(conn, org_id, code, object_id)
+
+    # Разбор листа — ДО любой записи: по нему сверяется, та ли это форма, и
+    # отказ должен прийти раньше, чем в справочнике появятся чужие графы.
+    table = await conn.fetchrow(
+        "select header_rows, data, merges, data_rect from extracted_tables where id=$1::uuid",
+        table_id,
+    )
+    # Разбор листа и кортежи значений считает общая `sheet_values`: по ним же
+    # сверяется «изменился ли лист» при повторной загрузке книги, и второй
+    # разбор тем же кодом гарантирует, что сверка и вставка видят одно и то же.
+    # Сетка разметки (`area`) нужна обоим режимам: по ней материализуются
+    # значения и по ней же считается отпечаток структуры для шаблона объекта.
+    sv = sheet_values(table, layout=layout, fields=fields)
+    form = None
+    if not cells:
+        form = await compare_with_object_form(
+            conn, object_id, code, structure_headers(sv["area"], sv["header_rows"]))
+        if form is not None and not confirm_other_form:
+            raise FormMismatch(form)
 
     # конфликт по (организация, код, период) — только среди АКТИВНЫХ выпусков
     existing = await conn.fetchrow(
@@ -1163,17 +1352,7 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
                 col_id, f["field_code"],
             )
 
-    # материализация значений из полной сетки
-    table = await conn.fetchrow(
-        "select header_rows, data, merges, data_rect from extracted_tables where id=$1::uuid",
-        table_id,
-    )
-    # Разбор листа и кортежи значений считает общая `sheet_values`: по ним же
-    # сверяется «изменился ли лист» при повторной загрузке книги, и второй
-    # разбор тем же кодом гарантирует, что сверка и вставка видят одно и то же.
-    # Сетка разметки (`area`) нужна обоим режимам: по ней материализуются
-    # значения и по ней же считается отпечаток структуры для шаблона объекта.
-    sv = sheet_values(table, layout=layout, fields=fields)
+    # материализация значений из полной сетки (лист разобран выше)
     grid, merges, area = sv["grid"], sv["merges"], sv["area"]
     rect, header_rows = sv["rect"], sv["header_rows"]
     lay = {**DEFAULT_LAYOUT, **(layout or {})}
@@ -1219,22 +1398,37 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
 
     # Запоминаем разметку: следующий файл этой же формы придёт размеченным, и
     # человеку останется проверить и подтвердить, а не размечать заново.
-    is_first_template = await save_layout_template(
-        conn, object_id=object_id,
-        fingerprint=structure_fingerprint(area, header_rows, lay["orientation"]),
-        mode="cells" if cells else "table",
-        layout={
-            "data_rect": rect, "header_rows": header_rows,
-            "orientation": lay["orientation"], "skip_rows": list(lay["skip_rows"] or []),
-        },
-        headers=structure_headers(area, header_rows),
-        fields=fields, cells=cells or [],
-        # Строк в области ДО исключений: с этим числом сравнивается новый файл,
-        # чтобы понять, можно ли перенести позиционные «снятые строки». Число
-        # выпущенных строк (n_rows) для этого не годится — оно уже за вычетом.
-        row_count=max(0, len(area) - header_rows),
-        dataset_code=code, release_id=release_id, user_id=user["id"],
-    )
+    # 🔴 Чужую форму, выпущенную по подтверждению, в шаблон НЕ пишем: она
+    # затёрла бы разметку формы объекта, и её следующий файл перестал бы
+    # узнаваться сам (22.09.2026 на боевом так и вышло).
+    #
+    # Снятые строки запоминаются ещё и ПОДПИСЯМИ: номера строк верны, пока
+    # форма не выросла, а у РЦО за год строк стало на 13 больше — по номерам
+    # снятые итоговые блоки указали бы на отделения, а без них итоги попали бы
+    # в данные.
+    skip_labels = sorted({
+        str(area[i][label_col]).strip() for i in (lay["skip_rows"] or [])
+        if label_col is not None and i < len(area) and label_col < len(area[i])
+    }) if not cells else []
+    is_first_template = False
+    if form is None:
+        is_first_template = await save_layout_template(
+            conn, object_id=object_id,
+            fingerprint=structure_fingerprint(area, header_rows, lay["orientation"]),
+            mode="cells" if cells else "table",
+            layout={
+                "data_rect": rect, "header_rows": header_rows,
+                "orientation": lay["orientation"], "skip_rows": list(lay["skip_rows"] or []),
+                "skip_labels": skip_labels,
+            },
+            headers=structure_headers(area, header_rows),
+            fields=fields, cells=cells or [],
+            # Строк в области ДО исключений: с этим числом сравнивается новый файл,
+            # чтобы понять, можно ли перенести позиционные «снятые строки». Число
+            # выпущенных строк (n_rows) для этого не годится — оно уже за вычетом.
+            row_count=max(0, len(area) - header_rows),
+            dataset_code=code, release_id=release_id, user_id=user["id"],
+        )
     # Файлы, залитые ДО появления шаблона, должны узнать, что разметка для них
     # теперь есть: иначе папка показывала бы «нужна разметка» на всей пачке.
     await refresh_template_verdicts(conn, object_id)
@@ -1259,6 +1453,9 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         # вынести на «Главную» ключевыми: до этого момента поля формы ещё не
         # существовали, а после первого раза повторный вопрос был бы навязчив.
         "new_form": is_first_template,
+        # Выпуск чужой формы по подтверждению: шаблон объекта оставлен прежним.
+        "form_check": form,
+        "template_kept": form is not None,
         "dataset_code": code,
         "numeric_fields": [{"field_code": f["field_code"], "field_name": f["field_name"]}
                            for f in value_fields if sv["field_type"].get(f["field_code"]) == "number"],
