@@ -813,6 +813,29 @@ async def released_values_digest(conn, release_id) -> str:
          r["value_text"], r["value_number"], r["value_date"]) for r in rows)
 
 
+async def declare_release_fields(conn, release_id) -> int:
+    """Объявить графы выпуска по его же значениям — для выпусков, записанных
+    мимо `build_release` (загрузчики-скрипты, перенос строк между стендами).
+
+    🔴 Без объявления выпуск «невидим» для всего, что читает состав формы из
+    `dataset_release_fields`: мастер сборки и подсказки видят ноль граф и
+    отвечают «нет числовых полей», хотя значения на месте. Так и было у 12
+    ведомств «Статистики услуг»: их недельные выпуски писал скрипт, и мастер по
+    ним не собирался вовсе, пока раздел — читающий значения напрямую — работал.
+
+    Идемпотентно: уже объявленные графы не дублируются. Возвращает число
+    добавленных. `extracted_column_id` пуст — распознанного столбца у таких
+    выпусков нет, и выдумывать его нельзя.
+    """
+    status = await conn.execute(
+        "insert into dataset_release_fields(dataset_release_id, canonical_field_code) "
+        "select distinct $1::uuid, canonical_field_code from dataset_values "
+        "where dataset_release_id=$1::uuid "
+        "on conflict (dataset_release_id, canonical_field_code) do nothing",
+        release_id)
+    return int(status.split()[-1])
+
+
 def sheet_date(title: str, year: int):
     """Отчётная дата из имени листа: «17.08», «17.08.2026», «17/08». Иначе None.
 

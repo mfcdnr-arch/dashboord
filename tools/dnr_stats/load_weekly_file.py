@@ -179,11 +179,14 @@ async def _ensure_canonical_fields(conn, object_id, dept_code, n_blocks, admin_i
             (field(dept_code, i, "okazyvaetsya"), f"Услуга {i}: Услуга оказывается"),
             (field(dept_code, i, "kommentarii"), f"Услуга {i}: Комментарии по офисам"),
         ]
+    # «Принято» и «Выдано» — числа: заведённые текстом, они не видны мастеру
+    # сборки (он берёт графы с типом `number`), хотя значения пишутся числом.
     for code, name in rows:
+        dtype = "number" if code.endswith(("_prinyato", "_vydano")) else "text"
         await conn.execute(
             "insert into canonical_fields(object_id, code, name, data_type, created_by) "
-            "values($1::uuid,$2,$3,'text',$4) on conflict (object_id, code) do nothing",
-            object_id, code, name, admin_id)
+            "values($1::uuid,$2,$3,$4,$5) on conflict (object_id, code) do nothing",
+            object_id, code, name, dtype, admin_id)
     await conn.execute(
         "insert into canonical_fields(object_id, code, name, data_type, created_by) "
         "values($1::uuid,'gorod','Город','text',$2) on conflict (object_id, code) do nothing",
@@ -244,6 +247,9 @@ async def _build_release(conn, org_id, object_id, dept_code, dataset_code, name_
         await conn.executemany(
             "insert into dataset_values(dataset_release_id,row_index,row_label,canonical_field_code,value_text) "
             "values($1,$2,$3,$4,$5)", [(rel, *r) for r in texts])
+    # Графы выпуска объявляются ТЕМ ЖЕ кодом, что у штатного пути: без них выпуск
+    # не видят мастер сборки и подсказки виджетов (находка 23.09.2026).
+    await mapping.declare_release_fields(conn, rel)
     return len(numbers) + len(texts), ("перевыпущен — данные изменились" if existing else "выпущен")
 
 

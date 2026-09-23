@@ -193,6 +193,9 @@ services:
       # уходящий наружу, и потому единственный, который некому проверить изнутри.
       - ./health-watch.sh:/deploy/health-watch.sh:ro
       - ./http-lib.sh:/deploy/http-lib.sh:ro
+      # Инструменты загрузки — test_declare_release_fields проверяет, что загрузчик
+      # недельных файлов ведомств объявляет графы выпуска (находка 23.09.2026).
+      - ./tools:/deploy/tools:ro
       - ./deploy.sh:/deploy/deploy.sh:ro
       # backup.sh/restore.sh — их проверяет test_backup_honesty: провалившийся
       # бэкап не должен выглядеть свежим, а команда восстановления принимает
