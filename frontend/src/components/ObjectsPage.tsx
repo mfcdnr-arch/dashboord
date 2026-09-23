@@ -558,7 +558,7 @@ export default function ObjectsPage(
       )}
 
       {folder && openDoc && (
-        <ExtractionPage doc={openDoc} canManage={canManage} isSuperadmin={isSuperadmin} onBack={() => { setOpenDoc(null); refreshDocs() }} />
+        <ExtractionPage doc={openDoc} canManage={canManage} isSuperadmin={isSuperadmin} objectName={obj?.name} onBack={() => { setOpenDoc(null); refreshDocs() }} />
       )}
 
       {/* Аналитика по папке (п. 8): вкладка рядом с файлами. Отдельным

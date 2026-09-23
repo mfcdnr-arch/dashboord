@@ -39,7 +39,9 @@ const baseName = (f: string) => f.replace(/\.[^.]+$/, '')
  * «приложение к письму», где нужны несколько конкретных цифр, а размечать
  * таблицу целиком незачем.
  */
-export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }: { doc: Doc; canManage: boolean; isSuperadmin?: boolean; onBack: () => void }) {
+export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack, objectName }: {
+  doc: Doc; canManage: boolean; isSuperadmin?: boolean; onBack: () => void; objectName?: string
+}) {
   // Подтверждения — своим окном: системное браузер вправе подавить, и кнопка
   // необратимого действия выглядит нерабочей (см. ConfirmDialog).
   const { ask, node: confirmNode } = useConfirm()
@@ -104,6 +106,16 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
       .map((i) => base + i)
       .filter((r) => !(transposed ? excludedCols : excludedRows).has(r))
   }, [preview, transposed, rect, excludedCols, excludedRows])
+
+  // Итоговые строки: у них есть и подпись, и числа, поэтому подсказка о
+  // служебных строках их не видит, а в данных они удваивают суммы карточек.
+  const totalSheetRows = useMemo(() => {
+    const base = transposed ? rect[1] : rect[0]
+    return (preview?.total_rows || [])
+      .map((t) => base + t.index)
+      .filter((r) => !(transposed ? excludedCols : excludedRows).has(r))
+  }, [preview, transposed, rect, excludedCols, excludedRows])
+  const totalByLabel = (preview?.total_rows || []).find((t) => t.reason !== 'below_total')
 
   // Строки, где числа есть, а названия нет: самый опасный вид — показатель
   // складывается по двум строкам, и число на дашборде растёт без видимой причины.
@@ -535,6 +547,24 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
                 onRenameCol={focusName}
               />
 
+              {totalSheetRows.length > 0 && mode === 'table' && (
+                <div style={hintBox}>
+                  <span>
+                    ⚠ Похоже на итоговые строки: {totalSheetRows.length}
+                    {totalByLabel && <> — начиная со строки «{elideMiddle(totalByLabel.label || 'без подписи', 40)}»
+                      {totalByLabel.reason === 'sum' ? ', её числа равны суммам строк над ней' : ', в ней слово «итого»'}</>}
+                    . <b>В данных они сложатся с остальными строками, и суммы на дашборде удвоятся.</b>
+                    {' '}Ниже итога в формах обычно идут сводные блоки («На вчера», «Накопительный»).
+                  </span>
+                  <button type="button" style={{ ...chip, border: '1px solid var(--warn)', color: 'var(--warn)' }}
+                    onClick={() => (transposed
+                      ? setExcludedCols((s) => new Set([...s, ...totalSheetRows]))
+                      : setExcludedRows((s) => new Set([...s, ...totalSheetRows])))}>
+                    Исключить их
+                  </button>
+                </div>
+              )}
+
               {suspectSheetRows.length > 0 && mode === 'table' && (
                 <div style={hintBox}>
                   <span>
@@ -607,6 +637,12 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack }:
           {table && canManage && (
             <div style={{ marginTop: 20 }}>
               <h3 style={h3}>Выпуск датасета</h3>
+              {mode === 'table' && preview && (
+                <ReleaseSummary objectName={objectName} code={code} period={period}
+                  rows={Math.max(0, preview.row_count)}
+                  numeric={(preview.columns || []).filter((c) => c.data_type === 'number' && !excludedFields.has(c.column_index)).length}
+                  check={preview.file_total_check || null} />
+              )}
               <QualityPanel warnings={quality} checking={checking} />
               {/* Что изменится на дашбордах (п. 15): замечания выше — про сами
                   данные, этот блок — про последствия выпуска. */}
@@ -1160,6 +1196,40 @@ function OtherFormDialog({ info, busy, jobId, defaultName, onConfirm, onMoved, o
         </button>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * «Проверьте перед выпуском»: что именно уедет в данные — одной строкой, и
+ * итог из самого файла рядом с суммой того, что система возьмёт.
+ *
+ * Сравнение с итогом файла отвечает на «всё ли я взял»: сняли по ошибке строку
+ * отделения — расхождение видно здесь, а не на дашборде через неделю.
+ */
+function ReleaseSummary({ objectName, code, period, rows, numeric, check }: {
+  objectName?: string; code: string; period: string; rows: number; numeric: number
+  check: { label: string; checked: number; matched: number; examples: { column: string; file: number; ours: number; ok: boolean }[] } | null
+}) {
+  const fmt = (n: number) => n.toLocaleString('ru-RU', { maximumFractionDigits: 2 })
+  const ok = check && check.matched === check.checked
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', margin: '0 0 10px', fontSize: 13 }}>
+      <div style={{ color: 'var(--text-2)' }}>
+        <b>Проверьте перед выпуском:</b>{' '}
+        {objectName && <>объект «{objectName}» · </>}
+        код «{code || '—'}» · {period ? `за ${period.split('-').reverse().join('.')}` : 'без отчётной даты'} ·{' '}
+        {rows} {plural(rows, 'строка', 'строки', 'строк')} · {numeric} {plural(numeric, 'числовая графа', 'числовые графы', 'числовых граф')}
+      </div>
+      {check && (
+        <div style={{ marginTop: 6, color: ok ? 'var(--success)' : 'var(--danger)' }}>
+          {ok
+            ? `✓ Итог из файла («${elideMiddle(check.label || 'итог', 30)}») сходится с суммой строк по всем ${check.checked} ${plural(check.checked, 'графе', 'графам', 'графам')}.`
+            : <>⚠ Итог из файла не сходится с суммой строк по {check.checked - check.matched} {plural(check.checked - check.matched, 'графе', 'графам', 'графам')} из {check.checked}
+              {' '}— возможно, снята строка данных или взяты лишние. Например:{' '}
+              {check.examples.filter((x) => !x.ok).map((x) => `«${elideMiddle(x.column, 40)}»: в файле ${fmt(x.file)}, возьмём ${fmt(x.ours)}`).join('; ')}.</>}
+        </div>
+      )}
+    </div>
   )
 }
 

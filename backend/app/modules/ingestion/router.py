@@ -359,6 +359,8 @@ async def quality_check(job_id: str, body: ReleaseIn, user: dict = Depends(manag
         warnings = await mapping.quality_warnings(
             conn, user["organization_id"], code=body.code, period=body.reporting_period_start,
             rows=rows, fields=fields, label_col=label)
+        warnings += await mapping.period_warnings_for_job(
+            conn, job_id, body.table_id, body.reporting_period_start)
     return {"warnings": warnings, "ok": not warnings}
 
 

@@ -317,6 +317,12 @@ async def layout_preview(
             "has_label": bool(str(label).strip()),
         })
 
+    # Итоги ищем по ВСЕМ строкам листа, а не только по невыключенным: сними
+    # человек по ошибке строку отделения — итог перестал бы совпадать с суммой
+    # и пропал бы ровно тогда, когда сверка с ним нужнее всего. Уже снятые
+    # итоги экран сам не показывает.
+    total_rows = total_like_rows(data_row_items(area, hdr, ()), numeric_cols,
+                                 [c.column_index for c in text_cols])
     return {
         "data_rect": rect,
         "header_rows": hdr,
@@ -325,6 +331,11 @@ async def layout_preview(
         "row_count": len(rows),
         "rows": row_info,
         "suspect_rows": _suspect_rows(row_info, bool(numeric_cols)),
+        # Итоговые строки — отдельно от служебных: у них есть и подпись, и числа,
+        # поэтому правило «строка без чисел» их не видит, а в данных они
+        # удваивают суммы.
+        "total_rows": total_rows,
+        "file_total_check": _file_total_check(area, items, total_rows, columns, names),
         "columns": [
             {
                 "column_index": c.column_index,
@@ -765,6 +776,128 @@ async def layout_template_for_tables(conn, object_id, table_ids: Sequence[str]) 
     return out
 
 
+# Совпадение числа строки с суммой строк над ней: доля заполненных граф, которые
+# должны сойтись. Итоговая строка сходится почти вся; строка отделения совпадает
+# с нарастающей суммой случайно и по одной-двум графам.
+TOTAL_SUM_SHARE = 0.8
+TOTAL_SUM_MIN_COLS = 2
+TOTAL_MIN_ROWS_ABOVE = 3
+
+
+def total_like_rows(items: Sequence[tuple], numeric_cols: Sequence[int],
+                    text_cols: Sequence[int]) -> List[dict]:
+    """Строки, похожие на итоговые, — по порядку сверху вниз.
+
+    Итоговая строка в данных складывается с остальными строками, и суммы на
+    карточках удваиваются. Признаков три, и нужны все: у РЦО слово «ИТОГО»
+    стоит не в подписи строки, а в соседнем столбце номера, а блоки «На вчера»
+    и «Накопительный» подписаны «Принято»/«Выдано», как обычные графы.
+
+    • `label` — в текстовой графе строки есть «итог» или «всего», и в ней есть числа
+      (строка из одного текста — подпись под таблицей, её ловит другая подсказка);
+    • `sum` — числа строки равны суммам строк над ней (по большинству граф);
+    • `below_total` — строка с числами ниже первой итоговой: там в госформах
+      идут сводные блоки, а не данные.
+    """
+    from ..dashboards._aggregate import TOTAL_LABEL_RE  # общее понятие «итога»
+
+    out: List[dict] = []
+    sums = dict.fromkeys(numeric_cols, 0.0)
+    above = 0
+    first = None
+    for i, row in items:
+        nums: dict[int, float] = {}
+        for c in numeric_cols:
+            v = analyze.parse_number(row[c]) if c < len(row) else None
+            if v is not None:
+                nums[c] = v
+        label = next((str(row[c]).strip() for c in text_cols if c < len(row) and str(row[c]).strip()), "")
+        if first is not None:
+            if nums:
+                out.append({"index": i, "label": label, "reason": "below_total"})
+            continue
+        if nums and any(TOTAL_LABEL_RE.search(str(row[c])) for c in text_cols if c < len(row)):
+            out.append({"index": i, "label": label, "reason": "label"})
+            first = i
+            continue
+        nonzero = {c: v for c, v in nums.items() if v}
+        if above >= TOTAL_MIN_ROWS_ABOVE and len(nonzero) >= TOTAL_SUM_MIN_COLS:
+            hits = sum(1 for c, v in nonzero.items()
+                       if sums[c] > 0 and abs(v - sums[c]) <= max(0.5, abs(v) * 0.005))
+            if hits >= TOTAL_SUM_MIN_COLS and hits >= TOTAL_SUM_SHARE * len(nonzero):
+                out.append({"index": i, "label": label, "reason": "sum"})
+                first = i
+                continue
+        for c, v in nums.items():
+            sums[c] += v
+        above += 1
+    return out
+
+
+def _total_row_warning(rows: List[List[str]], fields: List[dict]) -> Optional[dict]:
+    """Замечание перед выпуском: в данные уезжает строка, похожая на итоговую."""
+    numeric = [f["column_index"] for f in fields
+               if f.get("data_type") == "number" and not f.get("is_row_label")]
+    text = [f["column_index"] for f in fields if f.get("is_row_label")] + [
+        f["column_index"] for f in fields if f.get("data_type") == "text" and not f.get("is_row_label")]
+    found = total_like_rows(list(enumerate(rows)), numeric, text)
+    if not found:
+        return None
+    names = ", ".join(f"«{elide(x['label'] or '(без подписи)')}»" for x in found[:3])
+    more = f" и ещё {len(found) - 3}" if len(found) > 3 else ""
+    return {"code": "total_row_in_data", "count": len(found),
+            "message": (f"В данные попадут строки, похожие на итоговые: {names}{more}. Карточки "
+                        "сложат их с остальными строками, и суммы на дашборде удвоятся. "
+                        "Снимите их в разметке, если это итоги, а не данные.")}
+
+
+def elide(text: str, limit: int = 50) -> str:
+    t = " ".join(str(text).split())
+    return t if len(t) <= limit else t[: limit - 1] + "…"
+
+
+def _file_total_check(area, items, total_rows, columns, names) -> Optional[dict]:
+    """Итог из самого файла против суммы строк, которые уедут в данные.
+
+    Ответ на вопрос «всё ли я взял» до выпуска: сняли по ошибке строку
+    отделения — сумма разойдётся с итогом файла, и это видно сразу, а не на
+    дашборде через неделю.
+    """
+    first = next((t for t in total_rows if t["reason"] in ("label", "sum")), None)
+    if first is None:
+        return None
+    flagged = {t["index"] for t in total_rows}
+    total_row = area[first["index"]]
+    data = [row for i, row in items if i not in flagged]
+    name_of = {c.column_index: n for c, n in zip(columns, names, strict=True)}
+    checks = []
+    for c in columns:
+        if c.inferred_type != "number" or c.column_index >= len(total_row):
+            continue
+        # Безымянная графа («Столбец 331») — не показатель: у РЦО в неё итоговая
+        # строка кладёт общий итог со сдвигом на графу влево от заголовка, и
+        # «в файле 5 851, у нас 0» читалось бы как ошибка разметки.
+        if _UNNAMED_RE.match(name_of.get(c.column_index, "")):
+            continue
+        file_v = analyze.parse_number(total_row[c.column_index])
+        if file_v is None:
+            continue
+        ours = sum(analyze.parse_number(r[c.column_index]) or 0.0
+                   for r in data if c.column_index < len(r))
+        checks.append({"column": name_of.get(c.column_index, ""), "file": file_v, "ours": ours,
+                       "ok": abs(file_v - ours) <= max(TOTAL_TOLERANCE_ABS, abs(file_v) * 0.005)})
+    if not checks:
+        return None
+    bad = [x for x in checks if not x["ok"]]
+    return {"label": first["label"], "checked": len(checks), "matched": len(checks) - len(bad),
+            "examples": (bad or checks)[:3]}
+
+
+# Допуск сверки итога файла: округление в единицу — не ошибка заполнения.
+TOTAL_TOLERANCE_ABS = 1.0
+_UNNAMED_RE = re.compile(r"^Столбец \d+$")
+
+
 async def quality_warnings(conn, org_id, *, code: str, period, rows: List[List[str]],
                            fields: List[dict], label_col: Optional[int]) -> List[dict]:
     """Замечания по качеству готовящихся данных.
@@ -785,7 +918,9 @@ async def quality_warnings(conn, org_id, *, code: str, period, rows: List[List[s
         return []
     names = {f["field_code"]: f["field_name"] for f in fields}
     try:
-        return quality.check_release(current, names, previous, prev_period)
+        found = quality.check_release(current, names, previous, prev_period)
+        total = _total_row_warning(rows, fields)
+        return found + ([total] if total else [])
     except Exception as e:                      # noqa: BLE001
         # Проверки качества по определению СОВЕТУЮТ, а не запрещают: «решение
         # за человеком, выпуск обратим». Значит и сорваться они права не имеют —
@@ -1020,6 +1155,96 @@ def sheet_date(title: str, year: int):
         return date(year, month, day)
     except ValueError:
         return None          # «40.09» — не дата, а опечатка в имени листа
+
+
+_FILE_DATE_RES = (
+    re.compile(r"(?<!\d)(\d{1,2})[._-](\d{1,2})[._-](20\d{2})(?!\d)"),   # 09.09.2026, 9_9_2026
+    re.compile(r"(?<!\d)(20\d{2})-(\d{2})-(\d{2})(?!\d)"),              # 2026-09-09
+)
+
+
+_FILE_RANGE_RE = re.compile(
+    r"с[\s_.-]*(\d{1,2})[._-](\d{1,2})(?:[._-](20\d{2}))?[\s_.-]*по[\s_.-]*"
+    r"(\d{1,2})[._-](\d{1,2})[._-](20\d{2})", re.IGNORECASE)
+
+
+def file_name_range(name: str):
+    """Диапазон «с 12_01 по 15_09_2026» из имени книги-за-период. Иначе None."""
+    from datetime import date
+    m = _FILE_RANGE_RE.search(name or "")
+    if not m:
+        return None
+    d1, m1, y1, d2, m2, y2 = m.groups()
+    try:
+        end = date(int(y2), int(m2), int(d2))
+        start = date(int(y1) if y1 else end.year, int(m1), int(d1))
+    except ValueError:
+        return None
+    return (start, end) if start <= end else None
+
+
+def file_name_dates(name: str) -> list:
+    """Все даты, записанные в имени файла. Пусто — дату имя не называет."""
+    from datetime import date
+    out = []
+    for i, rx in enumerate(_FILE_DATE_RES):
+        for m in rx.finditer(name or ""):
+            a, b, c = (int(x) for x in m.groups())
+            try:
+                out.append(date(c, b, a) if i == 0 else date(a, b, c))
+            except ValueError:
+                continue
+    return out
+
+
+def period_warnings(period, file_name: str, sheet: Optional[str], today) -> List[dict]:
+    """Отчётная дата выпуска против того, что называют файл и лист.
+
+    Дата вводится руками (или подставляется из имени файла), и ошибка в ней
+    тихая: выпуск ложится в ряд не той неделей, а на графике это выглядит
+    обычной точкой. Предупреждение, а не запрет: книга может нести несколько
+    дат (файл ведомств «на 09.09» содержит и 02.09), и решает человек.
+    """
+    from datetime import date as _date
+    if period is None:
+        return []
+    if isinstance(period, str):
+        period = _date.fromisoformat(period)
+    out: List[dict] = []
+    if period > today:
+        out.append({"code": "period_in_future", "count": 1,
+                    "message": f"Отчётная дата {period:%d.%m.%Y} ещё не наступила — проверьте, не опечатка ли это."})
+    in_name = file_name_dates(file_name)
+    span = file_name_range(file_name)
+    # Книга за период («с 12_01 по 15_09_2026») называет диапазон, и любая дата
+    # внутри него законна: иначе предупреждение висело бы на каждом листе.
+    if span and span[0] <= period <= span[1]:
+        in_name = []
+    if in_name and period not in in_name:
+        named = ", ".join(f"{d:%d.%m.%Y}" for d in in_name[:2])
+        out.append({"code": "period_differs_from_file", "count": 1,
+                    "message": (f"В имени файла дата {named}, а выпуск идёт за {period:%d.%m.%Y}. "
+                                "Если это не особенность формы, исправьте отчётную дату — иначе "
+                                "отчёт ляжет в ряд не той неделей.")})
+    on_sheet = sheet_date(sheet or "", period.year) if sheet else None
+    if on_sheet and on_sheet != period:
+        out.append({"code": "period_differs_from_sheet", "count": 1,
+                    "message": (f"Лист называется «{sheet}», а выпуск идёт за {period:%d.%m.%Y}. "
+                                "Проверьте отчётную дату.")})
+    return out
+
+
+async def period_warnings_for_job(conn, job_id: str, table_id: str, period) -> List[dict]:
+    row = await conn.fetchrow(
+        "select d.original_filename, et.sheet_or_page from extraction_jobs j "
+        "join document_versions dv on dv.id = j.document_version_id "
+        "join documents d on d.id = dv.document_id "
+        "left join extracted_tables et on et.id = $2::uuid and et.extraction_job_id = j.id "
+        "where j.id = $1::uuid", job_id, table_id)
+    if row is None:
+        return []
+    today = await conn.fetchval("select current_date")
+    return period_warnings(period, row["original_filename"], row["sheet_or_page"], today)
 
 
 def _resupply_skip_reason(existing, incoming_version, incoming_uploaded) -> Optional[str]:
@@ -1394,6 +1619,7 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         warnings += await quality_warnings(
             conn, org_id, code=code, period=reporting_period_start,
             rows=rows_used, fields=fields, label_col=label_col)
+        warnings += await period_warnings_for_job(conn, job_id, table_id, reporting_period_start)
         n_rows = len(rows_used)
 
     # Запоминаем разметку: следующий файл этой же формы придёт размеченным, и

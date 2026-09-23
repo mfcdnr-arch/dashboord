@@ -186,6 +186,13 @@ export interface LayoutPreview {
   rows: LayoutRow[]
   /** Служебные строки: без чисел (подписи, примечания) ИЛИ с числами, но без названия. */
   suspect_rows: number[]
+  /** Строки, похожие на итоговые: в данных они удвоили бы суммы на карточках. */
+  total_rows?: { index: number; label: string; reason: 'label' | 'sum' | 'below_total' }[]
+  /** Итог из самого файла против суммы строк, которые уедут в данные. */
+  file_total_check?: {
+    label: string; checked: number; matched: number
+    examples: { column: string; file: number; ours: number; ok: boolean }[]
+  } | null
   sample: string[][]
 }
 
