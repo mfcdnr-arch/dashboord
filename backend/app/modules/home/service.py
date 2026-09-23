@@ -331,8 +331,16 @@ async def add_kpis_from_fields(conn, org_id, user_id, dataset_code: str, fields:
         tpl_code = "average" if is_share(field_name) else "total_sum"
         formula = metric_tpl.build_formula(
             tpl_code, {"a": {"dataset_code": dataset_code, "field": field_code}})
+        # 🔴 Единица измерения раньше не передавалась вовсе (всегда None) — у
+        # процентного поля карточка на «Главной» показывала голое число, а
+        # прирост считался как ОБЫЧНЫЙ относительный (делением на прошлое
+        # значение), а не в пунктах: «80 % → 85 %» читалось бы как «+6,25 %»
+        # вместо «+5 п.п.» — двусмысленно ровно там, где KpiDelta эту
+        # двусмысленность и снимает. Имя графы — единственный источник
+        # единицы на этом пути, и знак «%» в нём достаточно надёжный признак.
+        unit = "%" if "%" in field_name else None
         m = await metric_svc.create_metric(conn, org_id, user_id, code, field_name, None, None)
-        await metric_svc.create_version(conn, org_id, user_id, m["id"], formula, None, None, "aggregate")
+        await metric_svc.create_version(conn, org_id, user_id, m["id"], formula, unit, None, "aggregate")
         await add_kpi(conn, org_id, user_id, code)
         created.append({"code": code, "name": field_name})
     return {"created": created}
