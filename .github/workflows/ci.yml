@@ -121,8 +121,9 @@ jobs:
       REDIS_HOST: localhost
       # Каталог файлов-триггеров хостовых скриптов (бэкап, сторож воркера).
       # Умолчание — путь внутри контейнера (/app/ops-triggers), которого на
-      # раннере нет и создать который нельзя.
-      OPS_TRIGGER_DIR: ${{ runner.temp }}/ops-triggers
+      # раннере нет и создать который нельзя. Контекст runner.* на уровне env
+      # задания недоступен (GitHub отвергает такой файл целиком), поэтому /tmp.
+      OPS_TRIGGER_DIR: /tmp/ops-triggers
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
