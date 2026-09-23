@@ -142,13 +142,13 @@ export default function UserHomePage(
                 🏢 {g.object_name}
                 <span style={{ ...muted, fontWeight: 400 }}> · {g.dashboards.length}</span>
               </div>
+              {/* Папка — служебная раскладка файлов, а список и так сгруппирован
+                  по объекту заголовком выше. «Изменён» читается как свежесть
+                  ДАННЫХ, хотя это дата правки самого отчёта — вводит в
+                  заблуждение (то же решение, что для «Дашбордов» 22.09). */}
               {g.dashboards.slice(0, 6).map((d) => (
                 <button key={d.id} style={rowBtn} onClick={() => onOpenDashboard?.(d.id)}>
                   <span style={{ fontSize: 13.5 }}>{d.name}</span>
-                  <span style={{ ...muted, fontSize: 11.5 }}>
-                    {d.folder_name ? `📁 ${d.folder_name}` : ''}
-                    {d.updated_at && ` · изменён ${new Date(d.updated_at).toLocaleDateString('ru-RU')}`}
-                  </span>
                 </button>
               ))}
               {g.dashboards.length > 6 && (
