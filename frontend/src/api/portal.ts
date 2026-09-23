@@ -40,6 +40,22 @@ export type PortalHome = {
   show_featured: boolean
   stale_password: boolean
   key_kpis: KeyKpi[]
+  /** Сводка «Статистики услуг» за последнюю неделю; null — блок не показывать
+   *  (нет галочки «Руководителю» или не размечено ни одного ведомства). */
+  dnr_stats: DnrHomeSummary | null
+}
+
+export type DnrHomeSummary = {
+  as_of: string | null
+  as_of_min: string | null
+  prinyato: number
+  vydano: number
+  growth: number | null
+  conversion_pct: number | null
+  offices: number
+  departments_with_data: number
+  departments_total: number
+  top: { code: string; name: string; prinyato: number; growth: number | null }[]
 }
 
 export async function getPortalHome(): Promise<PortalHome> {

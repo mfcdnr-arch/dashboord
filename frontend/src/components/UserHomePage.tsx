@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { fmtNumber as fmt } from '../lib/format'
+import { fmtNumber as fmt, fmtPct } from '../lib/format'
+import { plural } from '../lib/text'
 import { getPortalHome, type PortalHome } from '../api'
+import type { DnrHomeSummary } from '../api/portal'
 import KpiDelta from './KpiDelta'
 import Notice from './Notice'
 
@@ -84,6 +86,11 @@ export default function UserHomePage(
           </div>
         </div>
       )}
+
+      {/* «Статистика услуг» за последнюю неделю — только тем, кому открыт сам
+          раздел (галочка «Руководителю»), и только когда в нём есть данные:
+          иначе блок вёл бы туда, куда не пустят, или показывал бы нули. */}
+      {data?.dnr_stats && <DnrStatsCard s={data.dnr_stats} onOpen={() => onGoto?.('dnrstats')} />}
 
       {/* Объявления администратора. Важные — акцентом: сообщение о работах на
           сервере не должно теряться среди обычных. */}
@@ -288,6 +295,68 @@ const ABOUT = [
     ),
   },
 ]
+
+const ruDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('ru-RU') : '—')
+
+function Growth({ v }: { v: number | null }) {
+  if (v == null) return <span style={muted}>прироста нет — отчёт пока один</span>
+  if (v === 0) return <span style={muted}>без изменений к прошлому отчёту</span>
+  const up = v > 0
+  return (
+    <span style={{ fontSize: 12.5, color: up ? 'var(--success)' : 'var(--danger)' }}>
+      {up ? '▲ +' : '▼ '}{fmt(v)} к прошлому отчёту
+    </span>
+  )
+}
+
+function DnrStatsCard({ s, onOpen }: { s: DnrHomeSummary; onOpen: () => void }) {
+  // Ведомства размечаются не разом: «на 09.09» было бы неправдой про тех,
+  // чей последний отчёт раньше, — говорим об этом прямо.
+  const mixed = s.as_of_min && s.as_of && s.as_of_min !== s.as_of
+  const cell: React.CSSProperties = { border: '1px solid var(--border)', borderRadius: 10, padding: 10 }
+  const big: React.CSSProperties = { fontSize: 22, fontWeight: 700, color: 'var(--accent-text)', marginTop: 4 }
+  return (
+    <div style={card}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+        <h2 style={{ ...h2, margin: 0 }}>Статистика услуг</h2>
+        <span style={{ ...muted, fontSize: 13 }}>
+          на {ruDate(s.as_of)}
+          {mixed && ` (у части ведомств — на ${ruDate(s.as_of_min)})`}
+          {' · '}{s.departments_with_data} из {s.departments_total}{' '}
+          {plural(s.departments_total, 'ведомства', 'ведомств', 'ведомств')}
+          {' · '}{s.offices} {plural(s.offices, 'отделение', 'отделения', 'отделений')}
+        </span>
+        <button style={linkBtn} onClick={onOpen}>открыть раздел →</button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 8 }}>
+        <div style={cell}>
+          <div style={{ fontSize: 12.5, color: 'var(--text-2)' }}>Принято заявлений</div>
+          <div style={big}>{fmt(s.prinyato)}</div>
+          <Growth v={s.growth} />
+        </div>
+        <div style={cell}>
+          <div style={{ fontSize: 12.5, color: 'var(--text-2)' }}>Выдано результатов</div>
+          <div style={big}>{fmt(s.vydano)}</div>
+          <span style={muted}>
+            к принятому {fmtPct(s.conversion_pct)}
+            {s.conversion_pct != null && s.conversion_pct > 100 && ' — выдают и принятое раньше'}
+          </span>
+        </div>
+        <div style={cell}>
+          <div style={{ fontSize: 12.5, color: 'var(--text-2)' }}>Больше всего принято</div>
+          <ol style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 13.5, lineHeight: 1.6 }}>
+            {s.top.map((d) => (
+              <li key={d.code}>
+                {d.name} — <b>{fmt(d.prinyato)}</b>
+                {s.prinyato > 0 && <span style={muted}> · {fmtPct((d.prinyato / s.prinyato) * 100)}</span>}
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 const card: React.CSSProperties = {
   background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 16,

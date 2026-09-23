@@ -68,6 +68,14 @@ async def _dept_snapshot(conn, release, dept_code: str, dept: dict) -> dict:
     rows = await conn.fetch(
         "select row_label, canonical_field_code, value_text, value_number "
         "from dataset_values where dataset_release_id=$1", release["id"])
+    return _snapshot_from_rows(rows, str(release["reporting_period_start"]), dept_code, dept)
+
+
+def _snapshot_from_rows(rows, period: str, dept_code: str, dept: dict) -> dict:
+    """Разбор значений одного выпуска по офисам — отдельно от чтения, чтобы
+    сводка для «Главной» могла прочитать выпуски ПАЧКОЙ и разобрать их тем же
+    правилом, а не своим (второе понятие о «принято по ведомству» однажды
+    разошлось бы с разделом)."""
     by_office: dict[str, dict] = {}
     for r in rows:
         office = by_office.setdefault(r["row_label"], {"city": "", "raw": {}})
@@ -106,9 +114,31 @@ async def _dept_snapshot(conn, release, dept_code: str, dept: dict) -> dict:
             "services": services,
             "prinyato": total_p if has_any else None,
             "vydano": total_v if has_any else None,
-            "period": str(release["reporting_period_start"]),
+            "period": period,
         }
     return out
+
+
+def _dept_totals(snap_now: dict, snap_prev: dict):
+    """Свод ведомства на последнюю точку: (принято, выдано, прирост|None,
+    отделения с данными). Прирост — к СВОЕЙ предыдущей точке ведомства.
+
+    Одно правило для «Обзора» раздела и для сводки на «Главной»: разойдись они,
+    на двух экранах стояли бы разные «принято» за одну и ту же неделю."""
+    dp = dv = 0.0
+    offices: set[str] = set()
+    for office_label, row in snap_now.items():
+        if row["prinyato"] is None:
+            continue
+        offices.add(office_label)
+        dp += row["prinyato"]
+        dv += row["vydano"] or 0
+    prev_total = None
+    if snap_prev:
+        prev_vals = [r["prinyato"] for r in snap_prev.values() if r["prinyato"] is not None]
+        prev_total = sum(prev_vals) if prev_vals else None
+    growth = (dp - prev_total) if prev_total is not None else None
+    return dp, dv, growth, offices
 
 
 async def _dept_series(conn, org_id, dept_code: str, dept: dict) -> list:
@@ -353,6 +383,91 @@ async def readiness(conn, org_id) -> dict:
             "ready": bool(ready)}
 
 
+async def home_summary(conn, org_id) -> Optional[dict]:
+    """Сводка раздела для «Главной» сотрудника — последняя неделя, а не история.
+
+    `overview()` сюда не годится: он читает ВСЕ выпуски всех ведомств ради
+    тренда, а «Главная» открывается при каждом входе. Здесь — два запроса при
+    любом числе накопленных недель: последние ДВЕ точки каждого ведомства (для
+    прироста) и их значения пачкой. Разбор и сложение — теми же `_snapshot_
+    from_rows` и `_dept_totals`, что у раздела, поэтому числа сходятся с его
+    «Обзором» до единицы.
+
+    Графы «ИТОГО» у ведомств нет вовсе — сумму по ведомству знает только
+    каталог услуг (`departments.py`), поэтому метрикой-формулой это сделать
+    нельзя: она молча устарела бы при первой новой услуге.
+
+    None — если не размечено ни одного ведомства: пустой блок из нулей на
+    «Главной» читался бы как поломка, ровно как сам раздел 22.09.2026.
+    """
+    codes = {d["dataset_code"]: code for code, d in DEPARTMENTS.items()}
+    releases = await conn.fetch(
+        "select id, code, reporting_period_start from ("
+        "  select id, code, reporting_period_start, row_number() over ("
+        "    partition by code order by reporting_period_start desc, created_at desc) as rn "
+        "  from dataset_releases "
+        "  where organization_id=$1 and code = any($2::text[]) and status <> 'superseded' "
+        "    and reporting_period_start is not null) r "
+        "where rn <= 2",
+        org_id, list(codes))
+    if not releases:
+        return None
+    # Только «принято» и «выдано» по каталогу услуг: признаки «оказывается»,
+    # приоритет и город сводке не нужны, а это две трети значений выпуска.
+    wanted = [field(code, i, suffix) for code, d in DEPARTMENTS.items()
+              for i in range(1, len(d["services"]) + 1) for suffix in ("prinyato", "vydano")]
+    values = await conn.fetch(
+        "select dataset_release_id, row_label, canonical_field_code, value_text, value_number "
+        "from dataset_values where dataset_release_id = any($1::uuid[]) "
+        "and canonical_field_code = any($2::text[])",
+        [r["id"] for r in releases], wanted)
+    by_release: dict = {}
+    for v in values:
+        by_release.setdefault(v["dataset_release_id"], []).append(v)
+
+    per_dept: dict[str, list] = {}
+    for r in sorted(releases, key=lambda r: r["reporting_period_start"]):
+        per_dept.setdefault(codes[r["code"]], []).append(r)
+
+    total_p = total_v = total_growth = 0.0
+    has_growth = False
+    offices: set[str] = set()
+    periods: list[str] = []
+    depts = []
+    for code, rels in per_dept.items():
+        dept = DEPARTMENTS[code]
+        snaps = [(str(r["reporting_period_start"]),
+                  _snapshot_from_rows(by_release.get(r["id"], []), str(r["reporting_period_start"]), code, dept))
+                 for r in rels]
+        _pp, snap_prev, period_now, snap_now = _last_two(snaps)
+        dp, dv, growth, dept_offices = _dept_totals(snap_now, snap_prev)
+        total_p += dp
+        total_v += dv
+        offices |= dept_offices
+        if growth is not None:
+            total_growth += growth
+            has_growth = True
+        if period_now:
+            periods.append(period_now)
+        depts.append({"code": code, "name": dept["name"], "prinyato": dp, "growth": growth})
+
+    depts.sort(key=lambda d: -d["prinyato"])
+    return {
+        "as_of": max(periods) if periods else None,
+        # Ведомства размечаются не разом: если их последние отчёты на разные
+        # даты, «на 09.09» было бы неправдой про часть ведомств — говорим прямо.
+        "as_of_min": min(periods) if periods else None,
+        "prinyato": total_p,
+        "vydano": total_v,
+        "growth": total_growth if has_growth else None,
+        "conversion_pct": (total_v / total_p * 100.0) if total_p else None,
+        "offices": len(offices),
+        "departments_with_data": len(per_dept),
+        "departments_total": len(DEPARTMENTS),
+        "top": depts[:3],
+    }
+
+
 async def overview(conn, org_id) -> dict:
     """Сводный «Обзор» — верхний уровень над списком отделений: главные
     KPI-карточки, тренд по ВСЕМ накопленным датам срезов, разбивка по
@@ -436,22 +551,13 @@ async def overview(conn, org_id) -> dict:
                     g["refused"].append({"dept": dept["name"], "service": dept["services"][i]})
                 elif st in (None, ""):
                     g["unknown"].append({"dept": dept["name"], "service": dept["services"][i]})
-        dp = dv = 0.0
+        dp, dv, growth_dept, dept_offices = _dept_totals(snap_now, snap_prev)
+        offices_now |= dept_offices
         for office_label, row in snap_now.items():
-            if row["prinyato"] is None:
-                continue
-            offices_now.add(office_label)
-            dp += row["prinyato"]
-            dv += row["vydano"] or 0
             prev_row = snap_prev.get(office_label)
-            if prev_row and prev_row["prinyato"] is not None:
+            if row["prinyato"] is not None and prev_row and prev_row["prinyato"] is not None:
                 growth = row["prinyato"] - prev_row["prinyato"]
                 zero_growth[office_label] = zero_growth.get(office_label, 0.0) + growth
-        prev_total = None
-        if snap_prev:
-            prev_vals = [r["prinyato"] for r in snap_prev.values() if r["prinyato"] is not None]
-            prev_total = sum(prev_vals) if prev_vals else None
-        growth_dept = (dp - prev_total) if prev_total is not None else None
         dept_summary.append({
             "code": code, "name": dept["name"], "prinyato": dp, "vydano": dv,
             "growth": growth_dept, "period_prev": period_prev, "period_now": period_now,

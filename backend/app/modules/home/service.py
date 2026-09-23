@@ -9,6 +9,7 @@ import json
 from typing import List, Optional
 
 from ..dashboards import service as dash_svc
+from ..dnr_stats import service as dnr_svc
 from ..metrics import resolver as mr
 from ..metrics.parser import FormulaError
 from ..metrics.versions import best_version_order
@@ -151,6 +152,13 @@ async def portal_home(conn, org_id, user: dict) -> dict:
         stale_password = changed is None or (
             (await conn.fetchval("select now()")) - changed).days > 180
 
+    # «Статистика услуг» — по тому же правилу, что пункт меню и доступ к разделу
+    # (`dnr_stats.router.view_access`): рядовому сотруднику — по галочке
+    # «Руководителю». Без неё блок вёл бы в раздел, который ему не открыть.
+    dnr = None
+    if me is not None and me["show_featured"]:
+        dnr = await dnr_svc.home_summary(conn, org_id)
+
     return {
         "announcements": await portal_svc.list_announcements(conn, org_id),
         "objects": sorted(groups.values(), key=lambda g: g["object_name"]),
@@ -164,6 +172,7 @@ async def portal_home(conn, org_id, user: dict) -> dict:
         "show_featured": bool(me["show_featured"]) if me else False,
         "stale_password": stale_password,
         "key_kpis": await _key_kpis(conn, org_id),
+        "dnr_stats": dnr,
     }
 
 

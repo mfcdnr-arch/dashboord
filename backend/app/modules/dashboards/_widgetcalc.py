@@ -1436,9 +1436,9 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         # «Сравнения источников»: доля усредняется, накопительный итог берётся
         # последним отчётом месяца, поток складывается. Второго понятия о том,
         # как собирается месяц, в системе быть не должно.
-        month_reports: Optional[List[int]] = None
+        month_reports = None  # тип объявлен выше, в ветке матрицы: имя одно на функцию
         month_fold: Optional[str] = None
-        total_reports: Optional[int] = None
+        total_reports = None
         if cfg.get("period_group") == "month" and series:
             total_reports = len(series)
             # Способ свёртки определяется ИМЕНЕМ графы, а не её кодом: правило

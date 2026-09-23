@@ -316,3 +316,58 @@ async def test_readiness_counts_only_departments_that_have_data(
     monkeypatch.setattr(service, "DEPARTMENTS", two)
     r2 = (await client.get("/dnr-stats/readiness", headers=admin_headers)).json()
     assert r2 == {"departments_with_data": 1, "departments_total": 2, "ready": True}
+
+
+async def test_home_summary_matches_the_section_overview(client, admin_headers, dnr_object, ids):
+    """Сводка на «Главной» читает только последние две точки, но считает ТЕМ ЖЕ
+    правилом, что «Обзор» раздела: на двух экранах не может стоять разное
+    «принято» за одну неделю. Третья точка сдвигает пару «было/стало» у обоих."""
+    async with db.acquire() as conn:
+        rel3 = await _seed_release(conn, ids["org"], dnr_object["object_id"], "2026-01-15", ids["admin"], {
+            "Растущее": {"s1": (200, 150, "да"), "s2": (0, 0, "нет")},
+            "Застойное": {"s1": (50, 45, "да"), "s2": (0, 0, "нет")},
+        })
+    try:
+        async with db.acquire() as conn:
+            h = await service.home_summary(conn, ids["org"])
+        o = (await client.get("/dnr-stats/overview", headers=admin_headers)).json()
+        assert h["as_of"] == o["as_of"] == "2026-01-15"
+        assert h["prinyato"] == o["totals"]["prinyato"] == 250.0
+        assert h["vydano"] == o["totals"]["vydano"] == 195.0
+        assert h["growth"] == o["totals"]["growth"] == 80.0  # 250 − 170, не 250 − 150
+        assert h["offices"] == o["offices_total"] == 2
+        assert h["departments_with_data"] == 1
+        assert h["top"][0]["code"] == DEPT_CODE
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from dataset_values where dataset_release_id=$1::uuid", rel3)
+            await conn.execute("delete from dataset_releases where id=$1::uuid", rel3)
+
+
+async def test_home_summary_is_absent_when_nothing_is_marked_up(ids, monkeypatch):
+    """Ни одного размеченного ведомства — блока нет вовсе, а не карточки из нулей."""
+    monkeypatch.setattr(service, "DEPARTMENTS", {
+        "ztest_nodata": {"name": "Ведомство без данных",
+                         "dataset_code": "ztest_nodata_offices", "services": ["Услуга"]},
+    })
+    async with db.acquire() as conn:
+        assert await service.home_summary(conn, ids["org"]) is None
+
+
+async def test_portal_home_shows_the_summary_only_with_the_featured_flag(client, viewer, dnr_object):
+    """Блок на «Главной» подчиняется тому же правилу, что пункт меню и доступ
+    к разделу: без «Руководителю» он вёл бы туда, куда человека не пустят."""
+    d = (await client.get("/home/portal", headers=viewer["headers"])).json()
+    assert d["dnr_stats"] is None
+
+    async with db.acquire() as conn:
+        await conn.execute("update users set show_featured=true where id=$1::uuid", viewer["id"])
+    try:
+        token = await login(client, "ztest_viewer", "viewer123")
+        d = (await client.get("/home/portal", headers=hdr(token))).json()
+        s = d["dnr_stats"]
+        assert s is not None
+        assert s["prinyato"] == 170.0 and s["growth"] == 20.0 and s["as_of"] == "2026-01-08"
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("update users set show_featured=false where id=$1::uuid", viewer["id"])

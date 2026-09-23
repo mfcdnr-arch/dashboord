@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { authH } from '../api/http'
 import { alertLook } from '../lib/alertColors'
-import { fmtNumber } from '../lib/format'
+import { fmtNumber, fmtPct } from '../lib/format'
 import { plural } from '../lib/text'
 import EChart from './EChart'
 import { chartColors, useThemeVersion } from '../theme'
@@ -23,17 +23,7 @@ function fmt(n: number | null | undefined): string {
   return n == null ? '—' : fmtNumber(n)
 }
 
-/** Процент по-русски: «63,8 %».
- *
- *  🔴 Раньше в этом разделе стоял `toFixed`, и на одном экране соседствовали
- *  две записи одного числа: «583 636» по-русски и «63.8%» с точкой. Тот же
- *  дефект уже чинили на дашбордах 09.08 — здесь он дожил, потому что раздел
- *  собран отдельно от них.
- */
-function pct(n: number | null | undefined, digits = 1): string {
-  if (n == null) return '—'
-  return `${n.toLocaleString('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits })} %`
-}
+const pct = fmtPct
 
 function signed(n: number | null | undefined): string {
   if (n == null) return '—'

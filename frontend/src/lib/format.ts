@@ -17,6 +17,14 @@ export function fmtNumber(n: number | null | undefined): string {
  * дефект уже чинили в дашбордах (09.08) и в «Статистике услуг» (11.09) —
  * здесь общий помощник, чтобы не чинить его в третий раз поштучно.
  */
+/** Процент по-русски: «63,8 %». Одна запись на систему — иначе на экране
+ *  соседствуют «583 636» по-русски и «63.8%» с точкой (так было в разделе
+ *  «Статистика услуг» до 11.09.2026). */
+export function fmtPct(n: number | null | undefined, digits = 1): string {
+  if (n == null) return '—'
+  return `${n.toLocaleString('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits })} %`
+}
+
 export function fmtFixed(n: number | null | undefined, digits = 2): string {
   if (n == null || !isFinite(n)) return '—'
   return n.toLocaleString('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits })
