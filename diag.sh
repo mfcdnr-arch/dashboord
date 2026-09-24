@@ -11,7 +11,16 @@ cd "$(dirname "$0")"
 
 COMPOSE="docker compose -f docker-compose.prod.yml"
 env_get() { grep -E "^$1=" .env.prod 2>/dev/null | cut -d= -f2- | tail -1; }
-WEB_PORT="$(env_get WEB_PORT)"; WEB_PORT="${WEB_PORT:-8090}"
+WEB_PORT="$(env_get WEB_PORT)"; WEB_PORT="${WEB_PORT:-80}"
+HTTPS_PORT="$(env_get HTTPS_PORT)"; HTTPS_PORT="${HTTPS_PORT:-443}"
+# При TLS порт WEB отвечает только перенаправлением на https, и /health по нему
+# даёт страницу редиректа, а не состояние системы. Выбор адреса — тот же, что у
+# health-watch.sh: есть сертификат — спрашиваем по HTTPS.
+if [ -n "$(env_get TLS_SAN)$(env_get TLS_CN)" ] || [ -d certs ]; then
+  HEALTH_URL="https://localhost:${HTTPS_PORT}/health"
+else
+  HEALTH_URL="http://localhost:${WEB_PORT}/health"
+fi
 PGUSER="$(env_get POSTGRES_USER)"; PGUSER="${PGUSER:-dashbord}"
 PGDB="$(env_get POSTGRES_DB)"; PGDB="${PGDB:-dashbord}"
 
@@ -40,7 +49,7 @@ done
 save inspect-api.txt sh -c "docker inspect -f '{{json .State.Health}}' dashbord_prod_api 2>/dev/null | (command -v python3 >/dev/null && python3 -m json.tool || cat)"
 
 # /health через nginx
-save health.json sh -c ". ./http-lib.sh; http_body http://localhost:$WEB_PORT/health 5 || echo 'health недоступен'"
+save health.json sh -c ". ./http-lib.sh; http_body $HEALTH_URL 5 || echo 'health недоступен'"
 
 # Применённые миграции
 save migrations.txt docker exec dashbord_prod_postgres psql -U "$PGUSER" -d "$PGDB" -c "select filename, applied_at from schema_migrations order by filename"

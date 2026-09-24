@@ -202,6 +202,11 @@ services:
       # каталог набора, а не файл дампа.
       - ./backup.sh:/deploy/backup.sh:ro
       - ./restore.sh:/deploy/restore.sh:ro
+      # restore-check.sh — test_restore_check: восстановление идёт только во
+      # временную базу, никогда в рабочую; smoke.sh/diag.sh — test_port_defaults_consistent.
+      - ./restore-check.sh:/deploy/restore-check.sh:ro
+      - ./smoke.sh:/deploy/smoke.sh:ro
+      - ./diag.sh:/deploy/diag.sh:ro
     depends_on: *backend_deps
     command: python -m pytest -q
 

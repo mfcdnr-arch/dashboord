@@ -60,7 +60,7 @@ jobs:
       - name: "Пост-проверки: health, worker, rate-limit, gzip, заголовки"
         run: |
           docker ps --format '{{.Names}}\t{{.Status}}'
-          curl -ks https://localhost:8443/health | grep '"db":"ok"'
+          curl -ks https://localhost/health | grep '"db":"ok"'
           # worker должен стать healthy (start_period 90с + интервал 60с)
           for i in $(seq 1 40); do
             s=$(docker inspect -f '{{.State.Health.Status}}' dashbord_prod_worker)
@@ -69,14 +69,14 @@ jobs:
           echo "worker: $s"; [ "$s" = healthy ]
           # rate-limit /auth/login: из 15 быстрых попыток часть должна получить 429
           codes=$(for i in $(seq 1 15); do curl -ks -o /dev/null -w '%{http_code} ' \
-            -X POST https://localhost:8443/auth/login -d 'username=x&password=y'; done)
+            -X POST https://localhost/auth/login -d 'username=x&password=y'; done)
           echo "login codes: $codes"; echo "$codes" | grep -q 429
           # gzip на JS-бандле SPA
-          asset=$(curl -ks https://localhost:8443/ | grep -o 'assets/[^"]*\.js' | head -1)
-          curl -ksI -H 'Accept-Encoding: gzip' "https://localhost:8443/$asset" \
+          asset=$(curl -ks https://localhost/ | grep -o 'assets/[^"]*\.js' | head -1)
+          curl -ksI -H 'Accept-Encoding: gzip' "https://localhost/$asset" \
             | grep -i 'content-encoding: gzip'
           # security-заголовки
-          curl -ksI https://localhost:8443/ | grep -iE 'content-security-policy|x-content-type-options'
+          curl -ksI https://localhost/ | grep -iE 'content-security-policy|x-content-type-options'
 
       - name: Наблюдаемость (Prometheus + Grafana)
         if: ${{ inputs.monitoring }}

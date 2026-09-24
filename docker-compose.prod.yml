@@ -192,7 +192,7 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "${WEB_PORT:-8090}:80"
+      - "${WEB_PORT:-80}:80"
     mem_limit: 128m
     restart: unless-stopped
 

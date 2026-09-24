@@ -35,7 +35,11 @@ fi
 
 log() { printf '\033[1;34m[deploy]\033[0m %s\n' "$1"; }
 err() { printf '\033[1;31m[deploy] ОШИБКА:\033[0m %s\n' "$1" >&2; }
-env_get_port() { grep -E "^$1=" .env.prod 2>/dev/null | cut -d= -f2 || true; }
+# Последнее значение побеждает — так же, как у docker compose: строку, дописанную
+# в конец .env.prod поверх шаблонной, compose берёт последней, а без `tail -1`
+# здесь получилось бы двухстрочное «8090\n80», и проверка портов, ожидание
+# прокси и smoke стучались бы по битому адресу (находка ревью 24.09.2026).
+env_get_port() { { grep -E "^$1=" .env.prod 2>/dev/null | cut -d= -f2 | tail -1; } || true; }
 
 # HTTP-клиент для ожидания веб-прокси и smoke: curl, а если его нет (базовая
 # Astra Linux) — python3. См. http-lib.sh.
@@ -80,8 +84,14 @@ fi
 # Порты — после того, как .env.prod точно существует (свежесгенерирован выше
 # или уже был). Нужны и для предполётной проверки занятости (ниже), и для
 # smoke/итогового URL.
-WEB_PORT="$(env_get_port WEB_PORT)"; WEB_PORT="${WEB_PORT:-8090}"
-HTTPS_PORT="$(env_get_port HTTPS_PORT)"; HTTPS_PORT="${HTTPS_PORT:-8443}"
+# Умолчания — стандартные 80/443 (24.09.2026): адрес, который человек набирает
+# в браузере, не должен требовать номера порта. На сервере, где 80/443 уже
+# заняты (apache2/nginx), установка остановится на проверке занятости ниже с
+# подсказкой — тогда задать в .env.prod другие, например WEB_PORT=8090 и
+# HTTPS_PORT=8443. Совпадать должны с умолчаниями в compose-файлах, smoke.sh,
+# health-watch.sh и diag.sh — это держит test_port_defaults_consistent.
+WEB_PORT="$(env_get_port WEB_PORT)"; WEB_PORT="${WEB_PORT:-80}"
+HTTPS_PORT="$(env_get_port HTTPS_PORT)"; HTTPS_PORT="${HTTPS_PORT:-443}"
 
 # HTTPS в LAN: генерируем самоподписанный сертификат и включаем TLS-оверлей.
 # CN/SAN — сначала из окружения (TLS_CN=... TLS_SAN=... ./deploy.sh --tls),
@@ -139,8 +149,20 @@ check_port_free() {
       *) err "Порт $port ($label) уже занят Docker-контейнером «$holder» (не нашим). Остановите его или измените ${label}_PORT в .env.prod."; exit 1 ;;
     esac
   fi
-  if command -v lsof >/dev/null 2>&1 && lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
-    err "Порт $port ($label) уже занят процессом на хосте (не Docker). Освободите его или измените ${label}_PORT в .env.prod."
+  # Процесс хоста. `ss` без -p показывает слушающие сокеты ВСЕХ пользователей и
+  # не требует root, а lsof без root видит только свои процессы: apache2 или
+  # nginx от root на 80/443 он пропустил бы, и деплой упал бы уже в docker
+  # compose с невнятным «bind: address already in use» — ровно то, от чего эта
+  # проверка и заведена. lsof остаётся запасным путём там, где ss нет.
+  local busy=""
+  if command -v ss >/dev/null 2>&1; then
+    [ -n "$(ss -ltnH "( sport = :$port )" 2>/dev/null)" ] && busy=1
+  elif command -v lsof >/dev/null 2>&1 && lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+    busy=1
+  fi
+  if [ -n "$busy" ]; then
+    err "Порт $port ($label) уже занят процессом на хосте (не Docker)."
+    err "Кто его держит: sudo ss -ltnp '( sport = :$port )'. Освободите порт или задайте в .env.prod другой: ${label}_PORT=… (например, WEB_PORT=8090, HTTPS_PORT=8443)."
     exit 1
   fi
 }
@@ -292,11 +314,13 @@ SUPERADMIN_LOGIN_V="$(env_get_port SUPERADMIN_LOGIN)"; SUPERADMIN_LOGIN_V="${SUP
 ADMIN_PW_V="$(env_get_port ADMIN_PASSWORD)"
 SUPERADMIN_PW_V="$(env_get_port SUPERADMIN_PASSWORD)"
 
+# Стандартный порт в адресе не пишем: «https://сервер:443/» верно, но так
+# адрес никто не набирает, и в письме сотрудникам он выглядел бы ошибкой.
 if [ -n "$TLS" ]; then
-  URL="https://<адрес-сервера>:${HTTPS_PORT}/"
+  if [ "$HTTPS_PORT" = 443 ]; then URL="https://<адрес-сервера>/"; else URL="https://<адрес-сервера>:${HTTPS_PORT}/"; fi
   log "Готово. Веб-интерфейс: $URL (самоподписанный сертификат — примите в браузере)"
 else
-  URL="http://<адрес-сервера>:${WEB_PORT}/"
+  if [ "$WEB_PORT" = 80 ]; then URL="http://<адрес-сервера>/"; else URL="http://<адрес-сервера>:${WEB_PORT}/"; fi
   log "Готово. Веб-интерфейс: $URL"
 fi
 

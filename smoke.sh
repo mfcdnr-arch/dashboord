@@ -2,14 +2,14 @@
 # Smoke-проверка развёрнутого стека. Проверяет через nginx (как реальный клиент):
 #   1) /health → status ok, БД ok;  2) SPA (index.html) отдаётся;  3) API отвечает 401 без токена;
 #   4) фоновый воркер жив (без него конвейер стоит, а на экранах этого не видно).
-# Использование: ./smoke.sh [WEB_PORT] [SCHEME]   (по умолчанию 8090 http)
-#   ./smoke.sh 8443 https   — проверка HTTPS (самоподписанный сертификат не проверяется).
+# Использование: ./smoke.sh [ПОРТ] [СХЕМА]   (по умолчанию 80 http)
+#   ./smoke.sh 443 https    — проверка HTTPS (самоподписанный сертификат не проверяется).
 set -euo pipefail
 cd "$(dirname "$0")"
 # HTTP-клиент: curl, а если его нет (базовая Astra) — python3. См. http-lib.sh.
 . ./http-lib.sh
 
-PORT="${1:-8090}"
+PORT="${1:-80}"
 SCHEME="${2:-http}"
 BASE="${SCHEME}://localhost:${PORT}"
 fail=0

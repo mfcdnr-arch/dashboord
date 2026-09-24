@@ -44,8 +44,11 @@ env_get() { { grep -E "^$1=" .env.prod 2>/dev/null | cut -d= -f2- | tail -1; } |
 # Адрес проверки. По умолчанию — снаружи, через веб-прокси: именно так систему
 # видит человек. Проверять API по внутреннему адресу значило бы пропустить
 # самый частый случай отказа — лежит прокси, а API при этом жив.
-HTTPS_PORT="$(env_get HTTPS_PORT)"; HTTPS_PORT="${HTTPS_PORT:-8443}"
-WEB_PORT="$(env_get WEB_PORT)"; WEB_PORT="${WEB_PORT:-8080}"
+# Умолчания — те же, что у deploy.sh (80/443). До 24.09.2026 здесь стояло 8080
+# при 8090 у deploy.sh: на установке без явного WEB_PORT в .env.prod сторож
+# стучался бы не туда и поднял бы ложную тревогу о недоступности.
+HTTPS_PORT="$(env_get HTTPS_PORT)"; HTTPS_PORT="${HTTPS_PORT:-443}"
+WEB_PORT="$(env_get WEB_PORT)"; WEB_PORT="${WEB_PORT:-80}"
 if [ -n "$(env_get TLS_SAN)$(env_get TLS_CN)" ] || [ -d certs ]; then
   DEFAULT_URL="https://127.0.0.1:${HTTPS_PORT}/health"
 else
