@@ -55,15 +55,12 @@ from ._rowrank import page_row_rank  # noqa: F401
 from ._rowrls import get_row_acl, set_row_acl  # noqa: F401
 from ._suggest import (  # noqa: F401
     _dataset_numeric_fields,
-    _existing_widget_signatures,
-    _spec_signature,
     apply_default_alerts,
     auto_build,
     auto_build_plan,
     dashboard_metric_codes,
     fit_layout,
     place_metric_widget,
-    suggest_widgets,
 )
 from ._summary import page_summary  # noqa: F401
 from ._templates import (  # noqa: F401

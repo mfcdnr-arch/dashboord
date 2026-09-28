@@ -65,30 +65,50 @@ def test_two_stages_are_not_a_funnel():
                                  values={"otpr": 1000.0, "dost": 800.0})
 
 
+def rec(*a, **kw):
+    """Виды, которые планировщик РЕКОМЕНДУЕТ (остальные — кандидаты с причиной)."""
+    return [s["kind"] for s in by_meaning_specs(*a, **kw) if s["recommended"]]
+
+
 def test_status_grid_and_heatmap_need_rows():
     """Светофор и тепловая карта — про строки. На одной строке они бессмысленны."""
     one_row = kinds(MAX_FIELDS, rows=1, periods=4, values=MAX_SUMS)
     assert "status_grid" not in one_row and "heatmap" not in one_row
 
-    many = kinds(MAX_FIELDS, rows=62, periods=4, values=MAX_SUMS)
-    assert "status_grid" in many and "heatmap" in many
+    many = by_meaning_specs(MAX_FIELDS, rows=62, periods=4, values=MAX_SUMS)
+    assert "heatmap" in [s["kind"] for s in many if s["recommended"]]
+    # Светофор красит плитки по выполнению плана; у этих граф плана нет —
+    # плитки вышли бы одного цвета. Он в списке, но «не рекомендую».
+    grid = next(s for s in many if s["kind"] == "status_grid")
+    assert not grid["recommended"] and "план" in grid["reason"].lower()
 
 
 def test_pie_only_for_a_few_rows():
     """Круговая честна на немногих долях: на 62 секторах подписи слипаются."""
-    assert "pie" in kinds(MAX_FIELDS, rows=5, periods=1, values=MAX_SUMS)
-    assert "pie" not in kinds(MAX_FIELDS, rows=62, periods=1, values=MAX_SUMS)
+    assert "pie" in rec(MAX_FIELDS, rows=5, periods=1, values=MAX_SUMS)
+    # На 62 строках — кандидат «не рекомендую» с причиной, а не молчание:
+    # человек может захотеть круговую сам, и решение за ним.
+    many = [s for s in by_meaning_specs(MAX_FIELDS, rows=62, periods=1, values=MAX_SUMS)
+            if s["kind"] == "pie"]
+    assert many and not many[0]["recommended"] and "семи" in many[0]["reason"]
+    # На двух строках круговая не нужна вовсе: это «доля одного от двух».
     assert "pie" not in kinds(MAX_FIELDS, rows=2, periods=1, values=MAX_SUMS)
 
 
-def test_waterfall_needs_cumulative_field_and_a_series():
-    """Водопад показывает вклад периодов: нужен накопительный итог и ряд точек."""
+def test_waterfall_needs_a_series_of_periods():
+    """Водопад показывает вклад периодов — нужен ряд из трёх и больше точек.
+
+    С 24.09.2026 он строится и потоку («за отчётную неделю»): «из каких недель
+    сложилась выдача» — честный вопрос, и сумма ступеней равна итогу. До этого
+    вид ставился только графам со словами «нарастающ/итог».
+    """
     assert "waterfall" in kinds(MAX_FIELDS, rows=1, periods=4, values=MAX_SUMS)
     # Две точки — это ещё не ряд.
     assert "waterfall" not in kinds(MAX_FIELDS, rows=1, periods=2, values=MAX_SUMS)
-    # Нет накопительного показателя — нечего раскладывать по периодам.
     weekly = [_f("w", "Количество обращений · Факт · за отчетную неделю")]
-    assert "waterfall" not in kinds(weekly, rows=1, periods=4, values={"w": 10.0})
+    got = [s for s in by_meaning_specs(weekly, rows=1, periods=4, values={"w": 10.0})
+           if s["kind"] == "waterfall"]
+    assert got and got[0]["config"] == {"value_field": "w", "by": "periods"}
 
 
 def test_yoy_only_across_calendar_years():
@@ -117,42 +137,3 @@ def test_plan_and_share_columns_are_not_taken_as_facts():
     used = {f["code"] for s in got for f in s["fields"]}
     assert "plan" not in used and "share" not in used
     assert "fact" in used
-
-def test_wide_form_shows_the_busiest_indicators_not_the_first_ones():
-    """🔴 На форме из сотен граф «первые N» — это лотерея.
-
-    Найдено на данных РЦО: мастер взял 24 графы из 326 по порядку заведения и
-    попал на редкие услуги — даже в рабочий день у выбранной графы 62 строки и
-    итог 0, а «ИТОГО · Принято» (5 943 за день) на дашборд не попало вовсе.
-    Порядок заведения полей — это порядок столбцов в файле, и о важности он не
-    говорит ничего.
-    """
-    from app.modules.dashboards._suggest import MAX_AUTO_KPI, _pick_shown
-
-    wide = [{"code": f"f{i}", "name": f"Услуга {i} · Принято, ед."}
-            for i in range(MAX_AUTO_KPI + 20)]
-    # Нагруженные графы лежат в КОНЦЕ списка — ровно как в форме заказчика.
-    volumes = {f["code"]: 0.0 for f in wide}
-    busiest = [f["code"] for f in wide[-5:]]
-    for n, code in enumerate(busiest):
-        volumes[code] = 1000.0 * (n + 1)
-
-    shown = [f["code"] for f in _pick_shown(wide, volumes)]
-    assert len(shown) == MAX_AUTO_KPI
-    for code in busiest:
-        assert code in shown, "нагруженная графа обязана попасть на дашборд"
-    assert shown[0] == busiest[-1], "самая нагруженная — первой"
-
-
-def test_narrow_form_keeps_the_order_of_the_file():
-    """На узкой форме порядок не трогаем: там помещаются все.
-
-    Порядок столбцов файла осмыслен сам по себе, и ломать его без выгоды
-    незачем.
-    """
-    from app.modules.dashboards._suggest import _pick_shown
-
-    narrow = [{"code": f"f{i}", "name": f"Показатель {i}"} for i in range(5)]
-    volumes = {"f0": 1.0, "f4": 9999.0}
-    assert [f["code"] for f in _pick_shown(narrow, volumes)] == [f["code"] for f in narrow]
-

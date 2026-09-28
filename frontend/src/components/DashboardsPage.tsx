@@ -41,7 +41,7 @@ import LadderBar from './dashboards/LadderBar'
 import { MissingFieldsDialog } from './dashboards/MissingFieldsDialog'
 import { TemplateCloneDialog } from './dashboards/TemplateCloneDialog'
 import { RebindModal, type RebindState } from './dashboards/RebindModal'
-import { SourceCatalog, SuggestMetricsPanel, SuggestPanel, WidgetForm } from './dashboards/WidgetForm'
+import { SourceCatalog, SuggestMetricsPanel, WidgetForm } from './dashboards/WidgetForm'
 import { crumb, editHint, linkDanger, muted, rmBtn } from './dashboards/shared'
 import { Modal, ModalTitle } from './Modal'
 import Notice from './Notice'
@@ -1300,7 +1300,6 @@ export default function DashboardsPage({
                 <div data-export-hide style={{ marginTop: 20 }}>
                   <h2 style={{ fontSize: 14, margin: '0 0 8px' }}>Добавить виджет</h2>
                   <SourceCatalog sources={sources} />
-                  {sources.datasets.length > 0 && <SuggestPanel datasets={sources.datasets} onAdd={addWidgetsBatch} />}
                   <SuggestMetricsPanel dashboardId={sel.dashboard.id} />
                   <WidgetForm sources={sources} onCreate={addWidget} />
                 </div>

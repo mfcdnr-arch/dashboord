@@ -123,6 +123,39 @@ export type DatasetPick = {
   views?: Record<string, string>
   /** Отчётные даты, для которых нужны отдельные страницы-срезы. */
   periods?: string[]
+  /** Ключи кандидатов «не рекомендую», которые человек всё же добавил. */
+  include?: string[]
+  /** Ключи рекомендованных кандидатов, которые человек снял. */
+  exclude?: string[]
+  /** Графы отмечены поштучно («снять» → свои галочки): лимит карточек не действует. */
+  manual?: boolean
+}
+
+/** Части пояснения кандидата — те же, что станут подсказкой ⓘ виджета. */
+export type ExplainSections = {
+  what?: string; answers?: string; data?: string; how?: string; caveats?: string
+}
+
+/** Кандидат в виджеты: рекомендованный или «не рекомендую, потому что…». */
+export type AutoPlanCandidate = {
+  /** Постоянный ключ: по нему запоминается галочка (include/exclude). */
+  key: string
+  dataset_code: string
+  page: string
+  name: string
+  widget_type: string
+  /** Имя вида — теми же словами, что в галерее виджетов. */
+  type_label: string
+  recommended: boolean
+  /** Почему не рекомендую — пусто у рекомендованных. */
+  reason: string
+  /** Будет ли создан при нынешнем выборе. */
+  build: boolean
+  /** Сколько карточек показателей занимает (для счётчика лимита). */
+  cards: number
+  explain: ExplainSections
+  /** Готовый текст ⓘ — ровно тот, что покажет созданный виджет. */
+  explain_text: string
 }
 
 export type AutoPlanDataset = {
@@ -164,6 +197,10 @@ export type AutoPlan = {
   by_type: Record<string, number>
   /** Как система предлагает показать каждый показатель: {код набора: {код поля: вид}}. */
   views: Record<string, Record<string, string>>
+  /** Все кандидаты — и рекомендованные, и «не рекомендую, потому что…». */
+  candidates: AutoPlanCandidate[]
+  /** Карточки показателей: сколько рекомендовано, сколько можно, лимит. */
+  cards: { recommended: number; total: number; limit: number; manual: boolean }
 }
 
 /** Предпросмотр мастера: что будет создано при таком выборе. Считается тем же
@@ -171,6 +208,7 @@ export type AutoPlan = {
 export async function autoBuildPlan(
   objectId: string, selection?: Record<string, DatasetPick>,
   documentId?: string, lockPeriod = true,
+  opts: { alerts?: boolean; withMetrics?: boolean } = {},
 ): Promise<AutoPlan> {
   const res = await fetch('/dashboards/auto/plan', {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
@@ -179,6 +217,10 @@ export async function autoBuildPlan(
       // Сборка по конкретному отчёту: показатели берутся из его выпуска, а
       // виджеты закрепляются за его отчётной датой (если не снять галочку).
       document_id: documentId || null, lock_period: lockPeriod,
+      // Пороги — как в самой сборке: предпросмотр обязан считать тем же выбором.
+      alerts: opts.alerts ?? true,
+      // Расчётные показатели от галочек не зависят — при пересчёте их не просим.
+      with_metrics: opts.withMetrics ?? true,
     }),
   })
   if (!res.ok) throw new Error(await errText(res))
@@ -468,12 +510,6 @@ export async function deletePreset(dashboardId: string, presetId: string): Promi
   if (!res.ok) throw new Error(await errText(res))
 }
 export interface WidgetSpec { name: string; widget_type: string; config: Record<string, unknown>; width: number; height: number }
-export interface WidgetSuggestions { specs: WidgetSpec[]; total_candidates: number; already_built: number }
-export async function widgetSuggestions(datasetCode: string): Promise<WidgetSuggestions> {
-  const res = await fetch(`/widgets/suggestions?dataset_code=${encodeURIComponent(datasetCode)}`, { headers: authH() })
-  if (!res.ok) throw new Error(await errText(res))
-  return res.json()
-}
 export async function previewWidget(body: { widget_type: string; name?: string; config: Record<string, unknown> }): Promise<any> {
   const res = await fetch('/widgets/preview', {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify(body),

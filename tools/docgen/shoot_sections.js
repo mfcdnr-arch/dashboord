@@ -86,9 +86,7 @@ const nav = async (page, section) => {
   await clickText(page, 'zdoc_Услуги центра', 'div')
   await page.waitForTimeout(3500)
   await shot(page, 'dashboard_anomalies')
-  await clickText(page, '💡 Предложить ещё', 'button')
-  await page.waitForTimeout(2000)
-  await shot(page, 'suggest_widgets')
+  // Предложения виджетов живут в мастере «✨ Собрать» — кадры снимает shoot_v8.js.
   await clickText(page, '💡 Предложить метрики', 'button')
   await page.waitForTimeout(2500)
   await shot(page, 'suggest_metrics')

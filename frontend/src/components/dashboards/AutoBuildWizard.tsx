@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   autoBuildDashboard, autoBuildPlan, DuplicateError, listDocuments, listFolders,
-  type AutoPlan, type DatasetPick, type Dashboard, type Doc, type Folder,
+  type AutoPlan, type AutoPlanCandidate, type DatasetPick, type Dashboard, type Doc, type Folder,
 } from '../../api'
 // Тот же формат числа, что на дашборде и в предложениях метрик: два знака
 // после запятой. Свой toLocaleString печатал «656,868 %» там, где везде «656,87 %».
@@ -10,6 +10,7 @@ import { plural } from '../../lib/text'
 
 import { Modal, ModalTitle } from '../Modal'
 import Notice from '../Notice'
+import AutoBuildCandidates from './AutoBuildCandidates'
 /**
  * Мастер авто-сборки: что нашли в объекте и что из этого собрать.
  *
@@ -34,28 +35,6 @@ const BLOCK_LABELS: Record<string, string> = {
   // там, где отвечает на свой вопрос, — если данных не хватает, не ставится
   // ничего, поэтому на разных формах набор будет разным.
   by_meaning: 'Виды по смыслу данных',
-}
-
-// Подписи ТИПОВ виджетов для итоговой строки «будет создано». Раньше сводка
-// считала по названиям блоков, и в неё попадали только те типы, чьё имя
-// случайно совпало с именем блока: ни группы разрезов, ни спидометров, ни
-// видов «по смыслу» человек не видел — предпросмотр обещал меньше, чем
-// создавал. Недостающие имена берутся из BLOCK_LABELS (там, где совпадают).
-const WIDGET_LABELS: Record<string, string> = {
-  kpi_group: 'Показатель во всех разрезах',
-  gauge: 'Спидометр',
-  funnel: 'Воронка',
-  status_grid: 'Светофор по строкам',
-  heatmap: 'Тепловая карта',
-  waterfall: 'Водопад',
-  pie: 'Круговая',
-  yoy: 'Год к году',
-  line: 'Линия',
-  pivot: 'Сводная таблица',
-  cross_dataset_compare: 'Сравнение источников',
-  objects_compare: 'Сравнение объектов',
-  text: 'Текст',
-  image: 'Картинка',
 }
 
 // Вид конкретного показателя. Система предлагает его по роли столбца
@@ -141,12 +120,18 @@ export default function AutoBuildWizard(
             const ds = p.datasets.find((d) => d.code === code)
             if (!ds || !init[code]) continue
             const known = new Set(ds.fields.map((f) => f.code))
+            // Галочки у виджетов — только те, чьи кандидаты ещё существуют:
+            // форма могла измениться, и чужой ключ ничего бы не значил.
+            const keys = new Set((p.candidates || []).filter((c) => c.dataset_code === code).map((c) => c.key))
             init[code] = {
               ...init[code],
               fields: (pick.fields || []).filter((f) => known.has(f)),
               blocks: pick.blocks || init[code].blocks,
               views: { ...init[code].views, ...(pick.views || {}) },
               periods: (pick.periods || []).filter((x) => (ds.period_dates || []).includes(x)),
+              include: (pick.include || []).filter((k) => keys.has(k)),
+              exclude: (pick.exclude || []).filter((k) => keys.has(k)),
+              manual: !!pick.manual,
             }
             setRestored(true)
           }
@@ -164,11 +149,25 @@ export default function AutoBuildWizard(
 
   // Пересчёт итога при смене галочек. Дебаунс — чтобы клик по «снять все»
   // не порождал запрос на каждую галочку.
+  // Вместе с числами обновляются и кандидаты: снятая графа убирает свои
+  // виджеты, а ручной выбор снимает пометки «сверх лимита». 🔴 До 24.09 в
+  // зависимостях был один objectId, и пересчёт после выбора файла шёл по
+  // СТАРОМУ файлу и закреплению — число в итоге расходилось со сборкой.
+  // Номер последнего запроса: ответы приходят не по порядку, и опоздавший
+  // старый затёр бы свежий список — галочка «откатывалась» бы сама.
+  const lastReq = useRef(0)
   const recount = useCallback((s: Record<string, DatasetPick>) => {
-    autoBuildPlan(objectId, s, docId || undefined, lockPeriod)
-      .then((p) => setPlan((cur) => (cur ? { ...cur, widgets: p.widgets, pages: p.pages, by_type: p.by_type } : p)))
+    const n = ++lastReq.current
+    autoBuildPlan(objectId, s, docId || undefined, lockPeriod, { alerts, withMetrics: false })
+      .then((p) => {
+        if (n !== lastReq.current) return
+        setPlan((cur) => (cur ? {
+          ...cur, widgets: p.widgets, pages: p.pages, by_type: p.by_type,
+          candidates: p.candidates, cards: p.cards, warnings: p.warnings,
+        } : p))
+      })
       .catch(() => {})
-  }, [objectId])
+  }, [objectId, docId, lockPeriod, alerts])
   useEffect(() => {
     if (!sel) return
     const t = setTimeout(() => recount(sel), 250)
@@ -209,8 +208,22 @@ export default function AutoBuildWizard(
       return { ...s, [code]: { ...s[code], periods: next } }
     })
   }
+  /** «все» — вернуться к рекомендациям системы; «снять» — начать ручной выбор:
+   *  отмеченные после этого графы не урезаются лимитом карточек. */
   function setAllFields(code: string, all: string[], on: boolean) {
-    setSel((s) => (s ? { ...s, [code]: { ...s[code], fields: on ? all : [] } } : s))
+    setSel((s) => (s ? { ...s, [code]: { ...s[code], fields: on ? all : [], manual: !on } } : s))
+  }
+  /** Галочка у виджета: рекомендованный снимается (exclude), остальные
+   *  добавляются (include). Храним ключ, а не номер в списке. */
+  function toggleCandidate(code: string, c: AutoPlanCandidate) {
+    setSel((s) => {
+      if (!s) return s
+      const p = s[code] || {}
+      const listKey = c.recommended ? 'exclude' : 'include'
+      const cur = new Set(p[listKey] || [])
+      if (cur.has(c.key)) cur.delete(c.key); else cur.add(c.key)
+      return { ...s, [code]: { ...p, [listKey]: [...cur] } }
+    })
   }
 
   // Текст переспроса про одноимённый дашборд (null — переспроса нет).
@@ -229,6 +242,20 @@ export default function AutoBuildWizard(
     const suffix = last ? ` — ${ruDate(last)}` : ` — ${new Date().toLocaleDateString('ru-RU')}`
     return `${name.trim()}${suffix}`
   })()
+
+  // Названия видов для итоговой строки — те же, что у кандидатов (сервер берёт
+  // их из галереи виджетов). 🔴 До 24.09 у мастера был свой словарь, и новые
+  // виды печатались кодами: «ranked: 1», «spark_table: 1».
+  const typeLabels: Record<string, string> = {}
+  for (const c of plan?.candidates || []) typeLabels[c.widget_type] = c.type_label
+
+  // Сколько карточек показателей будет создано — по отметкам человека, сразу,
+  // не дожидаясь пересчёта: счётчик должен откликаться на галочку.
+  const cardsBuilt = (plan?.candidates || []).reduce((n, c) => {
+    const p = sel?.[c.dataset_code] || {}
+    const on = c.recommended ? !(p.exclude || []).includes(c.key) : (p.include || []).includes(c.key)
+    return n + (on ? c.cards : 0)
+  }, 0)
 
   async function build(force = false) {
     if (!sel) return
@@ -345,6 +372,17 @@ export default function AutoBuildWizard(
                     </div>
                   ))}
                 </div>
+                {pick.manual && (
+                  <div style={{ ...muted, fontSize: 12, marginTop: 4 }}>
+                    Ручной выбор: отмеченные графы попадут на дашборд все, без лимита карточек.
+                    «все» — вернуться к рекомендациям системы.
+                  </div>
+                )}
+                <AutoBuildCandidates
+                  candidates={(plan.candidates || []).filter((c) => c.dataset_code === d.code)}
+                  include={pick.include || []} exclude={pick.exclude || []}
+                  onToggle={(c) => toggleCandidate(d.code, c)}
+                />
                 {(d.period_dates || []).length > 1 && (
                   <>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '12px 0 4px', flexWrap: 'wrap' }}>
@@ -530,6 +568,18 @@ export default function AutoBuildWizard(
           </div>
 
           <div style={total}>
+            {plan.cards && plan.cards.total > 0 && (
+              <div style={{ marginBottom: 4 }}>
+                Карточек показателей: <b>{cardsBuilt}</b> из {plan.cards.total} возможных
+                {' · '}рекомендую до {plan.cards.limit}
+                {cardsBuilt > plan.cards.limit && (
+                  // Предупреждение, а не запрет: решение за человеком (23.09).
+                  <div style={{ color: 'var(--accent-text)', marginTop: 2 }}>
+                    Больше {plan.cards.limit} — страница станет длинной, её придётся прокручивать.
+                  </div>
+                )}
+              </div>
+            )}
             Будет создано: <b>{plan.pages?.length || 0}</b> {pagePlural(plan.pages?.length || 0)}
             {' · '}<b>{plan.widgets}</b> {plural(plan.widgets, 'виджет', 'виджета', 'виджетов')}
             {(plan.pages || []).length > 0 && (
@@ -540,7 +590,7 @@ export default function AutoBuildWizard(
             {plan.widgets > 0 && (
               <span style={{ color: 'var(--text-muted)' }}>
                 {' '}({Object.entries(plan.by_type).filter(([, n]) => n > 0)
-                  .map(([t, n]) => `${WIDGET_LABELS[t] || BLOCK_LABELS[t] || t}: ${n}`).join(', ')})
+                  .map(([t, n]) => `${typeLabels[t] || t}: ${n}`).join(', ')})
               </span>
             )}
           </div>

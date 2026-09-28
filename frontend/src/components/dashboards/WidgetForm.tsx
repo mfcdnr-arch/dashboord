@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import {
-  createMetric, createVersion, metricSuggestions, previewWidget, widgetSuggestions,
-  type DataSources, type MetricSource, type MetricSuggestion, type Widget, type WidgetSpec,
+  createMetric, createVersion, metricSuggestions, previewWidget,
+  type DataSources, type MetricSource, type MetricSuggestion, type Widget,
 } from '../../api'
 import { WidgetPreviewBody } from '../WidgetView'
 import FormulaBuilder from '../FormulaBuilder'
@@ -97,65 +97,6 @@ export function SourceCatalog({ sources }: { sources: DataSources }) {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
         {sources.metrics.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Нет метрик — создайте в разделе «Метрики».</span>}
         {sources.metrics.map((m) => <span key={m.code} style={chip('var(--accent-weak-bg)', 'var(--accent-text)')}>{m.name} <span style={{ color: 'var(--text-faint)' }}>({m.code})</span></span>)}
-      </div>
-    </div>
-  )
-}
-
-// ── Подсказки «что собрать»: система предлагает виджеты под выбранный датасет.
-// Delta-aware (2026-08-04): то, что уже построено где-либо в организации для
-// этого же датасета (= того же объекта), в предложениях не повторяется. ──
-export function SuggestPanel({ datasets, onAdd }: { datasets: DataSources['datasets']; onAdd: (specs: WidgetSpec[]) => Promise<void> }) {
-  const [dc, setDc] = useState(datasets[0]?.code || '')
-  const [specs, setSpecs] = useState<WidgetSpec[]>([])
-  const [alreadyBuilt, setAlreadyBuilt] = useState(0)
-  const [chosen, setChosen] = useState<Set<number>>(new Set())
-  const [err, setErr] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [open, setOpen] = useState(false)
-
-  function load(code: string) {
-    setErr(null); setSpecs([]); setAlreadyBuilt(0); setChosen(new Set())
-    if (!code) return
-    widgetSuggestions(code).then((r) => { setSpecs(r.specs); setAlreadyBuilt(r.already_built); setChosen(new Set(r.specs.map((_, i) => i))) }).catch((e) => setErr((e as Error).message))
-  }
-  useEffect(() => { if (open && dc) load(dc) }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
-  const toggle = (i: number) => setChosen((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n })
-  async function add() {
-    const picked = specs.filter((_, i) => chosen.has(i))
-    if (!picked.length) return
-    setBusy(true)
-    try { await onAdd(picked) } finally { setBusy(false) }
-  }
-
-  if (!open) {
-    return (
-      <button style={{ ...btnAuto, height: 34, marginBottom: 12 }} onClick={() => setOpen(true)}>
-        💡 Предложить ещё
-      </button>
-    )
-  }
-  return (
-    <div style={{ border: '1px solid var(--border-strong)', borderRadius: 10, padding: 12, marginBottom: 12, background: 'var(--surface-2)' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-        <Field size="sm" label="Датасет"><select style={sel} value={dc} onChange={(e) => { setDc(e.target.value); load(e.target.value) }}>
-          {datasets.map((d) => <option key={d.code} value={d.code}>{dsOption(d)}</option>)}
-        </select></Field>
-        <button style={{ ...btn, height: 34 }} disabled={busy || chosen.size === 0} onClick={add}>{busy ? 'Добавление…' : `＋ Добавить выбранные (${chosen.size})`}</button>
-        <button style={{ ...btnGhost, height: 34 }} onClick={() => setOpen(false)}>Скрыть</button>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>отметьте нужные предложения</span>
-      </div>
-      {err && <div style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 6 }}>{err}</div>}
-      {alreadyBuilt > 0 && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Показаны только недостающие — {alreadyBuilt} {alreadyBuilt === 1 ? 'вариант' : 'вариантов'} уже построен(о) для этого датасета.</div>}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {specs.length === 0 && !err && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{alreadyBuilt > 0 ? 'Всё уже построено — новых предложений нет.' : 'Нет предложений.'}</span>}
-        {specs.map((s, i) => (
-          <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, border: '1px solid var(--border)', borderRadius: 8, padding: '5px 10px', background: chosen.has(i) ? 'var(--accent-weak-bg)' : 'var(--surface)', cursor: 'pointer' }}>
-            <input type="checkbox" checked={chosen.has(i)} onChange={() => toggle(i)} />
-            {s.name}
-            <span style={{ ...wtBadge, marginLeft: 4 }}>{WT.find((x) => x.v === s.widget_type)?.t || s.widget_type}</span>
-          </label>
-        ))}
       </div>
     </div>
   )

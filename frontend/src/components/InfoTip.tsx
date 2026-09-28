@@ -2,6 +2,11 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 const TIP_WIDTH = 240
+// Пояснение виджета с 24.09 — части «что / отвечает / данные / как / учтите»,
+// до 700 знаков. В 240 px такой текст вытягивался в столб на пол-экрана;
+// длинному даём ширину строки, которую удобно читать.
+const TIP_WIDE = 360
+const WIDE_FROM = 260
 const GAP = 6 // отступ от значка до облачка
 const EDGE = 8 // минимальный зазор от края окна
 
@@ -17,6 +22,7 @@ export default function InfoTip({ text, label = 'Подсказка' }: { text: 
   const btn = useRef<HTMLButtonElement>(null)
   const tip = useRef<HTMLSpanElement>(null)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const width = Math.min(text.length > WIDE_FROM ? TIP_WIDE : TIP_WIDTH, window.innerWidth - 2 * EDGE)
 
   useLayoutEffect(() => {
     if (!open || !btn.current) return
@@ -26,8 +32,8 @@ export default function InfoTip({ text, label = 'Подсказка' }: { text: 
       if (!b) return
       const h = tip.current?.offsetHeight ?? 0
       // По горизонтали: по центру значка, но не заезжая за края окна.
-      const half = TIP_WIDTH / 2
-      const left = Math.min(Math.max(b.left + b.width / 2 - half, EDGE), window.innerWidth - TIP_WIDTH - EDGE)
+      const half = width / 2
+      const left = Math.min(Math.max(b.left + b.width / 2 - half, EDGE), window.innerWidth - width - EDGE)
       // По вертикали: под значком, а если снизу не помещается — над ним.
       const below = b.bottom + GAP
       const top = below + h > window.innerHeight - EDGE ? Math.max(b.top - GAP - h, EDGE) : below
@@ -42,7 +48,7 @@ export default function InfoTip({ text, label = 'Подсказка' }: { text: 
       window.removeEventListener('scroll', place, true)
       window.removeEventListener('resize', place)
     }
-  }, [open, text])
+  }, [open, text, width])
 
   if (!text) return null
   return (
@@ -56,7 +62,9 @@ export default function InfoTip({ text, label = 'Подсказка' }: { text: 
       {open && createPortal(
         <span ref={tip} role="tooltip" style={{
           position: 'fixed', top: pos?.top ?? -9999, left: pos?.left ?? -9999, zIndex: 200,
-          width: TIP_WIDTH, background: 'var(--tooltip-bg)', color: 'var(--tooltip-fg)', fontSize: 12, lineHeight: 1.4, fontWeight: 400,
+          // border-box: поля входят в ширину. Без этого облачко было на 20 px
+          // шире расчётного и у правого края окна обрезалось посреди слова.
+          width, boxSizing: 'border-box', background: 'var(--tooltip-bg)', color: 'var(--tooltip-fg)', fontSize: 12, lineHeight: 1.4, fontWeight: 400,
           padding: '8px 10px', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.25)', whiteSpace: 'normal',
           // до первого замера держим облачко невидимым, иначе виден скачок из угла
           visibility: pos ? 'visible' : 'hidden', pointerEvents: 'none',

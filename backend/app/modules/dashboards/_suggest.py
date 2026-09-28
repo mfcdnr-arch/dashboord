@@ -1,8 +1,10 @@
-"""Предложения виджетов и авто-сборка дашборда (вынесено из service.py).
+"""Планировщик виджетов и авто-сборка дашборда (вынесено из service.py).
 
-Правила, не ИИ: по числовым полям датасета собираются готовые спецификации
-виджетов; уже построенное для этого датасета из предложений вычитается.
-Функции реэкспортируются из service.py — внешние вызовы не меняются.
+Правила, не ИИ: по числовым графам формы планировщик перечисляет КАНДИДАТОВ
+в виджеты — каждого с пометкой «рекомендую» или «не рекомендую, потому что…»
+(решение заказчика 23.09.2026). Советчик в системе один: прежний «💡
+Предложить ещё» со своими правилами удалён 24.09, иначе через месяц снова
+было бы два набора правил. Функции реэкспортируются из service.py.
 """
 from __future__ import annotations
 
@@ -11,10 +13,11 @@ import re
 from collections import Counter
 from typing import List, Optional
 
+from ..ingestion.hierarchy import pick_separator, split_segments
 from ..metrics import resolver as mr
 from ..metrics.data_suggestions import _clean, _is_main_slice, _split_name, _subject_key
 from ..metrics.versions import best_version_order
-from ._aggregate import is_share, is_total_column, subject_with_measure
+from ._aggregate import is_share, is_total_column, measure_of, subject_with_measure
 from ._alerts import _cfg
 from ._base import DashboardError
 
@@ -23,14 +26,10 @@ from ._base import DashboardError
 # «из чего складывается» — так и было до 21.09.2026.
 _BEST_VER = best_version_order()
 
-# Потолок карточек в авто-сборке на один датасет. Показываем ВСЕ показатели
-# формы (у госформ их бывает полтора десятка), но у файла на сотню граф
-# столько виджетов сделали бы страницу нечитаемой, а её открытие — медленным:
-# каждая карточка считается отдельно. Остальные графы видны в таблице ниже.
-MAX_AUTO_KPI = 24
 # Потолок графиков динамики. Тренд — самое ценное, когда форм много, но каждый
 # график считается отдельным запросом: на широкой форме страница открывалась бы
-# заметно дольше. Остальные показатели добавляются кнопкой «💡 Предложить ещё».
+# заметно дольше. Остальные показатели остаются кандидатами «не рекомендую» и
+# добавляются галочкой. (Лимит карточек — MAX_CARDS ниже, в разделе карточек.)
 MAX_AUTO_DYNAMICS = 16
 
 # Пороги «нормы» для процента выполнения плана. Норма здесь не выдумана: 100 %
@@ -289,87 +288,21 @@ async def _dataset_numeric_fields(conn, org_id, dataset_code: str) -> List[dict]
     rel = await mr._active_release(conn, org_id, dataset_code)
     if rel is None:
         return []
+    # Порядок — как столбцы в ФАЙЛЕ (номер распознанного столбца), а не по
+    # алфавиту кода: до 24.09.2026 стоял `order by canonical_field_code`, и у
+    # узкой формы «первая графа» (по ней строятся столбцы и база матрицы)
+    # выбиралась транслитом — 'mvd_s10' вставала раньше 'mvd_s2'. У граф,
+    # объявленных по значениям (`declare_release_fields`), столбца нет — они в
+    # конце, по коду.
     rows = await conn.fetch(
         "select drf.canonical_field_code as code, coalesce(cf.name, drf.canonical_field_code) as name "
         "from dataset_release_fields drf "
         "left join canonical_fields cf on cf.code=drf.canonical_field_code "
         "  and cf.object_id=(select object_id from dataset_releases where id=$1) "
+        "left join extracted_columns ec on ec.id=drf.extracted_column_id "
         "where drf.dataset_release_id=$1 and coalesce(cf.data_type,'text')='number' "
-        "order by drf.canonical_field_code", rel)
+        "order by ec.column_index nulls last, drf.canonical_field_code", rel)
     return [dict(r) for r in rows]
-
-
-def _spec_signature(widget_type: str, cfg: dict):
-    """Ключ дедупликации предложения: тип + датасет + набор полей (без учёта
-    порядка/названия виджета) — «то же самое», даже если названо иначе."""
-    if widget_type == "plan_fact":
-        fields = tuple(sorted(x for x in (cfg.get("plan_field"), cfg.get("fact_field")) if x))
-    elif cfg.get("value_fields"):
-        fields = tuple(sorted(cfg["value_fields"]))
-    elif cfg.get("value_field"):
-        fields = (cfg["value_field"],)
-    else:
-        fields = ()
-    return (widget_type, cfg.get("dataset_code"), fields)
-
-
-async def _existing_widget_signatures(conn, org_id, dataset_code: str) -> set:
-    """Волна «рекомендации»: сигнатуры УЖЕ построенных виджетов по этому
-    датасету — ОРГАНИЗАЦИОННО-широкий поиск (не только текущий дашборд), т.к.
-    dataset_code однозначно принадлежит одному объекту — так предложения не
-    повторяют то, что уже собрано где угодно для этого же объекта/датасета."""
-    rows = await conn.fetch(
-        "select widget_type, config from widgets where organization_id=$1 and config->>'dataset_code'=$2",
-        org_id, dataset_code)
-    return {_spec_signature(r["widget_type"], _cfg(r)) for r in rows}
-
-
-async def suggest_widgets(conn, org_id, dataset_code: str) -> dict:
-    """Подсказки «что собрать» под датасет: готовые спецификации виджетов
-    (KPI по каждому числовому полю, график по строкам, динамика при >1 периода,
-    сравнение/план-факт при ≥2 полях, таблица-первичка). Пользователь выбирает.
-    Delta-aware (рекомендательная система, 2026-08-04): то, что уже построено
-    для этого датасета — где угодно в организации — из предложений убирается,
-    чтобы не предлагать заново то же самое."""
-    fields = await _dataset_numeric_fields(conn, org_id, dataset_code)
-    if not fields:
-        raise DashboardError("У датасета нет числовых полей — сначала распознайте документ")
-    dsname = await _dataset_display_name(conn, org_id, dataset_code)
-    periods = await conn.fetchval(
-        "select count(distinct reporting_period_start) from dataset_releases "
-        "where organization_id=$1 and code=$2 and status<>'superseded'", org_id, dataset_code) or 0
-
-    specs: List[dict] = []
-    for f in fields:
-        specs.append({"name": f"Σ {f['name']}", "widget_type": "kpi",
-                      "config": {"dataset_code": dataset_code, "value_field": f["code"]}, "width": 3, "height": 3})
-    f0 = fields[0]
-    specs.append({"name": f"{f0['name']} по строкам", "widget_type": "bar",
-                  "config": {"dataset_code": dataset_code, "value_field": f0["code"]}, "width": 5, "height": 6})
-    specs.append({"name": f"Водопад: {f0['name']}", "widget_type": "waterfall",
-                  "config": {"dataset_code": dataset_code, "value_field": f0["code"]}, "width": 6, "height": 6})
-    if periods > 1:
-        specs.append({"name": f"Динамика: {f0['name']}", "widget_type": "dynamics",
-                      "config": {"dataset_code": dataset_code, "value_field": f0["code"]}, "width": 6, "height": 6})
-    if len(fields) >= 2:
-        specs.append({"name": "Сравнение полей", "widget_type": "compare",
-                      "config": {"dataset_code": dataset_code, "value_fields": [f["code"] for f in fields[:4]], "viz": "bar"},
-                      "width": 6, "height": 7})
-        specs.append({"name": "Тепловая карта", "widget_type": "heatmap",
-                      "config": {"dataset_code": dataset_code, "value_fields": [f["code"] for f in fields[:6]]},
-                      "width": 6, "height": 7})
-        specs.append({"name": "Сводная таблица", "widget_type": "pivot",
-                      "config": {"dataset_code": dataset_code, "value_fields": [f["code"] for f in fields[:6]]},
-                      "width": 6, "height": 6})
-        specs.append({"name": f"План/факт: {fields[0]['name']} / {fields[1]['name']}", "widget_type": "plan_fact",
-                      "config": {"dataset_code": dataset_code, "plan_field": fields[0]["code"], "fact_field": fields[1]["code"]},
-                      "width": 4, "height": 5})
-    specs.append({"name": f"{dsname}: таблица", "widget_type": "table",
-                  "config": {"dataset_code": dataset_code}, "width": 6, "height": 6})
-
-    existing = await _existing_widget_signatures(conn, org_id, dataset_code)
-    delta = [s for s in specs if _spec_signature(s["widget_type"], s["config"]) not in existing]
-    return {"specs": delta, "total_candidates": len(specs), "already_built": len(specs) - len(delta)}
 
 
 # --------------------------------------------------------------------------- #
@@ -467,6 +400,16 @@ async def collect_object_datasets(conn, org_id, object_id: str,
         + ("and code=$3 " if only_code else "")
         + "group by code order by max(created_at) desc",
         *([org_id, object_id, only_code] if only_code else [org_id, object_id]))
+    # Подтверждённые ступени формы («Ведомство → Услуга») — по ним большая форма
+    # раскладывается по страницам (решение заказчика 23.09.2026). Шаблон, а с
+    # ним и ступени, один на объект и относятся к его коду набора; устаревшее
+    # подтверждение `load_confirmed` не отдаёт вовсе — лучше без раскладки,
+    # чем с неверной.
+    from ..objects.levels import load_confirmed  # локально: objects тянет dashboards
+
+    levels = await load_confirmed(conn, object_id)
+    levels_code = await conn.fetchval(
+        "select dataset_code from object_layout_templates where object_id=$1::uuid", object_id)
     out = []
     for d in rows:
         fields = await _dataset_numeric_fields(conn, org_id, d["code"])
@@ -523,6 +466,7 @@ async def collect_object_datasets(conn, org_id, object_id: str,
             "period_dates": [r["p"].isoformat() for r in dates],
             "sums": {r["code"]: float(r["total"]) for r in sums if r["total"] is not None},
             "volumes": {r["code"]: float(r["total"]) for r in volumes if r["total"] is not None},
+            "levels": levels if levels and levels_code == d["code"] else None,
         })
     return out
 
@@ -697,11 +641,6 @@ def deadline_from_name(name: str):
     return None
 
 
-def _is_cumulative(name: str) -> bool:
-    """Накопительный итог: у него вклад периодов и виден водопадом."""
-    return bool(re.search(r"нарастающ|накопительн|итог", name or "", re.I))
-
-
 def _funnel_chain(fields: list, values: Optional[dict] = None) -> list:
     """Поля, образующие настоящую воронку: ступени по словарю, вложенные друг в
     друга по величине.
@@ -737,13 +676,31 @@ def _funnel_chain(fields: list, values: Optional[dict] = None) -> list:
     return chain
 
 
+def _pair_for(field: dict, pairs: list):
+    """План, парный этой графе факта, — или None."""
+    for plan, fact in pairs:
+        if fact["code"] == field["code"]:
+            return plan
+    return None
+
+
 def by_meaning_specs(fields: list, rows: int, periods: int, first_period: str = "",
                      last_period: str = "", values: Optional[dict] = None,
                      volumes: Optional[dict] = None) -> list:
-    """Дополнительные виды виджетов, подобранные под СМЫСЛ данных.
+    """Виды виджетов, подобранные под СМЫСЛ данных — кандидаты с пометкой.
 
-    Возвращает список {kind, config-заготовка} — без места на сетке: раскладку
-    расставляет вызывающая сторона, как и для остальных блоков.
+    Возвращает список {kind, fields, config?, height?, recommended, reason} —
+    без места на сетке: раскладку расставляет вызывающая сторона.
+
+    С 24.09.2026 правило, которому данные не подходят, не всегда молчит: если
+    вид построить МОЖНО, но он ничего не добавит (светофор без плана, круговая
+    на шестидесяти строках), он возвращается кандидатом «не рекомендую» с
+    причиной словами. Решение заказчика 23.09: «правило „не рекомендую,
+    потому что…" должно жить в самом планировщике» — тогда им пользуются и
+    предложение виджетов, и «Собрать дашборд». Рекомендованные собираются по
+    умолчанию; нерекомендованные — только если человек отметит их сам.
+    Виды, которые построить нельзя вовсе (воронка без ступеней), по-прежнему
+    молчат: предлагать то, что заведомо покажет пустоту, незачем.
     """
     out: list = []
     facts = [f for f in fields
@@ -756,89 +713,102 @@ def by_meaning_specs(fields: list, rows: int, periods: int, first_period: str = 
     # день. Сортируем по объёму, если он замерен.
     if volumes:
         main = sorted(main, key=lambda f: -volumes.get(f["code"], 0.0))
+    pairs = _plan_fact_pairs(fields)
+
+    def add(kind, fs, recommended=True, reason="", **extra):
+        out.append({"kind": kind, "fields": fs, "recommended": recommended,
+                    "reason": reason, **extra})
 
     chain = _funnel_chain(main, values)
     if chain:
-        out.append({"kind": "funnel", "fields": chain})
+        add("funnel", chain)
 
     if rows >= MIN_ROWS_STATUS_GRID and main:
-        # Один показатель по многим строкам: столбчатый график на 63 полоски
-        # нечитаем, а плитка на отделение отвечает «где хорошо, где плохо».
-        out.append({"kind": "status_grid", "fields": [main[0]]})
+        # Один показатель по многим строкам: плитка на отделение отвечает «где
+        # плохо» — но ТОЛЬКО если есть с чем сравнить. Цвет плитки ставится по
+        # выполнению плана; без плана все плитки одного цвета и повторяют
+        # рейтинг (так и было на РЦО: «ИТОГО · Выдано: по отделениям» серыми
+        # плитками). Если у формы есть парный план — светофор строится по той
+        # графе, у которой он есть.
+        target = next((f for f in main if _pair_for(f, pairs)), None)
+        if target:
+            add("status_grid", [target], config={
+                "value_field": target["code"], "plan_field": _pair_for(target, pairs)["code"]})
+        else:
+            add("status_grid", [main[0]], recommended=False, reason=(
+                f"Цвет плитки ставится по выполнению плана, а плана у графы "
+                f"«{subject_with_measure(main[0]['name']) or main[0]['name']}» в форме нет — "
+                "все плитки будут одного цвета"
+                + (" и повторят рейтинг строк." if rows >= MIN_ROWS_RANKED else ".")))
 
-    if rows >= MIN_ROWS_SPARK and periods >= MIN_PERIODS_SPARK and main:
+    if rows >= MIN_ROWS_SPARK and main:
         # Рейтинг отвечает «кто первый», светофор — «у кого плохо», а этот вид
-        # — «как каждый двигался». Матрица отвечает тем же разрезом, но
-        # числами: на двенадцати столбцах она не помещается, а линия помещается
-        # и при шестидесяти строках.
-        out.append({"kind": "spark_table", "fields": [main[0]]})
+        # — «как каждый двигался». На двух отчётах линия вырождается в отрезок.
+        if periods >= MIN_PERIODS_SPARK:
+            add("spark_table", [main[0]])
+        elif periods == 2:
+            add("spark_table", [main[0]], recommended=False, reason=(
+                "Отчётов пока два — линия выродится в отрезок и формы движения не покажет. "
+                "С третьим отчётом вид станет полезным."))
 
-    if rows >= MIN_ROWS_RANKED and main:
-        # Светофор отвечает «где плохо» цветом, рейтинг — «кто первый и кто
-        # последний» порядком. На шести отделениях хватает первого, на
-        # шестидесяти трёх без второго не обойтись.
-        out.append({"kind": "ranked", "fields": [main[0]],
-                    "height": ranked_height(ranked_rows_shown({}))})
+    if main and rows >= MIN_ROWS_RANKED:
+        # На шестидесяти трёх отделениях без порядка не обойтись: «кто в
+        # хвосте» из плиток и столбиков уже не вычитывается.
+        add("ranked", [main[0]], height=ranked_height(ranked_rows_shown({})))
+    elif main and rows >= 3:
+        add("ranked", [main[0]], height=ranked_height(ranked_rows_shown({})),
+            recommended=False, reason=(
+                f"Строк в форме {rows} — их видно целиком и без рейтинга: на графике по "
+                "строкам и в таблице."))
 
-    if PIE_ROWS[0] <= rows <= PIE_ROWS[1] and main:
-        out.append({"kind": "pie", "fields": [main[0]]})
+    if main and PIE_ROWS[0] <= rows <= PIE_ROWS[1]:
+        add("pie", [main[0]])
+    elif main and rows > PIE_ROWS[1]:
+        add("pie", [main[0]], recommended=False, reason=(
+            f"Строк в форме {rows} — секторов было бы больше семи: мелкие сольются в "
+            "«Прочие», и доли глазами не сравнить. Порядок строк лучше читается рейтингом."))
 
     if rows >= MIN_ROWS_HEATMAP and len(main) >= MIN_FIELDS_HEATMAP:
         # 🔴 Свод и его составляющие на одной карте несопоставимы: клетка
         # «ИТОГО · Принято» СОДЕРЖИТ в себе клетку «ЕСИА · Принято», и цвет
-        # сравнивает целое с частью. А отбор идёт по объёму, поэтому свод всегда
-        # оказывался первым — на дашборде заказчика в карту попали ОБА свода
-        # («ИТОГО · Принято» и «ИТОГО · Выдано») плюс четыре их составляющие.
-        #
-        # Оговорка о том, чего эта правка НЕ лечит: тесноту шкалы. Замер на том
-        # же виджете — 67,7 % клеток в нижней пятой части шкалы, а без сводов
-        # 69,4 %, то есть чуть хуже. Теснота идёт от самих данных (медиана 27
-        # при максимуме 290 — длинный хвост по 63 отделениям), и лечится она
-        # шкалой, а не выбором граф.
+        # сравнивает целое с частью.
         parts = [f for f in main if not is_total_column(f["name"])]
         heat = parts if len(parts) >= MIN_FIELDS_HEATMAP else main
-        out.append({"kind": "heatmap", "fields": heat[:6],
-                    "height": heatmap_height(rows),
-                    # `rows_hint` — замеренное число строк: по нему подгонка
-                    # размеров посчитает ТУ ЖЕ высоту, что и сборка.
-                    "config": {"value_fields": [f["code"] for f in heat[:6]], "rows_hint": rows}})
+        add("heatmap", heat[:6], height=heatmap_height(rows),
+            # `rows_hint` — замеренное число строк: по нему подгонка
+            # размеров посчитает ТУ ЖЕ высоту, что и сборка.
+            config={"value_fields": [f["code"] for f in heat[:6]], "rows_hint": rows})
 
-    cum = [f for f in main if _is_cumulative(f["name"])]
-    if cum and periods >= MIN_PERIODS_WATERFALL:
-        # Вклад каждой недели в накопительный итог: линия показывает уровень,
-        # водопад — за счёт чего он такой.
-        # Разрез задаём ЯВНО: вид заводился ради вклада периодов, и без этого
-        # он показывал строки формы под именем «вклад периодов» — название
-        # врало (найдено осмотром дашборда заказчика 08.09).
-        out.append({"kind": "waterfall", "fields": [cum[0]],
-                    "config": {"value_field": cum[0]["code"], "by": "periods"}})
+    if main and periods >= MIN_PERIODS_WATERFALL:
+        # Вклад периодов: у нарастающего итога — прирост к прошлому отчёту
+        # поверх уровня, у потока — значение периода; сумма ступеней равна
+        # итогу. До 24.09 вид ставился только графам со словами «нарастающ/
+        # итог», и слово «итог» ловило поток «ИТОГО · Выдано» случайно, а
+        # поток без этого слова водопада не получал вовсе, хотя «из каких
+        # месяцев сложилась выдача» для него честный вопрос.
+        add("waterfall", [main[0]], config={"value_field": main[0]["code"], "by": "periods"})
 
     # Год к году — только если данные ДЕЙСТВИТЕЛЬНО пересекают два календарных
     # года: иначе виджет сравнивал бы год сам с собой.
     if main and first_period[:4] and last_period[:4] and first_period[:4] != last_period[:4]:
-        out.append({"kind": "yoy", "fields": [main[0]]})
+        add("yoy", [main[0]])
 
     # Полосы «план и факт»: одна карточка вместо пары-тройки отдельных.
     # Ставим ТОЛЬКО при нескольких парах — на одной паре полоса это тот же
     # «План-факт», только без прогноза.
-    pairs = _plan_fact_pairs(fields)
     if len(pairs) >= MIN_BULLET_ROWS:
-        out.append({"kind": "bullet", "fields": [f for _, f in pairs],
-                    "config": {"pairs": [{"plan_field": pl["code"], "fact_field": fa["code"]}
-                                         for pl, fa in pairs]},
-                    "height": bullet_height(len(pairs))})
+        add("bullet", [f for _, f in pairs],
+            config={"pairs": [{"plan_field": pl["code"], "fact_field": fa["code"]} for pl, fa in pairs]},
+            height=bullet_height(len(pairs)))
 
     # Термометр к сроку — только там, где срок НАЗВАН в имени графы плана.
-    # Спрашивать его у человека в мастере значило бы задавать вопрос, ответ на
-    # который уже написан в форме; выдумывать — ставить на первый экран
-    # «отставание», посчитанное от даты, которой никто не назначал.
     for plan_f, fact_f in pairs[:MAX_AUTO_THERMOMETERS]:
         due = deadline_from_name(plan_f["name"])
         if due is None:
             continue
-        out.append({"kind": "thermometer", "fields": [fact_f],
-                    "config": {"plan_field": plan_f["code"], "fact_field": fact_f["code"],
-                               "deadline": due.isoformat()}})
+        add("thermometer", [fact_f],
+            config={"plan_field": plan_f["code"], "fact_field": fact_f["code"],
+                    "deadline": due.isoformat()})
 
     return out
 
@@ -847,15 +817,11 @@ def _plan_fact_pairs(fields: list) -> list:
     """Пары «План + Факт» одного показателя в основном разрезе.
 
     Две карточки рядом заставляют считать процент в уме, а виджет «План-факт»
-    показывает полосу выполнения сразу. Пары ищем только в ОСНОВНОМ разрезе:
-    план в форме задан накопительный («до 1 сентября»), и сравнивать его с
-    недельным фактом было бы заведомо неверно.
+    показывает полосу выполнения сразу. План берём в ЛЮБОМ разрезе: он и так
+    задан накопительно («до 1 сентября»). Требование основного разреза
+    относится к ФАКТУ — иначе план сравнивался бы с недельным срезом. Правило
+    то же, что в подборе метрик (metrics/data_suggestions).
     """
-    # План берём в ЛЮБОМ разрезе: он и так задан накопительно («до 1 сентября»),
-    # а его собственная подпись под «нарастающим итогом» не подходит. Требование
-    # основного разреза относится к ФАКТУ — иначе план сравнивался бы с недельным
-    # или месячным срезом, что заведомо неверно. Правило то же, что в подборе
-    # метрик (metrics/data_suggestions), чтобы система не противоречила себе.
     plans: dict = {}
     for f in fields:
         p = _split_name(f["name"])
@@ -872,49 +838,308 @@ def _plan_fact_pairs(fields: list) -> list:
     return out
 
 
-def _pick_shown(fields: list, volumes: dict) -> list:
-    """Какие показатели вынести на дашборд, когда их больше, чем помещается.
+# --------------------------------------------------------------------------- #
+# Карточки: сколько, какие и на какой странице
+#
+# Лимит — в КАРТОЧКАХ, а не в графах (решение заказчика 23.09.2026). До этого
+# стоял потолок в 24 ГРАФЫ, и у РЦО он давал всего 8 карточек: графы одного
+# предмета собираются в одну карточку («ИТОГО» — три числа на одной). Теперь
+# рекомендуется до 35 карточек — самых нагруженных по объёму за всю историю;
+# остальные остаются в списке «не рекомендую, потому что сверх 35» и
+# добавляются галочкой. Графы, отмеченные человеком вручную, не урезаются.
+#
+# Большие формы — по страницам ступеней. 35 карточек на одном «Обзоре» — это
+# несколько экранов прокрутки. Когда у формы подтверждены ступени («Ведомство
+# → Услуга») и карточек больше, чем помещается на первый экран, они ложатся на
+# страницы ведомств: «Обзор», «Росреестр», «СФР»… Карточка там — услуга,
+# строки карточки — её меры («Принято», «Выдано», «Отказ»).
+# --------------------------------------------------------------------------- #
+MAX_CARDS = 35
+# Столько карточек помещается на первый экран: четыре ряда по три.
+OVERVIEW_CARDS = 12
+# Страница ведомства заводится, только если на ней хотя бы две карточки:
+# вкладка ради одной карточки — лишний клик без выигрыша.
+MIN_PAGE_CARDS = 2
+# Куда ложатся карточки ведомств, которым своя страница не положена.
+PAGE_OTHER = "Остальные ведомства"
+# Доля объёма формы, ниже которой ведомство без своих услуг считается мелким
+# (то же число, что у узла «Отдельные услуги» лестницы, `hierarchy.LONE_SHARE`).
+CARD_LONE_SHARE = 0.01
+# Страница-срез по отчёту: карточек на ней не больше этого (по три в ряд).
+PERIOD_PAGE_KPI = 24
+# Сколько графиков динамики сверх рекомендованных перечислить кандидатами.
+# Остальные добавляются вручную; об этом говорит строка в заметках плана.
+MAX_EXTRA_DYNAMICS = 20
 
-    🔴 Раньше брались ПЕРВЫЕ по порядку заведения — то есть по сути наугад.
-    На форме РЦО из 326 граф это дало дашборд из редких услуг: даже в рабочий
-    день у выбранной графы 62 строки и итог 0, а «ИТОГО · Принято» (5 943 за
-    день) на дашборд не попало вовсе.
 
-    Порядок заведения полей — это порядок столбцов в файле, и он ничего не
-    говорит о важности. Объём говорит: показатель, через который проходят
-    тысячи обращений, и показатель с нулём за полгода — разные новости.
+def _card_subject(name: str, sep: Optional[str]) -> str:
+    """Предмет карточки для группировки разрезов.
 
-    На узкой форме порядок НЕ меняется: пересортировка там ничего не улучшает
-    (помещаются все), а привычный порядок столбцов файла — сам по себе
-    осмысленный порядок, ломать его без выгоды незачем.
+    🔴 Форма с разделителем «:» («Услуга 1: Принято», «Статистика услуг»)
+    разбором имён не понималась вовсе: `_split_name` знает только « · », и 14
+    граф МВД давали 14 отдельных карточек вместо семи «Услуга N: Принято и
+    Выдано». Лестница при этом тот же разделитель знала (`pick_separator`) —
+    две подсистемы видели одну форму по-разному.
     """
-    if len(fields) <= MAX_AUTO_KPI:
-        return fields
-    # Показатели без замеренного объёма уходят в конец, а не наверх: у них
-    # объём неизвестен, и ставить их впереди заведомо нагруженных нельзя.
-    ranked = sorted(fields, key=lambda f: -volumes.get(f["code"], 0.0))
-    return ranked[:MAX_AUTO_KPI]
+    if sep == ":":
+        segs = split_segments(name, ":")
+        if len(segs) >= 2:
+            return segs[0]
+    return _split_name(name)["subject"]
 
 
-def plan_auto_build(datasets: list, selection: Optional[dict] = None,
-                    alerts: bool = True, pin_period: Optional[str] = None) -> list:
-    """Что именно будет создано — список виджетов с местом на сетке и страницей.
+def _group_cards(fields: list, pf_pairs: list, volumes: dict, sep: Optional[str],
+                 split: bool) -> list:
+    """Графы → карточки: {kind, fields, name, volume, owner, total, block}.
 
-    `selection` = {code: {"fields": [коды], "blocks": [виды], "views": {код: вид}}}.
-    Не передан — берём всё с автоматически подобранными видами.
+    `split` — группировать по ступеням («Ведомство · Услуга»): карточка это
+    услуга, её строки — меры. Иначе — по предмету имени, как раньше.
+    """
+    cards: list = []
+    gauges = [f for f in fields if is_share(f["name"])]
+    for f in gauges:
+        cards.append({"kind": "gauge", "fields": [f], "name": f["name"], "owner": None,
+                      "total": False, "block": "gauge"})
+    rest = [f for f in fields if f not in gauges]
+    # 🔴 План в группу разрезов не кладём: разрезы — способы посмотреть на ОДНУ
+    # величину, а план — цель, другая сущность. План, у которого есть факт,
+    # уже показан полосой или термометром; план БЕЗ факта остаётся отдельной
+    # карточкой, чтобы не пропасть молча.
+    plans = [f for f in rest if _split_name(f["name"]).get("role") == "plan"]
+    paired = {pl["code"] for pl, _fa in pf_pairs}
+    groups: dict = {}
+    order: list = []
+    for f in rest:
+        if f in plans:
+            continue
+        owner = None
+        key: tuple
+        total = is_total_column(f["name"])
+        if split and sep:
+            segs = split_segments(f["name"], sep)
+            if len(segs) >= 3 and not total:
+                key, head, owner = (segs[0], segs[1]), segs[1], segs[0]
+            else:
+                key, head = (segs[0] if segs else f["name"],), (segs[0] if segs else f["name"])
+        else:
+            subj = _card_subject(f["name"], sep)
+            key, head = (_subject_key(subj),), (_clean(subj) or f["name"])
+        if key not in groups:
+            groups[key] = {"fields": [], "head": head, "owner": owner, "total": total}
+            order.append(key)
+        groups[key]["fields"].append(f)
+    for key in order:
+        g = groups[key]
+        if len(g["fields"]) > 1:
+            cards.append({"kind": "kpi_group", "fields": g["fields"], "name": g["head"],
+                          "owner": g["owner"], "total": g["total"], "block": "group"})
+        else:
+            f = g["fields"][0]
+            name = f["name"]
+            if split and sep and g["owner"]:
+                # На странице ведомства его имя в начале карточки лишнее:
+                # «СФР · Перерасчёт пенсии · Принято» на странице «СФР».
+                glue = " · " if sep == " · " else f"{sep.strip()} "
+                name = glue.join(split_segments(name, sep)[1:]) or name
+            cards.append({"kind": "kpi", "fields": [f], "name": name, "owner": g["owner"],
+                          "total": g["total"], "block": "single"})
+    for f in plans:
+        if f["code"] not in paired:
+            cards.append({"kind": "kpi", "fields": [f], "name": f["name"], "owner": None,
+                          "total": False, "block": "single"})
+    for c in cards:
+        c["volume"] = sum(abs(volumes.get(f["code"], 0.0)) for f in c["fields"])
+    return cards
+
+
+def _rank_cards(cards: list, volumes: dict, manual: bool) -> list:
+    """Пометить карточки рекомендованными или нет — по объёму и лимиту."""
+    measured = bool(volumes)
+    if manual:
+        for c in cards:
+            c["recommended"], c["reason"] = True, ""
+        return cards
+    # Пустые графы отсеиваются ТОЛЬКО когда карточек больше лимита и резать всё
+    # равно придётся. На форме, которая помещается целиком, карточка с нулём —
+    # тоже сведения («отказов 0»), и правило 11.08 «сколько показателей в
+    # разметке, столько карточек на дашборде» остаётся в силе (его держит
+    # test_auto_build; первая редакция 24.09 его нарушила).
+    live = ([c for c in cards if not measured or c["volume"] > 0]
+            if len(cards) > MAX_CARDS else cards)
+    ranked = sorted(live, key=lambda c: -c["volume"]) if len(live) > MAX_CARDS else live
+    top = {id(c) for c in ranked[:MAX_CARDS]}
+    place = {id(c): i + 1 for i, c in enumerate(ranked)}
+    for c in cards:
+        if id(c) in top:
+            c["recommended"], c["reason"] = True, ""
+        elif measured and c["volume"] <= 0:
+            c["recommended"] = False
+            c["reason"] = ("За всю историю отчётов в " + ("графе" if len(c["fields"]) == 1 else "графах")
+                           + " нет ни одного ненулевого значения — карточка показывала бы ноль.")
+        else:
+            c["recommended"] = False
+            c["reason"] = (f"Сверх {MAX_CARDS} карточек: рекомендую самые нагруженные графы, а эта "
+                           f"по объёму на {place.get(id(c), len(ranked))}-м месте. Её числа есть "
+                           "в таблице «Первичные данные».")
+    # Порядок на странице — по объёму, если карточки отбирались; иначе порядок
+    # столбцов файла (он сам по себе осмыслен, ломать его без выгоды незачем).
+    if len(live) > MAX_CARDS:
+        cards.sort(key=lambda c: (not c["recommended"], -c["volume"]))
+    return cards
+
+
+def _place_cards_by_levels(cards: list, volumes: dict) -> list:
+    """Страницы для карточек большой формы со ступенями. Возвращает порядок страниц."""
+    total_vol = sum(abs(v) for v in volumes.values()) or 1.0
+    rec = [c for c in cards if c["recommended"]]
+    per_owner = Counter(c["owner"] for c in rec if c["owner"])
+    own = {o for o, n in per_owner.items() if n >= MIN_PAGE_CARDS}
+    owner_vol: dict = {}
+    for c in cards:
+        if c["owner"]:
+            owner_vol[c["owner"]] = owner_vol.get(c["owner"], 0.0) + c["volume"]
+    for c in cards:
+        if c["owner"] in own:
+            c["page"] = c["owner"]
+        elif c["owner"] is None and (c["total"] or c["kind"] == "gauge"
+                                     or c["volume"] / total_vol >= CARD_LONE_SHARE):
+            c["page"] = PAGE_OVERVIEW
+        else:
+            c["page"] = PAGE_OTHER
+            # На общей странице услуга без ведомства теряет смысл: «Приём
+            # заявления» чей? Имя ведомства ставим впереди.
+            if c["owner"] and not c["name"].startswith(c["owner"]):
+                c["name"] = f"{c['owner']}: {c['name']}"
+    # Общая страница ради одной карточки — лишняя вкладка: такая карточка
+    # остаётся на «Обзоре».
+    if sum(1 for c in rec if c["page"] == PAGE_OTHER) < MIN_PAGE_CARDS:
+        for c in cards:
+            if c["page"] == PAGE_OTHER:
+                c["page"] = PAGE_OVERVIEW
+    pages = sorted(own, key=lambda o: -owner_vol.get(o, 0.0))
+    if any(c["page"] == PAGE_OTHER for c in cards):
+        pages.append(PAGE_OTHER)
+    return pages
+
+
+def _measure(name: str, sep: Optional[str]) -> str:
+    """Что измеряет графа — хвост имени по разделителю ФОРМЫ.
+
+    `measure_of` знает только « · », а у «Статистики услуг» разделитель «:»
+    («Услуга 2: Принято»): без этого «Сравнение» у МВД складывало на одном
+    графике принятое с выданным (найдено прогоном планировщика 24.09.2026).
+    """
+    if sep == ":":
+        segs = split_segments(name, ":")
+        return segs[-1] if len(segs) >= 2 else ""
+    return measure_of(name)
+
+
+def _dominant_measure(fields: list, sep: Optional[str] = None) -> list:
+    """Графы для «Сравнения»: без сводов и одной меры.
+
+    До 24.09.2026 сравнение строилось по ВСЕМ карточкам — и складывало на
+    одном графике «ИТОГО · Принято» с его же частями и «Принято» с «Выдано».
+    Свод содержит части, а принятое и выданное — стадии одного обращения;
+    рядом они показывают соотношение, которого нет.
+    """
+    parts = [f for f in fields if not is_total_column(f["name"])
+             and _split_name(f["name"]).get("role") != "plan" and not is_share(f["name"])]
+    if not parts:
+        return []
+    counts = Counter(_measure(f["name"], sep) for f in parts)
+    top = counts.most_common(1)[0][0]
+    return [f for f in parts if _measure(f["name"], sep) == top]
+
+
+def _card_spec(code: str, c: dict, has_dyn: bool) -> dict:
+    fs = c["fields"]
+    if c["kind"] == "gauge":
+        cfg = {"dataset_code": code, "value_field": fs[0]["code"], "unit": "%"}
+        w, h = 4, 7
+    elif c["kind"] == "kpi_group":
+        cfg = {"dataset_code": code, "value_fields": [f["code"] for f in fs],
+               **({"compare_prev": True} if has_dyn else {})}
+        # Высота — по числу разрезов: строка занимает ~1 ряд сетки.
+        w, h = KPI_W, max(KPI_H, 3 + len(fs))
+    else:
+        # Прирост к прошлому отчёту и мини-график показываем, когда периодов
+        # больше одного: иначе сравнивать не с чем и рисовать нечего. Оба
+        # берутся из ОДНОГО обращения к ряду периодов.
+        cfg = {"dataset_code": code, "value_field": fs[0]["code"],
+               **({"compare_prev": True, "spark": True} if has_dyn else {})}
+        w, h = KPI_W, KPI_H
+    return {"page": c.get("page") or PAGE_OVERVIEW, "name": c["name"], "widget_type": c["kind"],
+            "config": cfg, "width": w, "height": h, "block": c["block"],
+            "recommended": c["recommended"], "reason": c["reason"], "cards": 1}
+
+
+def _layout(specs: list) -> list:
+    """Места на сетке: по страницам, рядами слева направо.
+
+    Новый ряд начинается, когда меняется блок (карточки, сравнение, рейтинг…)
+    или ряд заполнен. Высота ряда — наибольшая в ряду. 🔴 До 24.09 высота ряда
+    карточек в разрезах считалась по ТЕКУЩЕЙ карточке, а сдвиг — по
+    наибольшей: у РЦО карточки «ИТОГО» и «ЗАГС» налезали друг на друга, а в
+    «потоке», где координаты задают только порядок, «МВД» уезжал после
+    «ЕПГУ» — порядок по объёму ломался молча.
+    """
+    cursor: dict = {}
+    for sp in specs:
+        page = sp.get("page") or PAGE_OVERVIEW
+        st = cursor.setdefault(page, {"y": 0, "x": 0, "row_h": 0, "block": None})
+        w = int(sp.get("width") or 12)
+        if st["block"] != sp.get("block") or st["x"] + w > 12:
+            st["y"] += st["row_h"]
+            st["x"], st["row_h"] = 0, 0
+        sp["position_x"], sp["position_y"] = st["x"], st["y"]
+        st["x"] += w
+        st["row_h"] = max(st["row_h"], int(sp.get("height") or 6))
+        st["block"] = sp.get("block")
+    return specs
+
+
+def _candidate_key(sp: dict) -> str:
+    """Постоянный ключ кандидата: вид + набор + графы + разрез.
+
+    По нему предложение виджетов запоминает галочки человека: имя виджета
+    меняется, порядок тоже, а этот ключ — нет.
+    """
+    cfg = sp["config"]
+    fields: list = []
+    for k in ("value_field", "plan_field", "fact_field"):
+        if cfg.get(k):
+            fields.append(cfg[k])
+    fields += list(cfg.get("value_fields") or [])
+    for p in cfg.get("pairs") or []:
+        fields += [p.get("plan_field"), p.get("fact_field")]
+    extra = [str(cfg[k]) for k in ("by", "period_group", "period") if cfg.get(k)]
+    return ":".join([str(cfg.get("dataset_code") or ""), sp["widget_type"],
+                     "+".join(sorted(str(f) for f in fields if f)), *extra])
+
+
+def plan_candidates(datasets: list, selection: Optional[dict] = None,
+                    alerts: bool = True, pin_period: Optional[str] = None) -> dict:
+    """ВСЕ кандидаты в виджеты — с пометкой «рекомендую / не рекомендую, потому что…».
+
+    `selection` = {code: {"fields": [коды], "blocks": [виды], "views": {код: вид},
+    "periods": [даты], "include": [ключи], "exclude": [ключи], "manual": bool}}.
+    Не передан — берём всё с автоматически подобранными видами. `manual` —
+    графы отмечены человеком поштучно: тогда они не урезаются лимитом.
     `alerts` — проставлять ли пороги невыполнения плана (галочка в мастере).
     `pin_period` — отчётная дата, к которой ЗАКРЕПЛЯЮТСЯ виджеты: так собирается
-    дашборд по конкретному файлу. Человек выбрал отчёт за 22.07 — значит и
-    через неделю дашборд обязан показывать 22.07, иначе это будет уже другой
-    отчёт под тем же названием. Виджет с закреплённой датой честно подписан
-    «📌 срез · не обновляется» (см. `period_locked`).
+    дашборд по конкретному файлу.
 
-    Страницы разделены по смыслу: «Обзор» отвечает на «как сейчас», «Динамика» —
-    на «как менялось», «Первичные данные» — «откуда цифры». Одна длинная страница
-    со всем сразу читалась плохо, да и данные грузятся постранично.
+    Возвращает {"candidates": [спецификация + key, recommended, reason, cards,
+    build, dataset_code], "notes": [строки], "cards": {...}}. Что из этого
+    будет СОЗДАНО, решает `build`: рекомендованные — да, отмеченные человеком
+    (`include`) — да, снятые (`exclude`) — нет. Одна функция на предложение,
+    предпросмотр мастера и сборку: иначе обещанное разошлось бы с созданным.
     """
     specs: list = []
-    ov_y = dyn_y = raw_y = 0
+    notes: list = []
+    card_stats = {"recommended": 0, "total": 0, "limit": MAX_CARDS, "manual": False}
+
     for d in datasets:
         code, dsname = d["code"], d["name"]
         sel = (selection or {}).get(code)
@@ -923,174 +1148,152 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
         want_fields = set(sel["fields"]) if sel and sel.get("fields") is not None else None
         blocks = set(sel["blocks"]) if sel and sel.get("blocks") is not None else set(BLOCKS)
         views = (sel or {}).get("views") or {}
+        volumes = d.get("volumes") or {}
 
         fields = [f for f in d["fields"] if want_fields is None or f["code"] in want_fields]
         if not fields:
             continue
-        shown = _pick_shown(fields, d.get("volumes") or {})
+        # Ручной выбор — ЯВНЫЙ признак `manual`: мастер ставит его, когда
+        # человек нажал «снять» и отмечает графы сам. Угадывать по составу
+        # нельзя: первая редакция 24.09 считала ручным любой список короче
+        # полного, и снятая одна графа из 331 у РЦО отменяла лимит — вместо
+        # 35 карточек рекомендовалось 146. Снять лишнее — это исключение, а не
+        # выбор; отдельный виджет сверх лимита добавляется своей галочкой.
+        manual = bool(sel and sel.get("manual")) and want_fields is not None
         has_dyn = d["periods"] > 1
+        rows = int(d.get("rows") or 0)
+        ds_specs: list = []
 
-        # views/has_dyn связываем явно: замыкание на переменную цикла — классическая
-        # ловушка (в следующей итерации функция увидела бы уже другой набор данных).
         def view_of(f, views=views, has_dyn=has_dyn):
             v = views.get(f["code"]) or default_view(f["name"], has_dyn)
             return v if v in VIEWS else "kpi"
 
-        # ── Обзор: план-факт полосой, остальные — карточками, снизу сравнение ──
-        # Пары «план + факт» нужны двум блокам сразу, поэтому считаем их до
-        # обоих: при нескольких парах их показывают ПОЛОСЫ одной карточкой, и
-        # плодить рядом столько же отдельных «План-фактов» значило бы дважды
-        # ответить на один вопрос и занять первый экран целиком.
-        pf_pairs = _plan_fact_pairs(shown)
+        pf_pairs = _plan_fact_pairs(fields)
         bullet_instead = "by_meaning" in blocks and len(pf_pairs) >= MIN_BULLET_ROWS
+
+        # ── План-факт отдельными полосами (одна-две пары) ──
         if "plan_fact" in blocks and not bullet_instead:
-            pairs = pf_pairs
-            # С порогами над полосой встаёт бейдж «план выполнен» и рамка — при
-            # прежней высоте карточка включала прокрутку (замерено: не хватало
-            # 18px). Ряд считается по номеру строки, поэтому высота у всей
-            # пачки одна.
             pf_h = 6 if alerts else 5
-            for i, (plan, fact) in enumerate(pairs):
-                specs.append({"page": PAGE_OVERVIEW,
-                              "name": f"{_split_name(fact['name'])['subject']}: план и факт",
-                              "widget_type": "plan_fact",
-                              # Полоса и без порогов показывает процент, но
-                              # «187 %» и «64 %» выглядят одинаково спокойно.
-                              # Порог красит недобор — его видно, не читая цифр.
-                              "config": {"dataset_code": code,
-                                         "plan_field": plan["code"], "fact_field": fact["code"],
-                                         **({"alerts": [dict(r) for r in PLAN_PCT_ALERTS]}
-                                            if alerts else {})},
-                              "position_x": (i % 2) * 6, "position_y": ov_y + (i // 2) * pf_h,
-                              "width": 6, "height": pf_h})
-            if pairs:
-                # По 2 в ряд: пара «план-факт» шире карточки (в ней два числа,
-                # разница и полоса), а 2×6 заполняют 12 колонок ровно — иначе
-                # карточки затекали бы в остаток ряда сбоку от полос.
-                ov_y += ((len(pairs) + 1) // 2) * pf_h
+            for plan, fact in pf_pairs:
+                ds_specs.append({
+                    "page": PAGE_OVERVIEW, "name": f"{_split_name(fact['name'])['subject']}: план и факт",
+                    "widget_type": "plan_fact", "block": "plan_fact",
+                    # Полоса и без порогов показывает процент, но «187 %» и «64 %»
+                    # выглядят одинаково спокойно. Порог красит недобор.
+                    "config": {"dataset_code": code, "plan_field": plan["code"], "fact_field": fact["code"],
+                               **({"alerts": [dict(r) for r in PLAN_PCT_ALERTS]} if alerts else {})},
+                    "width": 6, "height": pf_h, "recommended": True, "reason": ""})
 
-        cards = [f for f in shown if view_of(f) in ("kpi", "both")] if "kpi" in blocks else []
-        # Процентная ГРАФА формы («Доля отказов, %») — тоже спидометр, как и
-        # расчётный процент: доля читается на шкале, а не голым числом. Раньше
-        # этого не делали, потому что карточка складывала проценты по строкам
-        # и шкала показала бы бессмыслицу; теперь такие столбцы усредняются
-        # (`_aggregate`), и шкале есть что показывать.
-        gauges = [f for f in cards if is_share(f["name"])]
-        cards = [f for f in cards if f not in gauges]
-        for i, f in enumerate(gauges):
-            specs.append({"page": PAGE_OVERVIEW, "name": f["name"], "widget_type": "gauge",
-                          "config": {"dataset_code": code, "value_field": f["code"], "unit": "%"},
-                          "position_x": (i % 3) * 4, "position_y": ov_y + (i // 3) * 7,
-                          "width": 4, "height": 7})
-        if gauges:
-            ov_y += _rows_height(len(gauges), 3, 7)
-        # По ТРИ в ряд, а не по четыре: имена госформ длинные («Количество
-        # отправленных уведомлений … · Факт · нарастающим итогом»), и на
-        # четверти ширины от них оставалось «Количестı отправ…» — карточка
-        # переставала отвечать на вопрос, что за число она показывает.
-        # Высота 4 вместо 3: под числом помещается прирост к прошлому отчёту.
-        # Разрезы одного показателя — ОДНОЙ карточкой. В госформе у показателя
-        # обычно три столбца («нарастающим итогом», «… текущий месяц», «за
-        # отчётную неделю»), и раньше каждый занимал свою карточку: тринадцать
-        # карточек «Обзора» оказывались четырьмя показателями, а экран — стеной
-        # одинаковых заголовков, где имя весит больше самого числа.
-        # Группируем тем же разбором имени, что и всё остальное в системе.
-        all_cards = list(cards)    # до группировки — по ним строится «Сравнение»
-        groups: list = []          # [(ключ показателя, [поля])]
-        singles: list = []
-        by_subject: dict = {}
-        # 🔴 План в группу разрезов не кладём. Разрезы — это способы посмотреть
-        # на ОДНУ и ту же величину («нарастающим итогом», «за неделю»), а план
-        # это цель, другая сущность. Строкой рядом с фактами он читается как
-        # ещё одно фактическое число: на форме МАХ группа «записавшихся»
-        # открывалась строкой «(до 1 сентября 2026 г.) 41 971» над «нарастающим
-        # итогом 275 694», и разницу между ними видно не было.
-        plan_cards = [f for f in cards if _split_name(f["name"]).get("role") == "plan"]
-        plan_codes = {f["code"] for f in plan_cards}
-        for f in cards:
-            if f["code"] in plan_codes:
-                continue
-            key = _subject_key(_split_name(f["name"])["subject"])
-            by_subject.setdefault(key, []).append(f)
-        for key, fs in by_subject.items():
-            (groups if len(fs) > 1 else singles).append((key, fs))
-        # План, у которого ЕСТЬ факт, на странице уже показан — полосой
-        # «план-факт» или термометром, и третий показ той же цифры лишний.
-        # А вот план БЕЗ факта не показал бы никто: он остаётся отдельной
-        # карточкой, чтобы не пропасть из виду молча.
-        paired = {pl["code"] for pl, _fa in pf_pairs}
-        for f in plan_cards:
-            if f["code"] not in paired:
-                singles.append((_subject_key(_split_name(f["name"])["subject"]), [f]))
+        # ── Карточки ──
+        card_fields = [f for f in fields if view_of(f) in ("kpi", "both")] if "kpi" in blocks else []
+        sep = pick_separator([f["name"] for f in fields])
+        levels = d.get("levels")
+        cards = _group_cards(card_fields, pf_pairs, volumes, sep, split=bool(levels and sep))
+        _rank_cards(cards, volumes, manual)
+        split_pages: list = []
+        if levels and sep and sum(1 for c in cards if c["recommended"]) > OVERVIEW_CARDS:
+            split_pages = _place_cards_by_levels(cards, volumes)
+            notes.append(
+                "Карточки разложены по страницам ведомств — ступени формы подтверждены: "
+                + ", ".join(f"«{p}»" for p in split_pages) + ".")
+        elif levels and sep:
+            # Карточек мало — раскладывать незачем, группируем как обычно.
+            cards = _group_cards(card_fields, pf_pairs, volumes, sep, split=False)
+            _rank_cards(cards, volumes, manual)
+        rec_cards = [c for c in cards if c["recommended"]]
+        card_stats["recommended"] += len(rec_cards)
+        card_stats["total"] += len(cards)
+        card_stats["manual"] = card_stats["manual"] or manual
+        if not manual and len(cards) > MAX_CARDS:
+            notes.append(f"Карточек по форме «{form_title(dsname)}» можно сделать {len(cards)} — "
+                         f"рекомендую {len(rec_cards)} самых нагруженных, остальные — в «Ещё "
+                         "можно добавить» с причиной у каждой.")
+            if not levels and sep == " · ":
+                notes.append("Подтвердите ступени формы на экране объекта — тогда карточки "
+                             "разложатся по страницам ведомств, а не одной стеной.")
+        if manual and len(rec_cards) > MAX_CARDS:
+            notes.append(f"Отмечено {len(rec_cards)} карточек — больше {MAX_CARDS}: страница "
+                         "станет длинной, её придётся прокручивать.")
+        card_specs = [_card_spec(code, c, has_dyn) for c in cards]
 
-        gi = 0
-        for _key, fs in groups:
-            head = _clean(_split_name(fs[0]["name"])["subject"]) or fs[0]["name"]
-            # Высота — по числу разрезов: строка занимает ~1 ряд сетки.
-            g_h = max(KPI_H, 3 + len(fs))
-            specs.append({"page": PAGE_OVERVIEW, "name": head, "widget_type": "kpi_group",
-                          "config": {"dataset_code": code,
-                                     "value_fields": [f["code"] for f in fs],
-                                     **({"compare_prev": True} if has_dyn else {})},
-                          "position_x": (gi % 3) * KPI_W, "position_y": ov_y + (gi // 3) * g_h,
-                          "width": KPI_W, "height": g_h})
-            gi += 1
-        if groups:
-            ov_y += ((len(groups) + 2) // 3) * max(KPI_H, 3 + max(len(fs) for _k, fs in groups))
+        # «Показанные» графы — у рекомендованных карточек, в их порядке. На них
+        # опираются матрица, тренды, срезы; нерекомендованные сюда не входят.
+        shown = [f for c in rec_cards for f in c["fields"]]
+        if not shown:
+            # Карточек нет (блок снят или всем назначен только тренд) — опираемся
+            # на графы, самые нагруженные впереди: иначе на широкой форме тренды
+            # и матрица взяли бы первые столбцы файла, то есть наугад.
+            shown = (sorted(fields, key=lambda f: -volumes.get(f["code"], 0.0))
+                     if len(fields) > MAX_CARDS else fields)
 
-        cards = [fs[0] for _k, fs in singles]
-        for i, f in enumerate(cards):
-            specs.append({"page": PAGE_OVERVIEW, "name": f["name"], "widget_type": "kpi",
-                          "config": {"dataset_code": code, "value_field": f["code"],
-                                     # Прирост к прошлому отчёту и мини-график движения
-                                     # показываем, когда периодов больше одного: иначе
-                                     # сравнивать не с чем и рисовать нечего.
-                                     #
-                                     # Оба ставятся ВМЕСТЕ намеренно и ничего не стоят
-                                     # сверх: прирост и спарклайн берутся из ОДНОГО
-                                     # обращения к ряду периодов (см. _widgetcalc:
-                                     # `if compare_prev or spark` → один запрос).
-                                     # Голое число не отвечает «много это или мало»,
-                                     # прирост отвечает «лучше или хуже, чем в прошлый
-                                     # раз», а линия — «это разовый скачок или движение».
-                                     **({"compare_prev": True, "spark": True} if has_dyn else {})},
-                          "position_x": (i % 3) * KPI_W, "position_y": ov_y + (i // 3) * KPI_H,
-                          "width": KPI_W, "height": KPI_H})
-        if cards:
-            ov_y += ((len(cards) + 2) // 3) * KPI_H
+        # ── Виды по смыслу (считаем заранее: рейтинг встаёт первым на «Обзоре») ──
+        meaning: list = []
+        if "by_meaning" in blocks:
+            dates = sorted(d.get("period_dates") or [])
+            meaning = by_meaning_specs(
+                fields, rows=rows, periods=d["periods"],
+                first_period=dates[0] if dates else "", last_period=dates[-1] if dates else "",
+                values=d.get("sums"), volumes=volumes)
+        meaning_specs: list = []
+        for e in meaning:
+            kind, fs = e["kind"], e["fields"]
+            w, h = WIDGET_SIZE.get(kind, (6, 6))
+            h = e.get("height") or h
+            cfg = {"dataset_code": code}
+            if e.get("config"):
+                cfg.update(e["config"])
+            elif kind in ("funnel", "heatmap"):
+                cfg["value_fields"] = [f["code"] for f in fs]
+            else:
+                cfg["value_field"] = fs[0]["code"]
+            if not alerts and kind in ("status_grid", "bullet", "thermometer"):
+                # Галочка «подсвечивать невыполнение» снята — пороги не ставим
+                # никому. До 24.09 её слушалась только полоса «план-факт»:
+                # светофору, полосам и термометру пороги ставились всё равно
+                # (и ещё раз при создании виджета). Пустой список — это и есть
+                # «осознанно без порогов», его умолчание не перезапишет.
+                cfg["alerts"] = []
+            cfg = apply_default_alerts(kind, cfg)
+            meaning_specs.append({
+                "page": BY_MEANING_PAGE[kind],
+                "name": BY_MEANING_TITLE[kind].format(
+                    name=subject_with_measure(fs[0]["name"]) or fs[0]["name"]),
+                "widget_type": kind, "config": cfg, "width": w, "height": h, "block": kind,
+                "recommended": e.get("recommended", True), "reason": e.get("reason", "")})
 
-        # Сравнение: десяток карточек даёт точные числа, но не даёт увидеть
-        # соотношение. 8 рядов — замерено: при 6 график ужимается до полоски.
-        # Сравнение строится по ВСЕМ показателям, а не по остатку после
-        # группировки: соотношение величин — как раз то, чего карточки (хоть
-        # одиночные, хоть сгруппированные) не показывают.
-        if "compare" in blocks and len(all_cards) > 1:
-            specs.append({"page": PAGE_OVERVIEW, "name": f"{form_title(dsname)}: сравнение показателей",
-                          "widget_type": "compare",
-                          "config": {"dataset_code": code, "value_fields": [f["code"] for f in all_cards]},
-                          "position_x": 0, "position_y": ov_y, "width": 12,
-                          "height": 8 if len(all_cards) > 4 else 6})
-            ov_y += 8 if len(all_cards) > 4 else 6
+        # «Обзор»: рейтинг первым — на самый частый вопрос («кто впереди и кто
+        # в хвосте») первый экран отвечает сразу. Так заказчик переставил его
+        # на своём дашборде 09.09, а мастер ставил вниз.
+        ds_specs = [s for s in meaning_specs if s["widget_type"] == "ranked"] + ds_specs
+        ds_specs += [s for s in meaning_specs if s["widget_type"] in ("bullet", "thermometer")]
+        ds_specs += [s for s in card_specs if s["page"] == PAGE_OVERVIEW]
 
-        # ── Матрица «строка × дата» ──────────────────────────────────────────
-        # Появляется только там, где отвечает на свой вопрос: строк в форме
-        # больше одной И отчётов больше одного. У формы с единственной строкой
-        # («Донецкая Народная Республика») матрица дословно повторяет
-        # «Динамику», и место она занимала бы зря.
-        many_rows = int(d.get("rows") or 0) > 1
+        # ── Сравнение: одна мера, без сводов ──
+        if "compare" in blocks:
+            cmp_fields = _dominant_measure([f for c in rec_cards for f in c["fields"]], sep)
+            cmp_fields = sorted(cmp_fields, key=lambda f: -volumes.get(f["code"], 0.0))[:24] \
+                if len(cmp_fields) > 24 else cmp_fields
+            if len(cmp_fields) > 1:
+                measure = _measure(cmp_fields[0]["name"], sep)
+                ds_specs.append({
+                    "page": PAGE_OVERVIEW,
+                    "name": f"{form_title(dsname)}: сравнение показателей"
+                            + (f" — {measure}" if measure else ""),
+                    "widget_type": "compare", "block": "compare",
+                    "config": {"dataset_code": code, "value_fields": [f["code"] for f in cmp_fields]},
+                    "width": 12, "height": 8 if len(cmp_fields) > 4 else 6,
+                    "recommended": True, "reason": ""})
+        ds_specs += [s for s in meaning_specs if s["page"] == PAGE_OVERVIEW
+                     and s["widget_type"] not in ("ranked", "bullet", "thermometer")]
+
+        # ── Страницы ведомств ──
+        for page in split_pages:
+            ds_specs += [s for s in card_specs if s["page"] == page]
+
+        # ── Матрица «строка × дата» ──
+        many_rows = rows > 1
         matrix_added = False
         if "matrix" in blocks and has_dyn:
-            # Разрез выбирается по самим данным. Строк в форме несколько
-            # (районы, отделения) — интереснее «кто как двигался»; строка одна
-            # (сводная форма по субъекту) — матрица по строкам выродилась бы в
-            # одну строку, и нужен обратный разрез: показатели × даты, то самое,
-            # ради чего файлы сводят в Excel руками.
-            # Столбцы — отчёты или месяцы. Отчётов больше, чем матрица способна
-            # показать (у ежедневной формы РЦО их 53 при пределе 12), — значит
-            # по отчётам она ответит только «что было на прошлой неделе», а
-            # девять десятых истории спрячет. Тогда осмысленнее месяцы: столбцов
-            # становится два-три, и виден весь период. При коротком ряде
-            # (недельная форма за месяц) отчёты подробнее, их и оставляем.
             by_month = d["periods"] > MATRIX_PERIODS
             grouping = {"period_group": "month"} if by_month else {}
             when = "месяцам" if by_month else "датам"
@@ -1104,127 +1307,105 @@ def plan_auto_build(datasets: list, selection: Optional[dict] = None,
                             "value_fields": [f["code"] for f in shown[:MATRIX_FIELDS]],
                             "max_periods": MATRIX_PERIODS, **grouping}
                 spec_name = f"{dsname}: показатели по {when}"
-            # Высота по числу строк, которые матрица реально покажет: у формы
-            # заказчика их тринадцать, и в стандартные 8 рядов помещаются две.
-            m_h = matrix_height(len(spec_cfg.get("value_fields") or []))
-            specs.append({"page": PAGE_DYNAMICS, "name": spec_name, "widget_type": "matrix",
-                          "config": spec_cfg,
-                          "position_x": 0, "position_y": dyn_y, "width": 12, "height": m_h})
-            dyn_y += m_h
+            ds_specs.append({"page": PAGE_DYNAMICS, "name": spec_name, "widget_type": "matrix",
+                             "block": "matrix", "config": spec_cfg, "width": 12,
+                             "height": matrix_height(len(spec_cfg.get("value_fields") or [])),
+                             "recommended": True, "reason": ""})
             matrix_added = True
 
-        # ── Динамика: тренд по каждому показателю, которому он назначен ──
-        # Матрица показывает движение ВСЕХ показателей по всем датам, поэтому
-        # рядом с ней тринадцать почти одинаковых графиков — дублирование:
-        # страница превращалась в ленту, на которой ничего не выделено. Когда
-        # матрица поставлена, оставляем тренды только для главных показателей
-        # (остальные добавляются кнопкой «💡 показатели не показаны»).
+        # ── Динамика: главные показатели рекомендованы, остальные — кандидаты ──
         limit = MAX_TRENDS_WITH_MATRIX if matrix_added else MAX_AUTO_DYNAMICS
-        trends = ([f for f in shown if view_of(f) in ("dynamics", "both")][:limit]
-                  if has_dyn and "dynamics" in blocks else [])
-        # 🔴 Длинный ряд сворачиваем в месяцы — тем же правилом, что и матрицу.
-        # У ежедневного отчёта РЦО 201 выпуск: линия по отчётам в карточке
-        # шириной в треть ряда даёт 1,5 пикселя на точку, то есть частокол, из
-        # которого не читается ни уровень, ни направление. Порог — DYN_PERIODS:
-        # выше него подробность уже не видна глазу, а свёрнутый ряд отвечает на
-        # «как менялось» одним взглядом. Короткий ряд (недельная форма за
-        # месяц) подробнее по отчётам, его не трогаем.
+        trends_all = ([f for f in shown if view_of(f) in ("dynamics", "both")]
+                      if has_dyn and "dynamics" in blocks else [])
         dyn_by_month = d["periods"] > DYN_PERIODS
         dyn_group = {"period_group": "month"} if dyn_by_month else {}
         dyn_when = " по месяцам" if dyn_by_month else ""
-        for i, f in enumerate(trends):
-            specs.append({"page": PAGE_DYNAMICS, "name": f"Динамика: {f['name']}{dyn_when}",
-                          "widget_type": "dynamics",
-                          "config": {"dataset_code": code, "value_field": f["code"], **dyn_group},
-                          "position_x": (i % 3) * 4, "position_y": dyn_y + (i // 3) * 6,
-                          "width": 4, "height": 6})
-        if trends:
-            dyn_y += ((len(trends) + 2) // 3) * 6
+        extra_trends = trends_all[limit:limit + MAX_EXTRA_DYNAMICS]
+        if len(trends_all) > limit + MAX_EXTRA_DYNAMICS:
+            notes.append(f"Графиков динамики можно сделать ещё {len(trends_all) - limit}; в «Ещё "
+                         f"можно добавить» — {MAX_EXTRA_DYNAMICS} из них, остальные добавляются на "
+                         "самом дашборде («Добавить виджет»).")
+        for i, f in enumerate(trends_all[:limit] + extra_trends):
+            rec = i < limit
+            ds_specs.append({
+                "page": PAGE_DYNAMICS, "name": f"Динамика: {f['name']}{dyn_when}",
+                "widget_type": "dynamics", "block": "dynamics",
+                "config": {"dataset_code": code, "value_field": f["code"], **dyn_group},
+                "width": 4, "height": 6, "recommended": rec,
+                "reason": "" if rec else (
+                    "Движение всех строк уже показывает матрица по датам; отдельный график — "
+                    "для главных показателей." if matrix_added else
+                    f"Графиков динамики уже {limit} — больше на странице не различить.")})
+        ds_specs += [s for s in meaning_specs if s["page"] == PAGE_DYNAMICS]
 
-        # ── Первичные данные: разрез по строкам и сама таблица ──
+        # ── Первичные данные ──
+        facts_by_vol = sorted([f for f in shown if not is_share(f["name"])
+                               and _split_name(f["name"]).get("role") != "plan"],
+                              key=lambda f: -volumes.get(f["code"], 0.0)) or shown
         if "bar" in blocks:
-            specs.append({"page": PAGE_RAW, "name": f"{dsname}: {shown[0]['name']} по строкам",
-                          "widget_type": "bar",
-                          "config": {"dataset_code": code, "value_field": shown[0]["code"]},
-                          "position_x": 0, "position_y": raw_y, "width": 12, "height": 6})
-            raw_y += 6
+            bf = facts_by_vol[0]
+            ds_specs.append({
+                "page": PAGE_RAW, "name": f"{dsname}: {bf['name']} по строкам",
+                "widget_type": "bar", "block": "bar",
+                "config": {"dataset_code": code, "value_field": bf["code"]},
+                "width": 12, "height": 6, "recommended": rows != 1,
+                "reason": "" if rows != 1 else (
+                    "Строка в форме одна — график будет из одного столбика; то же число есть "
+                    "в карточке.")})
+        ds_specs += [s for s in meaning_specs if s["page"] == PAGE_RAW]
         if "table" in blocks:
-            specs.append({"page": PAGE_RAW, "name": f"{dsname}: таблица", "widget_type": "table",
-                          "config": {"dataset_code": code},
-                          "position_x": 0, "position_y": raw_y, "width": 12, "height": 6})
-            raw_y += 6
+            ds_specs.append({"page": PAGE_RAW, "name": f"{dsname}: таблица", "widget_type": "table",
+                             "block": "table", "config": {"dataset_code": code},
+                             "width": 12, "height": 6, "recommended": True, "reason": ""})
 
-        # ── Виды, подобранные по СМЫСЛУ данных ───────────────────────────────
-        # Ставятся только там, где отвечают на вопрос, которого нет у карточек и
-        # трендов: воронка — «где теряются», светофор — «где плохо», тепловая
-        # карта — «где и когда просело», водопад — «за счёт чего вырос итог».
-        # Правило, которому не хватило данных, МОЛЧИТ (см. by_meaning_specs).
-        if "by_meaning" in blocks:
-            dates = sorted(d.get("period_dates") or [])
-            extra = by_meaning_specs(
-                fields, rows=d.get("rows") or 0, periods=d["periods"],
-                first_period=dates[0] if dates else "", last_period=dates[-1] if dates else "",
-                values=d.get("sums"), volumes=d.get("volumes"))
-            for e in extra:
-                kind, fs = e["kind"], e["fields"]
-                w, h = WIDGET_SIZE.get(kind, (6, 6))
-                # Правило может задать высоту само — у полос она зависит от
-                # числа пар, и константа из таблицы прятала бы часть строк во
-                # внутреннюю прокрутку (та же беда, что была у матрицы).
-                h = e.get("height") or h
-                cfg = {"dataset_code": code}
-                if e.get("config"):
-                    cfg.update(e["config"])
-                elif kind in ("funnel", "heatmap"):
-                    cfg["value_fields"] = [f["code"] for f in fs]
-                else:
-                    cfg["value_field"] = fs[0]["code"]
-                # Светофор, полосы и термометр без порогов светят одним цветом —
-                # то же правило, что у полосы «план-факт»: норма известна (100 %
-                # это сам план), ставим сразу.
-                cfg = apply_default_alerts(kind, cfg)
-                # Каждая страница ведёт свой курсор по вертикали — виджет
-                # встаёт под уже разложенным, а не поверх него.
-                page = BY_MEANING_PAGE[kind]
-                if page == PAGE_OVERVIEW:
-                    y, ov_y = ov_y, ov_y + h
-                elif page == PAGE_DYNAMICS:
-                    y, dyn_y = dyn_y, dyn_y + h
-                else:
-                    y, raw_y = raw_y, raw_y + h
-                specs.append({"page": page, "name": BY_MEANING_TITLE[kind].format(
-                                  name=subject_with_measure(fs[0]["name"]) or fs[0]["name"]),
-                              "widget_type": kind, "config": cfg,
-                              "position_x": 0, "position_y": y, "width": w, "height": h})
-
-        # ── Страницы по отчётным периодам ────────────────────────────────────
-        # Сводные страницы обновляются сами: виджет читает последний выпуск.
-        # Страница периода — наоборот, СРЕЗ: у её виджетов закреплена дата, и
-        # приход новой недели их не меняет. Оба режима нужны заказчику, и
-        # разницу между ними человек должен понимать (о ней сказано на самой
-        # странице и в мастере).
+        # ── Страницы по отчётным периодам (только по явному выбору) ──
         for period in _selected_periods(sel, d):
-            py = 0
             page = f"{PAGE_PERIOD_PREFIX} {_ru_date(period)}"
-            for i, f in enumerate(shown[:MAX_AUTO_KPI]):
-                specs.append({"page": page, "name": f["name"], "widget_type": "kpi",
-                              "config": {"dataset_code": code, "value_field": f["code"],
-                                         "period": period},
-                              "position_x": (i % 4) * 3, "position_y": py + (i // 4) * 3,
-                              "width": 3, "height": 3})
-            py += ((len(shown[:MAX_AUTO_KPI]) + 3) // 4) * 3
-            specs.append({"page": page, "name": f"{dsname}: таблица за {_ru_date(period)}",
-                          "widget_type": "table",
-                          "config": {"dataset_code": code, "period": period},
-                          "position_x": 0, "position_y": py, "width": 12, "height": 6})
-    if pin_period:
-        # Закрепляем дату ОДНИМ местом в конце, а не в десятке мест, где
-        # формируется config: иначе новый вид виджета однажды забудут закрепить,
-        # и на «срезе за 22.07» появится карточка со свежими данными.
-        # Имя виджета уже могло получить дату (страницы-срезы) — не дублируем.
-        for sp in specs:
-            sp["config"].setdefault("period", pin_period)
-    return specs
+            for f in shown[:PERIOD_PAGE_KPI]:
+                ds_specs.append({"page": page, "name": f["name"], "widget_type": "kpi",
+                                 "block": "period_kpi",
+                                 "config": {"dataset_code": code, "value_field": f["code"],
+                                            "period": period},
+                                 "width": 3, "height": 3, "recommended": True, "reason": ""})
+            ds_specs.append({"page": page, "name": f"{dsname}: таблица за {_ru_date(period)}",
+                             "widget_type": "table", "block": "period_table",
+                             "config": {"dataset_code": code, "period": period},
+                             "width": 12, "height": 6, "recommended": True, "reason": ""})
+
+        include = set((sel or {}).get("include") or [])
+        exclude = set((sel or {}).get("exclude") or [])
+        for sp in ds_specs:
+            sp["dataset_code"] = code
+            sp.setdefault("cards", 0)
+            if pin_period:
+                # Закрепляем дату ОДНИМ местом: иначе новый вид однажды забудут
+                # закрепить, и на «срезе за 22.07» появится свежая карточка.
+                sp["config"].setdefault("period", pin_period)
+            sp["key"] = _candidate_key(sp)
+        # Ключ обязан быть уникальным: одинаковые графы бывают у разных видов
+        # одной меры, а галочка человека должна попадать ровно в свой виджет.
+        seen: Counter = Counter()
+        for sp in ds_specs:
+            seen[sp["key"]] += 1
+            if seen[sp["key"]] > 1:
+                sp["key"] = f"{sp['key']}#{seen[sp['key']]}"
+            sp["build"] = (sp["recommended"] or sp["key"] in include) and sp["key"] not in exclude
+        specs += ds_specs
+
+    return {"candidates": specs, "notes": notes, "cards": card_stats}
+
+
+def plan_auto_build(datasets: list, selection: Optional[dict] = None,
+                    alerts: bool = True, pin_period: Optional[str] = None) -> list:
+    """Что именно будет СОЗДАНО — виджеты с местом на сетке и страницей.
+
+    Это отбор `plan_candidates` по признаку `build` плюс раскладка. Страницы
+    разделены по смыслу: «Обзор» отвечает на «как сейчас», страницы ведомств —
+    на «как у этого ведомства», «Динамика» — на «как менялось», «Первичные
+    данные» — «откуда цифры».
+    """
+    res = plan_candidates(datasets, selection, alerts, pin_period)
+    return _layout([c for c in res["candidates"] if c["build"]])
 
 
 def _ru_date(iso: str) -> str:
@@ -1249,8 +1430,12 @@ def _selected_periods(sel: Optional[dict], dataset: dict) -> list:
 
 async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict] = None,
                           alerts: bool = True, document_id: Optional[str] = None,
-                          lock_period: bool = True) -> dict:
-    """Предпросмотр мастера: что нашли в объекте и что будет создано."""
+                          lock_period: bool = True, with_metrics: bool = True) -> dict:
+    """Предпросмотр мастера: что нашли в объекте и что будет создано.
+
+    `with_metrics=False` — пересчёт после галочки: расчётные показатели от
+    выбора не зависят, и мастер уже получил их при открытии.
+    """
     obj = await conn.fetchrow(
         "select id, name from objects where id=$1::uuid and organization_id=$2", object_id, org_id)
     if obj is None:
@@ -1268,23 +1453,32 @@ async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict
             + ", ".join(f"«{d['code']}»" for d in datasets)
             + ". Обычно у объекта один набор, а разные коды появляются, когда выпуск "
               "сделали под новым именем — тогда недельные формы не складываются в один ряд.")
-    trimmed = [d for d in datasets if len(d["fields"]) > MAX_AUTO_KPI]
-    if trimmed:
-        warnings.append(
-            f"Показателей больше {MAX_AUTO_KPI} — на дашборд попадут первые {MAX_AUTO_KPI}, "
-            "остальные видны в таблице.")
-
-    specs = plan_auto_build(datasets, selection, alerts,
-                            pin_period=(doc or {}).get("period") if lock_period else None)
+    plan = plan_candidates(datasets, selection, alerts,
+                           pin_period=(doc or {}).get("period") if lock_period else None)
+    warnings += plan["notes"]
+    cands = plan["candidates"]
+    specs = _layout([c for c in cands if c["build"]])
 
     # Расчётные показатели («% выполнения плана», «доля доставленных»…): их
     # находит разбор имён столбцов — тот же, что в разделе «Метрики». Здесь они
     # нужны, чтобы человек мог поставить галочку прямо при сборке, а не заводить
     # метрику отдельно и потом руками добавлять по ней виджет.
-    metrics = await _metric_options(conn, org_id, object_id)
+    metrics = await _metric_options(conn, org_id, object_id) if with_metrics else None
 
-    page_names = [PAGE_OVERVIEW, PAGE_DYNAMICS, PAGE_RAW] + sorted(
-        {s["page"] for s in specs if str(s.get("page", "")).startswith(PAGE_PERIOD_PREFIX)})
+    # Пояснение кандидата — ТЕ ЖЕ части, что станут подсказкой ⓘ созданного
+    # виджета (решение заказчика 23.09): одна функция, один текст.
+    from ._explain import WIDGET_TYPE_RU, _clip, explain_sections, sections_text
+
+    sections = await explain_sections(conn, org_id, [
+        {"id": i, "widget_type": c["widget_type"], "config": c["config"]}
+        for i, c in enumerate(cands)])
+
+    # Страницы — в порядке, в каком их создаст сборка (первое появление).
+    page_order: list = []
+    for s in specs:
+        t = s.get("page") or PAGE_OVERVIEW
+        if t not in page_order:
+            page_order.append(t)
     return {
         "object": {"id": str(obj["id"]), "name": obj["name"]},
         "metrics": metrics,
@@ -1293,11 +1487,8 @@ async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict
         "blocks": BLOCKS,
         "warnings": warnings,
         "widgets": len(specs),
-        "pages": [
-            {"name": t, "widgets": sum(1 for s in specs if (s.get("page") or PAGE_OVERVIEW) == t)}
-            for t in page_names
-            if any((s.get("page") or PAGE_OVERVIEW) == t for s in specs)
-        ],
+        "pages": [{"name": t, "widgets": sum(1 for s in specs if (s.get("page") or PAGE_OVERVIEW) == t)}
+                  for t in page_order],
         # Считаем по ФАКТИЧЕСКОМУ типу виджета, а не по названиям блоков: раньше
         # совпадали только те типы, чьё имя случайно совпало с именем блока, и в
         # сводке не было видно ни `kpi_group`, ни спидометров, ни видов «по
@@ -1310,6 +1501,21 @@ async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict
             d["code"]: {f["code"]: default_view(f["name"], d["periods"] > 1) for f in d["fields"]}
             for d in datasets
         },
+        # Все кандидаты — и рекомендованные, и «не рекомендую, потому что…».
+        # По `key` человек отмечает нерекомендованный (selection.include) или
+        # снимает рекомендованный (selection.exclude).
+        "candidates": [
+            {"key": c["key"], "dataset_code": c["dataset_code"], "page": c["page"],
+             "name": c["name"], "widget_type": c["widget_type"],
+             "type_label": WIDGET_TYPE_RU.get(c["widget_type"], c["widget_type"]),
+             "recommended": c["recommended"], "reason": c["reason"], "build": c["build"],
+             "cards": c.get("cards", 0), "explain": sections.get(str(i), {}),
+             # Готовый текст ⓘ — ровно тот, что покажет созданный виджет:
+             # склейку частей не повторяем на клиенте, иначе она разойдётся.
+             "explain_text": _clip(sections_text(sections.get(str(i), {})))}
+            for i, c in enumerate(cands)
+        ],
+        "cards": plan["cards"],
     }
 
 

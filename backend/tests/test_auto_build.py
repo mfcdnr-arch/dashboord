@@ -267,6 +267,51 @@ async def test_selection_narrows_the_build(client, admin_headers, seed_dataset, 
         await _cleanup_fields(rel)
 
 
+async def test_candidates_travel_through_the_api(client, admin_headers, seed_dataset, ids):
+    """Кандидаты «не рекомендую, потому что…» и галочки человека — через HTTP.
+
+    Модель запроса должна пропускать `include`/`exclude`/`manual`: теряйся они
+    на входе — мастер показывал бы галочки, которые ничего не меняют.
+    """
+    rel = await _seed_fields(ids["org"])
+    did = None
+    try:
+        code = await _dataset_code(ids["org"])
+        base = {"object_id": str(rel["object_id"]), "name": "ztest_cands"}
+        plan = (await client.post("/dashboards/auto/plan", headers=admin_headers, json=base)).json()
+        cands = plan["candidates"]
+        assert cands and all(c["key"] and c["type_label"] for c in cands)
+        assert plan["widgets"] == sum(1 for c in cands if c["build"])
+        assert plan["cards"]["limit"] == 35
+        # Текст ⓘ приходит готовым — тем же, что покажет созданный виджет.
+        built = [c for c in cands if c["build"] and c["widget_type"] != "table"]
+        assert all(c["explain_text"] for c in built)
+        off = [c for c in cands if not c["recommended"]]
+        on = next(c for c in cands if c["recommended"])
+        assert off, "на этой форме есть что не рекомендовать — иначе тест проверял бы пустоту"
+        assert all(c["reason"] for c in off), "«не рекомендую» без причины — это запрет без объяснения"
+
+        pick = {"include": [c["key"] for c in off], "exclude": [on["key"]]}
+        body = {**base, "selection": {code: pick}}
+        again = (await client.post("/dashboards/auto/plan", headers=admin_headers, json=body)).json()
+        assert again["widgets"] == plan["widgets"] + len(off) - 1
+
+        did = (await client.post("/dashboards/auto", headers=admin_headers, json=body)).json()["dashboard_id"]
+        async with db.acquire() as conn:
+            real = await conn.fetchval("select count(*) from widgets where dashboard_id=$1::uuid", did)
+            saved = await conn.fetchval("select build_preferences from objects where id=$1",
+                                        rel["object_id"])
+        assert real == again["widgets"]
+        import json
+        saved = json.loads(saved) if isinstance(saved, str) else saved
+        assert saved["selection"][code]["exclude"] == [on["key"]], "выбор запоминается целиком"
+        assert saved["selection"][code]["manual"] is False
+    finally:
+        if did:
+            await purge_dashboard(did)
+        await _cleanup_fields(rel)
+
+
 async def test_rebuild_replaces_content_and_keeps_dashboard(client, admin_headers, seed_dataset, ids):
     """Пересборка меняет наполнение, но не плодит дашборды и не теряет сам
     дашборд: на нём висят права доступа, обсуждение и история."""

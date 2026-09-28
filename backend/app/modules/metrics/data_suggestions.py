@@ -144,17 +144,28 @@ async def _field_values(conn, org_id, code: str) -> Dict[str, Dict[tuple, float]
     Нужны для поиска связок, которых нет в словаре: словарь знает только те пары
     слов, что я в него вписал, а данные говорят сами за себя.
     """
+    # Последние _VALUE_RELEASES отчётов, а не вся история. 🔴 Замер 24.09.2026:
+    # у РЦО 201 отчёт × 64 строки × 331 графа — 4,8 млн чисел читались в
+    # память ради того, чтобы найти пару-другую связок, и мастер сборки
+    # открывался 7 с. Связке «часть → целое» нужно три общих точки, а тридцать
+    # отчётов дают их тысячи.
     rows = await conn.fetch(
         "select dv.canonical_field_code as code, r.reporting_period_start as period, "
         "       coalesce(dv.row_label,'') as row_label, dv.value_number as v "
         "from dataset_values dv join dataset_releases r on r.id = dv.dataset_release_id "
-        "where r.organization_id=$1 and r.code=$2 and r.status<>'superseded' and dv.value_number is not null",
-        org_id, code)
+        "where r.id in (select id from dataset_releases where organization_id=$1 and code=$2 "
+        "               and status<>'superseded' "
+        "               order by reporting_period_start desc nulls last, created_at desc limit $3) "
+        "  and dv.value_number is not null",
+        org_id, code, _VALUE_RELEASES)
     out: Dict[str, Dict[tuple, float]] = {}
     for r in rows:
         out.setdefault(r["code"], {})[(r["period"], r["row_label"])] = float(r["v"])
     return out
 
+
+# Сколько последних отчётов смотреть при поиске связок по данным.
+_VALUE_RELEASES = 30
 
 # Насколько уверенно пара выглядит как «часть от целого».
 _MIN_POINTS = 3      # меньше — совпадение может быть случайным
@@ -172,37 +183,38 @@ def _detect_part_of_whole(values: Dict[str, Dict[tuple, float]], parsed: List[di
 
     Возвращает [(часть, целое, средняя доля в %)].
     """
-    by_code = {p["code"]: p for p in parsed}
     found: List[tuple] = []
-    codes = [p["code"] for p in parsed if p["code"] in values]
+    # Сравниваем только сопоставимые столбцы: один разрез, ни один не план.
+    # Разрез чистим ОДИН раз и раскладываем столбцы по разрезам заранее: до
+    # 24.09 `_clean` звался внутри двойного цикла — 297 тысяч раз на форме РЦО.
+    by_slice: Dict[str, List[str]] = {}
+    for p in parsed:
+        if p["code"] in values and p["role"] != "plan":
+            by_slice.setdefault(_clean(p["slice"]).lower(), []).append(p["code"])
+    keys = {c: set(values[c]) for group in by_slice.values() for c in group}
 
-    for a in codes:
-        for b in codes:
-            if a == b:
-                continue
-            pa, pb = by_code[a], by_code[b]
-            # Сравниваем только сопоставимые столбцы: один разрез, ни один не план.
-            if pa["role"] == "plan" or pb["role"] == "plan":
-                continue
-            if _clean(pa["slice"]).lower() != _clean(pb["slice"]).lower():
-                continue
-            common = set(values[a]) & set(values[b])
-            if len(common) < _MIN_POINTS:
-                continue
-            ratios = []
-            ok = True
-            for key in common:
-                part, whole = values[a][key], values[b][key]
-                if whole <= 0 or part < 0 or part > whole:
-                    ok = False
-                    break
-                ratios.append(part / whole)
-            if not ok or not ratios:
-                continue
-            avg = sum(ratios) / len(ratios)
-            if not (_MIN_RATIO <= avg <= _MAX_RATIO):
-                continue
-            found.append((a, b, avg * 100.0))
+    for codes in by_slice.values():
+        for a in codes:
+            for b in codes:
+                if a == b:
+                    continue
+                common = keys[a] & keys[b]
+                if len(common) < _MIN_POINTS:
+                    continue
+                ratios = []
+                ok = True
+                for key in common:
+                    part, whole = values[a][key], values[b][key]
+                    if whole <= 0 or part < 0 or part > whole:
+                        ok = False
+                        break
+                    ratios.append(part / whole)
+                if not ok or not ratios:
+                    continue
+                avg = sum(ratios) / len(ratios)
+                if not (_MIN_RATIO <= avg <= _MAX_RATIO):
+                    continue
+                found.append((a, b, avg * 100.0))
     return found
 
 

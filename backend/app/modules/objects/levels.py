@@ -190,7 +190,18 @@ async def load_confirmed(conn, object_id) -> Optional[Dict]:
     Единственная точка, которой пользуются дашборды: устаревшее подтверждение
     отсюда не выходит вовсе — лучше отсутствие лестницы, чем неверная.
     """
-    state = await get_state(conn, object_id)
-    if not state["confirmed"] or state["stale"]:
+    # 🔴 Читаем шаблон НАПРЯМУЮ, а не через `get_state`: тот заодно считает
+    # предложение системы (`suggest` — разбор всех граф формы по всей истории
+    # выпусков), которое здесь не нужно. На РЦО это стоило 1,8 с, и платила их
+    # КАЖДАЯ открытая страница дашборда (лестница спрашивает ступени при
+    # каждом показе) и мастер сборки (замер 24.09.2026).
+    tpl = await conn.fetchrow(
+        "select fingerprint, levels from object_layout_templates where object_id = $1",
+        object_id)
+    if tpl is None:
         return None
-    return state["confirmed"]
+    raw = tpl["levels"]
+    saved = json.loads(raw) if isinstance(raw, str) else (raw or None)
+    if not saved or saved.get("fingerprint") != tpl["fingerprint"]:
+        return None
+    return saved

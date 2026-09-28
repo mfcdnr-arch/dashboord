@@ -249,5 +249,32 @@ def test_auto_build_adds_ranking_only_when_rows_are_many():
                         "fields": fields, "rows": rows, "period_dates": []}]
     few = [s["widget_type"] for s in _suggest.plan_auto_build(ds(6), None)]
     many = [s["widget_type"] for s in _suggest.plan_auto_build(ds(40), None)]
-    assert "ranked" not in few and "status_grid" in few
+    assert "ranked" not in few
     assert "ranked" in many, "на сорока отделениях порядок нужен"
+    # На шести строках рейтинг не строится, но и не пропадает молча: он в
+    # списке кандидатов с причиной — человек может добавить его галочкой.
+    cands = _suggest.plan_candidates(ds(6))["candidates"]
+    ranked = next(c for c in cands if c["widget_type"] == "ranked")
+    assert not ranked["recommended"] and not ranked["build"] and "6" in ranked["reason"]
+
+
+def test_status_grid_needs_a_plan_to_color_the_tiles():
+    """🔴 Светофор без плана — плитки одного цвета, повторяющие рейтинг.
+
+    Найдено на РЦО 23.09: «ИТОГО · Выдано: по отделениям» серыми плитками.
+    Без плана светофор предлагается «не рекомендую» с причиной; с парным
+    планом — строится и красится по выполнению.
+    """
+    fact = {"code": "fact", "name": "Заявлений принято · Факт · нарастающим итогом"}
+    plan = {"code": "plan", "name": "Заявлений принято · План"}
+    ds = lambda fields: [{"code": "t", "name": "Форма", "periods": 2, "releases": 2,  # noqa: E731
+                          "fields": fields, "rows": 6, "period_dates": []}]
+    no_plan = next(c for c in _suggest.plan_candidates(ds([fact]))["candidates"]
+                   if c["widget_type"] == "status_grid")
+    assert not no_plan["recommended"] and not no_plan["build"]
+    assert "план" in no_plan["reason"].lower()
+
+    with_plan = next(c for c in _suggest.plan_candidates(ds([plan, fact]))["candidates"]
+                     if c["widget_type"] == "status_grid")
+    assert with_plan["recommended"] and with_plan["build"]
+    assert with_plan["config"]["plan_field"] == "plan" and with_plan["config"]["value_field"] == "fact"

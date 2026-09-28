@@ -40,6 +40,15 @@ class DatasetPick(BaseModel):
     # Отчётные даты, для которых нужны ОТДЕЛЬНЫЕ страницы-срезы («Отчёт за
     # 05.08.2026»). Пусто — только сводные страницы, которые обновляются сами.
     periods: Optional[List[str]] = None
+    # Кандидаты планировщика по ключу (`candidates[].key` предпросмотра):
+    # `include` — собрать и нерекомендованный («всё равно добавить»),
+    # `exclude` — не собирать рекомендованный.
+    include: Optional[List[str]] = None
+    exclude: Optional[List[str]] = None
+    # Графы отмечены человеком поштучно («снять» → свои галочки): тогда они
+    # не урезаются лимитом карточек. Снятие лишнего из полного списка —
+    # исключение, а не ручной выбор, и лимит не отменяет.
+    manual: bool = False
 
 
 class AutoIn(BaseModel):
@@ -65,6 +74,10 @@ class AutoIn(BaseModel):
     # Снять закрепление: дашборд по составу этого файла, но с обновляемыми
     # данными. Осознанный выбор человека, а не молчаливое поведение.
     lock_period: bool = True
+    # Только для предпросмотра: подбирать ли расчётные показатели. Мастер
+    # просит их один раз при открытии — от галочек они не зависят, а подбор на
+    # широкой форме — самая дорогая часть ответа (РЦО, 24.09: 1,25 с из 1,6).
+    with_metrics: bool = True
 
     def as_selection(self) -> Optional[dict]:
         if self.selection is None:
@@ -150,7 +163,8 @@ async def auto_build_plan(body: AutoIn, user: dict = Depends(manage)):
         try:
             return await service.auto_build_plan(
                 conn, user["organization_id"], body.object_id, body.as_selection(), body.alerts,
-                document_id=body.document_id, lock_period=body.lock_period)
+                document_id=body.document_id, lock_period=body.lock_period,
+                with_metrics=body.with_metrics)
         except DashboardError as e:
             raise _bad(e)
 

@@ -267,15 +267,6 @@ async def preview_widget(body: WidgetPreviewIn, user: dict = Depends(manage)):
             raise _bad(e)
 
 
-@router.get("/widgets/suggestions")
-async def widget_suggestions(dataset_code: str, user: dict = Depends(manage)):
-    async with db.acquire(user["id"]) as conn:
-        try:
-            return await service.suggest_widgets(conn, user["organization_id"], dataset_code)
-        except DashboardError as e:
-            raise _bad(e)
-
-
 # Регистрируется ДО параметризованных /widgets/{...}: конкретный путь, попавший
 # после шаблона, перехватывается им (уже наступали на это с /audit/access).
 @router.get("/widgets/problem-kinds")
