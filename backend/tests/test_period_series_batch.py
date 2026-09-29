@@ -127,3 +127,43 @@ async def test_period_szhivaet_ryad(series_data):
         out = await ws._dataset_period_series(raw, series_data["org"], CODE, FIELD,
                                               from_date="2026-01-08", to_date="2026-01-15")
     assert [p for p, _ in out] == ["2026-01-08", "2026-01-15"], out
+
+
+async def test_dolya_usrednyaetsya_a_ne_skladyvaetsya(ids):
+    """🔴 Доля сворачивается средним по строкам, как на карточке (ревью 29.09).
+
+    Было: всегда сумма. У КПЭ «% достижения показателя» на 10 строках точка
+    «Динамики» выходила около 677 % вместо 67,76 %, а прирост на карточке
+    считался как «среднее минус сумма».
+    """
+    code = f"ztest_psh_{uuid.uuid4().hex[:6]}"
+    async with db.acquire() as conn:
+        obj = await conn.fetchval(
+            "insert into objects(organization_id, name, code) values($1,$2,$3) returning id",
+            ids["org"], f"ztest_psh_obj_{uuid.uuid4().hex[:6]}", code)
+        await conn.execute(
+            "insert into canonical_fields(object_id, code, name, data_type) "
+            "values($1,'pct','% достижения показателя','number')", obj)
+        rels = []
+        try:
+            for i, day in enumerate(("2026-02-01", "2026-02-08")):
+                rid = await conn.fetchval(
+                    "insert into dataset_releases(organization_id, object_id, code, name, "
+                    "reporting_period_start, status, created_by) "
+                    "values($1,$2,$3,$4,$5::text::date,'released',$6) returning id",
+                    ids["org"], obj, code, f"Выпуск {i}", day, ids["admin"])
+                rels.append(rid)
+                for j, val in enumerate((50 + i * 10, 70 + i * 10)):
+                    await conn.execute(
+                        "insert into dataset_values(dataset_release_id, row_index, row_label, "
+                        "canonical_field_code, value_number) values($1,$2,$3,'pct',$4)",
+                        rid, j, f"Отделение {j}", val)
+            counting = CountingConn(conn)
+            out = await ws._dataset_period_series(counting, ids["org"], code, "pct")
+            assert [v for _, v in out] == [60.0, 70.0], f"доли сложены, а не усреднены: {out}"
+            assert counting.calls <= 2, "имя графы должно приходить тем же запросом"
+        finally:
+            await conn.execute("delete from dataset_values where dataset_release_id = any($1::uuid[])", rels)
+            await conn.execute("delete from dataset_releases where id = any($1::uuid[])", rels)
+            await conn.execute("delete from canonical_fields where object_id=$1", obj)
+            await conn.execute("delete from objects where id=$1", obj)

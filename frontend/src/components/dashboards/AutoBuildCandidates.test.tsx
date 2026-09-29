@@ -52,6 +52,12 @@ describe('AutoBuildCandidates — рекомендованные отмечен�
     expect(screen.getByText('Ничего не найдено.')).toBeInTheDocument()
   })
 
+  it('ключ сразу в «добавить» и «снять» — не отмечен: правило то же, что у сборки', () => {
+    // 🔴 Ревью этапа 2: мастер показывал галочку, а сервер виджет не создавал.
+    render(<AutoBuildCandidates candidates={LIST} include={['Светофор']} exclude={['Светофор']} onToggle={() => {}} />)
+    expect(screen.getByRole('checkbox', { name: /Светофор/ })).not.toBeChecked()
+  })
+
   it('добавленный человеком переходит в основной список и помечен «добавлен вами»', () => {
     render(<AutoBuildCandidates candidates={LIST} include={['Светофор']} exclude={[]} onToggle={() => {}} />)
     expect(screen.getByRole('checkbox', { name: /Светофор/ })).toBeChecked()

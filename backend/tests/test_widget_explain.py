@@ -88,3 +88,40 @@ async def test_explain_is_empty_when_there_is_nothing_to_say(client, admin_heade
         assert not w["explain"]
     finally:
         await _cleanup(did)
+
+
+async def test_explain_knows_fields_of_every_code_in_the_object(ids):
+    """🔴 У объекта два кода наборов — имена граф есть у ОБОИХ (ревью этапа 2, 29.09).
+
+    Первая редакция 24.09 держала один код на объект: у второго набора ⓘ
+    карточки говорил «Первичные данные формы» и печатал коды граф.
+    """
+    import uuid
+
+    from app.modules.dashboards._explain import explain_widgets
+
+    async with db.acquire() as conn:
+        obj = await conn.fetchval(
+            "insert into objects(organization_id, name, code) values($1,$2,$3) returning id",
+            ids["org"], f"ztest_twocodes_{uuid.uuid4().hex[:6]}", f"ztest_tc_{uuid.uuid4().hex[:6]}")
+        await conn.execute(
+            "insert into canonical_fields(object_id, code, name, data_type) "
+            "values($1,'x','Принято заявлений, ед.','number')", obj)
+        codes = [f"ztest_tca_{uuid.uuid4().hex[:5]}", f"ztest_tcb_{uuid.uuid4().hex[:5]}"]
+        rels = []
+        try:
+            for code in codes:
+                rels.append(await conn.fetchval(
+                    "insert into dataset_releases(organization_id, object_id, code, name, "
+                    "reporting_period_start, status, created_by) "
+                    "values($1,$2,$3,$4,'2026-09-01','released',$5) returning id",
+                    ids["org"], obj, code, f"Форма {code}", ids["admin"]))
+            widgets = [{"id": code, "widget_type": "kpi",
+                        "config": {"dataset_code": code, "value_field": "x"}} for code in codes]
+            texts = await explain_widgets(conn, ids["org"], widgets)
+            for code in codes:
+                assert "Принято заявлений, ед." in texts[code], (code, texts.get(code))
+        finally:
+            await conn.execute("delete from dataset_releases where id = any($1::uuid[])", rels)
+            await conn.execute("delete from canonical_fields where object_id=$1", obj)
+            await conn.execute("delete from objects where id=$1", obj)

@@ -27,8 +27,9 @@ export default function AutoBuildCandidates({ candidates, include, exclude, onTo
   const inc = useMemo(() => new Set(include), [include])
   const exc = useMemo(() => new Set(exclude), [exclude])
   // Отметку показываем сразу, не дожидаясь пересчёта с сервера: иначе
-  // галочка «отставала» бы от щелчка на время запроса.
-  const chosen = (c: AutoPlanCandidate) => (c.recommended ? !exc.has(c.key) : inc.has(c.key))
+  // галочка «отставала» бы от щелчка на время запроса. Правило — серверное
+  // (`build`): рекомендован или добавлен, и не снят.
+  const chosen = (c: AutoPlanCandidate) => (c.recommended || inc.has(c.key)) && !exc.has(c.key)
 
   const main = candidates.filter((c) => c.recommended || inc.has(c.key))
   const extra = candidates.filter((c) => !c.recommended && !inc.has(c.key))

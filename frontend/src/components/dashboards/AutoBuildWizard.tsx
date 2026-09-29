@@ -120,17 +120,19 @@ export default function AutoBuildWizard(
             const ds = p.datasets.find((d) => d.code === code)
             if (!ds || !init[code]) continue
             const known = new Set(ds.fields.map((f) => f.code))
-            // Галочки у виджетов — только те, чьи кандидаты ещё существуют:
-            // форма могла измениться, и чужой ключ ничего бы не значил.
-            const keys = new Set((p.candidates || []).filter((c) => c.dataset_code === code).map((c) => c.key))
             init[code] = {
               ...init[code],
               fields: (pick.fields || []).filter((f) => known.has(f)),
               blocks: pick.blocks || init[code].blocks,
               views: { ...init[code].views, ...(pick.views || {}) },
               periods: (pick.periods || []).filter((x) => (ds.period_dates || []).includes(x)),
-              include: (pick.include || []).filter((k) => keys.has(k)),
-              exclude: (pick.exclude || []).filter((k) => keys.has(k)),
+              // Отметки у виджетов — как есть. Сверять их с этим планом нельзя:
+              // он посчитан БЕЗ выбора (все графы, без страниц-срезов), и
+              // отметка страницы-среза или «Сравнения» по другому набору граф
+              // пропадала бы молча (ревью этапа 2). Незнакомый ключ сервер
+              // просто не заметит, а лишние он убирает сам при сборке.
+              include: pick.include || [],
+              exclude: pick.exclude || [],
               manual: !!pick.manual,
             }
             setRestored(true)
@@ -213,16 +215,26 @@ export default function AutoBuildWizard(
   function setAllFields(code: string, all: string[], on: boolean) {
     setSel((s) => (s ? { ...s, [code]: { ...s[code], fields: on ? all : [], manual: !on } } : s))
   }
-  /** Галочка у виджета: рекомендованный снимается (exclude), остальные
-   *  добавляются (include). Храним ключ, а не номер в списке. */
+  /** Галочка у виджета. Храним ключ, а не номер в списке, и правило то же, что
+   *  у сервера: создаётся, если рекомендован или добавлен, и не снят.
+   *  🔴 Первая редакция меняла только один список, и ключ мог застрять сразу
+   *  в «добавить» и «снять» (рекомендация зависит от выбора граф): мастер
+   *  показывал галочку, а сборка виджет не создавала (ревью этапа 2). */
   function toggleCandidate(code: string, c: AutoPlanCandidate) {
     setSel((s) => {
       if (!s) return s
       const p = s[code] || {}
-      const listKey = c.recommended ? 'exclude' : 'include'
-      const cur = new Set(p[listKey] || [])
-      if (cur.has(c.key)) cur.delete(c.key); else cur.add(c.key)
-      return { ...s, [code]: { ...p, [listKey]: [...cur] } }
+      const inc = new Set(p.include || [])
+      const exc = new Set(p.exclude || [])
+      const on = (c.recommended || inc.has(c.key)) && !exc.has(c.key)
+      if (on) {
+        inc.delete(c.key)
+        if (c.recommended) exc.add(c.key)
+      } else {
+        exc.delete(c.key)
+        if (!c.recommended) inc.add(c.key)
+      }
+      return { ...s, [code]: { ...p, include: [...inc], exclude: [...exc] } }
     })
   }
 
@@ -251,11 +263,17 @@ export default function AutoBuildWizard(
 
   // Сколько карточек показателей будет создано — по отметкам человека, сразу,
   // не дожидаясь пересчёта: счётчик должен откликаться на галочку.
-  const cardsBuilt = (plan?.candidates || []).reduce((n, c) => {
+  // Правило — то же, что на сервере (`build`): отмечено, если рекомендовано или
+  // добавлено, и не снято. Лимит карточек действует на КАЖДУЮ форму отдельно.
+  const cardsByForm: Record<string, number> = {}
+  for (const c of plan?.candidates || []) {
     const p = sel?.[c.dataset_code] || {}
-    const on = c.recommended ? !(p.exclude || []).includes(c.key) : (p.include || []).includes(c.key)
-    return n + (on ? c.cards : 0)
-  }, 0)
+    const on = (c.recommended || (p.include || []).includes(c.key)) && !(p.exclude || []).includes(c.key)
+    if (on && c.cards) cardsByForm[c.dataset_code] = (cardsByForm[c.dataset_code] || 0) + c.cards
+  }
+  const cardsBuilt = Object.values(cardsByForm).reduce((a, b) => a + b, 0)
+  const overLimit = (plan?.datasets || []).filter((d) => (cardsByForm[d.code] || 0) > (plan?.cards?.limit || Infinity))
+  const manyForms = (plan?.datasets || []).length > 1
 
   async function build(force = false) {
     if (!sel) return
@@ -571,13 +589,14 @@ export default function AutoBuildWizard(
             {plan.cards && plan.cards.total > 0 && (
               <div style={{ marginBottom: 4 }}>
                 Карточек показателей: <b>{cardsBuilt}</b> из {plan.cards.total} возможных
-                {' · '}рекомендую до {plan.cards.limit}
-                {cardsBuilt > plan.cards.limit && (
+                {' · '}рекомендую до {plan.cards.limit}{manyForms ? ' на каждую форму' : ''}
+                {overLimit.map((d) => (
                   // Предупреждение, а не запрет: решение за человеком (23.09).
-                  <div style={{ color: 'var(--accent-text)', marginTop: 2 }}>
-                    Больше {plan.cards.limit} — страница станет длинной, её придётся прокручивать.
+                  <div key={d.code} style={{ color: 'var(--accent-text)', marginTop: 2 }}>
+                    {manyForms ? `По форме «${d.name}» больше ${plan.cards.limit}` : `Больше ${plan.cards.limit}`}
+                    {' '}— страница станет длинной, её придётся прокручивать.
                   </div>
-                )}
+                ))}
               </div>
             )}
             Будет создано: <b>{plan.pages?.length || 0}</b> {pagePlural(plan.pages?.length || 0)}

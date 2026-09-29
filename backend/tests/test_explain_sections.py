@@ -92,8 +92,13 @@ def test_status_grid_says_when_colour_means_nothing():
     f = [{"code": "a", "name": "ИТОГО · Выдано, ед."}, {"code": "p", "name": "ИТОГО · План"}]
     bare = _sec("status_grid", {"value_field": "a"}, f)
     assert "одного цвета" in bare["caveats"]
-    planned = _sec("status_grid", {"value_field": "a", "plan_field": "p"}, f)
+    planned = _sec("status_grid", {"value_field": "a", "plan_field": "p",
+                                   "alerts": [{"op": "lt", "value": 90, "level": "red"}]}, f)
     assert "выполнению плана" in planned["what"] and "одного цвета" not in planned.get("caveats", "")
+    # 🔴 Ревью этапа 2: галочка «подсвечивать невыполнение» снята — alerts=[],
+    # плитки бесцветные даже при плане, и ⓘ не должен обещать цвет по плану.
+    off = _sec("status_grid", {"value_field": "a", "plan_field": "p", "alerts": []}, f)
+    assert "выполнению плана" not in off["what"] and "Пороги сняты" in off["caveats"]
 
 
 def test_thermometer_names_the_deadline_in_words():
@@ -123,3 +128,22 @@ def test_text_order_and_clip():
     assert text == "А. Отвечает: Б. Учтите: В."
     long = ex._clip("слово " * 400)
     assert len(long) <= ex.MAX_EXPLAIN and long.endswith("…")
+
+
+def test_pinned_series_say_the_series_stops():
+    """У видов-рядов закрепление обрывает ряд — так и сказано (ревью этапа 2)."""
+    f = [{"code": "a", "name": "ИТОГО · Выдано, ед."}]
+    dyn = _sec("dynamics", {"value_field": "a", "period": "2026-07-22"}, f)
+    assert "ряд обрывается на этой дате" in dyn["caveats"]
+    kpi = _sec("kpi", {"value_field": "a", "period": "2026-07-22"}, f)
+    assert "ряд обрывается" not in kpi["caveats"]
+    table = _sec("table", {"period": "2026-07-22"}, f)
+    assert "отчёта за 22 июля 2026 г." in table["what"], "не «последнего отчёта» на срезе"
+
+
+def test_ranked_and_pie_do_not_promise_what_is_not_drawn():
+    """Рейтинг сворачивает середину только на длинном списке, круговая — после порога."""
+    from app.modules.dashboards._widgetcalc import MAX_PIE_SLICES
+
+    assert "Когда строк больше" in _sec("ranked", {"value_field": "a"}, [])["caveats"]
+    assert f"больше {MAX_PIE_SLICES}" in _sec("pie", {"value_field": "a"}, [])["caveats"]

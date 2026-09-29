@@ -200,7 +200,11 @@ export type AutoPlan = {
   /** Все кандидаты — и рекомендованные, и «не рекомендую, потому что…». */
   candidates: AutoPlanCandidate[]
   /** Карточки показателей: сколько рекомендовано, сколько можно, лимит. */
-  cards: { recommended: number; total: number; limit: number; manual: boolean }
+  cards: {
+    recommended: number; total: number; limit: number; manual: boolean
+    /** Лимит действует на каждую форму отдельно — счёт по формам. */
+    by_dataset?: Record<string, { recommended: number; total: number; manual: boolean }>
+  }
 }
 
 /** Предпросмотр мастера: что будет создано при таком выборе. Считается тем же

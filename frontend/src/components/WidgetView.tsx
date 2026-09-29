@@ -1730,6 +1730,18 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
           <div style={{ fontSize: 13, marginTop: 4 }}>
             К {data.previous_year} г. (сопоставимые месяцы: {data.compared_months}): <b style={{ color: ch >= 0 ? 'var(--success)' : 'var(--danger)' }}>
               {ch >= 0 ? '↑ +' : '↓ '}{fmt(ch)}{data.change_pct != null ? ` (${fmt(data.change_pct)}%)` : ''}{data.unit ? ` ${data.unit}` : ''}</b>
+            {/* Как собран месяц — половина ответа: у нарастающего итога
+                сравнивается последний общий месяц, у доли — среднее. */}
+            {data.fold === 'last' && (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Нарастающий итог: месяц — его последний отчёт, сравнивается последний общий месяц.
+              </div>
+            )}
+            {data.fold === 'avg' && (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Доля: месяц — среднее по его отчётам, сравнивается среднее по общим месяцам.
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ fontSize: 13, marginTop: 4, color: 'var(--text-muted)' }}>Нет данных за прошлый год — сравнение появится, когда будут данные двух лет.</div>

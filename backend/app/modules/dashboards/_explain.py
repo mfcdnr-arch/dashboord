@@ -178,17 +178,24 @@ async def _forms_and_fields(conn, org_id, codes: set) -> dict:
         "order by code, reporting_period_start desc nulls last, created_at desc",
         org_id, list(codes))
     forms = {r["code"]: form_title(r["name"]) for r in latest}
-    by_object: Dict[str, str] = {str(r["object_id"]): r["code"] for r in latest}
+    # У объекта бывает НЕСКОЛЬКО кодов наборов (мастер сам предупреждает об
+    # этом, выпуск второго кода разрешает confirm_other_form), а справочник граф
+    # один на объект. 🔴 Первая редакция 24.09 держала один код на объект — у
+    # второго набора пропадали имена граф, и ⓘ карточки говорил «Первичные
+    # данные формы» (нашло ревью этапа 2).
+    by_object: Dict[str, List[str]] = {}
+    for r in latest:
+        by_object.setdefault(str(r["object_id"]), []).append(r["code"])
     fields: Dict[tuple, dict] = {}
     if by_object:
         rows = await conn.fetch(
             "select object_id, code, name, description, unit from canonical_fields "
             "where object_id = any($1::uuid[])", list(by_object))
         for r in rows:
-            ds = by_object[str(r["object_id"])]
-            fields[(ds, r["code"])] = {"name": r["name"], "description": r["description"],
-                                       "unit": r["unit"], "dataset_code": ds,
-                                       "dataset_name": forms.get(ds) or ds}
+            for ds in by_object[str(r["object_id"])]:
+                fields[(ds, r["code"])] = {"name": r["name"], "description": r["description"],
+                                           "unit": r["unit"], "dataset_code": ds,
+                                           "dataset_name": forms.get(ds) or ds}
     return {"fields": fields, "forms": forms}
 
 
@@ -275,10 +282,17 @@ def _data_of(c: _Ctx, codes: List[str]) -> str:
     return body
 
 
-def _period_note(cfg: dict) -> str:
+def _period_note(cfg: dict, kind: str = "") -> str:
     if cfg.get("period"):
-        return (f"Закреплён отчёт за {_ru_day(cfg['period'])} — новые файлы виджет не "
-                "меняют (срез).")
+        # Виды, рисующие ряд, обрывают его на дате закрепления — множество берём
+        # у расчёта, где оно и применяется: вторая копия однажды разошлась бы.
+        from ._widgetcalc import SERIES_TYPES  # локально: _widgetcalc тяжёлый
+
+        day = _ru_day(cfg["period"])
+        if kind in SERIES_TYPES:
+            return (f"Закреплён отчёт за {day}: ряд обрывается на этой дате, новые файлы "
+                    "виджет не меняют (срез).")
+        return f"Закреплён отчёт за {day} — новые файлы виджет не меняют (срез)."
     return ""
 
 
@@ -299,7 +313,7 @@ def widget_sections(w: dict, ctx: dict) -> Dict[str, str]:
     s: Dict[str, str] = {}
     vf = cfg.get("value_field")
     vfs = [x for x in (cfg.get("value_fields") or []) if x]
-    per = _period_note(cfg)
+    per = _period_note(cfg, t)
 
     if t in ("text", "image"):
         return {}
@@ -349,7 +363,8 @@ def widget_sections(w: dict, ctx: dict) -> Dict[str, str]:
         s["how"] = ("Порядок — по выполнению плана, поэтому крупная строка не выигрывает "
                     "автоматически." if by_plan else "Порядок — по величине.")
         s["caveats"] = _join("Длина полосы считается от максимума по ВСЕМ строкам, а не по "
-                             "показанным. Середина списка свёрнута, её размер назван под таблицей.", per)
+                             "показанным. Когда строк больше, чем помещается в топ и антитоп, "
+                             "середина списка свёрнута, и сколько скрыто — сказано под ним.", per)
         return {k: v for k, v in s.items() if v}
 
     if t == "spark_table":
@@ -419,12 +434,21 @@ def widget_sections(w: dict, ctx: dict) -> Dict[str, str]:
 
     if t == "status_grid" and vf:
         s["what"] = f"Плитка на каждую строку формы по графе «{c.name(vf)}»."
-        if cfg.get("plan_field"):
+        # Цвет даёт только правило порогов: пустой список — пороги сняты (галочка
+        # «подсвечивать невыполнение» в мастере или окно ⚠), и плитки бесцветные
+        # даже при заданном плане.
+        colored = bool(cfg.get("alerts"))
+        if cfg.get("plan_field") and colored:
             s["what"] += f" Цвет — по выполнению плана «{c.name(cfg['plan_field'])}»."
             s["answers"] = "У кого из строк плохо — с одного взгляда."
+        elif colored:
+            s["what"] += " Цвет — по заданным порогам."
+            s["answers"] = "У кого из строк значение выходит за пороги — с одного взгляда."
         else:
             s["answers"] = "Как значение распределено по строкам формы."
-            s["caveats"] = ("Цвет ставится по порогам. Без плана и без заданных порогов все "
+            s["caveats"] = ("Пороги сняты — все плитки одного цвета; их можно задать кнопкой ⚠."
+                            if cfg.get("plan_field") else
+                            "Цвет ставится по порогам. Без плана и без заданных порогов все "
                             "плитки одного цвета.")
         s["data"] = _data_of(c, [vf])
         s["caveats"] = _join(s.get("caveats", ""), per)
@@ -442,8 +466,10 @@ def widget_sections(w: dict, ctx: dict) -> Dict[str, str]:
         s["what"] = f"Доли строк формы в графе «{c.name(vf)}»."
         s["answers"] = "Какая строка даёт какую часть целого."
         s["data"] = _data_of(c, [vf])
-        s["caveats"] = _join("Больше семи секторов не рисуем: мелкие строки сложены в «Прочие», "
-                             "целое не меняется.", per)
+        from ._widgetcalc import MAX_PIE_SLICES  # локально: _widgetcalc тяжёлый
+
+        s["caveats"] = _join(f"Когда строк больше {MAX_PIE_SLICES}, мелкие сложены в «Прочие» "
+                             "(всего секторов не больше этого числа), целое не меняется.", per)
         return {k: v for k, v in s.items() if v}
 
     if t == "waterfall" and vf:
@@ -513,7 +539,8 @@ def widget_sections(w: dict, ctx: dict) -> Dict[str, str]:
         return {k: v for k, v in s.items() if v}
 
     if t == "table" and c.ds:
-        s["what"] = f"Первичные данные формы «{c.form()}»: строки и графы последнего отчёта."
+        which = (f"отчёта за {_ru_day(cfg['period'])}" if cfg.get("period") else "последнего отчёта")
+        s["what"] = f"Первичные данные формы «{c.form()}»: строки и графы {which}."
         s["answers"] = "Откуда взялась любая цифра на других страницах."
         s["caveats"] = _join("Есть поиск, сортировка и выгрузка в Excel.", per)
         return {k: v for k, v in s.items() if v}

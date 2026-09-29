@@ -52,8 +52,8 @@ def test_card_limit_counts_cards_not_fields():
     res = sg.plan_candidates(_ds(fields, volumes=volumes))
     cards = _cards(res)
     assert len(cards) == 60 and all(c["widget_type"] == "kpi_group" for c in cards)
-    assert res["cards"] == {"recommended": sg.MAX_CARDS, "total": 60,
-                            "limit": sg.MAX_CARDS, "manual": False}
+    assert {k: res["cards"][k] for k in ("recommended", "total", "limit", "manual")} == {
+        "recommended": sg.MAX_CARDS, "total": 60, "limit": sg.MAX_CARDS, "manual": False}
     rec = [c for c in cards if c["recommended"]]
     assert len(rec) == sg.MAX_CARDS
     # Рекомендуются самые нагруженные, а не первые по порядку файла.
@@ -291,3 +291,67 @@ def test_pinned_period_applies_to_every_candidate():
     fields, volumes = _wide(3)
     cands = sg.plan_candidates(_ds(fields, volumes=volumes), pin_period="2026-09-03")["candidates"]
     assert cands and all(c["config"].get("period") == "2026-09-03" for c in cands)
+
+
+def test_marks_survive_the_next_file():
+    """🔴 Ключ не включает дату закрепления: через неделю, по следующему файлу,
+    снятые и добавленные виджеты остаются снятыми и добавленными (ревью этапа 2)."""
+    fields, volumes = _wide(40)
+    a = [c["key"] for c in sg.plan_candidates(_ds(fields, volumes=volumes), pin_period="2026-09-04")["candidates"]]
+    b = [c["key"] for c in sg.plan_candidates(_ds(fields, volumes=volumes), pin_period="2026-09-11")["candidates"]]
+    assert a == b
+
+
+def test_one_per_dataset_kinds_keep_their_key_when_fields_change():
+    """🔴 Снятое «Сравнение» не возвращается после правки состава граф."""
+    fields, volumes = _wide(40)
+    base = {c["widget_type"]: c for c in sg.plan_candidates(_ds(fields, volumes=volumes))["candidates"]}
+    cmp_key = base["compare"]["key"]
+    fewer = [f["code"] for f in fields if f["code"] != "s0p"]
+    sel = {"t": {"fields": fewer, "exclude": [cmp_key]}}
+    again = {c["widget_type"]: c for c in sg.plan_candidates(_ds(fields, volumes=volumes), sel)["candidates"]}
+    assert again["compare"]["key"] == cmp_key and not again["compare"]["build"]
+
+
+def test_card_limit_is_per_form():
+    """Лимит карточек действует на КАЖДУЮ форму: две формы по 35 — это не превышение."""
+    fields, volumes = _wide(60)
+    two = _ds(fields, volumes=volumes, code="a") + _ds(fields, volumes=volumes, code="b")
+    stats = sg.plan_candidates(two)["cards"]
+    assert stats["recommended"] == 2 * sg.MAX_CARDS
+    assert stats["by_dataset"]["a"]["recommended"] == sg.MAX_CARDS
+    assert stats["by_dataset"]["b"]["recommended"] == sg.MAX_CARDS
+
+
+def test_pie_reason_matches_what_the_pie_does():
+    """На 8 строках круговая рисует 8 секторов без «Прочих» — причина не обещает их."""
+    from app.modules.dashboards._widgetcalc import MAX_PIE_SLICES
+
+    f = [{"code": "a", "name": "Обращения · Факт · нарастающим итогом"}]
+    reason = lambda rows: next(c for c in sg.plan_candidates(_ds(f, rows=rows, volumes={"a": 1.0}))["candidates"]  # noqa: E731
+                               if c["widget_type"] == "pie")["reason"]
+    assert "Прочие" not in reason(MAX_PIE_SLICES)
+    assert "Прочие" in reason(MAX_PIE_SLICES + 1)
+
+
+def test_extra_trend_is_not_said_to_be_in_the_matrix_when_it_is_not():
+    """Матрица по строкам берёт ОДНУ графу — про остальные «уже показано» неправда."""
+    fields, volumes = _wide(12)
+    fields = [{**f, "name": f["name"] + " · за отчетную неделю"} for f in fields]
+    cands = sg.plan_candidates(_ds(fields, rows=62, volumes=volumes))["candidates"]
+    matrix = next(c for c in cands if c["widget_type"] == "matrix")
+    in_matrix = set(matrix["config"].get("value_fields") or [matrix["config"].get("value_field")])
+    for c in cands:
+        if c["widget_type"] == "dynamics" and not c["recommended"]:
+            said = "уже показывает матрица" in c["reason"]
+            assert said == (c["config"]["value_field"] in in_matrix), c["reason"]
+
+
+def test_saved_marks_are_pruned_to_known_candidates():
+    """Сервер сам чистит сохранённые отметки: мастер их больше не отсекает."""
+    fields, volumes = _wide(40)
+    cands = sg.plan_candidates(_ds(fields, volumes=volumes))["candidates"]
+    k = cands[0]["key"]
+    sel = {"t": {"include": [k, "t:kpi:nope"], "exclude": [k, "t:bar:gone"]}}
+    pruned = sg._prune_marks(sel, cands)["t"]
+    assert pruned["exclude"] == [k] and pruned["include"] == [], "«добавлен и снят» сводится к «снят»"

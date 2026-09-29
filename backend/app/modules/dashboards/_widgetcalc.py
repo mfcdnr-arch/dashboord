@@ -474,6 +474,15 @@ def _normalize_cfg(cfg: dict) -> dict:
 # (он ходит по всем объектам), поэтому диапазон он разбирает сам.
 RANGE_TYPES = {"dynamics", "yoy", "cross_dataset_compare", "matrix", "objects_compare"}
 
+# Виды, рисующие ряд отчётов. У закреплённого виджета (`period` — страница-срез
+# или дашборд «по этому файлу») ряд обрывается на дате закрепления: снимок не
+# показывает того, чего на его дату ещё не было. 🔴 До 29.09.2026 это делали
+# только мини-график и прирост карточки — «Динамика», матрица, строки с
+# мини-графиками, водопад по периодам и «Год к году» дату закрепления не
+# читали и росли с каждым новым файлом, хотя мастер обещал «виджеты не
+# изменятся, когда придёт следующий» (нашло ревью этапа 2).
+SERIES_TYPES = {"dynamics", "yoy", "cross_dataset_compare", "matrix", "spark_table", "waterfall"}
+
 
 async def _period_for_range(conn, org_id, code: str, from_date, to_date):
     """Последний отчёт набора данных, попавший в выбранный диапазон.
@@ -612,6 +621,11 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
             return {"type": t, "title": name, "no_data_in_period": True,
                     "from_date": from_date, "to_date": to_date}
         cfg = {**cfg, "period": applied}
+
+    if cfg.get("period") and t in SERIES_TYPES:
+        pin = str(cfg["period"])
+        if not to_date or str(to_date) > pin:
+            to_date = pin
 
     res = await _compute_widget_inner(conn, org_id, t, name, cfg, from_date, to_date, row, user)
     if level_path and isinstance(res, dict):
@@ -1513,29 +1527,50 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         # год против прошлого»); cross-filter «Строка» и row-RLS — применяются.
         if not cfg.get("dataset_code") or not cfg.get("value_field"):
             raise DashboardError("Год к году: укажите dataset_code и value_field")
-        series = await _dataset_period_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], None, None, row, allowed)
+        # Фильтр периода страницы не применяется (to_date здесь — только дата
+        # закрепления: у снимка ряд обрывается на ней).
+        series = await _dataset_period_series(conn, org_id, cfg["dataset_code"], cfg["value_field"],
+                                              None, cfg.get("period") and to_date, row, allowed)
+        # 🔴 Месяц собирается той же `_month_buckets`, что у «Динамики» и
+        # матрицы: доля усредняется, нарастающий итог берётся ПОСЛЕДНИМ отчётом
+        # месяца, поток складывается. До 29.09.2026 месяц собирался плюсом при
+        # любом показателе: на нарастающем итоге формы МАХ август давал
+        # 2 731 459 вместо 943 442 (ревью этапа 2), а вид ставится как раз на
+        # главный разрез — «нарастающим итогом».
+        title = await _field_title(conn, org_id, cfg["dataset_code"], cfg["value_field"]) or cfg["value_field"]
+        dated = [(p, v) for p, v in series if len(p) >= 7 and p[:4].isdigit()]
+        vmap, fold, _reports = _month_buckets(dated, title)
         by_year: Dict[int, Dict[int, float]] = {}
-        for p, v in series:
-            if len(p) < 7 or not p[:4].isdigit():
-                continue  # выпуски без даты периода в сравнении не участвуют
-            y, m = int(p[:4]), int(p[5:7])
-            ym = by_year.setdefault(y, {})
-            ym[m] = ym.get(m, 0.0) + v
+        for bucket, v in vmap.items():
+            by_year.setdefault(int(bucket[:4]), {})[int(bucket[5:7])] = v
         if not by_year:
             raise DashboardError("Год к году: у выпусков датасета нет дат периодов")
+
+        def year_total(ym: Dict[int, float], months_: List[int]) -> Optional[float]:
+            """Итог по месяцам — тем же правилом, что месяц: сумма, среднее или последний."""
+            vals = [ym[m] for m in months_ if m in ym]
+            if not vals:
+                return None
+            if fold == "avg":
+                return sum(vals) / len(vals)
+            if fold == "last":
+                return ym[max(m for m in months_ if m in ym)]
+            return sum(vals)
+
         cur = max(by_year)
         prev = cur - 1
         months = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
         cur_map, prev_map = by_year.get(cur, {}), by_year.get(prev, {})
         cur_vals = [cur_map.get(m) for m in range(1, 13)]
         prev_vals = [prev_map.get(m) for m in range(1, 13)]
-        cur_total = sum(v for v in cur_vals if v is not None)
+        cur_total = year_total(cur_map, sorted(cur_map)) or 0.0
         # Честное сравнение — по СОПОСТАВИМЫМ месяцам (данные есть в обоих годах),
-        # иначе неполный год сравнивался бы с полным.
+        # иначе неполный год сравнивался бы с полным. У нарастающего итога это
+        # значение последнего общего месяца, у доли — среднее, у потока — сумма.
         common = sorted(set(cur_map) & set(prev_map))
         if common:
-            s_prev = sum(prev_map[m] for m in common)
-            s_cur = sum(cur_map[m] for m in common)
+            s_prev = year_total(prev_map, common) or 0.0
+            s_cur = year_total(cur_map, common) or 0.0
             diff = s_cur - s_prev
             pct = (diff / s_prev * 100.0) if s_prev else None
             yoy_change: Optional[float] = diff
@@ -1546,8 +1581,8 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
                 "current_year": cur, "previous_year": prev if prev_map else None,
                 "current": cur_vals, "previous": prev_vals,
                 "current_total": cur_total,
-                "previous_total": (sum(v for v in prev_vals if v is not None) if prev_map else None),
-                "compared_months": len(common),
+                "previous_total": (year_total(prev_map, sorted(prev_map)) if prev_map else None),
+                "compared_months": len(common), "fold": fold,
                 "change": yoy_change, "change_pct": yoy_change_pct, "unit": cfg.get("unit")}
 
     if t == "kpi":

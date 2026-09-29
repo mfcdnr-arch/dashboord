@@ -14,6 +14,7 @@ from ..metrics import resolver as mr
 from ..metrics.parser import FormulaError, parse
 from ..metrics.versions import best_version_order
 from . import _pagecalc
+from ._aggregate import is_share
 from ._base import DashboardError
 
 # Действующая версия формулы: правило одно на систему (metrics/versions.py).
@@ -229,14 +230,27 @@ async def _dataset_multi_series(conn, org_id, dataset_code: str, value_fields: L
 
 async def _dataset_period_series(conn, org_id, dataset_code: str, value_field: str,
                                 from_date=None, to_date=None, row=None, allowed=None):
-    """Ряд по периодам: для каждого активного выпуска датасета — сумма поля (динамика)."""
+    """Ряд по периодам: для каждого активного выпуска — значение поля по строкам формы.
+
+    Строки сворачиваются по смыслу графы — тем же правилом, что у карточки
+    (`aggregate_series`): количество складывается, доля УСРЕДНЯЕТСЯ. 🔴 До
+    29.09.2026 здесь была всегда сумма, и у доли точка «Динамики», мини-график
+    и прирост к прошлому отчёту считались суммой процентов по строкам: у КПЭ
+    (10 строк) «% достижения» выходил около 677 % вместо 67,76 %, а прирост на
+    карточке был «среднее минус сумма». Нашло ревью этапа 2: подсказка ⓘ
+    обещала «строки усредняются», а расчёт делал обратное.
+    """
+    # Имя и единица графы — тем же запросом, что и список отчётов: по ним
+    # решается сумма или среднее, а число обращений к базе не растёт.
     rels = await conn.fetch(
-        "select id, reporting_period_start from dataset_releases "
-        "where organization_id=$1 and code=$2 and status <> 'superseded' "
-        "and ($3::text is null or reporting_period_start >= $3::text::date) "
-        "and ($4::text is null or reporting_period_start <= $4::text::date) "
-        "order by reporting_period_start nulls last",
-        org_id, dataset_code, from_date, to_date,
+        "select r.id, r.reporting_period_start, cf.name as title, cf.unit as unit "
+        "from dataset_releases r left join canonical_fields cf "
+        "  on cf.object_id = r.object_id and cf.code = $5 "
+        "where r.organization_id=$1 and r.code=$2 and r.status <> 'superseded' "
+        "and ($3::text is null or r.reporting_period_start >= $3::text::date) "
+        "and ($4::text is null or r.reporting_period_start <= $4::text::date) "
+        "order by r.reporting_period_start nulls last",
+        org_id, dataset_code, from_date, to_date, value_field,
     )
     if not rels:
         raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
@@ -250,11 +264,14 @@ async def _dataset_period_series(conn, org_id, dataset_code: str, value_field: s
     ids = [r["id"] for r in rels]
     params: list = [ids, value_field, row]
     acl = _row_acl_clause(params, allowed)
+    named = next((r for r in reversed(rels) if r["title"]), None)
+    share = is_share(named["title"], named["unit"]) if named else False
     sums = await conn.fetch(
-        "select dataset_release_id as rel, coalesce(sum(value_number),0) as val from dataset_values "
+        "select dataset_release_id as rel, coalesce(sum(value_number),0) as total, "
+        "avg(value_number) as mean from dataset_values "
         f"where dataset_release_id = any($1::uuid[]) and canonical_field_code=$2 "
         f"and ($3::text is null or row_label=$3){acl} group by dataset_release_id", *params)
-    by_rel = {r["rel"]: float(r["val"]) for r in sums}
+    by_rel = {r["rel"]: float((r["mean"] if share else r["total"]) or 0.0) for r in sums}
 
     out = []
     for r in rels:

@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from ..ingestion.hierarchy import pick_separator, split_segments
 from ..metrics import resolver as mr
@@ -764,9 +764,15 @@ def by_meaning_specs(fields: list, rows: int, periods: int, first_period: str = 
     if main and PIE_ROWS[0] <= rows <= PIE_ROWS[1]:
         add("pie", [main[0]])
     elif main and rows > PIE_ROWS[1]:
+        # Порог сворачивания в «Прочие» — у расчёта (MAX_PIE_SLICES): причина
+        # обязана говорить то, что круговая сделает на самом деле.
+        from ._widgetcalc import MAX_PIE_SLICES  # локально: _widgetcalc тяжёлый
+
         add("pie", [main[0]], recommended=False, reason=(
-            f"Строк в форме {rows} — секторов было бы больше семи: мелкие сольются в "
-            "«Прочие», и доли глазами не сравнить. Порядок строк лучше читается рейтингом."))
+            f"Строк в форме {rows} — больше семи секторов, и доли глазами уже не сравнить"
+            + (f"; мелкие сольются в «Прочие» (секторов не больше {MAX_PIE_SLICES})"
+               if rows > MAX_PIE_SLICES else "")
+            + ". Порядок строк лучше читается рейтингом."))
 
     if rows >= MIN_ROWS_HEATMAP and len(main) >= MIN_FIELDS_HEATMAP:
         # 🔴 Свод и его составляющие на одной карте несопоставимы: клетка
@@ -1099,13 +1105,26 @@ def _layout(specs: list) -> list:
     return specs
 
 
+# Виды, которых у набора не больше одного: их ключ — вид и набор, без списка
+# граф. 🔴 Граф у «Сравнения» до 24, у матрицы по показателям до 20, и состав
+# зависит от выбора: снятая одна графа давала новый ключ, и «Сравнение»,
+# снятое человеком, возвращалось (ревью этапа 2). Смысл галочки — «этот вид
+# мне не нужен», а не «не нужен этот набор граф».
+_ONE_PER_DATASET = {"compare", "matrix", "bar", "heatmap", "funnel", "bullet", "ranked",
+                    "spark_table", "status_grid", "pie", "waterfall", "yoy", "table"}
+
+
 def _candidate_key(sp: dict) -> str:
     """Постоянный ключ кандидата: вид + набор + графы + разрез.
 
     По нему предложение виджетов запоминает галочки человека: имя виджета
-    меняется, порядок тоже, а этот ключ — нет.
+    меняется, порядок тоже, а этот ключ — нет. У видов, которых у набора
+    один, графы в ключ не входят; дата страницы-среза входит всегда.
     """
     cfg = sp["config"]
+    if sp["widget_type"] in _ONE_PER_DATASET:
+        return ":".join([str(cfg.get("dataset_code") or ""), sp["widget_type"],
+                         *([str(cfg["period"])] if cfg.get("period") else [])])
     fields: list = []
     for k in ("value_field", "plan_field", "fact_field"):
         if cfg.get(k):
@@ -1138,7 +1157,8 @@ def plan_candidates(datasets: list, selection: Optional[dict] = None,
     """
     specs: list = []
     notes: list = []
-    card_stats = {"recommended": 0, "total": 0, "limit": MAX_CARDS, "manual": False}
+    card_stats: Dict[str, Any] = {"recommended": 0, "total": 0, "limit": MAX_CARDS,
+                                  "manual": False, "by_dataset": {}}
 
     for d in datasets:
         code, dsname = d["code"], d["name"]
@@ -1204,6 +1224,11 @@ def plan_candidates(datasets: list, selection: Optional[dict] = None,
         card_stats["recommended"] += len(rec_cards)
         card_stats["total"] += len(cards)
         card_stats["manual"] = card_stats["manual"] or manual
+        # Лимит действует на КАЖДУЮ форму: у двух наборов по 35 рекомендованных,
+        # и общий счётчик «70 при лимите 35» предупреждал бы о превышении
+        # собственной рекомендации (ревью этапа 2). Мастер сверяет по форме.
+        card_stats["by_dataset"][code] = {
+            "recommended": len(rec_cards), "total": len(cards), "manual": manual}
         if not manual and len(cards) > MAX_CARDS:
             notes.append(f"Карточек по форме «{form_title(dsname)}» можно сделать {len(cards)} — "
                          f"рекомендую {len(rec_cards)} самых нагруженных, остальные — в «Ещё "
@@ -1325,6 +1350,11 @@ def plan_candidates(datasets: list, selection: Optional[dict] = None,
             notes.append(f"Графиков динамики можно сделать ещё {len(trends_all) - limit}; в «Ещё "
                          f"можно добавить» — {MAX_EXTRA_DYNAMICS} из них, остальные добавляются на "
                          "самом дашборде («Добавить виджет»).")
+        # Графы, чьё движение УЖЕ показывает матрица: по показателям — её
+        # графы; по строкам матрица строится по одной графе (base), и про
+        # остальные говорить «уже показано» было бы неправдой (ревью этапа 2).
+        in_matrix = set(spec_cfg.get("value_fields") or [spec_cfg.get("value_field")]) \
+            if matrix_added else set()
         for i, f in enumerate(trends_all[:limit] + extra_trends):
             rec = i < limit
             ds_specs.append({
@@ -1333,8 +1363,10 @@ def plan_candidates(datasets: list, selection: Optional[dict] = None,
                 "config": {"dataset_code": code, "value_field": f["code"], **dyn_group},
                 "width": 4, "height": 6, "recommended": rec,
                 "reason": "" if rec else (
-                    "Движение всех строк уже показывает матрица по датам; отдельный график — "
-                    "для главных показателей." if matrix_added else
+                    "Движение этой графы уже показывает матрица на той же странице; отдельный "
+                    "график — для главных показателей." if f["code"] in in_matrix else
+                    f"Рядом с матрицей рекомендую только главные графики динамики ({limit} самых "
+                    "нагруженных граф) — остальные по желанию." if matrix_added else
                     f"Графиков динамики уже {limit} — больше на странице не различить.")})
         ds_specs += [s for s in meaning_specs if s["page"] == PAGE_DYNAMICS]
 
@@ -1377,11 +1409,15 @@ def plan_candidates(datasets: list, selection: Optional[dict] = None,
         for sp in ds_specs:
             sp["dataset_code"] = code
             sp.setdefault("cards", 0)
+            # Ключ — ДО закрепления даты: галочка человека не должна пропадать,
+            # когда через неделю дашборд собирают по следующему файлу (первая
+            # редакция 24.09 теряла все отметки — ревью этапа 2). У страниц-
+            # срезов дата задана в самой спецификации и в ключ входит.
+            sp["key"] = _candidate_key(sp)
             if pin_period:
                 # Закрепляем дату ОДНИМ местом: иначе новый вид однажды забудут
                 # закрепить, и на «срезе за 22.07» появится свежая карточка.
                 sp["config"].setdefault("period", pin_period)
-            sp["key"] = _candidate_key(sp)
         # Ключ обязан быть уникальным: одинаковые графы бывают у разных видов
         # одной меры, а галочка человека должна попадать ровно в свой виджет.
         seen: Counter = Counter()
@@ -1554,6 +1590,30 @@ async def _saved_selection(conn, object_id: str) -> Optional[dict]:
     return json.loads(raw) if isinstance(raw, str) else raw
 
 
+def _prune_marks(selection: Optional[dict], candidates: list) -> Optional[dict]:
+    """Выбор для запоминания без отметок, которым в этой сборке нет кандидата.
+
+    Мастер хранит отметки ключами и сам их больше не чистит (сверять было не с
+    чем — первый план считается без выбора). Чистим здесь, по кандидатам той
+    же сборки: иначе ключи копились бы от сборки к сборке. Ключ, который
+    одновременно «добавлен» и «снят», сводится к «снят» — так решает `build`.
+    """
+    if not selection:
+        return selection
+    keys: dict = {}
+    for c in candidates:
+        keys.setdefault(c["dataset_code"], set()).add(c["key"])
+    out: dict = {}
+    for code, pick in selection.items():
+        known = keys.get(code, set())
+        pick = dict(pick or {})
+        exc = [k for k in (pick.get("exclude") or []) if k in known]
+        pick["include"] = [k for k in (pick.get("include") or []) if k in known and k not in exc]
+        pick["exclude"] = exc
+        out[code] = pick
+    return out
+
+
 async def _remember_selection(conn, object_id: str, selection: Optional[dict],
                               metrics: Optional[list], alerts: bool = True) -> None:
     """Запомнить выбор: мастер не должен каждую неделю спрашивать одно и то же."""
@@ -1633,8 +1693,9 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
                                              only_code=doc["code"] if doc else None)
     if not datasets:
         raise DashboardError("У объекта нет выпущенных датасетов — сначала распознайте документ")
-    specs = plan_auto_build(datasets, selection, alerts,
-                            pin_period=(doc or {}).get("period") if lock_period else None)
+    plan = plan_candidates(datasets, selection, alerts,
+                           pin_period=(doc or {}).get("period") if lock_period else None)
+    specs = _layout([c for c in plan["candidates"] if c["build"]])
     if not specs and not metrics:
         raise DashboardError("Нечего собирать — не выбрано ни одного показателя")
 
@@ -1712,7 +1773,8 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
         made_metrics = await _create_metric_widgets(
             conn, org_id, user_id, object_id, metrics, pages[PAGE_OVERVIEW], below, alerts)
 
-    await _remember_selection(conn, object_id, selection, metrics, alerts)
+    await _remember_selection(conn, object_id, _prune_marks(selection, plan["candidates"]),
+                              metrics, alerts)
     return {"dashboard_id": did, "page_id": first_pid, "pages": len(pages),
             "widgets": len(specs) + made_metrics, "metrics": made_metrics}
 
