@@ -31,6 +31,7 @@ ENTITY_LABELS = {
     "dashboard_page": "Страница дашборда",
     "dashboard_comment": "Комментарий к дашборду",
     "department": "Отдел",
+    "direction": "Направление дашбордов",
 }
 # Все значения enum audit_action (порядок — для фасета фильтра).
 ACTIONS = ["create", "update", "delete", "publish", "grant_access", "revoke_access", "view",

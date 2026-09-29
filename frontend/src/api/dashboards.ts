@@ -20,6 +20,9 @@ export interface Dashboard {
   folder_id?: string | null
   folder_name?: string | null
   object_name?: string | null
+  /** Направление — группа внутри «Дашбордов» (одно или никакого). */
+  direction_id?: string | null
+  direction_name?: string | null
   /** При фильтре по файлу: собран ИМЕННО по этому отчёту (виджеты закреплены
    *  за его датой), а не просто читает эту форму. */
   pinned_to_document?: boolean
@@ -61,7 +64,7 @@ export interface Widget {
 
 export async function listDashboards(
   q = '', fav = false, limit = 50, offset = 0, fromDate = '', toDate = '', folderId = '',
-  documentId = '',
+  documentId = '', directionId = '',
 ): Promise<Page<Dashboard>> {
   const p = new URLSearchParams({ limit: String(limit), offset: String(offset) })
   if (q.trim()) p.set('q', q.trim())
@@ -71,6 +74,8 @@ export async function listDashboards(
   if (folderId) p.set('folder_id', folderId)
   // «Какие дашборды построены на данных этого отчёта».
   if (documentId) p.set('document_id', documentId)
+  // Направление: '' — все, 'none' — без направления, иначе id.
+  if (directionId) p.set('direction_id', directionId)
   const res = await fetch(`/dashboards?${p}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
@@ -104,10 +109,12 @@ export async function moveDashboardToFolder(id: string, folderId: string | null)
 }
 // force=true — «всё равно создать»: дашборд с таким названием уже есть, и
 // сервер отказал 409-м, чтобы в списке не появились два неразличимых.
-export async function createDashboard(name: string, description?: string, force = false): Promise<Dashboard> {
+export async function createDashboard(
+  name: string, description?: string, force = false, directionId?: string,
+): Promise<Dashboard> {
   const res = await fetch('/dashboards', {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
-    body: JSON.stringify({ name, description: description || null, force }),
+    body: JSON.stringify({ name, description: description || null, force, direction_id: directionId || null }),
   })
   if (!res.ok) {
     const msg = await errText(res)
@@ -245,6 +252,9 @@ export async function autoBuildDashboard(
     documentId?: string
     /** Закрепить виджеты за отчётной датой файла (по умолчанию да). */
     lockPeriod?: boolean
+    /** Направление НОВОГО дашборда: существующее по id или новое по имени. */
+    directionId?: string
+    newDirection?: string
   } = {},
 ): Promise<{ dashboard_id: string; page_id: string; widgets: number; metrics?: number }> {
   const res = await fetch('/dashboards/auto', {
@@ -257,6 +267,8 @@ export async function autoBuildDashboard(
       document_id: opts.documentId || null,
       lock_period: opts.lockPeriod !== false,
       force: opts.force === true,
+      direction_id: opts.directionId || null,
+      new_direction: opts.newDirection || null,
     }),
   })
   if (!res.ok) {
@@ -945,4 +957,82 @@ export async function buildLadderPage(dashboardId: string): Promise<{ page_id: s
   const res = await fetch(`/dashboards/${dashboardId}/ladder-page`, { method: 'POST', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
+}
+
+// --- Направления: группы дашбордов внутри раздела «Дашборды» (этап 3) ---
+
+export interface Direction {
+  id: string
+  name: string
+  description: string | null
+  position: number
+  /** Сколько дашбордов направления ВИДНО этому человеку (архивные не в счёт). */
+  dashboards: number
+}
+export interface DirectionList {
+  items: Direction[]
+  /** Видимых дашбордов без направления. */
+  without: number
+  /** Человек ведёт направления (видит и пустые). */
+  manage: boolean
+}
+async function jsonOrThrow<T>(res: Response): Promise<T> {
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+const jsonH = () => ({ 'Content-Type': 'application/json', ...authH() })
+
+export async function listDirections(): Promise<DirectionList> {
+  return jsonOrThrow(await fetch('/dashboard-directions', { headers: authH() }))
+}
+export async function createDirection(name: string, description?: string): Promise<Direction> {
+  return jsonOrThrow(await fetch('/dashboard-directions', {
+    method: 'POST', headers: jsonH(), body: JSON.stringify({ name, description: description || null }),
+  }))
+}
+export async function updateDirection(id: string, patch: { name?: string; description?: string | null }): Promise<Direction> {
+  return jsonOrThrow(await fetch(`/dashboard-directions/${id}`, {
+    method: 'PATCH', headers: jsonH(), body: JSON.stringify(patch),
+  }))
+}
+export async function deleteDirection(id: string): Promise<{ deleted: boolean; dashboards_freed: number }> {
+  return jsonOrThrow(await fetch(`/dashboard-directions/${id}`, { method: 'DELETE', headers: authH() }))
+}
+export async function reorderDirections(ids: string[]): Promise<void> {
+  await jsonOrThrow(await fetch('/dashboard-directions/reorder', {
+    method: 'POST', headers: jsonH(), body: JSON.stringify({ ids }),
+  }))
+}
+/** Назначить направление дашбордам одной операцией: существующее по id,
+ *  новое по имени; ни то ни другое — снять направление. */
+export async function assignDirection(
+  dashboardIds: string[], directionId: string | null, newName?: string,
+): Promise<{ direction_id: string | null; direction_name: string | null; dashboards: number }> {
+  return jsonOrThrow(await fetch('/dashboard-directions/assign', {
+    method: 'POST', headers: jsonH(),
+    body: JSON.stringify({ dashboard_ids: dashboardIds, direction_id: directionId, new_name: newName || null }),
+  }))
+}
+export interface DirectionProposalGroup {
+  name: string
+  /** Совпало с существующим направлением — дашборды уйдут в него. */
+  direction_id: string | null
+  why: string
+  dashboards: { id: string; name: string; object_name: string | null }[]
+}
+export async function getDirectionProposal(): Promise<{ groups: DirectionProposalGroup[]; unassigned: number }> {
+  return jsonOrThrow(await fetch('/dashboard-directions/proposal', { headers: authH() }))
+}
+export async function applyDirectionProposal(
+  groups: { name: string; dashboard_ids: string[] }[],
+): Promise<{ directions_created: number; dashboards_assigned: number }> {
+  return jsonOrThrow(await fetch('/dashboard-directions/proposal/apply', {
+    method: 'POST', headers: jsonH(), body: JSON.stringify({ groups }),
+  }))
+}
+/** Направление по умолчанию для нового дашборда объекта (мастер «✨ Собрать»). */
+export async function directionForObject(
+  objectId: string,
+): Promise<{ suggestion: { id: string | null; name: string; why: string } | null }> {
+  return jsonOrThrow(await fetch(`/dashboard-directions/for-object/${objectId}`, { headers: authH() }))
 }

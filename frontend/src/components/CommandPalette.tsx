@@ -93,7 +93,9 @@ export default function CommandPalette(
     ...sectionRows,
     ...results.dashboards.map((d) => ({
       key: `d:${d.id}`, icon: '📊', label: d.name,
-      hint: [d.object_name, d.folder_name].filter(Boolean).join(' / ') || undefined,
+      // Направление и объект. Папку в подсказку не выводим: это служебная
+      // раскладка файлов, зрителю её не показывают и в списке (22.09).
+      hint: [d.direction_name, d.object_name].filter(Boolean).join(' · ') || undefined,
       target: { kind: 'dashboard', dashboard: d.id } as SearchTarget,
     })),
     ...results.pages.map((p) => ({

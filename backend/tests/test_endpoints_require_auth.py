@@ -40,7 +40,7 @@ def _fill(path: str) -> str:
                  "job_id", "table_id", "folder_id", "object_id", "release_id", "appeal_id",
                  "showcase_id", "item_id", "archive_id", "event_id", "department_id", "grant_id",
                  "template_id", "recipient_id", "preset_id", "comment_id", "doc_id", "service_id",
-                 "target_user_id"):
+                 "target_user_id", "direction_id"):
         out = out.replace("{" + name + "}", _FAKE)
     return out.replace("{version_no}", "1").replace("{metric_code}", "test")
 

@@ -33,7 +33,9 @@ export type Announcement = {
 
 export type PortalHome = {
   announcements: Announcement[]
-  objects: { object_name: string; dashboards: { id: string; name: string; folder_name: string | null; updated_at: string | null }[] }[]
+  /** Группы «Моих отчётов»: по направлениям, если они есть, иначе по объектам. */
+  objects: { object_name: string; title?: string; dashboards: { id: string; name: string; folder_name: string | null; updated_at: string | null }[] }[]
+  group_by?: 'direction' | 'object'
   dashboards_total: number
   fresh_data: { name: string; object_name: string | null; period: string | null; created_at: string }[]
   instructions: { total: number; unread: number }

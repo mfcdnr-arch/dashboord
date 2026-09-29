@@ -76,6 +76,8 @@ async def _purge_leftovers(_seeded):
     for did in dids:
         await purge_dashboard(str(did))
     async with db.acquire() as conn:
+        # Направления — после дашбордов: они на них ссылаются (on delete set null).
+        await conn.execute("delete from dashboard_directions where name like 'ztest_%'")
         await conn.execute("delete from access_grants where user_id in (select id from users where login like 'ztest_%')")
         await conn.execute("delete from user_roles where user_id in (select id from users where login like 'ztest_%')")
         await conn.execute("update dashboards set published_by=null where published_by in (select id from users where login like 'ztest_%')")

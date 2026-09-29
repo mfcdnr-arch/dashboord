@@ -144,6 +144,8 @@ export interface HeaderActions {
   versions: () => void
   access: () => void
   moveFolder: () => void
+  /** Направление — группа в списке «Дашборды». */
+  moveDirection: () => void
   saveTemplate: () => void
   archive: () => void
   toggleAutoArchive: () => void
@@ -324,6 +326,12 @@ export function DashboardHeader({
                   aria-label="О дашборде"
                   title="Что это за дашборд и из чего он собран" onClick={a.about}>ℹ</button>
               </span>
+              {/* Направление — для всех: это группа, в которой зритель и ищет отчёт. */}
+              {dashboard.direction_name && (
+                <span style={chip} title="Направление — группа в списке «Дашборды»">
+                  🧭 {dashboard.direction_name}
+                </span>
+              )}
               {dashboard.folder_name && (
                 <span style={chip} title="Папка объекта, в которой лежит дашборд">
                   📁 {dashboard.object_name} / {dashboard.folder_name}
@@ -416,6 +424,7 @@ export function DashboardHeader({
               {canManage && <button type="button" style={menuItem} onClick={() => { setMoreOpen(false); a.versions() }}>История версий</button>}
               <hr style={menuSep} />
               {canManage && <button type="button" style={menuItem} onClick={() => { setMoreOpen(false); a.access() }}>🔒 Доступ</button>}
+              {canManage && <button type="button" style={menuItem} onClick={() => { setMoreOpen(false); a.moveDirection() }}>🧭 Направление…</button>}
               {canManage && <button type="button" style={menuItem} onClick={() => { setMoreOpen(false); a.moveFolder() }}>📁 Переместить в папку</button>}
               {canManage && <button type="button" style={menuItem} onClick={() => { setMoreOpen(false); a.saveTemplate() }}>Сохранить как шаблон</button>}
               {canManage && (

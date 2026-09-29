@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from ... import db
 from ..audit import service as audit_svc
 from ..auth.deps import get_current_user, require_roles
-from . import service
+from . import _directions, service
 from ._router_base import _bad, manage, superadmin_only
 from .service import DashboardError
 
@@ -24,6 +24,9 @@ class DashboardIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: Optional[str] = None
     folder_id: Optional[str] = None
+    # Направление нового дашборда: существующее по id или новое по имени.
+    direction_id: Optional[str] = None
+    new_direction: Optional[str] = Field(default=None, max_length=120)
     # Дашборд с таким же названием уже есть — создать ещё один осознанно.
     force: bool = False
 
@@ -74,6 +77,10 @@ class AutoIn(BaseModel):
     # Снять закрепление: дашборд по составу этого файла, но с обновляемыми
     # данными. Осознанный выбор человека, а не молчаливое поведение.
     lock_period: bool = True
+    # Направление НОВОГО дашборда (при пересборке не трогается — как права и
+    # обсуждение): существующее по id или новое по имени.
+    direction_id: Optional[str] = None
+    new_direction: Optional[str] = Field(default=None, max_length=120)
     # Только для предпросмотра: подбирать ли расчётные показатели. Мастер
     # просит их один раз при открытии — от галочек они не зависят, а подбор на
     # широкой форме — самая дорогая часть ответа (РЦО, 24.09: 1,25 с из 1,6).
@@ -143,9 +150,12 @@ async def create_dashboard(body: DashboardIn, user: dict = Depends(manage)):
             # Одноимённый дашборд — повод переспросить, а не отказать: копия «на
             # следующий год» с тем же названием законна. Сама проверка живёт в
             # сервисе, чтобы её получили ВСЕ пути создания, а не только этот.
-            return await service.create_dashboard(conn, user["organization_id"], user["id"],
-                                                  body.name, body.description, body.folder_id,
-                                                  force=body.force)
+            async with conn.transaction():
+                direction = await _directions.resolve_direction(
+                    conn, user["organization_id"], user["id"], body.direction_id, body.new_direction)
+                return await service.create_dashboard(conn, user["organization_id"], user["id"],
+                                                      body.name, body.description, body.folder_id,
+                                                      force=body.force, direction_id=direction)
         except service.DuplicateDashboardName as e:
             raise _duplicate(e)
         except DashboardError as e:
@@ -179,7 +189,8 @@ async def auto_build(body: AutoIn, user: dict = Depends(manage)):
                     selection=body.as_selection(), dashboard_id=body.dashboard_id,
                     metrics=body.metrics, alerts=body.alerts,
                     document_id=body.document_id, lock_period=body.lock_period,
-                    force=body.force)
+                    force=body.force, direction_id=body.direction_id,
+                    new_direction=body.new_direction)
         except service.DuplicateDashboardName as e:
             raise _duplicate(e)
         except DashboardError as e:
@@ -323,13 +334,15 @@ async def list_dashboards(user: dict = Depends(get_current_user), q: Optional[st
                           fav: bool = False, limit: int = Query(50, ge=1, le=200),
                           offset: int = Query(0, ge=0),
                           from_date: Optional[str] = None, to_date: Optional[str] = None,
-                          folder_id: Optional[str] = None, document_id: Optional[str] = None):
-    """document_id — «какие дашборды построены на данных этого отчёта»."""
+                          folder_id: Optional[str] = None, document_id: Optional[str] = None,
+                          direction_id: Optional[str] = None):
+    """document_id — «какие дашборды построены на данных этого отчёта»;
+    direction_id — направление ('none' — без направления)."""
     async with db.acquire(user["id"]) as conn:
         return await service.list_dashboards(conn, user["organization_id"], user,
                                              q=q, fav_only=fav, limit=limit, offset=offset,
                                              from_date=from_date, to_date=to_date, folder_id=folder_id,
-                                             document_id=document_id)
+                                             document_id=document_id, direction_id=direction_id)
 
 
 @router.post("/dashboards/{dashboard_id}/folder")

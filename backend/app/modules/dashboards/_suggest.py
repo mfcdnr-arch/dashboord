@@ -1707,7 +1707,8 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
                      selection: Optional[dict] = None, dashboard_id: Optional[str] = None,
                      metrics: Optional[list] = None, alerts: bool = True,
                      document_id: Optional[str] = None, lock_period: bool = True,
-                     force: bool = False) -> dict:
+                     force: bool = False, direction_id: Optional[str] = None,
+                     new_direction: Optional[str] = None) -> dict:
     """Создаёт (или пересобирает) дашборд по объекту.
 
     `dashboard_id` — пересобрать существующий: страницы и виджеты заменяются,
@@ -1743,8 +1744,13 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
         await conn.execute("delete from widgets where dashboard_id=$1::uuid", did)
         await conn.execute("delete from dashboard_pages where dashboard_id=$1::uuid", did)
     else:
+        from . import _directions  # локально: _directions тянет _rls
+
+        direction = await _directions.resolve_direction(conn, org_id, user_id, direction_id,
+                                                        new_direction)
         dash = await svc.create_dashboard(conn, org_id, user_id, name or f"Дашборд «{obj['name']}»",
-                                          f"Авто-сборка по объекту «{obj['name']}»", None, force=force)
+                                          f"Авто-сборка по объекту «{obj['name']}»", None, force=force,
+                                          direction_id=direction)
         did = str(dash["id"])
         # Папку проставляем сами: мастер и так знает объект, а раньше человек
         # шёл в дашборд и назначал её отдельным действием — иначе дашборд

@@ -106,6 +106,7 @@ export function AboutDashboard(
       </Section>
 
       <Section title="Где лежит и в каком состоянии">
+        <Row k="Направление" v={dashboard.direction_name || 'без направления'} />
         <Row k="Объект" v={dashboard.object_name || '—'} />
         <Row k="Папка" v={dashboard.folder_name || 'без папки'} />
         <Row k="Состояние" v={STATUS[dashboard.publication_status] || dashboard.publication_status} />

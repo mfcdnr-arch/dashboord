@@ -70,6 +70,11 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
   }
 
   const facets = data?.facets
+  // Название сущности — с сервера (ENTITY_LABELS, те же слова, что в фильтре).
+  // 🔴 Раньше экран сам переводил только четыре типа, и папка, слепок архива,
+  // отделение, направление показывались кодом, хотя слова уже были в фасете.
+  const labels = new Map((facets?.entity_types || []).map((e) => [e.code, e.label]))
+  const entityLabel = (code: string) => labels.get(code) || code
   const total = data?.total ?? 0
   const from = total === 0 ? 0 : offset + 1
   const to = Math.min(offset + PAGE, total)
@@ -157,7 +162,7 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
         <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}>
           <thead><tr>{['Время', 'Автор', 'Действие', 'Объект', 'Изменения', ''].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
           <tbody>
-            {data?.items.map((it) => <Row key={it.id} it={it} onOpen={() => openDetail(it.id)} />)}
+            {data?.items.map((it) => <Row key={it.id} it={it} label={entityLabel} onOpen={() => openDetail(it.id)} />)}
             {!loading && data && data.items.length === 0 && (
               <tr><td style={{ ...td, color: 'var(--text-faint)' }} colSpan={6}>Ничего не найдено по заданным фильтрам.</td></tr>
             )}
@@ -165,13 +170,13 @@ export default function AuditPage({ me }: { me: { roles: string[] } }) {
         </table>
       </div>
 
-      {detail && <DetailModal d={detail} onClose={() => setDetail(null)} />}
+      {detail && <DetailModal d={detail} label={entityLabel} onClose={() => setDetail(null)} />}
     </div>
   )
 }
 
-function Row({ it, onOpen }: { it: AuditItem; onOpen: () => void }) {
-  const et = it.entity_type === 'dashboard' ? 'Дашборд' : it.entity_type === 'widget' ? 'Виджет' : it.entity_type === 'object_acl' ? 'Права' : it.entity_type === 'appeal' ? 'Обращение' : it.entity_type
+function Row({ it, label, onOpen }: { it: AuditItem; label: (code: string) => string; onOpen: () => void }) {
+  const et = label(it.entity_type)
   return (
     <tr>
       <td style={{ ...td, whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{fmtDt(it.created_at)}</td>
@@ -190,8 +195,8 @@ function fmtVal(v: unknown): string {
   return String(v)
 }
 
-function DetailModal({ d, onClose }: { d: AuditDetail; onClose: () => void }) {
-  const et = d.entity_type === 'dashboard' ? 'Дашборд' : d.entity_type === 'widget' ? 'Виджет' : d.entity_type === 'object_acl' ? 'Права доступа' : d.entity_type === 'appeal' ? 'Обращение' : d.entity_type
+function DetailModal({ d, label, onClose }: { d: AuditDetail; label: (code: string) => string; onClose: () => void }) {
+  const et = label(d.entity_type)
   const changed = d.diff.filter((f) => f.changed)
   return (
     <Modal onClose={onClose} width={640}>

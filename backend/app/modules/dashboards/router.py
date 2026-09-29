@@ -12,6 +12,7 @@ from fastapi import APIRouter
 from ._router_access import router as _access_router
 from ._router_archive import router as _archive_router
 from ._router_dashboards import router as _dashboards_router
+from ._router_directions import router as _directions_router
 from ._router_widgets import router as _widgets_router
 
 router = APIRouter(tags=["dashboards"])
@@ -19,3 +20,4 @@ router.include_router(_dashboards_router)
 router.include_router(_access_router)
 router.include_router(_widgets_router)
 router.include_router(_archive_router)
+router.include_router(_directions_router)

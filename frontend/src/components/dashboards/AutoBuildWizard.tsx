@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  autoBuildDashboard, autoBuildPlan, DuplicateError, listDocuments, listFolders,
-  type AutoPlan, type AutoPlanCandidate, type DatasetPick, type Dashboard, type Doc, type Folder,
+  autoBuildDashboard, autoBuildPlan, directionForObject, DuplicateError, listDirections, listDocuments, listFolders,
+  type AutoPlan, type AutoPlanCandidate, type DatasetPick, type Dashboard, type Direction, type Doc, type Folder,
 } from '../../api'
 // Тот же формат числа, что на дашборде и в предложениях метрик: два знака
 // после запятой. Свой toLocaleString печатал «656,868 %» там, где везде «656,87 %».
@@ -87,6 +87,23 @@ export default function AutoBuildWizard(
   const [lockPeriod, setLockPeriod] = useState(true)
   const [busy, setBusy] = useState(false)
   const [loadErr, setLoadErr] = useState<string | null>(null)
+  // Направление нового дашборда (этап 3): по умолчанию — туда же, где другие
+  // дашборды этого объекта, или направление по началу имени объекта.
+  // '' — без направления, '__new__' — новое по имени.
+  const [directions, setDirections] = useState<Direction[]>([])
+  const [dirChoice, setDirChoice] = useState('')
+  const [dirNew, setDirNew] = useState('')
+  const [dirWhy, setDirWhy] = useState('')
+  useEffect(() => {
+    Promise.all([listDirections(), directionForObject(objectId)])
+      .then(([list, sug]) => {
+        setDirections(list.items)
+        const s = sug.suggestion
+        if (s?.id) { setDirChoice(s.id); setDirWhy(s.why) }
+        else if (s?.name) { setDirChoice('__new__'); setDirNew(s.name); setDirWhy(s.why) }
+      })
+      .catch(() => {})
+  }, [objectId])
 
   useEffect(() => {
     listFolders(objectId).then(setFolders).catch(() => setFolders([]))
@@ -284,6 +301,8 @@ export default function AutoBuildWizard(
         lockPeriod,
         name: name.trim() || `Дашборд «${objectName}»`, selection: sel, dashboardId: target || undefined,
         metrics: [...metricPicks], alerts, force,
+        directionId: !target && dirChoice && dirChoice !== '__new__' ? dirChoice : undefined,
+        newDirection: !target && dirChoice === '__new__' ? dirNew.trim() : undefined,
       })
       onDone(r.dashboard_id)
     } catch (e) {
@@ -581,6 +600,21 @@ export default function AutoBuildWizard(
                     Так дашборд будет называться в списке и в отчётах.
                   </div>
                 )}
+                <div style={{ fontSize: 12.5, fontWeight: 600, margin: '10px 0 4px' }}>Направление</div>
+                <select style={input} aria-label="Направление нового дашборда" value={dirChoice}
+                  onChange={(e) => { setDirChoice(e.target.value); setDirWhy('') }}>
+                  <option value="">без направления</option>
+                  {directions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  <option value="__new__">＋ Новое направление…</option>
+                </select>
+                {dirChoice === '__new__' && (
+                  <input style={{ ...input, marginTop: 6 }} aria-label="Название нового направления"
+                    value={dirNew} onChange={(e) => setDirNew(e.target.value)}
+                    placeholder="Например, «Статистика услуг»" />
+                )}
+                <div style={{ ...muted, fontSize: 12, marginTop: 5 }}>
+                  Группа в списке «Дашборды»; доступ не меняет.{dirWhy ? ` Предложено: ${dirWhy}.` : ''}
+                </div>
               </div>
             )}
           </div>

@@ -139,7 +139,8 @@ class DuplicateDashboardName(DashboardError):
 
 
 async def create_dashboard(conn, org_id, user_id, name: str, description: Optional[str],
-                           folder_id: Optional[str], force: bool = False) -> dict:
+                           folder_id: Optional[str], force: bool = False,
+                           direction_id: Optional[str] = None) -> dict:
     """Создать дашборд. При совпадении названия — отказ с переспросом.
 
     Проверка стоит ЗДЕСЬ, а не в обработчике запроса, потому что дашборд
@@ -155,10 +156,18 @@ async def create_dashboard(conn, org_id, user_id, name: str, description: Option
         dup = await find_dashboard_by_name(conn, org_id, name)
         if dup is not None:
             raise DuplicateDashboardName(dup)
+    if direction_id and not await conn.fetchval(
+            "select 1 from dashboard_directions where id=$1::uuid and organization_id=$2",
+            direction_id, org_id):
+        raise DashboardError("Направление не найдено")
+    # Направление — здесь же, в единой точке создания: иначе мастер, шаблоны и
+    # «План/факт» молча плодили бы дашборды «без направления» (та же история,
+    # что с проверкой одноимённых).
     row = await conn.fetchrow(
-        "insert into dashboards(organization_id, name, description, folder_id, created_by) "
-        "values($1,$2,$3,$4::uuid,$5) returning id, name, description, publication_status, created_at",
-        org_id, name, description, folder_id, user_id,
+        "insert into dashboards(organization_id, name, description, folder_id, created_by, direction_id) "
+        "values($1,$2,$3,$4::uuid,$5,$6::uuid) "
+        "returning id, name, description, publication_status, created_at, direction_id",
+        org_id, name, description, folder_id, user_id, direction_id,
     )
     return dict(row)
 
@@ -167,7 +176,8 @@ async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
                           fav_only: bool = False, limit: int = 50, offset: int = 0,
                           from_date: Optional[str] = None, to_date: Optional[str] = None,
                           folder_id: Optional[str] = None,
-                          document_id: Optional[str] = None) -> dict:
+                          document_id: Optional[str] = None,
+                          direction_id: Optional[str] = None) -> dict:
     """Постранично: {total, limit, offset, items}. Видимость через RLS
     (visible_dashboard_ids). q — поиск по названию дашборда ИЛИ названию его
     страницы (ilike); from_date/to_date — по дате последнего изменения
@@ -196,6 +206,11 @@ async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
         where += " and d.folder_id is null"
     elif folder_id:
         params.append(folder_id); where += f" and d.folder_id=${len(params)}::uuid"
+    # Направление: пусто — все, 'none' — без направления, иначе конкретное.
+    if direction_id == "none":
+        where += " and d.direction_id is null"
+    elif direction_id:
+        params.append(direction_id); where += f" and d.direction_id=${len(params)}::uuid"
     if document_id:
         # «Какие дашборды построены на данных этого отчёта». Под одним кодом
         # лежит ВЕСЬ ряд недельных файлов, поэтому совпадений два вида, и
@@ -218,6 +233,7 @@ async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
     rows = await conn.fetch(
         "select d.id, d.name, d.description, d.publication_status, d.created_at, d.updated_at, "
         "d.folder_id, fo.name as folder_name, ob.name as object_name, "
+        "d.direction_id, dd.name as direction_name, "
         "(select count(*) from dashboard_pages p where p.dashboard_id=d.id) as pages, "
         "(select count(*) from dashboard_comments c where c.dashboard_id=d.id) as comments_count, "
         "d.featured, "
@@ -232,6 +248,7 @@ async def list_dashboards(conn, org_id, user: dict, q: Optional[str] = None,
         ) + 
         f"from dashboards d {fav_join} dashboard_favorites f on f.dashboard_id=d.id and f.user_id=$3 "
         "left join folders fo on fo.id=d.folder_id left join objects ob on ob.id=fo.object_id "
+        "left join dashboard_directions dd on dd.id=d.direction_id "
         f"where {where} order by is_favorite desc, d.name "
         f"limit ${len(params) + 1} offset ${len(params) + 2}",
         *params, limit, offset,
@@ -645,8 +662,10 @@ async def get_dashboard(conn, org_id, user: dict, dashboard_id: str) -> dict:
         "select d.id, d.name, d.description, d.publication_status, d.auto_archive, d.suggest_new_fields, "
         "d.created_at, d.updated_at, "
         "d.folder_id, fo.name as folder_name, ob.name as object_name, "
+        "d.direction_id, dd.name as direction_name, "
         "(select count(*) from dashboard_comments c where c.dashboard_id=d.id) as comments_count "
         "from dashboards d left join folders fo on fo.id=d.folder_id left join objects ob on ob.id=fo.object_id "
+        "left join dashboard_directions dd on dd.id=d.direction_id "
         "where d.id=$1::uuid and d.organization_id=$2", dashboard_id, org_id,
     )
     if d is None:

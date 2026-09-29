@@ -2,9 +2,9 @@
 // поиск + фильтры (избранное/дата/папка), массовое перемещение в папку,
 // сама таблица строк + «показать ещё». Вынесено из DashboardsPage.tsx.
 import { useState } from 'react'
-import { groupByObject } from '../../lib/dashboardGroups'
+import { groupByDirection, groupByObject } from '../../lib/dashboardGroups'
 import type { FormEvent } from 'react'
-import type { Dashboard, DashTemplate, Doc, Folder, Obj, RecentDashboard } from '../../api'
+import type { Dashboard, DashTemplate, DirectionList, Doc, Folder, Obj, RecentDashboard } from '../../api'
 import { folderLabel, folderTree } from '../../lib/folderTree'
 import { PubBadge, btn, btnAuto, input, muted, rowForm, rowItem, tab, tabActive } from './shared'
 import RecentStrip from './RecentStrip'
@@ -30,6 +30,7 @@ export function DashboardList({
   selectedIds, setSelectedIds, onBulkMove, toggleSelect,
   dashboards, dashTotal, openDashboard, toggleFav, loadMoreDash, onToggleFeatured,
   onOpenAppeals, onPlanFactBuilt, recent = [],
+  directions = null, dirFilter = '', setDirFilter, onManageDirections, onProposeDirections, onBulkDirection,
 }: {
   canManage: boolean; objects: Obj[]; templates: DashTemplate[]
   newDash: string; setNewDash: (v: string) => void; addDashboard: (e: FormEvent) => void; busy: boolean
@@ -56,6 +57,15 @@ export function DashboardList({
   onPlanFactBuilt?: (dashboardId: string) => void
   /** «Недавно смотрели» — последние открытые этим человеком отчёты. */
   recent?: RecentDashboard[]
+  /** Направления (группы внутри «Дашбордов») с числом ВИДИМЫХ дашбордов. */
+  directions?: DirectionList | null
+  /** Фильтр по направлению: '' — все, 'none' — без направления, иначе id. */
+  dirFilter?: string
+  setDirFilter?: (v: string) => void
+  onManageDirections?: () => void
+  /** Разложить по предложению системы — только администратору. */
+  onProposeDirections?: () => void
+  onBulkDirection?: () => void
 }) {
   // Запрос доступа к отчёту, которого зритель не видит. Состояние локальное:
   // окно нужно только этому списку и никому больше.
@@ -108,10 +118,34 @@ export function DashboardList({
           </button>
         </div>
       )}
+      {/* Направления — группы этого списка («РЦО», «МАХ», «Статистика услуг»).
+          Меню не растёт: группы живут здесь же (решение заказчика 23.09). */}
+      {canManage && (
+        <div style={{ ...rowForm, alignItems: 'center' }}>
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>группы списка:</span>
+          <button style={btnAuto} disabled={busy} onClick={onManageDirections}>🧭 Направления</button>
+          {onProposeDirections && !!directions?.without && (
+            <button style={btnAuto} disabled={busy} onClick={onProposeDirections}
+              title="Система предложит группы для дашбордов без направления, вы подтвердите">
+              Разложить {directions.without} без направления…
+            </button>
+          )}
+        </div>
+      )}
       <div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
           <input style={{ ...input, flex: 1, minWidth: 200 }} aria-label="Поиск дашборда" placeholder="🔍 Поиск дашборда по названию или странице…" value={query} onChange={(e) => setQuery(e.target.value)} />
           <button style={favOnly ? { ...tab, ...tabActive } : tab} onClick={() => setFavOnly((v) => !v)} title="Показать только избранные">★ Избранное</button>
+          {/* Фильтр по направлению — и зрителю: направление для него и заведено.
+              Показываем только его направления (сервер считает видимые). */}
+          {!!directions?.items.length && setDirFilter && (
+            <select style={{ ...input, height: 36, maxWidth: 240 }} aria-label="Направление"
+              value={dirFilter} onChange={(e) => setDirFilter(e.target.value)}>
+              <option value="">🧭 все направления</option>
+              {directions.items.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              {directions.without > 0 && <option value="none">без направления</option>}
+            </select>
+          )}
           {/* Зрителю: «нужного отчёта здесь нет». Списка недоступных отчётов не
               показываем — даже названия говорят, какие показатели за кем
               закреплены; человек называет отчёт сам, а запрос уходит одним
@@ -188,33 +222,44 @@ export function DashboardList({
             целиком и покажет последний отчёт.
           </div>
         )}
-        {canManage && objects.length > 0 && selectedIds.size > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '8px 12px', borderRadius: 10, background: 'var(--accent-weak-bg)' }}>
+        {canManage && selectedIds.size > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '8px 12px', borderRadius: 10, background: 'var(--accent-weak-bg)', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, color: 'var(--accent-text)' }}>Выбрано: {selectedIds.size}</span>
-            <button style={btnAuto} onClick={onBulkMove}>📁 Переместить в папку</button>
+            <button style={btnAuto} onClick={onBulkDirection}>🧭 В направление…</button>
+            {objects.length > 0 && <button style={btnAuto} onClick={onBulkMove}>📁 Переместить в папку</button>}
             <button style={{ ...tab, marginLeft: 'auto' }} onClick={() => setSelectedIds(new Set())}>Снять выделение</button>
           </div>
         )}
         {/* «Недавно смотрели» показываем только на полном списке: при поиске
             или фильтре человек ищет ЧТО-ТО КОНКРЕТНОЕ, и полоса сверху
             отодвигала бы найденное вниз, отвечая на другой вопрос. */}
-        {!query.trim() && !favOnly && !dashFrom && !dashTo && !folderFilter && !docFilter && (
+        {!query.trim() && !favOnly && !dashFrom && !dashTo && !folderFilter && !docFilter && !dirFilter && (
           <RecentStrip items={recent} onOpen={openDashboard} showFolder={canManage} />
         )}
         {dashboards.length === 0 ? (
-          <div style={muted}>{query.trim() || favOnly || dashFrom || dashTo || folderFilter ? 'Ничего не найдено.' : 'Пока нет дашбордов.'}</div>
+          <div style={muted}>{query.trim() || favOnly || dashFrom || dashTo || folderFilter || docFilter || dirFilter ? 'Ничего не найдено.' : 'Пока нет дашбордов.'}</div>
         ) : (
           // Группировка по объекту: у одного отдела отчётов бывает десяток, и
           // вперемешку с чужими список не читается — человек не понимает, к чему
           // относится строка. Внутри объекта свежие сверху: чаще всего нужен
           // последний. Заголовок группы не показываем, когда объект один, —
           // это была бы лишняя строка ни о чём.
-          groupByObject(dashboards).map(([objectName, list]) => (
-          <div key={objectName} style={{ marginBottom: 14 }}>
-            {groupByObject(dashboards).length > 1 && (
+          // Когда направления заведены — группы по НИМ, в порядке, заданном
+          // человеком; число — с сервера (список грузится страницами). Без
+          // направлений — по объекту, как было.
+          (() => {
+            const filtered = !!(query.trim() || favOnly || dashFrom || dashTo || folderFilter || docFilter)
+            return directions?.items.length
+              ? groupByDirection(dashboards, directions.items, directions.without, !filtered)
+                .map((g) => ({ key: g.key || 'none', icon: '🧭', title: g.title, count: g.count, list: g.items }))
+              : groupByObject(dashboards)
+                .map(([name, list]) => ({ key: name, icon: '🏢', title: name, count: list.length, list }))
+          })().map(({ key, icon, title, count, list }, _gi, groups) => (
+          <div key={key} style={{ marginBottom: 14 }}>
+            {groups.length > 1 && (
               <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent-text)', margin: '0 0 6px 2px' }}>
-                🏢 {objectName}
-                <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · отчётов: {list.length}</span>
+                {icon} {title}
+                <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · отчётов: {count}</span>
               </div>
             )}
           <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
@@ -232,7 +277,7 @@ export function DashboardList({
                 }}
                 style={{ ...rowItem, borderTop: i ? '1px solid var(--border-faint)' : 'none' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
-                  {canManage && objects.length > 0 && (
+                  {canManage && (
                     <input type="checkbox" checked={selectedIds.has(d.id)} onClick={(e) => toggleSelect(e, d.id)} onChange={() => {}}
                       aria-label={`Выбрать «${d.name}» для массового действия`}
                       title="Выбрать для массового действия" style={{ cursor: 'pointer' }} />

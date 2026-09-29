@@ -37,6 +37,8 @@ export default function UserHomePage(
   const hour = now.getHours()
   const greeting = hour < 5 ? 'Доброй ночи' : hour < 12 ? 'Доброе утро' : hour < 18 ? 'Добрый день' : 'Добрый вечер'
 
+  // Группы — как в «Дашбордах»: по направлениям, если они заведены.
+  const byDirection = data?.group_by === 'direction'
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Приветствие и часы */}
@@ -127,7 +129,8 @@ export default function UserHomePage(
           <div style={h2}>Мои отчёты</div>
           <span style={{ ...muted, fontSize: 13 }}>
             доступно: <b>{data?.dashboards_total ?? '—'}</b>
-            {(data?.objects.length ?? 0) > 1 && ` · объектов: ${data?.objects.length}`}
+            {(data?.objects.length ?? 0) > 1
+              && ` · ${byDirection ? 'направлений' : 'объектов'}: ${data?.objects.length}`}
           </span>
           <button style={linkBtn} onClick={() => onGoto?.('dashboards')}>все отчёты →</button>
         </div>
@@ -146,7 +149,7 @@ export default function UserHomePage(
           {(data?.objects || []).map((g) => (
             <div key={g.object_name} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10 }}>
               <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent-text)', marginBottom: 6 }}>
-                🏢 {g.object_name}
+                {byDirection ? '🧭' : '🏢'} {g.title || g.object_name}
                 <span style={{ ...muted, fontWeight: 400 }}> · {g.dashboards.length}</span>
               </div>
               {/* Папка — служебная раскладка файлов, а список и так сгруппирован

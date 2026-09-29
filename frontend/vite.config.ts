@@ -64,6 +64,7 @@ export default defineConfig({
       '/uploads': 'http://localhost:8080',
       '/dashboard-pages': 'http://localhost:8080',
       '/dashboard-templates': 'http://localhost:8080',
+      '/dashboard-directions': 'http://localhost:8080',
       '/widgets': 'http://localhost:8080',
       '/home': 'http://localhost:8080',
       '/users': 'http://localhost:8080',

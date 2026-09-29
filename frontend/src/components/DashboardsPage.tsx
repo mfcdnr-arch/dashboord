@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import ReportLayout, { REPORT_COLUMNS_WIDE } from './dashboards/ReportLayout'
-import { distinctLabels } from '../lib/text'
+import { distinctLabels, plural } from '../lib/text'
 import GridLayout, { type Layout } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
@@ -8,8 +8,8 @@ import {
   createDashboard, createPage, createPreset, createWidget, deleteDashboard, deletePage, deletePreset, deleteWidget,
   DuplicateError, getDashboard,
   exportPageXlsx, fitPageLayout, getDataSources, getDescriptionDraft, setFeatured, getPageData, getTemplateBindings, instantiateTemplate, listDashboardVersions, listDashboards, listFolders, listObjects, listPageWidgets, listPresets,
-  listDocuments, listRecentDashboards, listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, updateDashboard, updatePage, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
-  type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type Doc, type Folder, type Obj, type PageWidgetData, type RecentDashboard, type Widget, type WidgetSpec,
+  listDirections, listDocuments, listRecentDashboards, listTemplates, logClientExport, moveDashboardToFolder, publishDashboard, updateDashboard, updatePage, restoreDashboardVersion, saveAsTemplate, setDashboardFavorite, submitDashboardReview, cancelDashboardReview, unpublishDashboard, updateWidget,
+  type Dashboard, type DashPage, type DashPreset, type DashTemplate, type DataSources, type DirectionList, type Doc, type Folder, type Obj, type PageWidgetData, type RecentDashboard, type Widget, type WidgetSpec,
 } from '../api'
 import { useContainerWidth } from '../lib/useWidth'
 import { flowItems } from '../lib/flowLayout'
@@ -25,6 +25,9 @@ import { Comments } from './dashboards/Comments'
 import { AlertEditor } from './dashboards/AlertEditor'
 import { DashboardList } from './dashboards/DashboardList'
 import { FolderMoveDialog } from './dashboards/FolderMoveDialog'
+import { DirectionsDialog } from './dashboards/DirectionsDialog'
+import { DirectionAssignDialog } from './dashboards/DirectionAssignDialog'
+import { DirectionProposalDialog } from './dashboards/DirectionProposalDialog'
 import AutoBuildWizard from './dashboards/AutoBuildWizard'
 import { AboutDashboard, EditDashboardDialog } from './dashboards/AboutDashboard'
 import { RenameDialog } from './dashboards/RenameDialog'
@@ -198,6 +201,14 @@ export default function DashboardsPage({
   // дашборда), и массовое (из списка, по чекбоксам) — ids содержит 1 или N.
   const [folderTarget, setFolderTarget] = useState<{ ids: string[]; label: string; currentPath?: string | null } | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // Направления — группы этого списка (этап 3): сами группы с числом видимых
+  // дашбордов, фильтр, окна управления, назначения и раскладки.
+  const [directions, setDirections] = useState<DirectionList | null>(null)
+  const [dirFilter, setDirFilter] = useState('')
+  const [dirsOpen, setDirsOpen] = useState(false)
+  const [proposalOpen, setProposalOpen] = useState(false)
+  const [dirTarget, setDirTarget] = useState<{ ids: string[]; label: string; currentId?: string | null; currentName?: string | null } | null>(null)
+  const [dirNotice, setDirNotice] = useState<string | null>(null)
   const [sel, setSel] = useState<{ dashboard: Dashboard; pages: DashPage[] } | null>(null)
   const [page, setPage] = useState<DashPage | null>(null)
   const [widgets, setWidgets] = useState<Widget[]>([])
@@ -313,17 +324,21 @@ export default function DashboardsPage({
   const fail = (e: unknown) => setError((e as Error).message)
   // Защита от гонки ответов: применяем только результат последнего запроса.
   const dashSeq = useRef(0)
-  const loadDashboards = (q: string, fav: boolean, fromD = dashFrom, toD = dashTo, folderF = folderFilter, docF = docFilter) => {
+  const loadDashboards = (q: string, fav: boolean, fromD = dashFrom, toD = dashTo, folderF = folderFilter, docF = docFilter, dirF = dirFilter) => {
     const seq = ++dashSeq.current
-    return listDashboards(q, fav, DASH_PAGE, 0, fromD, toD, folderF, docF)
+    return listDashboards(q, fav, DASH_PAGE, 0, fromD, toD, folderF, docF, dirF)
       .then((p) => { if (seq === dashSeq.current) { setDashboards(p.items); setDashTotal(p.total) } }).catch(fail)
   }
-  const refresh = () => loadDashboards(query, favOnly)
+  // Список направлений — отдельным запросом: число в заголовке группы должно
+  // быть честным, а список дашбордов грузится страницами. Сбой не мешает
+  // работе со списком — тогда группировка по объекту, как раньше.
+  const loadDirections = () => listDirections().then(setDirections).catch(() => setDirections(null))
+  const refresh = () => { loadDirections(); return loadDashboards(query, favOnly) }
   // Полоса «недавних» — подсказка: её сбой не должен мешать работе со списком.
   const loadRecent = () => listRecentDashboards().then((r) => setRecent(r.items)).catch(() => {})
   async function loadMoreDash() {
     const seq = ++dashSeq.current
-    try { const p = await listDashboards(query, favOnly, DASH_PAGE, dashboards.length, dashFrom, dashTo, folderFilter, docFilter); if (seq === dashSeq.current) { setDashboards((prev) => [...prev, ...p.items]); setDashTotal(p.total) } } catch (e) { fail(e) }
+    try { const p = await listDashboards(query, favOnly, DASH_PAGE, dashboards.length, dashFrom, dashTo, folderFilter, docFilter, dirFilter); if (seq === dashSeq.current) { setDashboards((prev) => [...prev, ...p.items]); setDashTotal(p.total) } } catch (e) { fail(e) }
   }
   async function toggleFav(e: React.MouseEvent, d: Dashboard) {
     e.stopPropagation()
@@ -346,6 +361,16 @@ export default function DashboardsPage({
       await refresh()
     } catch (e) { fail(e) }
   }
+  /** Подпись выбранного для окон «папка»/«направление»: один — по названию.
+   *  🔴 Было «дашбордов: N», и при одном выбранном окно писало «Направление
+   *  дашборда «дашбордов: 1»» (найдено проверкой 29.09). */
+  function selectionLabel(): string {
+    if (selectedIds.size === 1) {
+      const one = dashboards.find((x) => selectedIds.has(x.id))
+      if (one) return one.name
+    }
+    return `${selectedIds.size} ${plural(selectedIds.size, 'дашборда', 'дашбордов', 'дашбордов')}`
+  }
   function toggleSelect(e: React.MouseEvent, id: string) {
     e.stopPropagation()
     setSelectedIds((prev) => {
@@ -356,7 +381,8 @@ export default function DashboardsPage({
   }
 
   // Список — по поиску/фильтру избранного с дебаунсом (он же начальная загрузка).
-  useEffect(() => { const t = setTimeout(() => loadDashboards(query, favOnly), 250); return () => clearTimeout(t) }, [query, favOnly, dashFrom, dashTo, folderFilter, docFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const t = setTimeout(() => loadDashboards(query, favOnly), 250); return () => clearTimeout(t) }, [query, favOnly, dashFrom, dashTo, folderFilter, docFilter, dirFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadDirections() }, []) // eslint-disable-line react-hooks/exhaustive-deps
   // Папки фильтра зависят от выбранного объекта.
   useEffect(() => {
     // Папки и файлы — экраны конвейера, закрытые зависимостью manage: у зрителя
@@ -574,10 +600,13 @@ export default function DashboardsPage({
 
   async function addDashboard(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError(null)
+    // Список отфильтрован по направлению — новый дашборд ложится туда же:
+    // человек заводит его, глядя на эту группу.
+    const intoDirection = dirFilter && dirFilter !== 'none' ? dirFilter : undefined
     try {
       let d
       try {
-        d = await createDashboard(newDash.trim())
+        d = await createDashboard(newDash.trim(), undefined, false, intoDirection)
       } catch (e) {
         // Одноимённый дашборд уже есть. Не запрещаем (копия «на следующий год»
         // законна), но переспрашиваем: два одинаковых названия в списке не
@@ -591,7 +620,7 @@ export default function DashboardsPage({
           tone: 'accent',
         })
         if (!again) return
-        d = await createDashboard(newDash.trim(), undefined, true)
+        d = await createDashboard(newDash.trim(), undefined, true, intoDirection)
       }
       setNewDash(''); await refresh(); openDashboard(d.id)
     }
@@ -1093,6 +1122,7 @@ export default function DashboardsPage({
       )}
 
       {error && <Notice>{error}</Notice>}
+      {dirNotice && !sel && <Notice kind="ok">{dirNotice}</Notice>}
 
       {!sel && (
         <>
@@ -1118,9 +1148,17 @@ export default function DashboardsPage({
           folderFilter={folderFilter} setFolderFilter={setFolderFilter}
           filterDocs={filterDocs} docFilter={docFilter} setDocFilter={setDocFilter}
           selectedIds={selectedIds} setSelectedIds={setSelectedIds} toggleSelect={toggleSelect}
-          onBulkMove={() => setFolderTarget({ ids: [...selectedIds], label: `дашбордов: ${selectedIds.size}` })}
+          onBulkMove={() => setFolderTarget({ ids: [...selectedIds], label: selectionLabel() })}
           dashboards={dashboards} dashTotal={dashTotal} openDashboard={openDashboard}
           toggleFav={toggleFav} loadMoreDash={loadMoreDash} recent={recent}
+          directions={directions} dirFilter={dirFilter} setDirFilter={setDirFilter}
+          onManageDirections={() => setDirsOpen(true)}
+          onProposeDirections={isAdmin ? () => setProposalOpen(true) : undefined}
+          onBulkDirection={() => {
+            const one = selectedIds.size === 1 ? dashboards.find((x) => selectedIds.has(x.id)) : undefined
+            setDirTarget({ ids: [...selectedIds], label: selectionLabel(),
+              currentId: one?.direction_id ?? null, currentName: one?.direction_name ?? null })
+          }}
         />
         </>
       )}
@@ -1142,6 +1180,10 @@ export default function DashboardsPage({
             a={{
               submitReview: doSubmitReview, cancelReview: doCancelReview, publish: doPublish, unpublish: doUnpublish,
               versions: loadVersions, access: () => setAccessOpen(true),
+              moveDirection: () => setDirTarget({
+                ids: [sel.dashboard.id], label: sel.dashboard.name,
+                currentId: sel.dashboard.direction_id ?? null, currentName: sel.dashboard.direction_name ?? null,
+              }),
               moveFolder: () => setFolderTarget({
                 ids: [sel.dashboard.id], label: sel.dashboard.name,
                 currentPath: sel.dashboard.folder_name ? `${sel.dashboard.object_name}/${sel.dashboard.folder_name}` : null,
@@ -1402,6 +1444,23 @@ export default function DashboardsPage({
       {folderTarget && (
         <FolderMoveDialog target={folderTarget} objects={objects} onClose={() => setFolderTarget(null)}
           onMove={doMoveFolder} onClear={() => doMoveFolder(null)} />
+      )}
+      {dirsOpen && (
+        <DirectionsDialog onClose={() => setDirsOpen(false)} onChanged={() => { refresh() }}
+          onPropose={isAdmin ? () => { setDirsOpen(false); setProposalOpen(true) } : undefined} />
+      )}
+      {proposalOpen && (
+        <DirectionProposalDialog onClose={() => setProposalOpen(false)}
+          onDone={(summary) => { setProposalOpen(false); setDirNotice(summary); refresh() }} />
+      )}
+      {dirTarget && (
+        <DirectionAssignDialog target={dirTarget} onClose={() => setDirTarget(null)}
+          onDone={async () => {
+            const ids = dirTarget.ids
+            setDirTarget(null); setSelectedIds(new Set())
+            if (sel && ids.includes(sel.dashboard.id)) setSel(await getDashboard(sel.dashboard.id))
+            refresh()
+          }} />
       )}
     </div>
   )

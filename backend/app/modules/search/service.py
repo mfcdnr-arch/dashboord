@@ -70,13 +70,14 @@ def _order(alias: str) -> str:
 
 async def _dashboards(conn, org_id, q: str, allowed: set) -> List[dict]:
     rows = await conn.fetch(
-        "select d.id, d.name, o.name as object_name, f.name as folder_name "
+        "select d.id, d.name, o.name as object_name, f.name as folder_name, dd.name as direction_name "
         "from dashboards d left join folders f on f.id=d.folder_id "
         "left join objects o on o.id=f.object_id "
+        "left join dashboard_directions dd on dd.id=d.direction_id "
         "where d.organization_id=$1 and d.id = any($2::uuid[]) and d.name ilike '%' || $3 || '%' "
         f"{_order('d')}",
         org_id, list(allowed), q, LIMIT)
-    return [{"id": str(r["id"]), "name": r["name"],
+    return [{"id": str(r["id"]), "name": r["name"], "direction_name": r["direction_name"],
              "object_name": r["object_name"], "folder_name": r["folder_name"]} for r in rows]
 
 

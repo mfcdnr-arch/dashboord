@@ -109,23 +109,41 @@ async def portal_home(conn, org_id, user: dict) -> dict:
 
     visible = list(await dash_svc.visible_dashboard_ids(conn, org_id, user))
 
-    # Отчёты, сгруппированные по объекту: у одного отдела их бывает десяток, и
-    # вперемешку с чужими они не читаются.
+    # Отчёты, сгруппированные так же, как список «Дашборды»: по НАПРАВЛЕНИЯМ,
+    # если они есть у доступных отчётов (этап 3, 29.09.2026), иначе по объекту.
+    # Две разные раскладки одного и того же на Главной и в «Дашбордах» путали бы.
+    # Архивные — не показываем, как и основной список (до 29.09 показывались).
     rows = await conn.fetch(
-        "select d.id, d.name, d.updated_at, o.name as object_name, f.name as folder_name "
+        "select d.id, d.name, d.updated_at, o.name as object_name, f.name as folder_name, "
+        "  dd.name as direction_name, dd.position as direction_position "
         "from dashboards d "
         "left join folders f on f.id = d.folder_id "
         "left join objects o on o.id = f.object_id "
+        "left join dashboard_directions dd on dd.id = d.direction_id "
         "where d.organization_id=$1 and d.id = any($2::uuid[]) "
+        "  and d.publication_status <> 'archived' "
         "order by coalesce(o.name,'') , d.updated_at desc", org_id, visible)
+    by_direction = any(r["direction_name"] for r in rows)
     groups: dict = {}
     for r in rows:
-        key = r["object_name"] or "Без объекта"
-        g = groups.setdefault(key, {"object_name": key, "dashboards": []})
+        if by_direction:
+            key = r["direction_name"] or "Без направления"
+            order = (0, r["direction_position"], key.lower()) if r["direction_name"] else (1, 0, "")
+        else:
+            key = r["object_name"] or "Без объекта"
+            order = (0, 0, key.lower()) if r["object_name"] else (1, 0, "")
+        # `object_name` — прежнее имя поля заголовка группы: экран старой
+        # сборки продолжит его читать.
+        g = groups.setdefault(key, {"object_name": key, "title": key, "order": order,
+                                    "dashboards": []})
         g["dashboards"].append({
             "id": str(r["id"]), "name": r["name"], "folder_name": r["folder_name"],
             "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
         })
+    ordered = sorted(groups.values(), key=lambda g: g["order"])
+    for g in ordered:
+        g.pop("order")
+        g["dashboards"].sort(key=lambda x: x["updated_at"] or "", reverse=True)
 
     # Что нового в данных за неделю — только по объектам доступных отчётов:
     # человеку не нужно знать о поступлениях там, куда его не пускают.
@@ -161,7 +179,8 @@ async def portal_home(conn, org_id, user: dict) -> dict:
 
     return {
         "announcements": await portal_svc.list_announcements(conn, org_id),
-        "objects": sorted(groups.values(), key=lambda g: g["object_name"]),
+        "objects": ordered,
+        "group_by": "direction" if by_direction else "object",
         "dashboards_total": len(rows),
         "fresh_data": [{
             "name": r["name"], "object_name": r["object_name"],

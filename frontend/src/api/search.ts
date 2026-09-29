@@ -1,7 +1,10 @@
 import { authH, errText } from './http'
 
 // Быстрый поиск по системе (п. 9, Ctrl+K).
-export interface SearchDashboard { id: string; name: string; object_name: string | null; folder_name: string | null }
+export interface SearchDashboard {
+  id: string; name: string; object_name: string | null; folder_name: string | null
+  direction_name?: string | null
+}
 export interface SearchPage { id: string; name: string; dashboard_id: string; dashboard_name: string }
 export interface SearchWidget {
   id: string; name: string; widget_type: string
