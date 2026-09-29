@@ -1000,6 +1000,14 @@ def _place_cards_by_levels(cards: list, volumes: dict) -> list:
     rec = [c for c in cards if c["recommended"]]
     per_owner = Counter(c["owner"] for c in rec if c["owner"])
     own = {o for o, n in per_owner.items() if n >= MIN_PAGE_CARDS}
+    if not own:
+        # Ни у одного ведомства своей страницы нет — у формы с «:» («Услуга 5:
+        # Принято») владельца-ступени нет вовсе, и все услуги уехали бы на
+        # «Остальные ведомства», хотя это услуги того же ведомства (ревью
+        # этапа 2). Раскладывать нечего — всё остаётся на «Обзоре».
+        for c in cards:
+            c["page"] = PAGE_OVERVIEW
+        return []
     owner_vol: dict = {}
     for c in cards:
         if c["owner"]:
@@ -1132,7 +1140,10 @@ def _candidate_key(sp: dict) -> str:
     fields += list(cfg.get("value_fields") or [])
     for p in cfg.get("pairs") or []:
         fields += [p.get("plan_field"), p.get("fact_field")]
-    extra = [str(cfg[k]) for k in ("by", "period_group", "period") if cfg.get(k)]
+    # `period_group` в ключ не входит: его ставит сам планировщик по длине ряда
+    # (у тренда — больше 60 отчётов), и отметки человека пропадали бы, когда
+    # ряд перерастает порог (ревью этапа 2).
+    extra = [str(cfg[k]) for k in ("by", "period") if cfg.get(k)]
     return ":".join([str(cfg.get("dataset_code") or ""), sp["widget_type"],
                      "+".join(sorted(str(f) for f in fields if f)), *extra])
 
@@ -1208,17 +1219,23 @@ def plan_candidates(datasets: list, selection: Optional[dict] = None,
         card_fields = [f for f in fields if view_of(f) in ("kpi", "both")] if "kpi" in blocks else []
         sep = pick_separator([f["name"] for f in fields])
         levels = d.get("levels")
-        cards = _group_cards(card_fields, pf_pairs, volumes, sep, split=bool(levels and sep))
+        # План, у которого есть факт, карточки не получает — его показывает полоса
+        # «план-факт» или «Полосы план-факт». Но только если эти виды вообще
+        # строятся: сними человек оба блока, план пропал бы с дашборда молча
+        # (ревью этапа 2, 29.09; поведение было и до этапа).
+        shown_pairs = pf_pairs if ("plan_fact" in blocks or bullet_instead) else []
+        cards = _group_cards(card_fields, shown_pairs, volumes, sep, split=bool(levels and sep))
         _rank_cards(cards, volumes, manual)
         split_pages: list = []
         if levels and sep and sum(1 for c in cards if c["recommended"]) > OVERVIEW_CARDS:
             split_pages = _place_cards_by_levels(cards, volumes)
+        if split_pages:
             notes.append(
                 "Карточки разложены по страницам ведомств — ступени формы подтверждены: "
                 + ", ".join(f"«{p}»" for p in split_pages) + ".")
         elif levels and sep:
             # Карточек мало — раскладывать незачем, группируем как обычно.
-            cards = _group_cards(card_fields, pf_pairs, volumes, sep, split=False)
+            cards = _group_cards(card_fields, shown_pairs, volumes, sep, split=False)
             _rank_cards(cards, volumes, manual)
         rec_cards = [c for c in cards if c["recommended"]]
         card_stats["recommended"] += len(rec_cards)
@@ -1241,15 +1258,28 @@ def plan_candidates(datasets: list, selection: Optional[dict] = None,
                          "станет длинной, её придётся прокручивать.")
         card_specs = [_card_spec(code, c, has_dyn) for c in cards]
 
-        # «Показанные» графы — у рекомендованных карточек, в их порядке. На них
-        # опираются матрица, тренды, срезы; нерекомендованные сюда не входят.
-        shown = [f for c in rec_cards for f in c["fields"]]
+        # «Показанные» графы — на них опираются матрица, тренды, срезы: графы
+        # рекомендованных карточек плюс графы, которым карточка не положена
+        # вовсе (вид «только тренд» или снят блок карточек), кроме «не
+        # показывать». Графы карточек сверх лимита сюда не входят.
+        # 🔴 Ревью этапа 2 (29.09): (а) графа с видом «только тренд» не попадала
+        # ни в один виджет и ни в одного кандидата; (б) порядок был файловым,
+        # и у «Статистики услуг — Соц.фонд» (29 карточек, меньше лимита)
+        # матрица и все четыре рекомендованных тренда встали на графы с НУЛЁМ
+        # за всю историю, а услуга с объёмом 141 054 шла «не рекомендую». До
+        # этапа 2 широкая форма сортировалась по объёму (`_pick_shown`).
+        in_cards = {f["code"] for c in cards for f in c["fields"]}
+        rec_codes = {f["code"] for c in rec_cards for f in c["fields"]}
+        # Парный план показан полосой — в матрицу и тренды он не идёт, как и раньше.
+        paired_plans = {pl["code"] for pl, _fa in shown_pairs}
+        shown = [f for f in fields if view_of(f) != "none" and f["code"] not in paired_plans
+                 and (f["code"] in rec_codes or f["code"] not in in_cards)]
         if not shown:
-            # Карточек нет (блок снят или всем назначен только тренд) — опираемся
-            # на графы, самые нагруженные впереди: иначе на широкой форме тренды
-            # и матрица взяли бы первые столбцы файла, то есть наугад.
-            shown = (sorted(fields, key=lambda f: -volumes.get(f["code"], 0.0))
-                     if len(fields) > MAX_CARDS else fields)
+            shown = list(fields)
+        if volumes:
+            # Главные — самые нагруженные: ровно это обещает причина «не
+            # рекомендую» у лишних трендов («самых нагруженных граф»).
+            shown = sorted(shown, key=lambda f: -volumes.get(f["code"], 0.0))
 
         # ── Виды по смыслу (считаем заранее: рейтинг встаёт первым на «Обзоре») ──
         meaning: list = []

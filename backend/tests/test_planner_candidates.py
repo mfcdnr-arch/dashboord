@@ -355,3 +355,63 @@ def test_saved_marks_are_pruned_to_known_candidates():
     sel = {"t": {"include": [k, "t:kpi:nope"], "exclude": [k, "t:bar:gone"]}}
     pruned = sg._prune_marks(sel, cands)["t"]
     assert pruned["exclude"] == [k] and pruned["include"] == [], "«добавлен и снят» сводится к «снят»"
+
+
+def test_series_widgets_take_the_busiest_fields_even_on_a_form_that_fits():
+    """🔴 «Статистика услуг — Соц.фонд» (29 карточек, меньше лимита): матрица и
+    рекомендованные тренды стояли на графах с нулём за всю историю, а услуга
+    с объёмом 141 054 шла «не рекомендую» (ревью этапа 2, 29.09)."""
+    fields, volumes = [], {}
+    for i in range(1, 11):
+        for m in ("Принято", "Выдано"):
+            code = f"u{i}{m[0]}"
+            fields.append({"code": code, "name": f"Услуга {i}: {m} · за отчетную неделю"})
+            volumes[code] = 0.0
+    volumes["u7П"], volumes["u7В"] = 141054.0, 135117.0
+    cands = sg.plan_candidates(_ds(fields, rows=62, volumes=volumes))["candidates"]
+    matrix = next(c for c in cands if c["widget_type"] == "matrix")
+    assert matrix["config"]["value_field"] == "u7П"
+    rec = [c["config"]["value_field"] for c in cands if c["widget_type"] == "dynamics" and c["recommended"]]
+    assert rec[:2] == ["u7П", "u7В"], rec
+
+
+def test_trend_only_field_gets_a_trend():
+    """🔴 Графа с видом «только тренд» не попадала ни в один виджет и ни в одного кандидата."""
+    fields = [{"code": "a", "name": "Обращения · Факт · за отчетную неделю"},
+              {"code": "b", "name": "Записи · Факт · за отчетную неделю"}]
+    sel = {"t": {"views": {"a": "dynamics", "b": "both"}}}
+    cands = sg.plan_candidates(_ds(fields, rows=1, volumes={"a": 5.0, "b": 1.0}), sel)["candidates"]
+    used = {f for c in cands for f in [c["config"].get("value_field"), *(c["config"].get("value_fields") or [])]}
+    assert "a" in used
+    assert any(c["widget_type"] == "dynamics" and c["config"]["value_field"] == "a" for c in cands)
+
+
+def test_trend_key_does_not_depend_on_the_automatic_month_grouping():
+    """Ключ тренда стабилен, когда ряд перерастает 60 отчётов и сворачивается в месяцы."""
+    fields = [{"code": "a", "name": "Обращения · Факт · за отчетную неделю"}]
+    key = lambda periods: next(c["key"] for c in sg.plan_candidates(  # noqa: E731
+        _ds(fields, rows=1, periods=periods, volumes={"a": 1.0}))["candidates"] if c["widget_type"] == "dynamics")
+    assert key(sg.DYN_PERIODS - 1) == key(sg.DYN_PERIODS + 1)
+
+
+def test_colon_form_with_levels_is_not_split_into_other_departments():
+    """У формы «Услуга 5: Принято» владельца-ступени нет — «Остальных ведомств» не будет."""
+    fields, volumes = [], {}
+    for i in range(1, 30):
+        for m in ("Принято", "Выдано"):
+            code = f"u{i}{m[0]}"
+            fields.append({"code": code, "name": f"Услуга {i}: {m}"})
+            volumes[code] = 1000.0 if i == 1 else 1.0
+    res = sg.plan_candidates(_ds(fields, volumes=volumes, levels={"levels": [{"name": "Услуга"}]}))
+    assert {c["page"] for c in _cards(res)} == {sg.PAGE_OVERVIEW}
+    assert not any("разложены по страницам" in n for n in res["notes"])
+
+
+def test_paired_plan_keeps_a_card_when_no_widget_shows_the_pair():
+    """Сняты «План-факт» и «По смыслу» — план не пропадает, у него своя карточка."""
+    fields = [{"code": "p", "name": "Записались · План (до 1 сентября 2026 г.)"},
+              {"code": "f", "name": "Записались · Факт · нарастающим итогом"}]
+    sel = {"t": {"blocks": ["kpi"]}}
+    cands = sg.plan_candidates(_ds(fields, rows=1, volumes={"p": 1.0, "f": 1.0}), sel)["candidates"]
+    used = {f for c in cands for f in [c["config"].get("value_field"), *(c["config"].get("value_fields") or [])]}
+    assert "p" in used, "план выбран, а ни в одном виджете его нет"
