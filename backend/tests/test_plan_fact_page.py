@@ -84,11 +84,20 @@ async def test_collects_pairs_from_all_objects_and_rebuilds(client, admin_header
         assert mine, "пара «План + Факт» должна найтись по названиям граф"
         assert mine[0]["plan"]["code"] == "plan" and mine[0]["fact"]["code"] == "fact"
 
-        r = await client.post("/dashboards/plan-fact", headers=admin_headers, json={"name": "ztest_pf"})
+        # Образца у сводной нет — направление приходит из фильтра списка.
+        dir_a = (await client.post("/dashboard-directions", headers=admin_headers,
+                                   json={"name": "ztest_pf_А"})).json()["id"]
+        dir_b = (await client.post("/dashboard-directions", headers=admin_headers,
+                                   json={"name": "ztest_pf_Б"})).json()["id"]
+        r = await client.post("/dashboards/plan-fact", headers=admin_headers,
+                              json={"name": "ztest_pf", "direction_id": dir_a})
         assert r.status_code == 201, r.text
         out = r.json()
         did = out["dashboard_id"]
         assert out["widgets"] >= 1
+        async with db.acquire() as conn:
+            assert str(await conn.fetchval(
+                "select direction_id from dashboards where id=$1::uuid", did)) == dir_a
 
         # Виджет получил именно нашу шкалу, а не общую норму 90/100.
         async with db.acquire() as conn:
@@ -101,9 +110,13 @@ async def test_collects_pairs_from_all_objects_and_rebuilds(client, admin_header
 
         # Пересборка: наполнение заменяется, сам дашборд остаётся тем же.
         r2 = await client.post("/dashboards/plan-fact", headers=admin_headers,
-                               json={"dashboard_id": did})
+                               json={"dashboard_id": did, "direction_id": dir_b})
         assert r2.status_code == 201, r2.text
         assert r2.json()["dashboard_id"] == did, "пересборка не должна плодить дашборды"
+        async with db.acquire() as conn:
+            assert str(await conn.fetchval(
+                "select direction_id from dashboards where id=$1::uuid", did)) == dir_a, \
+                "пересборка направление не меняет — его выбирал человек"
         async with db.acquire() as conn:
             pages = await conn.fetchval(
                 "select count(*) from dashboard_pages where dashboard_id=$1::uuid", did)
@@ -122,6 +135,7 @@ async def test_collects_pairs_from_all_objects_and_rebuilds(client, admin_header
             await conn.execute(
                 "delete from canonical_fields where object_id=$1 and code=any($2::text[])",
                 obj, ["plan", "fact"])
+            await conn.execute("delete from dashboard_directions where name like 'ztest_pf_%'")
 
 
 async def test_no_pairs_gives_honest_refusal(client, admin_headers):

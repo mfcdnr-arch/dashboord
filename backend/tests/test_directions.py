@@ -261,3 +261,63 @@ async def test_name_race_is_a_clear_refusal(ids, monkeypatch):
             assert first["name"] == "ztest_Гонка"
     finally:
         await _cleanup([])
+
+
+async def test_template_copy_inherits_direction(client, admin_headers):
+    """Копия «как тот» лежит там же, где образец (решение заказчика 30.09).
+
+    Направление — ТЕКУЩЕЕ у образца (его могли переложить после сохранения
+    шаблона); образец удалён — записанное при сохранении; у образца направления
+    нет — выбранное в фильтре списка, как при ручном создании.
+    """
+    dids, tids = [], []
+
+    async def make(tid, name, **extra):
+        r = await client.post(f"/dashboard-templates/{tid}/instantiate", headers=admin_headers,
+                              json={"name": name, "force": True, **extra})
+        assert r.status_code == 201, r.text
+        dids.append(r.json()["dashboard_id"])
+        async with db.acquire() as conn:
+            v = await conn.fetchval("select direction_id from dashboards where id=$1::uuid",
+                                    r.json()["dashboard_id"])
+        return str(v) if v else None
+
+    async def save_tpl(did, name):
+        r = await client.post(f"/dashboards/{did}/save-template", headers=admin_headers,
+                              json={"name": name})
+        assert r.status_code in (200, 201), r.text
+        tids.append(r.json()["id"])
+        return r.json()["id"]
+
+    try:
+        a = (await client.post("/dashboard-directions", headers=admin_headers,
+                               json={"name": "ztest_tpl_А"})).json()["id"]
+        b = (await client.post("/dashboard-directions", headers=admin_headers,
+                               json={"name": "ztest_tpl_Б"})).json()["id"]
+        src = await _dash(client, admin_headers, "ztest_tpl_образец", direction_id=a)
+        dids.append(str(src["id"]))
+        tid = await save_tpl(str(src["id"]), "ztest_tpl_dir")
+
+        assert await make(tid, "ztest_tpl_копия1") == a, "копия лежит там же, где образец"
+        assert await make(tid, "ztest_tpl_копия2", direction_id=b) == a, \
+            "направление образца сильнее фильтра списка"
+
+        await client.post("/dashboard-directions/assign", headers=admin_headers,
+                          json={"dashboard_ids": [str(src["id"])], "direction_id": b})
+        assert await make(tid, "ztest_tpl_копия3") == b, "берётся ТЕКУЩЕЕ направление образца"
+
+        await purge_dashboard(str(src["id"]))
+        assert await make(tid, "ztest_tpl_копия4") == a, \
+            "образец удалён — направление, записанное при сохранении шаблона"
+
+        bare = await _dash(client, admin_headers, "ztest_tpl_без_направления")
+        dids.append(str(bare["id"]))
+        tid2 = await save_tpl(str(bare["id"]), "ztest_tpl_bare")
+        assert await make(tid2, "ztest_tpl_копия5", direction_id=b) == b, \
+            "у образца направления нет — выбранное в фильтре"
+        assert await make(tid2, "ztest_tpl_копия6") is None
+    finally:
+        async with db.acquire() as conn:
+            for tid in tids:
+                await conn.execute("delete from dashboard_templates where id=$1::uuid", tid)
+        await _cleanup(dids)

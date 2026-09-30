@@ -314,10 +314,14 @@ export async function instantiateTemplate(templateId: string, name: string,
   datasetMap: Record<string, string> = {}, metricMap: Record<string, string> = {},
   /** Перепривязка ПОЛЕЙ: у другого объекта коды показателей свои. */
   fieldMap: Record<string, string> = {},
-  force = false): Promise<{ dashboard_id: string }> {
+  force = false,
+  /** Направление, если у образца шаблона его нет (фильтр списка): направление
+   *  образца сильнее — копия «как тот» ложится туда же, где он. */
+  directionId?: string): Promise<{ dashboard_id: string }> {
   const res = await fetch(`/dashboard-templates/${templateId}/instantiate`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
-    body: JSON.stringify({ name, dataset_map: datasetMap, metric_map: metricMap, field_map: fieldMap, force }),
+    body: JSON.stringify({ name, dataset_map: datasetMap, metric_map: metricMap, field_map: fieldMap, force,
+      direction_id: directionId || null }),
   })
   if (!res.ok) {
     const msg = await errText(res)
@@ -738,12 +742,17 @@ export async function planFactPreview(): Promise<PlanFactPlan> {
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
-export async function buildPlanFact(opts: { name?: string; dashboardId?: string; force?: boolean } = {}):
+export async function buildPlanFact(opts: {
+  name?: string; dashboardId?: string; force?: boolean
+  /** Направление новой сводной (фильтр списка); пересборка его не меняет. */
+  directionId?: string
+} = {}):
   Promise<{ dashboard_id: string; page_id: string; widgets: number; objects: number }> {
   const res = await fetch('/dashboards/plan-fact', {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
     body: JSON.stringify({
       name: opts.name || null, dashboard_id: opts.dashboardId || null, force: opts.force === true,
+      direction_id: opts.directionId || null,
     }),
   })
   if (!res.ok) {

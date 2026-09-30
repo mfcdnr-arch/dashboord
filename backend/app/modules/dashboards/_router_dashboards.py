@@ -112,6 +112,9 @@ class InstantiateIn(BaseModel):
     # Папка нового дашборда: тиражируя на другой объект, логично сразу класть
     # копию в его папку, а не оставлять «без папки».
     folder_id: Optional[str] = None
+    # Направление, если у образца шаблона его нет (фильтр списка). Направление
+    # образца сильнее: копия «как тот» лежит там же, где он.
+    direction_id: Optional[str] = None
 
 
 class PageIn(BaseModel):
@@ -200,6 +203,8 @@ async def auto_build(body: AutoIn, user: dict = Depends(manage)):
 class PlanFactIn(BaseModel):
     name: Optional[str] = None
     dashboard_id: Optional[str] = None
+    # Направление новой сводной (фильтр списка); пересборка его не меняет.
+    direction_id: Optional[str] = None
     # Осознанное согласие на одноимённый дашборд (после переспроса).
     force: bool = False
 
@@ -221,7 +226,8 @@ async def plan_fact_build(body: PlanFactIn, user: dict = Depends(manage)):
             async with conn.transaction():
                 return await service.build_plan_fact_dashboard(
                     conn, user["organization_id"], user["id"],
-                    name=body.name, dashboard_id=body.dashboard_id, force=body.force)
+                    name=body.name, dashboard_id=body.dashboard_id, force=body.force,
+                    direction_id=body.direction_id)
         except service.DuplicateDashboardName as e:
             raise _duplicate(e)
         except DashboardError as e:
@@ -453,7 +459,7 @@ async def instantiate_template(template_id: str, body: InstantiateIn, user: dict
                 return await service.create_from_template(
                     conn, user["organization_id"], user["id"], template_id, body.name,
                     body.dataset_map, body.metric_map, body.field_map, body.folder_id,
-                    force=body.force)
+                    force=body.force, direction_id=body.direction_id)
         except service.DuplicateDashboardName as e:
             raise _duplicate(e)
         except DashboardError as e:

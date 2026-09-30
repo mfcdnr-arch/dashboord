@@ -115,7 +115,7 @@ async def plan_fact_plan(conn, org_id) -> dict:
 
 async def build_plan_fact_dashboard(conn, org_id, user_id, name: Optional[str] = None,
                                     dashboard_id: Optional[str] = None,
-                                    force: bool = False) -> dict:
+                                    force: bool = False, direction_id: Optional[str] = None) -> dict:
     """Собрать (или пересобрать) сводный дашборд «План/факт».
 
     Пересборка заменяет наполнение, но НЕ сам дашборд: на нём висят права
@@ -143,11 +143,17 @@ async def build_plan_fact_dashboard(conn, org_id, user_id, name: Optional[str] =
         await conn.execute("delete from widgets where dashboard_id=$1::uuid", did)
         await conn.execute("delete from dashboard_pages where dashboard_id=$1::uuid", did)
     else:
+        # Образца у сводной нет — она собирается по всем папкам сразу; поэтому
+        # направление — выбранное в фильтре списка, как у ручного создания.
+        # Пересборка (выше) направление не трогает.
+        from . import _directions  # локально: _directions тянет _rls
+
+        direction = await _directions.resolve_direction(conn, org_id, user_id, direction_id, None)
         dash = await svc.create_dashboard(
             conn, org_id, user_id, name or "План/факт",
             "Сводная страница выполнения планов по всем папкам. Факт — за последний отчёт "
             "каждой формы; цвет полосы: до 50 % красный, 50–70 оранжевый, 70–85 жёлтый, "
-            "от 85 % зелёный.", None, force=force)
+            "от 85 % зелёный.", None, force=force, direction_id=direction)
         did = str(dash["id"])
 
     page = await svc.create_page(conn, org_id, user_id, did, PAGE_PLAN_FACT, None)

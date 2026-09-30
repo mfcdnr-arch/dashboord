@@ -336,6 +336,10 @@ export default function DashboardsPage({
   const loadDirections = () => listDirections()
     .then((d) => { setDirections(d); setDirFilter((f) => keepDirFilter(f, d)) })
     .catch(() => setDirections(null))
+  // Направление, выбранное в фильтре списка: новый дашборд без своего
+  // направления ложится туда, куда человек сейчас смотрит, — иначе он пропал
+  // бы из отфильтрованного списка сразу после создания.
+  const intoDirection = () => (dirFilter && dirFilter !== 'none' ? dirFilter : undefined)
   const refresh = () => { loadDirections(); return loadDashboards(query, favOnly) }
   // Полоса «недавних» — подсказка: её сбой не должен мешать работе со списком.
   const loadRecent = () => listRecentDashboards().then((r) => setRecent(r.items)).catch(() => {})
@@ -605,11 +609,11 @@ export default function DashboardsPage({
     e.preventDefault(); setBusy(true); setError(null)
     // Список отфильтрован по направлению — новый дашборд ложится туда же:
     // человек заводит его, глядя на эту группу.
-    const intoDirection = dirFilter && dirFilter !== 'none' ? dirFilter : undefined
+    const into = intoDirection()
     try {
       let d
       try {
-        d = await createDashboard(newDash.trim(), undefined, false, intoDirection)
+        d = await createDashboard(newDash.trim(), undefined, false, into)
       } catch (e) {
         // Одноимённый дашборд уже есть. Не запрещаем (копия «на следующий год»
         // законна), но переспрашиваем: два одинаковых названия в списке не
@@ -623,7 +627,7 @@ export default function DashboardsPage({
           tone: 'accent',
         })
         if (!again) return
-        d = await createDashboard(newDash.trim(), undefined, true, intoDirection)
+        d = await createDashboard(newDash.trim(), undefined, true, into)
       }
       setNewDash(''); await refresh(); openDashboard(d.id)
     }
@@ -895,7 +899,7 @@ export default function DashboardsPage({
       const metrics = b.metrics.map((code) => ({ code, missing: !mcodes.has(code) }))
       if (!datasets.some((d) => d.missing) && !metrics.some((m) => m.missing)) {
         const r = await withDuplicateAsk((force) =>
-          instantiateTemplate(tpl, name.trim(), {}, {}, {}, force))  // все коды на месте
+          instantiateTemplate(tpl, name.trim(), {}, {}, {}, force, intoDirection()))  // все коды на месте
         if (!r) return
         setTpl(''); await refresh(); openDashboard(r.dashboard_id)
       } else {
@@ -908,7 +912,7 @@ export default function DashboardsPage({
     setBusy(true); setError(null)
     try {
       const r = await withDuplicateAsk((force) =>
-        instantiateTemplate(rebind.templateId, rebind.name, rebind.datasetMap, rebind.metricMap, {}, force))
+        instantiateTemplate(rebind.templateId, rebind.name, rebind.datasetMap, rebind.metricMap, {}, force, intoDirection()))
       if (!r) return
       setRebind(null); setTpl(''); await refresh(); openDashboard(r.dashboard_id)
     } catch (e) { fail(e) } finally { setBusy(false) }
@@ -1362,7 +1366,7 @@ export default function DashboardsPage({
             setBusy(true); setError(null)
             try {
               const r = await withDuplicateAsk((force) =>
-                instantiateTemplate(cloneTpl.id, name, datasetMap, {}, fieldMap, force))
+                instantiateTemplate(cloneTpl.id, name, datasetMap, {}, fieldMap, force, intoDirection()))
               if (!r) return
               setCloneTpl(null); setTpl(''); await refresh(); openDashboard(r.dashboard_id)
             } catch (e) { fail(e) } finally { setBusy(false) }

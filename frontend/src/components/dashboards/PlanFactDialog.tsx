@@ -15,7 +15,11 @@ import Notice from '../Notice'
 // обещанное «будет N виджетов» однажды разошлось бы с результатом — тот же
 // принцип, что в мастере авто-сборки.
 export default function PlanFactDialog(
-  { onClose, onBuilt }: { onClose: () => void; onBuilt?: (dashboardId: string) => void },
+  { onClose, onBuilt, directionId }: {
+    onClose: () => void; onBuilt?: (dashboardId: string) => void
+    /** Направление новой сводной — выбранное в фильтре списка (образца у неё нет). */
+    directionId?: string
+  },
 ) {
   const [plan, setPlan] = useState<PlanFactPlan | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -40,7 +44,7 @@ export default function PlanFactDialog(
   const build = async (force = false) => {
     setBusy(true); setErr(null); setDup(null)
     try {
-      const r = await buildPlanFact({ name: name.trim() || 'План/факт', force })
+      const r = await buildPlanFact({ name: name.trim() || 'План/факт', force, directionId })
       onClose()
       onBuilt?.(r.dashboard_id)
     } catch (e) {

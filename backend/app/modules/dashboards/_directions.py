@@ -175,6 +175,44 @@ async def resolve_direction(conn, org_id, user_id, direction_id: Optional[str],
     return None
 
 
+async def source_of(conn, org_id, dashboard_id: str) -> dict:
+    """Образец для шаблона: какой дашборд и в каком он направлении сейчас.
+
+    Кладётся в снимок шаблона, чтобы копия унаследовала направление образца
+    (решение заказчика 30.09): «как тот» — значит и лежит там же.
+    """
+    direction = await conn.fetchval(
+        "select direction_id from dashboards where id=$1::uuid and organization_id=$2",
+        dashboard_id, org_id)
+    return {"dashboard_id": str(dashboard_id), "direction_id": str(direction) if direction else None}
+
+
+async def inherit_from_source(conn, org_id, source: Optional[dict]) -> Optional[str]:
+    """Направление копии по образцу шаблона.
+
+    Берётся ТЕКУЩЕЕ направление образца, а не записанное при сохранении
+    шаблона: образец могли с тех пор переложить, и копия должна лечь туда же,
+    где он сейчас. Образец удалён — записанное при сохранении, если такое
+    направление ещё есть. У образца направления нет (или шаблон сохранён до
+    30.09 и образца не знает) — None: решает вызывающий.
+    """
+    if not source:
+        return None
+    did = source.get("dashboard_id")
+    if did:
+        row = await conn.fetchrow(
+            "select direction_id from dashboards where id=$1::uuid and organization_id=$2",
+            did, org_id)
+        if row is not None:
+            return str(row["direction_id"]) if row["direction_id"] else None
+    saved = source.get("direction_id")
+    if saved and await conn.fetchval(
+            "select 1 from dashboard_directions where id=$1::uuid and organization_id=$2",
+            saved, org_id):
+        return str(saved)
+    return None
+
+
 async def assign(conn, org_id, user_id, dashboard_ids: List[str], direction_id: Optional[str],
                  new_name: Optional[str] = None) -> dict:
     """Назначить направление дашбордам (или снять: direction_id=None без имени).

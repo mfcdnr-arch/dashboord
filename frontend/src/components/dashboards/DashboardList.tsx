@@ -361,7 +361,8 @@ export function DashboardList({
         <RequestAccessDialog onClose={() => setRequestOpen(false)} onOpenAppeals={onOpenAppeals} />
       )}
       {planFactOpen && (
-        <PlanFactDialog onClose={() => setPlanFactOpen(false)} onBuilt={onPlanFactBuilt} />
+        <PlanFactDialog onClose={() => setPlanFactOpen(false)} onBuilt={onPlanFactBuilt}
+          directionId={dirFilter && dirFilter !== 'none' ? dirFilter : undefined} />
       )}
     </div>
   )

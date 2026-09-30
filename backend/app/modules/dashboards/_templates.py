@@ -20,7 +20,11 @@ async def save_as_template(conn, org_id, user_id, dashboard_id: str, name: str, 
         raise DashboardError("Дашборд не найден")
     if await conn.fetchval("select 1 from dashboard_templates where organization_id=$1 and name=$2", org_id, name):
         raise DashboardError("Шаблон с таким именем уже есть")
+    from . import _directions  # локально: _directions тянет _rls
+
     spec = await svc._snapshot(conn, dashboard_id)
+    # Образец запоминаем в самом снимке: по нему копия унаследует направление.
+    spec["source"] = await _directions.source_of(conn, org_id, dashboard_id)
     row = await conn.fetchrow(
         "insert into dashboard_templates(organization_id, name, description, spec, created_by) "
         "values($1,$2,$3,$4::jsonb,$5) returning id, name",
@@ -115,7 +119,9 @@ async def template_bindings(conn, org_id, template_id: str) -> dict:
 async def create_from_template(conn, org_id, user_id, template_id: str, name: str,
                                dataset_map: Optional[dict] = None, metric_map: Optional[dict] = None,
                                field_map: Optional[dict] = None, folder_id: Optional[str] = None,
-                               force: bool = False) -> dict:
+                               force: bool = False, direction_id: Optional[str] = None) -> dict:
+    """Дашборд из шаблона. Направление — образца (его текущее); у образца его
+    нет — `direction_id` вызывающего (фильтр списка, как у ручного создания)."""
     spec = await conn.fetchval(
         "select spec from dashboard_templates where id=$1::uuid and organization_id=$2", template_id, org_id)
     if spec is None:
@@ -123,9 +129,13 @@ async def create_from_template(conn, org_id, user_id, template_id: str, name: st
     if isinstance(spec, str):
         spec = json.loads(spec)
     from . import service as svc  # ленивый импорт: избегаем цикла модулей
+    from . import _directions  # локально: _directions тянет _rls
+
     dmap, mmap, fmap = dataset_map or {}, metric_map or {}, field_map or {}
+    direction = (await _directions.inherit_from_source(conn, org_id, spec.get("source"))
+                 or await _directions.resolve_direction(conn, org_id, user_id, direction_id, None))
     dash = await svc.create_dashboard(conn, org_id, user_id, name, "Создан из шаблона", folder_id,
-                                      force=force)
+                                      force=force, direction_id=direction)
     did = str(dash["id"])
     for page in spec.get("pages", []):
         p = await svc.create_page(conn, org_id, user_id, did, page["name"], page.get("description"),
