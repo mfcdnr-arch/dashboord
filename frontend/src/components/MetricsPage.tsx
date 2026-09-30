@@ -198,7 +198,7 @@ export default function MetricsPage({ canManage, isSuperadmin, initialMetricId }
               {bulkNote && <span style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{bulkNote}</span>}
             </div>
           )}
-          <input style={{ ...input, width: '100%', maxWidth: 420, marginBottom: 12 }} aria-label="Поиск показателя" placeholder="🔍 Поиск по коду или названию…" value={mq} onChange={(e) => setMq(e.target.value)} />
+          <input style={{ ...input, width: '100%', boxSizing: 'border-box', maxWidth: 420, marginBottom: 12 }} aria-label="Поиск показателя" placeholder="🔍 Поиск по коду или названию…" value={mq} onChange={(e) => setMq(e.target.value)} />
           {metrics.length === 0 ? (
             <div style={muted}>{mq.trim() ? 'Ничего не найдено.' : 'Пока нет метрик. Создайте первую и задайте ей формулу.'}</div>
           ) : (
@@ -408,7 +408,7 @@ function MetricDetail({ data, canManage, isSuperadmin, onError, onChanged, onDel
         <div style={{ marginBottom: 18 }}>
           <h3 style={h3}>Расширенная информация о показателе</h3>
           <div style={{ ...muted, marginBottom: 6 }}>Необязательно. Виден пользователю в «🔍 подробнее». Если пусто — покажется «Информации нет, в разработке».</div>
-          <textarea style={{ width: '100%', minHeight: 70, padding: 8, border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }}
+          <textarea style={{ width: '100%', boxSizing: 'border-box', minHeight: 70, padding: 8, border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }}
             value={info} onChange={(e) => { setInfo(e.target.value); setInfoSaved(false) }}
             placeholder="Из чего складывается показатель, как читать, за что отвечает…" />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
@@ -479,7 +479,7 @@ function MetricDetail({ data, canManage, isSuperadmin, onError, onChanged, onDel
           ) : (
             <div>
               <textarea
-                style={{ ...input, width: '100%', height: 70, fontFamily: 'ui-monospace, monospace', padding: 10, resize: 'vertical' }}
+                style={{ ...input, width: '100%', boxSizing: 'border-box', height: 70, fontFamily: 'ui-monospace, monospace', padding: 10, resize: 'vertical' }}
                 aria-label="Формула показателя"
                 placeholder="Например: SUM(field('план','кол'))"
                 value={formula} onChange={(e) => setFormula(e.target.value)}

@@ -683,7 +683,7 @@ const total: React.CSSProperties = {
   background: 'var(--surface-2)', borderRadius: 8, padding: '9px 12px', fontSize: 13,
 }
 const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 13 }
-const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, width: '100%' }
+const input: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: 13, width: '100%', boxSizing: 'border-box' }
 const btn: React.CSSProperties = { height: 34, padding: '0 14px', border: 'none', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, cursor: 'pointer' }
 const btnGhost: React.CSSProperties = { height: 34, padding: '0 12px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', fontSize: 13, cursor: 'pointer' }
 const linkBtn: React.CSSProperties = { border: 'none', background: 'none', color: 'var(--accent-text)', fontSize: 12, cursor: 'pointer', padding: 0 }

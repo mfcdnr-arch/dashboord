@@ -1183,7 +1183,7 @@ function OtherFormDialog({ info, busy, jobId, defaultName, onConfirm, onMoved, o
       <div style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: 14, lineHeight: 1.45 }}>{info.message}</div>
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12.5, color: 'var(--text-2)', marginBottom: 14 }}>
         Название нового объекта для этой формы
-        <input style={{ ...input, width: '100%' }} value={objName} onChange={(e) => setObjName(e.target.value)} />
+        <input style={{ ...input, width: '100%', boxSizing: 'border-box' }} value={objName} onChange={(e) => setObjName(e.target.value)} />
       </label>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         <button style={btnGhost} onClick={onCancel} disabled={busy || moving}>Отмена</button>

@@ -723,13 +723,13 @@ function EditDialog(
           <span style={{ display: 'block', fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>{f.label}</span>
           {f.multiline ? (
             <textarea
-              style={{ ...input, width: '100%', height: 72, padding: 8, resize: 'vertical' }}
+              style={{ ...input, width: '100%', boxSizing: 'border-box', height: 72, padding: 8, resize: 'vertical' }}
               value={vals[f.key]} placeholder={f.placeholder}
               onChange={(e) => setVals((p) => ({ ...p, [f.key]: e.target.value }))}
             />
           ) : (
             <input
-              style={{ ...input, width: '100%' }} value={vals[f.key]} placeholder={f.placeholder}
+              style={{ ...input, width: '100%', boxSizing: 'border-box' }} value={vals[f.key]} placeholder={f.placeholder}
               onChange={(e) => setVals((p) => ({ ...p, [f.key]: e.target.value }))}
             />
           )}

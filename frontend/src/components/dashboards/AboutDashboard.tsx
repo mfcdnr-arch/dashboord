@@ -29,7 +29,7 @@ export function EditDashboardDialog(
         <button style={{ ...rmBtn, marginLeft: 'auto' }} onClick={onClose}>✕</button>
       </div>
       <label style={lbl}>Название
-        <input style={{ ...input, width: '100%' }} value={name} onChange={(e) => setName(e.target.value)} />
+        <input style={{ ...input, width: '100%', boxSizing: 'border-box' }} value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       <label style={{ ...lbl, marginTop: 10 }}>Описание — что показывает дашборд и кому предназначен
         {/* Описание видит руководитель в разделе «Руководителю» вместо
@@ -45,7 +45,7 @@ export function EditDashboardDialog(
             }}>{drafting ? 'Составляю…' : '✨ Составить'}</button>
         )}
         <textarea
-          style={{ ...input, width: '100%', height: 90, padding: 10, resize: 'vertical' }}
+          style={{ ...input, width: '100%', boxSizing: 'border-box', height: 90, padding: 10, resize: 'vertical' }}
           placeholder="Например: ход внедрения сервиса записи в МФЦ, для еженедельного доклада руководству"
           value={description} onChange={(e) => setDescription(e.target.value)} />
       </label>

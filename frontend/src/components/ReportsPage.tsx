@@ -332,7 +332,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
           </label>
           <label style={{ fontSize: 12, flex: '1 1 160px' }}>Поиск по тексту
             <input value={logsQuery} onChange={(e) => setLogsQuery(e.target.value)} placeholder="необязательно"
-              style={{ display: 'block', width: '100%', height: 32, marginTop: 2, borderRadius: 8, border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text)', padding: '0 8px' }} />
+              style={{ display: 'block', width: '100%', boxSizing: 'border-box', height: 32, marginTop: 2, borderRadius: 8, border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text)', padding: '0 8px' }} />
           </label>
           <button onClick={loadLogs} disabled={logsLoading}
             style={{ height: 32, padding: '0 14px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-2)', cursor: 'pointer', fontSize: 13 }}>

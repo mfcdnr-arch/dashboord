@@ -277,7 +277,7 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 
 const muted: React.CSSProperties = { color: 'var(--text-faint)', fontSize: 13 }
 const grid2: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 12 }
-const inp: React.CSSProperties = { width: '100%', height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text)', fontSize: 14 }
+const inp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', height: 34, padding: '0 10px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text)', fontSize: 14 }
 const btn: React.CSSProperties = { height: 34, padding: '0 16px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--accent)', color: 'var(--on-accent)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }
 const btnGhost: React.CSSProperties = { height: 34, padding: '0 14px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer', fontSize: 13 }
 const btnDanger: React.CSSProperties = { height: 34, padding: '0 14px', border: '1px solid var(--danger)', borderRadius: 8, background: 'var(--danger-bg)', color: 'var(--danger)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }

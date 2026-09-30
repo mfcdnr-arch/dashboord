@@ -32,7 +32,7 @@ export function RenameDialog(
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>
         {label}
         <input
-          autoFocus style={{ ...input, width: '100%' }} value={value} placeholder={placeholder}
+          autoFocus style={{ ...input, width: '100%', boxSizing: 'border-box' }} value={value} placeholder={placeholder}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && ok) onSave(value.trim())

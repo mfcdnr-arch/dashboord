@@ -156,7 +156,7 @@ function ReviewModal({ item, reasons, onClose, onDone, onError }: {
         <option value="">— не выбрана —</option>
         {reasons.map((r) => <option key={r.code} value={r.code}>{r.label}</option>)}
       </select>
-      <textarea style={{ ...input, width: '100%', height: 56, padding: 8, resize: 'vertical' }}
+      <textarea style={{ ...input, width: '100%', boxSizing: 'border-box', height: 56, padding: 8, resize: 'vertical' }}
         placeholder="Комментарий (обязателен для причины «Иная»)" value={comment} onChange={(e) => setComment(e.target.value)} />
 
       {hasFail && <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 8 }}>⚠ Есть непройденные блоки — обычно такой дашборд возвращают на доработку.</div>}
