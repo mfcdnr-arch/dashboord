@@ -37,7 +37,20 @@ export function distinctLabels(names: string[]): string[] {
   while (words.every((w) => w.length > prefix + suffix + 1 && w[w.length - 1 - suffix] === words[0][words[0].length - 1 - suffix])) suffix++
 
   if (!prefix && !suffix) return names
-  const cut = words.map((w) => w.slice(prefix, w.length - suffix).join(' ').trim())
+  // Разделитель прилипает к слову («Услуга 1: Принято» делится на «Услуга»,
+  // «1:», «Принято»), и после отсечения у подписи оставался висячий знак —
+  // легенда «Сравнения» на форме «Статистики услуг» читалась «1: 2: 3:».
+  // Снимаем его только с того края, где отрезали.
+  const SEP = '[\\s:·—–,;-]+'
+  const trimSep = (t: string) => t
+    .replace(new RegExp(`^${prefix ? SEP : '\\s+'}`), '')
+    .replace(new RegExp(`${suffix ? SEP : '\\s+'}$`), '')
+  let cut = words.map((w) => trimSep(w.slice(prefix, w.length - suffix).join(' ')))
+  // Голое число — не подпись: «1», «2» ничего не говорят без слова, к которому
+  // относятся. Возвращаем последнее слово общего начала — «Услуга 1».
+  if (prefix && cut.every((c) => /^\d+$/.test(c))) {
+    cut = words.map((w, i) => `${w[prefix - 1].replace(new RegExp(`${SEP}$`), '')} ${cut[i]}`.trim())
+  }
   // Смысл отсечения — РАЗЛИЧИТЬ подписи. Если после него что-то опустело или
   // подписи всё равно неотличимы друг от друга, контекст терять незачем.
   if (cut.some((s) => !s)) return names
