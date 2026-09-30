@@ -37,7 +37,9 @@ export function DirectionsDialog({ onClose, onChanged, onPropose }: {
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true); setErr(null)
-    try { await action(); await load(); onChanged() } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+    // При отказе перечитываем: порядок стрелками меняется на экране сразу, и без
+    // этого остался бы порядок, которого на сервере нет.
+    try { await action(); await load(); onChanged() } catch (e) { setErr((e as Error).message); load() } finally { setBusy(false) }
   }
   const add = () => run(async () => { await createDirection(newName.trim()); setNewName('') })
   const rename = (d: Direction) => run(async () => { await updateDirection(d.id, { name: editName.trim() }); setEditId(null) })
