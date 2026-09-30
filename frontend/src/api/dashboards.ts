@@ -163,6 +163,18 @@ export type AutoPlanCandidate = {
   explain: ExplainSections
   /** Готовый текст ⓘ — ровно тот, что покажет созданный виджет. */
   explain_text: string
+  /** Конфигурация виджета — для маленького предпросмотра тем же /widgets/preview. */
+  config: Record<string, unknown>
+}
+
+/** Что отменяет кнопка «Отменить сборку»: новый дашборд целиком или добавленные страницы. */
+export type AutoBuildUndo = { dashboard_id: string; page_ids: string[]; whole: boolean }
+
+export type AutoBuildResult = {
+  dashboard_id: string; page_id: string; pages: number; page_names: string[]
+  widgets: number; metrics?: number
+  /** Нет у пересборки: прежнее наполнение уже заменено, вернуть его нечем. */
+  undo: AutoBuildUndo | null
 }
 
 export type AutoPlanDataset = {
@@ -255,8 +267,11 @@ export async function autoBuildDashboard(
     /** Направление НОВОГО дашборда: существующее по id или новое по имени. */
     directionId?: string
     newDirection?: string
+    /** Добавить отдельной НОВОЙ страницей в существующий дашборд (решение 23.09). */
+    intoDashboardId?: string
+    pageName?: string
   } = {},
-): Promise<{ dashboard_id: string; page_id: string; widgets: number; metrics?: number }> {
+): Promise<AutoBuildResult> {
   const res = await fetch('/dashboards/auto', {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
     body: JSON.stringify({
@@ -269,12 +284,23 @@ export async function autoBuildDashboard(
       force: opts.force === true,
       direction_id: opts.directionId || null,
       new_direction: opts.newDirection || null,
+      into_dashboard_id: opts.intoDashboardId || null,
+      page_name: opts.pageName || null,
     }),
   })
   if (!res.ok) {
     const msg = await errText(res)
     throw res.status === 409 ? new DuplicateError(msg) : new Error(msg)
   }
+  return res.json()
+}
+/** «Создано N — отменить»: своё, только что (30 минут) и только черновик. */
+export async function undoAutoBuild(undo: AutoBuildUndo): Promise<{ undone: 'dashboard' | 'pages' }> {
+  const res = await fetch('/dashboards/auto/undo', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+    body: JSON.stringify(undo),
+  })
+  if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
 export async function getDashboard(id: string): Promise<{ dashboard: Dashboard; pages: DashPage[] }> {

@@ -1,7 +1,12 @@
-import { useMemo, useState } from 'react'
-import type { AutoPlanCandidate } from '../../api'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { previewWidget, type AutoPlanCandidate } from '../../api'
 import InfoTip from '../InfoTip'
 import { plural } from '../../lib/text'
+
+// Предпросмотр рисует настоящий виджет — тем же телом, что конструктор
+// (решение заказчика 23.09: «маленький предпросмотр, теми же функциями»).
+// Лениво: графическая часть не нужна мастеру, пока её не попросили.
+const WidgetPreviewBody = lazy(() => import('../WidgetView').then((m) => ({ default: m.WidgetPreviewBody })))
 
 /**
  * Виджеты, которые предлагает планировщик, — по страницам будущего дашборда.
@@ -24,6 +29,14 @@ export default function AutoBuildCandidates({ candidates, include, exclude, onTo
 }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
+  // Один предпросмотр за раз: у РЦО кандидатов под две сотни, и считать
+  // каждый заранее значило бы нагрузить сервер ради того, что не откроют.
+  const [peek, setPeek] = useState<string | null>(null)
+  const peekBtn = (c: AutoPlanCandidate) => (
+    <button type="button" style={eyeBtn} className="tap-target" aria-expanded={peek === c.key}
+      aria-label={`Предпросмотр «${c.name}»`} title="Как будет выглядеть"
+      onClick={() => setPeek((k) => (k === c.key ? null : c.key))}>👁</button>
+  )
   const inc = useMemo(() => new Set(include), [include])
   const exc = useMemo(() => new Set(exclude), [exclude])
   // Отметку показываем сразу, не дожидаясь пересчёта с сервера: иначе
@@ -58,18 +71,22 @@ export default function AutoBuildCandidates({ candidates, include, exclude, onTo
             {main.filter((c) => c.page === page).map((c) => (
               // Вид и ⓘ — вне <label>: иначе они вошли бы в имя галочки, и
               // диктор читал бы «ИТОГО Показатель в разрезах Что покажет…».
-              <div key={c.key} style={row}>
-                <label style={pick}>
-                  <input type="checkbox" checked={chosen(c)} onChange={() => onToggle(c)} />
-                  <span style={{ minWidth: 0 }}>
-                    <span style={nameStyle}>{c.name}</span>
-                    {!c.recommended && (
-                      <span style={{ ...hint, display: 'block' }}>добавлен вами · {c.reason}</span>
-                    )}
-                  </span>
-                </label>
-                <span style={chip}>{c.type_label}</span>
-                <InfoTip text={c.explain_text} label={`Что покажет «${c.name}»`} />
+              <div key={c.key}>
+                <div style={row}>
+                  <label style={pick}>
+                    <input type="checkbox" checked={chosen(c)} onChange={() => onToggle(c)} />
+                    <span style={{ minWidth: 0 }}>
+                      <span style={nameStyle}>{c.name}</span>
+                      {!c.recommended && (
+                        <span style={{ ...hint, display: 'block' }}>добавлен вами · {c.reason}</span>
+                      )}
+                    </span>
+                  </label>
+                  <span style={chip}>{c.type_label}</span>
+                  <InfoTip text={c.explain_text} label={`Что покажет «${c.name}»`} />
+                  {peekBtn(c)}
+                </div>
+                {peek === c.key && <CandidatePreview c={c} />}
               </div>
             ))}
           </div>
@@ -94,19 +111,23 @@ export default function AutoBuildCandidates({ candidates, include, exclude, onTo
               <div style={{ ...box, maxHeight: 260 }}>
                 {found.length === 0 && <div style={hint}>Ничего не найдено.</div>}
                 {found.map((c) => (
-                  <div key={c.key} style={row}>
-                    <span style={{ minWidth: 0, flex: 1 }}>
-                      <span style={nameStyle}>{c.name}</span>
-                      <span style={{ ...hint, display: 'block' }}>
-                        {c.page} · {c.reason}
+                  <div key={c.key}>
+                    <div style={row}>
+                      <span style={{ minWidth: 0, flex: 1 }}>
+                        <span style={nameStyle}>{c.name}</span>
+                        <span style={{ ...hint, display: 'block' }}>
+                          {c.page} · {c.reason}
+                        </span>
                       </span>
-                    </span>
-                    <span style={chip}>{c.type_label}</span>
-                    <InfoTip text={c.explain_text} label={`Что покажет «${c.name}»`} />
-                    <button type="button" style={addBtn} onClick={() => onToggle(c)}
-                      aria-label={`Добавить «${c.name}»`}>
-                      ＋ добавить
-                    </button>
+                      <span style={chip}>{c.type_label}</span>
+                      <InfoTip text={c.explain_text} label={`Что покажет «${c.name}»`} />
+                      {peekBtn(c)}
+                      <button type="button" style={addBtn} onClick={() => onToggle(c)}
+                        aria-label={`Добавить «${c.name}»`}>
+                        ＋ добавить
+                      </button>
+                    </div>
+                    {peek === c.key && <CandidatePreview c={c} />}
                   </div>
                 ))}
               </div>
@@ -123,7 +144,45 @@ export default function AutoBuildCandidates({ candidates, include, exclude, onTo
   )
 }
 
+/**
+ * Маленький предпросмотр кандидата — настоящий виджет на нынешних данных,
+ * посчитанный тем же /widgets/preview, что и в конструкторе. Показано ровно
+ * то, что будет создано: конфигурация берётся у планировщика.
+ */
+function CandidatePreview({ c }: { c: AutoPlanCandidate }) {
+  const [data, setData] = useState<unknown>(null)
+  const [err, setErr] = useState<string | null>(null)
+  // По содержимому: после каждой галочки план приходит заново, и объект
+  // конфигурации новый, хотя виджет тот же — перезапрашивать незачем.
+  const cfgKey = JSON.stringify(c.config)
+  useEffect(() => {
+    let alive = true
+    previewWidget({ widget_type: c.widget_type, name: c.name, config: c.config })
+      .then((d) => { if (alive) setData(d) })
+      .catch((e) => { if (alive) setErr((e as Error).message) })
+    return () => { alive = false }
+  }, [c.widget_type, c.name, cfgKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div style={previewBox} role="region" aria-label={`Предпросмотр «${c.name}»`}>
+      {err ? <div style={{ color: 'var(--danger)', fontSize: 12 }}>{err}</div>
+        : data ? (
+          <Suspense fallback={<div style={hint}>Рисуем…</div>}>
+            <WidgetPreviewBody data={data} />
+          </Suspense>
+        ) : <div style={hint}>Считаем на нынешних данных…</div>}
+    </div>
+  )
+}
+
 const hint: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 12 }
+const previewBox: React.CSSProperties = {
+  margin: '4px 0 8px 24px', padding: 10, border: '1px solid var(--border)', borderRadius: 8,
+  background: 'var(--surface)', maxHeight: 280, overflow: 'auto', minWidth: 0,
+}
+const eyeBtn: React.CSSProperties = {
+  flexShrink: 0, border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, padding: '0 2px',
+  color: 'var(--text-muted)',
+}
 const box: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 320, overflowY: 'auto',
   border: '1px solid var(--border-faint)', borderRadius: 8, padding: '6px 8px',

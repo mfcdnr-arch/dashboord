@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { plural } from '../lib/text'
 import {
-  knownForms, listFolders, listObjects, routeUpload, uploadJournal, uploadToInbox,
-  type Folder, type JournalItem, type KnownForm, type Obj,
+  knownForms, listDashboards, listFolders, listObjects, routeUpload, uploadJournal, uploadToInbox,
+  type Dashboard, type Folder, type JournalItem, type KnownForm, type Obj,
 } from '../api'
+import AutoBuildWizard from './dashboards/AutoBuildWizard'
 
 /**
  * Раздел «Загрузка» — общая зона приёма файлов (шаг ⑤).
@@ -21,7 +22,11 @@ import {
 export default function UploadsPage(
   // Переход прямо к разметке файла: без него модератор после загрузки выходил
   // в «Объекты» и искал свой файл руками среди папок.
-  { onOpenDocument }: { onOpenDocument?: (objectId: string, folderId: string, docId: string) => void } = {},
+  { onOpenDocument, onOpenDashboard }: {
+    onOpenDocument?: (objectId: string, folderId: string, docId: string) => void
+    /** Открыть собранный дашборд (и созданную страницу) после мастера. */
+    onOpenDashboard?: (dashboardId: string, pageId?: string) => void
+  } = {},
 ) {
   const [items, setItems] = useState<JournalItem[]>([])
   const [busy, setBusy] = useState(false)
@@ -40,6 +45,9 @@ export default function UploadsPage(
   const [routing, setRouting] = useState<string | null>(null)
   const [known, setKnown] = useState<KnownForm[]>([])
   const [knownOpen, setKnownOpen] = useState(false)
+  // Мастер «предложить виджеты» для новой формы (этап 4, решение 23.09).
+  const [wizard, setWizard] = useState<{ id: string; name: string } | null>(null)
+  const [dashList, setDashList] = useState<Dashboard[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
   const timer = useRef<number | null>(null)
 
@@ -105,10 +113,43 @@ export default function UploadsPage(
   }
 
   const waiting = items.filter((i) => i.in_inbox)
+  // «Это новая форма, дашбордов по ней нет» — по одной плашке на объект:
+  // книга может принести сразу несколько кодов, а мастер собирает по объекту.
+  const offers: JournalItem[] = []
+  for (const it of items) {
+    if (it.offer && it.object_id && !offers.some((o) => o.object_id === it.object_id)) offers.push(it)
+  }
+  async function offerWidgets(it: JournalItem) {
+    try { setDashList((await listDashboards('', false, 200)).items) } catch { /* список для «добавить страницей» */ }
+    setWizard({ id: it.object_id!, name: it.object_name || 'объект' })
+  }
 
   return (
     <div>
       <h1 style={{ marginTop: 0 }}>Загрузка</h1>
+
+      {offers.map((it) => (
+        <div key={it.object_id} role="status" style={offerBar}>
+          <span style={{ flex: '1 1 320px', minWidth: 0, overflowWrap: 'anywhere' }}>
+            📄 <b>{it.filename}</b> — это <b>новая форма</b>
+            {it.object_name ? <> («{it.object_name}»)</> : null}, дашбордов по ней нет. Система разобрала
+            файл и может предложить виджеты.
+          </span>
+          <button type="button" style={offerBtn} onClick={() => offerWidgets(it)}>✨ Предложить виджеты</button>
+        </div>
+      ))}
+      {wizard && (
+        <AutoBuildWizard
+          objectId={wizard.id} objectName={wizard.name} dashboards={dashList}
+          onClose={() => setWizard(null)}
+          onError={(m) => setErr(m)}
+          onUndone={() => { setWizard(null); load() }}
+          onDone={(id, pageId) => {
+            setWizard(null); load()
+            onOpenDashboard?.(id, pageId)
+          }}
+        />
+      )}
 
       <div
         onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
@@ -282,6 +323,14 @@ function when(iso?: string | null): string {
   return `${ru(iso)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+const offerBar: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 13.5,
+  background: 'var(--accent-weak-bg)', color: 'var(--text)', borderRadius: 12, padding: '10px 14px', marginBottom: 12,
+}
+const offerBtn: React.CSSProperties = {
+  marginLeft: 'auto', height: 32, padding: '0 14px', border: 'none', borderRadius: 8, cursor: 'pointer',
+  background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, fontWeight: 600,
+}
 const th: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '5px 8px', background: 'var(--surface-2)', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }
 const td: React.CSSProperties = { border: '1px solid var(--border-faint)', padding: '5px 8px', verticalAlign: 'top' }
 const linkBtn: React.CSSProperties = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--accent-text)', fontSize: 12.5, textDecoration: 'underline dotted' }

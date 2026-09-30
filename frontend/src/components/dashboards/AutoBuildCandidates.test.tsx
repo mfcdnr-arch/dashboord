@@ -1,12 +1,22 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { AutoPlanCandidate } from '../../api'
+import { previewWidget, type AutoPlanCandidate } from '../../api'
 import AutoBuildCandidates from './AutoBuildCandidates'
+
+// Предпросмотр считает сервер и рисует тело виджета — в тесте подменяем оба:
+// проверяем, ЧТО спрашивается и когда, а не отрисовку графиков.
+vi.mock('../../api', async (orig) => ({
+  ...(await orig<typeof import('../../api')>()),
+  previewWidget: vi.fn(async () => ({ value: 42 })),
+}))
+vi.mock('../WidgetView', () => ({
+  WidgetPreviewBody: ({ data }: { data: { value: number } }) => <div>тело предпросмотра {data.value}</div>,
+}))
 
 const cand = (key: string, over: Partial<AutoPlanCandidate> = {}): AutoPlanCandidate => ({
   key, dataset_code: 't', page: 'Обзор', name: key, widget_type: 'kpi', type_label: 'KPI (число)',
   recommended: true, reason: '', build: true, cards: 1, explain: { what: 'Что это.' },
-  explain_text: 'Что это.', ...over,
+  explain_text: 'Что это.', config: { dataset_code: 't' }, ...over,
 })
 
 const LIST = [
@@ -63,5 +73,29 @@ describe('AutoBuildCandidates — рекомендованные отмечен�
     expect(screen.getByRole('checkbox', { name: /Светофор/ })).toBeChecked()
     expect(screen.getByText(/добавлен вами/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Ещё можно добавить/ })).toBeNull()
+  })
+
+  it('предпросмотр — настоящий виджет по конфигурации кандидата, один за раз', async () => {
+    const withCfg = [
+      cand('ИТОГО', { config: { dataset_code: 't', value_fields: ['a'] } }),
+      cand('Росреестр', { page: 'Росреестр', config: { dataset_code: 't', value_field: 'b' } }),
+    ]
+    render(<AutoBuildCandidates candidates={withCfg} include={[]} exclude={[]} onToggle={() => {}} />)
+    const eye = screen.getByRole('button', { name: 'Предпросмотр «ИТОГО»' })
+    expect(eye).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(eye)
+    expect(eye).toHaveAttribute('aria-expanded', 'true')
+    expect(await screen.findByText('тело предпросмотра 42')).toBeInTheDocument()
+    // Ровно конфигурация планировщика — показано то, что будет создано.
+    expect(previewWidget).toHaveBeenCalledWith({
+      widget_type: 'kpi', name: 'ИТОГО', config: { dataset_code: 't', value_fields: ['a'] } })
+
+    // Второй открывает свой и закрывает первый: считать все сразу незачем.
+    fireEvent.click(screen.getByRole('button', { name: 'Предпросмотр «Росреестр»' }))
+    expect(eye).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getAllByRole('region', { name: /Предпросмотр/ })).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Предпросмотр «Росреестр»' }))
+    expect(screen.queryByRole('region', { name: /Предпросмотр/ })).toBeNull()
   })
 })

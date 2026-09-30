@@ -27,9 +27,11 @@ const ruDate = (iso?: string | null): string =>
   (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').reverse().join('.') : iso || '')
 
 export default function ObjectsPage(
-  { canManage, isSuperadmin, initialObjectId, initialFolderId, initialDocumentId }:
+  { canManage, isSuperadmin, initialObjectId, initialFolderId, initialDocumentId, onOpenDashboard }:
   {
     canManage: boolean; isSuperadmin?: boolean; initialObjectId?: string | null
+    /** Открыть собранный мастером дашборд. */
+    onOpenDashboard?: (dashboardId: string, pageId?: string) => void
     // Переход из «Загрузки»: открыть сразу разметку загруженного файла.
     // Раньше модератор выходил сюда и искал свой файл руками среди папок.
     initialFolderId?: string | null; initialDocumentId?: string | null
@@ -409,10 +411,15 @@ export default function ObjectsPage(
         <AutoBuildWizard
           objectId={obj.id} objectName={obj.name} dashboards={dashList}
           onClose={() => setWizardOpen(false)}
-          onDone={() => {
+          onUndone={() => {
+            setWizardOpen(false)
+            getBuildSuggestion(obj.id).then(setSuggestion).catch(() => setSuggestion(null))
+          }}
+          onDone={(id, pageId) => {
             setWizardOpen(false)
             // Дашборд появился — предложение больше не актуально.
             getBuildSuggestion(obj.id).then(setSuggestion).catch(() => setSuggestion(null))
+            onOpenDashboard?.(id, pageId)
           }}
           onError={setError}
         />

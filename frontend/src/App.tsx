@@ -489,10 +489,12 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <UploadsPage onOpenDocument={(objectId, folderId, docId) => {
               setOpenObject(objectId); setOpenFolder(folderId); setOpenDocument(docId)
               setSection('objects')
-            }} />
+            }}
+              onOpenDashboard={(id, pageId) => { setOpenDash(id); setOpenPage(pageId || null); setSection('dashboards') }} />
           ) : section === 'objects' ? (
             <ObjectsPage canManage={canManage} isSuperadmin={isSuperadmin} initialObjectId={openObject}
-              initialFolderId={openFolder} initialDocumentId={openDocument} />
+              initialFolderId={openFolder} initialDocumentId={openDocument}
+              onOpenDashboard={(id, pageId) => { setOpenDash(id); setOpenPage(pageId || null); setSection('dashboards') }} />
           ) : section === 'metrics' ? (
             <MetricsPage canManage={canManage} isSuperadmin={isSuperadmin} initialMetricId={openMetric} />
           ) : section === 'leadership' ? (

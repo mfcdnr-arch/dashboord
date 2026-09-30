@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   autoBuildDashboard, autoBuildPlan, directionForObject, DuplicateError, listDirections, listDocuments, listFolders,
-  type AutoPlan, type AutoPlanCandidate, type DatasetPick, type Dashboard, type Direction, type Doc, type Folder,
+  undoAutoBuild,
+  type AutoBuildResult, type AutoPlan, type AutoPlanCandidate, type DatasetPick, type Dashboard, type Direction,
+  type Doc, type Folder,
 } from '../../api'
 // Тот же формат числа, что на дашборде и в предложениях метрик: два знака
 // после запятой. Свой toLocaleString печатал «656,868 %» там, где везде «656,87 %».
@@ -52,13 +54,16 @@ const ruDate = (iso: string): string =>
   (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').reverse().join('.') : iso)
 
 export default function AutoBuildWizard(
-  { objectId, objectName, dashboards, onClose, onDone, onError }: {
+  { objectId, objectName, dashboards, onClose, onDone, onError, onUndone }: {
     objectId: string
     objectName: string
     dashboards: Dashboard[]
     onClose: () => void
-    onDone: (dashboardId: string) => void
+    /** «Открыть дашборд» после сборки; `pageId` — созданная страница. */
+    onDone: (dashboardId: string, pageId?: string) => void
     onError: (m: string) => void
+    /** Сборку отменили — списки надо перечитать. Нет — просто закрываем. */
+    onUndone?: () => void
   },
 ) {
   const [plan, setPlan] = useState<AutoPlan | null>(null)
@@ -72,7 +77,17 @@ export default function AutoBuildWizard(
   // проценты глазами. Выключается здесь, правится потом кнопкой ⚠ у виджета.
   const [alerts, setAlerts] = useState(true)
   const [restored, setRestored] = useState(false)
-  const [target, setTarget] = useState('')          // '' — новый дашборд
+  // '' — новый дашборд; 'page:<id>' — отдельной новой страницей в этот
+  // дашборд (решение заказчика 23.09); '<id>' — пересобрать его целиком.
+  const [target, setTarget] = useState('')
+  const intoId = target.startsWith('page:') ? target.slice(5) : ''
+  const rebuildId = target && !intoId ? target : ''
+  const [pageName, setPageName] = useState(objectName)
+  // Итог сборки — «Создано N — отменить» (решение 23.09): мастер не
+  // закрывается молча, а говорит, что сделано, и даёт передумать.
+  const [done, setDone] = useState<AutoBuildResult | null>(null)
+  const [undone, setUndone] = useState(false)
+  const [undoErr, setUndoErr] = useState<string | null>(null)
   // Имя нового дашборда. Раньше мастер молча называл его по объекту, поэтому
   // вторая сборка того же объекта давала второй «Дашборд «ИТ»» — в списке и в
   // отчётах они неразличимы. Имя предлагается, но остаётся за человеком.
@@ -299,12 +314,14 @@ export default function AutoBuildWizard(
       const r = await autoBuildDashboard(objectId, {
         documentId: docId || undefined,
         lockPeriod,
-        name: name.trim() || `Дашборд «${objectName}»`, selection: sel, dashboardId: target || undefined,
+        name: name.trim() || `Дашборд «${objectName}»`, selection: sel, dashboardId: rebuildId || undefined,
         metrics: [...metricPicks], alerts, force,
         directionId: !target && dirChoice && dirChoice !== '__new__' ? dirChoice : undefined,
         newDirection: !target && dirChoice === '__new__' ? dirNew.trim() : undefined,
+        intoDashboardId: intoId || undefined,
+        pageName: intoId ? (pageName.trim() || objectName) : undefined,
       })
-      onDone(r.dashboard_id)
+      setDone(r); setBusy(false)
     } catch (e) {
       // Одноимённый дашборд: мастер называет новый по объекту, поэтому вторая
       // сборка того же объекта раньше молча плодила копию — у заказчика так
@@ -314,6 +331,59 @@ export default function AutoBuildWizard(
       if (e instanceof DuplicateError) { setDup(e.message); setBusy(false); return }
       onError((e as Error).message); setBusy(false)
     }
+  }
+
+  if (done) {
+    const where = dashboards.find((d) => d.id === done.dashboard_id)?.name || name.trim() || objectName
+    const pages = done.page_names || []
+    async function undo() {
+      if (!done?.undo) return
+      setBusy(true); setUndoErr(null)
+      try { await undoAutoBuild(done.undo); setUndone(true) } catch (e) { setUndoErr((e as Error).message) }
+      setBusy(false)
+    }
+    const close = () => (undone ? (onUndone || onClose)() : onClose())
+    return (
+      <Modal onClose={close} style={{ maxWidth: 560, padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <ModalTitle>{undone ? '↩ Сборка отменена' : '✅ Готово'}</ModalTitle>
+        <div style={{ fontSize: 13.5, lineHeight: 1.45 }}>
+          {undone
+            ? (done.undo?.whole
+              ? <>Дашборд «{where}» убран — как будто сборки не было.</>
+              : <>Страница «{pages[0]}» убрана из дашборда «{where}»; его остальные страницы не тронуты.</>)
+            : <>
+                Создано <b>{done.widgets}</b> {plural(done.widgets, 'виджет', 'виджета', 'виджетов')}
+                {intoId
+                  ? <> — новой страницей «{pages[0]}» в дашборде «{where}».</>
+                  : rebuildId
+                    ? <> на {done.pages} {plural(done.pages, 'странице', 'страницах', 'страницах')} — наполнение «{where}» заменено.</>
+                    : <> на {done.pages} {plural(done.pages, 'странице', 'страницах', 'страницах')} в новом дашборде «{where}».</>}
+              </>}
+        </div>
+        {!undone && (
+          <div style={{ ...muted, fontSize: 12.5 }}>
+            {done.undo
+              ? `Передумали — «Отменить сборку» уберёт ${done.undo.whole ? 'созданный дашборд целиком' : 'эту страницу'}. `
+                + 'Отменить можно в течение 30 минут, пока дашборд не отправлен на проверку.'
+              : 'Пересборку отменить нельзя: прежнее наполнение уже заменено.'}
+          </div>
+        )}
+        {undoErr && <Notice>{undoErr}</Notice>}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+          {undone ? (
+            <button style={btn} onClick={close}>Закрыть</button>
+          ) : (
+            <>
+              {done.undo && <button style={btnGhost} disabled={busy} onClick={undo}>Отменить сборку</button>}
+              <button style={btn} disabled={busy} autoFocus
+                onClick={() => onDone(done.dashboard_id, intoId ? done.page_id : undefined)}>
+                Открыть дашборд
+              </button>
+            </>
+          )}
+        </div>
+      </Modal>
+    )
   }
 
   if (dup) {
@@ -573,9 +643,28 @@ export default function AutoBuildWizard(
             <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Куда собрать</div>
             <select style={input} aria-label="Куда собрать" value={target} onChange={(e) => setTarget(e.target.value)}>
               <option value="">Новый дашборд</option>
-              {dashboards.map((d) => <option key={d.id} value={d.id}>Пересобрать «{d.name}»</option>)}
+              {dashboards.length > 0 && (
+                <optgroup label="Добавить отдельной новой страницей в…">
+                  {dashboards.map((d) => <option key={`p${d.id}`} value={`page:${d.id}`}>«{d.name}»</option>)}
+                </optgroup>
+              )}
+              {dashboards.length > 0 && (
+                <optgroup label="Пересобрать (заменить наполнение)">
+                  {dashboards.map((d) => <option key={d.id} value={d.id}>Пересобрать «{d.name}»</option>)}
+                </optgroup>
+              )}
             </select>
-            {target ? (
+            {intoId ? (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Название страницы</div>
+                <input style={input} aria-label="Название новой страницы" value={pageName}
+                  onChange={(e) => setPageName(e.target.value)} placeholder={objectName} />
+                <div style={{ ...muted, fontSize: 12, marginTop: 5 }}>
+                  Всё отмеченное ляжет одной новой страницей — разделы идут друг под другом. Страницы,
+                  виджеты, права и направление дашборда не меняются.
+                </div>
+              </div>
+            ) : target ? (
               <div style={{ ...muted, fontSize: 12.5, marginTop: 6 }}>
                 Страницы и виджеты будут заменены. Права доступа, обсуждение и история версий останутся.
                 Название дашборда не меняется.
@@ -633,11 +722,16 @@ export default function AutoBuildWizard(
                 ))}
               </div>
             )}
-            Будет создано: <b>{plan.pages?.length || 0}</b> {pagePlural(plan.pages?.length || 0)}
-            {' · '}<b>{plan.widgets}</b> {plural(plan.widgets, 'виджет', 'виджета', 'виджетов')}
+            {intoId ? (
+              <>Будет создано: <b>{plan.widgets}</b> {plural(plan.widgets, 'виджет', 'виджета', 'виджетов')}
+                {' '}одной страницей «{pageName.trim() || objectName}»</>
+            ) : (
+              <>Будет создано: <b>{plan.pages?.length || 0}</b> {plural(plan.pages?.length || 0, 'страница', 'страницы', 'страниц')}
+                {' · '}<b>{plan.widgets}</b> {plural(plan.widgets, 'виджет', 'виджета', 'виджетов')}</>
+            )}
             {(plan.pages || []).length > 0 && (
               <div style={{ color: 'var(--text-muted)', marginTop: 3 }}>
-                {plan.pages.map((p) => `${p.name}: ${p.widgets}`).join(' · ')}
+                {intoId ? 'Разделы на странице: ' : ''}{plan.pages.map((p) => `${p.name}: ${p.widgets}`).join(' · ')}
               </div>
             )}
             {plan.widgets > 0 && (
@@ -651,7 +745,7 @@ export default function AutoBuildWizard(
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
             <button style={btnGhost} onClick={onClose}>Отмена</button>
             <button style={btn} disabled={busy || plan.widgets === 0} onClick={() => build()}>
-              {busy ? 'Собираем…' : target ? 'Пересобрать' : 'Собрать'}
+              {busy ? 'Собираем…' : rebuildId ? 'Пересобрать' : intoId ? 'Добавить страницу' : 'Собрать'}
             </button>
           </div>
         </>
@@ -660,15 +754,6 @@ export default function AutoBuildWizard(
   )
 }
 
-function pagePlural(n: number): string {
-  const t = n % 100
-  if (t >= 11 && t <= 14) return 'страниц'
-  switch (n % 10) {
-    case 1: return 'страница'
-    case 2: case 3: case 4: return 'страницы'
-    default: return 'страниц'
-  }
-}
 
 const block: React.CSSProperties = {
   border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px',

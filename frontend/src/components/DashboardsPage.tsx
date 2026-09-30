@@ -1445,7 +1445,8 @@ export default function DashboardsPage({
           dashboards={dashboards}
           onClose={() => setWizardObj(null)}
           onError={(m) => setError(m)}
-          onDone={async (id) => { setWizardObj(null); setAutoObj(''); await refresh(); openDashboard(id) }}
+          onDone={async (id, pageId) => { setWizardObj(null); setAutoObj(''); await refresh(); openDashboard(id, pageId) }}
+          onUndone={() => { setWizardObj(null); refresh() }}
         />
       )}
       {folderTarget && (
