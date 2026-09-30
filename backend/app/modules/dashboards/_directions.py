@@ -20,6 +20,8 @@ from __future__ import annotations
 import re
 from typing import Dict, List, Optional
 
+import asyncpg
+
 from ._base import DashboardError
 from ._rls import _user_ctx, visible_dashboard_ids
 
@@ -86,10 +88,17 @@ async def create_direction(conn, org_id, user_id, name: str,
     pos = await conn.fetchval(
         "select coalesce(max(position), -1) + 1 from dashboard_directions where organization_id=$1",
         org_id)
-    row = await conn.fetchrow(
-        "insert into dashboard_directions(organization_id, name, description, position, created_by) "
-        "values($1,$2,$3,$4,$5) returning id, name, description, position",
-        org_id, name, (description or "").strip() or None, pos, user_id)
+    try:
+        row = await conn.fetchrow(
+            "insert into dashboard_directions(organization_id, name, description, position, created_by) "
+            "values($1,$2,$3,$4,$5) returning id, name, description, position",
+            org_id, name, (description or "").strip() or None, pos, user_id)
+    except asyncpg.UniqueViolationError:
+        # 🔴 Проверка выше и вставка — два шага: два одновременных запроса с одним
+        # именем оба проходят проверку, и второй упирается в уникальный индекс.
+        # Без этого — 500 вместо понятного отказа (и при «новом направлении» в
+        # массовом назначении и в раскладке — они заводят его этой же функцией).
+        raise DashboardError(f"Направление «{name}» уже есть") from None
     return {**dict(row), "dashboards": 0}
 
 
@@ -108,9 +117,14 @@ async def update_direction(conn, org_id, direction_id: str, patch: dict) -> dict
         sets.append(f"description=${len(params)}")
     if not sets:
         raise DashboardError("Нечего изменять")
-    row = await conn.fetchrow(
-        f"update dashboard_directions set {', '.join(sets)}, updated_at=now() "
-        "where id=$1::uuid and organization_id=$2 returning id, name, description, position", *params)
+    try:
+        row = await conn.fetchrow(
+            f"update dashboard_directions set {', '.join(sets)}, updated_at=now() "
+            "where id=$1::uuid and organization_id=$2 returning id, name, description, position", *params)
+    except asyncpg.UniqueViolationError:
+        # Та же гонка, что при создании: переименование в имя, которое заняли
+        # между проверкой и записью.
+        raise DashboardError(f"Направление «{patch.get('name')}» уже есть") from None
     return dict(row)
 
 

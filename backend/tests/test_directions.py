@@ -234,3 +234,30 @@ async def test_direction_changes_are_audited(client, admin_headers, ids):
             "order by created_at", did)]
         await conn.execute("delete from audit_log where entity_type='direction' and entity_id=$1::uuid", did)
     assert acts == ["create", "update", "delete"]
+
+
+async def test_name_race_is_a_clear_refusal(ids, monkeypatch):
+    """🔴 Два одновременных создания одного имени: второе — понятный отказ, не 500.
+
+    Проверка имени и вставка — два шага, и оба запроса проходят проверку раньше,
+    чем кто-то вставит. Окно воспроизводится детерминированно: проверка «не
+    видит» соперника, решает уникальный индекс.
+    """
+    from app.modules.dashboards import _directions as dirs
+    from app.modules.dashboards._base import DashboardError
+
+    try:
+        async with db.acquire() as conn:
+            first = await dirs.create_direction(conn, ids["org"], ids["admin"], "ztest_Гонка")
+
+            async def blind(*_a, **_k):
+                return None
+            monkeypatch.setattr(dirs, "_by_name", blind)
+            with pytest.raises(DashboardError, match="уже есть"):
+                await dirs.create_direction(conn, ids["org"], ids["admin"], "ZTEST_гонка")
+            other = await dirs.create_direction(conn, ids["org"], ids["admin"], "ztest_Другое")
+            with pytest.raises(DashboardError, match="уже есть"):
+                await dirs.update_direction(conn, ids["org"], other["id"], {"name": "ztest_гонка"})
+            assert first["name"] == "ztest_Гонка"
+    finally:
+        await _cleanup([])
