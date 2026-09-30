@@ -858,14 +858,18 @@ async def delete_dashboard(conn, org_id, user: dict, dashboard_id: str) -> None:
         raise DashboardError(
             f"Дашборд входит в витрины ({names}) — удаление отменено. Сначала уберите его оттуда.")
 
+    await purge_dashboard_rows(conn, dashboard_id)
+
+
+async def purge_dashboard_rows(conn, dashboard_id: str) -> None:
+    """Удалить дашборд со всем, что к нему привязано без внешних ключей.
+
+    Проверок прав и состояния здесь нет — их делает вызывающий: полное
+    удаление (`delete_dashboard`, только суперадминистратор) или отмена только
+    что собранного мастером (`undo_auto_build`, только своё и только что).
+    Строки прав (`securable_objects`) убирает триггер удаления (миграция 058).
+    """
     async with conn.transaction():
-        # securable_objects связан с дашбордом и виджетами ЛОГИЧЕСКИМ ключом
-        # (FK нет) — каскад его не заберёт, чистим сами; привязанные object_acl
-        # уйдут каскадом от securable_objects.
-        await conn.execute(
-            "delete from securable_objects where (object_type='dashboard' and object_id=$1::uuid) "
-            "or (object_type='widget' and object_id in (select id from widgets where dashboard_id=$1::uuid))",
-            dashboard_id)
         # Уведомления по дашборду тоже без FK — адресаты уйдут каскадом от события.
         await conn.execute(
             "delete from notification_events where entity_type='dashboard' and entity_id=$1::uuid",

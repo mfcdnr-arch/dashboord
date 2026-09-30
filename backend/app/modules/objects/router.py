@@ -485,11 +485,6 @@ async def delete_folder(object_id: str, folder_id: str, user: dict = Depends(man
                 conn, user["organization_id"], user["id"], "delete", "folder", folder_id,
                 old_data={"name": folder["name"]},
             )
-            # Папка — securable: снимаем её запись контура доступа, иначе
-            # останется висячая строка (FK там логический), а привязанные к ней
-            # object_acl уйдут каскадом сами.
-            await conn.execute(
-                "delete from securable_objects where object_type='folder' and object_id=$1::uuid",
-                folder_id,
-            )
+            # Строку прав папки (securable_objects) убирает триггер удаления
+            # (миграция 058), привязанные к ней object_acl уходят каскадом.
             await conn.execute("delete from folders where id=$1::uuid", folder_id)
