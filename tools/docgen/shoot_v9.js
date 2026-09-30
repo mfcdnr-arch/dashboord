@@ -3,9 +3,13 @@
 //   node shoot_v9.js            → shots/v9_*.png
 //
 // Настоящие дашборды заказчика НЕ трогаются: заводятся два временных дашборда
-// zdoc_* и временное направление, по ним и снимается группировка; предложение
+// и временное направление, по ним и снимается группировка; предложение
 // раскладки снимается без применения (оно показывает настоящие группы стенда,
-// но ничего не меняет). Всё временное убирается в finally.
+// но ничего не меняет). Имена временных — правдоподобные (в руководстве не
+// должно быть служебных «zdoc_»), поэтому уборка идёт не по префиксу, а:
+// направление — по метке в описании, дашборды — по запомненным id, а на случай
+// сбоя до их получения — по точному имени И отсутствию страниц (у настоящих
+// дашбордов страницы есть всегда).
 const { chromium } = require('playwright')
 const { execSync } = require('child_process')
 const fs = require('fs')
@@ -14,18 +18,25 @@ const path = require('path')
 const BASE = process.env.DOCGEN_BASE || 'http://localhost:3080'
 const SHOTS = path.join(__dirname, 'shots')
 const VIEWPORT = { width: 1440, height: 900 }
-const DIR = 'zdoc Пример направления'
+const DIR = 'Окна и очереди'
+const MARK = 'zdoc-temp'  // метка в описании временного направления
+const DASHES = ['Нагрузка на окна по часам', 'Очередь и время ожидания']
+let created = []
 
 const psql = (sql) => execSync(
   'docker exec -i dashbord_postgres psql -U dashbord -d dashbord -tA -v ON_ERROR_STOP=1',
   { input: sql, encoding: 'utf8' })
 
 const cleanup = () => {
+  const names = DASHES.map((n) => `'${n}'`).join(',')
+  const ids = created.map((i) => `'${i}'`).join(',') || "'00000000-0000-0000-0000-000000000000'"
+  const pick = `select id from dashboards d where d.id in (${ids}) or (d.name in (${names}) `
+    + 'and not exists (select 1 from dashboard_pages p where p.dashboard_id = d.id))'
   for (const sql of [
-    "delete from securable_objects where object_id in (select id from dashboards where name like 'zdoc_%')",
-    "delete from dashboard_favorites where dashboard_id in (select id from dashboards where name like 'zdoc_%')",
-    "delete from dashboards where name like 'zdoc_%'",
-    "delete from dashboard_directions where name like 'zdoc%'",
+    `delete from securable_objects where object_id in (${pick})`,
+    `delete from dashboard_favorites where dashboard_id in (${pick})`,
+    `delete from dashboards where id in (${pick})`,
+    `delete from dashboard_directions where description = '${MARK}'`,
   ]) { try { psql(sql) } catch (e) { console.log('cleanup:', String(e).slice(0, 120)) } }
 }
 
@@ -63,18 +74,21 @@ const nav = async (page, section, wait = 2600) => {
     await uiLogin(page, 'admin', 'admin')
 
     // Временные дашборды и направление — тем же API, что и экран.
-    await page.evaluate(async (dirName) => {
+    created = await page.evaluate(async ({ dirName, mark, names }) => {
       const tok = sessionStorage.getItem('dashbord_token') || localStorage.getItem('dashbord_token')
       const H = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }
+      const dir = await (await fetch('/dashboard-directions', {
+        method: 'POST', headers: H, body: JSON.stringify({ name: dirName, description: mark }),
+      })).json()
       const ids = []
-      for (const n of ['zdoc_Приём и выдача по отделениям', 'zdoc_Нагрузка на окна']) {
-        const r = await fetch('/dashboards', { method: 'POST', headers: H, body: JSON.stringify({ name: n, force: true }) })
+      for (const n of names) {
+        const r = await fetch('/dashboards', { method: 'POST', headers: H,
+          body: JSON.stringify({ name: n, force: true, direction_id: dir.id }) })
         ids.push((await r.json()).id)
       }
-      await fetch('/dashboard-directions/assign', {
-        method: 'POST', headers: H, body: JSON.stringify({ dashboard_ids: ids, new_name: dirName }),
-      })
-    }, DIR)
+      return ids
+    }, { dirName: DIR, mark: MARK, names: DASHES })
+    console.log('  временные дашборды:', created.length)
 
     // ── Список: группы по направлениям и фильтр ─────────────────────────────
     await nav(page, 'Дашборды', 3000)
@@ -100,7 +114,7 @@ const nav = async (page, section, wait = 2600) => {
     }
 
     // ── Массовое «В направление…» ──────────────────────────────────────────
-    await page.locator('input[aria-label="Выбрать «zdoc_Нагрузка на окна» для массового действия"]').click()
+    await page.locator(`input[aria-label="Выбрать «${DASHES[0]}» для массового действия"]`).click()
     await page.waitForTimeout(300)
     await page.getByRole('button', { name: '🧭 В направление…' }).click()
     await page.waitForTimeout(900)
