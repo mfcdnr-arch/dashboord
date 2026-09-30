@@ -463,13 +463,17 @@ export function DashboardHeader({
       <div style={stickyNav} data-export-hide>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', padding: '0 14px', borderTop: '1px solid var(--border-faint)' }}>
           {plainPages.map((p) => (
+            // Текущая страница видна глазу подчёркиванием, а диктору — только
+            // так: без признака все вкладки звучат одинаково.
             <button key={p.id} type="button" title={p.name}
+              aria-current={page?.id === p.id ? 'page' : undefined}
               style={{ ...tabLine, ...(page?.id === p.id ? tabLineOn : {}) }}
               onClick={() => onOpenPage(p)}>{p.name}</button>
           ))}
           {slicePages.length > 0 && (
             <div ref={sliceBox} style={{ position: 'relative' }}>
-              <button type="button"
+              <button type="button" aria-expanded={sliceOpen}
+                aria-current={sliceActive ? 'page' : undefined}
                 style={{ ...tabLine, ...(sliceActive ? tabLineOn : {}) }}
                 title="Страницы-срезы: снимок за конкретный отчёт, данные не обновляются"
                 onClick={(e) => {
@@ -491,6 +495,7 @@ export function DashboardHeader({
                   <div style={{ fontSize: 11, color: 'var(--text-faint)', padding: '2px 9px 5px' }}>снимок за отчёт, не обновляется</div>
                   {slicePages.map((p) => (
                     <button key={p.id} type="button"
+                      aria-current={page?.id === p.id ? 'page' : undefined}
                       style={{ ...menuItem, ...(page?.id === p.id ? { color: 'var(--accent-text)', fontWeight: 600 } : {}) }}
                       onClick={() => { onOpenPage(p); setSliceOpen(false) }}
                       title={p.name}>📌 {periodDate(p)}</button>
