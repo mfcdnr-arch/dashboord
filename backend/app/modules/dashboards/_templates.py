@@ -128,8 +128,8 @@ async def create_from_template(conn, org_id, user_id, template_id: str, name: st
         raise DashboardError("Шаблон не найден")
     if isinstance(spec, str):
         spec = json.loads(spec)
-    from . import service as svc  # ленивый импорт: избегаем цикла модулей
     from . import _directions  # локально: _directions тянет _rls
+    from . import service as svc  # ленивый импорт: избегаем цикла модулей
 
     dmap, mmap, fmap = dataset_map or {}, metric_map or {}, field_map or {}
     direction = (await _directions.inherit_from_source(conn, org_id, spec.get("source"))
