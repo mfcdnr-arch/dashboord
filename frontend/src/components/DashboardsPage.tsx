@@ -13,6 +13,7 @@ import {
 } from '../api'
 import { useContainerWidth } from '../lib/useWidth'
 import { flowItems } from '../lib/flowLayout'
+import { keepDirFilter } from '../lib/dashboardGroups'
 import { DENSITY, type Density, loadDensity, saveDensity } from '../lib/density'
 import { WidgetCard } from './dashboards/WidgetCard'
 import { WIDGET_META } from './dashboards/WidgetPicker'
@@ -332,7 +333,9 @@ export default function DashboardsPage({
   // Список направлений — отдельным запросом: число в заголовке группы должно
   // быть честным, а список дашбордов грузится страницами. Сбой не мешает
   // работе со списком — тогда группировка по объекту, как раньше.
-  const loadDirections = () => listDirections().then(setDirections).catch(() => setDirections(null))
+  const loadDirections = () => listDirections()
+    .then((d) => { setDirections(d); setDirFilter((f) => keepDirFilter(f, d)) })
+    .catch(() => setDirections(null))
   const refresh = () => { loadDirections(); return loadDashboards(query, favOnly) }
   // Полоса «недавних» — подсказка: её сбой не должен мешать работе со списком.
   const loadRecent = () => listRecentDashboards().then((r) => setRecent(r.items)).catch(() => {})

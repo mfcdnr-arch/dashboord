@@ -77,3 +77,24 @@ export function groupByDirection(
   }
   return out
 }
+
+/**
+ * Фильтр списка по направлению, который ещё можно показать; иначе — «все».
+ *
+ * 🔴 Фильтр живёт отдельно от списка направлений, и они расходятся: удалили
+ * направление, выбранное в фильтре, — список дашбордов пуст, а выпадающий
+ * список показывает «все направления» (выбранного значения среди вариантов
+ * нет); сняли направление у последних дашбордов при «без направления» —
+ * вариант исчез; удалили все направления — пропал сам выпадающий список, и
+ * пустой отфильтрованный список нечем сбросить. Проверяем при каждом
+ * перечитывании направлений.
+ */
+export function keepDirFilter(
+  filter: string,
+  directions: { items: { id: string }[]; without: number } | null,
+): string {
+  if (!filter) return filter
+  if (!directions || !directions.items.length) return ''
+  if (filter === 'none') return directions.without > 0 ? filter : ''
+  return directions.items.some((d) => d.id === filter) ? filter : ''
+}

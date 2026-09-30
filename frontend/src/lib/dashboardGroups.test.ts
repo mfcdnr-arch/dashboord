@@ -73,3 +73,24 @@ describe('groupByDirection', () => {
     expect(g[0].count).toBe(1)
   })
 })
+
+import { keepDirFilter } from './dashboardGroups'
+
+describe('keepDirFilter', () => {
+  const dirs = { items: [{ id: 'a' }, { id: 'b' }], without: 2 }
+  it('действующее направление и «все» остаются как есть', () => {
+    expect(keepDirFilter('a', dirs)).toBe('a')
+    expect(keepDirFilter('', dirs)).toBe('')
+    expect(keepDirFilter('none', dirs)).toBe('none')
+  })
+  it('удалённое направление сбрасывает фильтр — иначе пустой список под «все направления»', () => {
+    expect(keepDirFilter('gone', dirs)).toBe('')
+  })
+  it('«без направления», когда таких не осталось, сбрасывается — вариант исчез из списка', () => {
+    expect(keepDirFilter('none', { ...dirs, without: 0 })).toBe('')
+  })
+  it('нет ни одного направления — сбрасывается: выпадающего списка нет, сбросить нечем', () => {
+    expect(keepDirFilter('a', { items: [], without: 3 })).toBe('')
+    expect(keepDirFilter('none', null)).toBe('')
+  })
+})
