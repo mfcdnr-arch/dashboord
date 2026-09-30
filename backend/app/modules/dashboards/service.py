@@ -61,6 +61,7 @@ from ._suggest import (  # noqa: F401
     dashboard_metric_codes,
     fit_layout,
     place_metric_widget,
+    undo_auto_build,
 )
 from ._summary import page_summary  # noqa: F401
 from ._templates import (  # noqa: F401

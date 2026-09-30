@@ -81,6 +81,11 @@ class AutoIn(BaseModel):
     # обсуждение): существующее по id или новое по имени.
     direction_id: Optional[str] = None
     new_direction: Optional[str] = Field(default=None, max_length=120)
+    # Добавить отдельной НОВОЙ страницей в существующий дашборд (решение
+    # заказчика 23.09): его страницы не трогаются. Имя страницы — по умолчанию
+    # имя объекта.
+    into_dashboard_id: Optional[str] = None
+    page_name: Optional[str] = Field(default=None, max_length=200)
     # Только для предпросмотра: подбирать ли расчётные показатели. Мастер
     # просит их один раз при открытии — от галочек они не зависят, а подбор на
     # широкой форме — самая дорогая часть ответа (РЦО, 24.09: 1,25 с из 1,6).
@@ -193,9 +198,30 @@ async def auto_build(body: AutoIn, user: dict = Depends(manage)):
                     metrics=body.metrics, alerts=body.alerts,
                     document_id=body.document_id, lock_period=body.lock_period,
                     force=body.force, direction_id=body.direction_id,
-                    new_direction=body.new_direction)
+                    new_direction=body.new_direction,
+                    into_dashboard_id=body.into_dashboard_id, page_name=body.page_name)
         except service.DuplicateDashboardName as e:
             raise _duplicate(e)
+        except DashboardError as e:
+            raise _bad(e)
+
+
+class UndoIn(BaseModel):
+    dashboard_id: str
+    page_ids: List[str] = Field(default_factory=list, max_length=50)
+    # Созданный дашборд целиком (иначе — только добавленные страницы).
+    whole: bool = False
+
+
+@router.post("/dashboards/auto/undo")
+async def undo_auto_build(body: UndoIn, user: dict = Depends(manage)):
+    """«Создано N — отменить»: только своё, только что и только черновик."""
+    async with db.acquire(user["id"]) as conn:
+        try:
+            async with conn.transaction():
+                return await service.undo_auto_build(
+                    conn, user["organization_id"], user["id"], body.dashboard_id,
+                    body.page_ids, body.whole)
         except DashboardError as e:
             raise _bad(e)
 

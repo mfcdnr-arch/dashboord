@@ -1576,6 +1576,10 @@ async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict
              "type_label": WIDGET_TYPE_RU.get(c["widget_type"], c["widget_type"]),
              "recommended": c["recommended"], "reason": c["reason"], "build": c["build"],
              "cards": c.get("cards", 0), "explain": sections.get(str(i), {}),
+             # Конфигурация — для маленького предпросмотра настоящего виджета
+             # (решение заказчика 23.09): тот же /widgets/preview, что у
+             # конструктора, — показано ровно то, что будет создано.
+             "config": c["config"],
              # Готовый текст ⓘ — ровно тот, что покажет созданный виджет:
              # склейку частей не повторяем на клиенте, иначе она разойдётся.
              "explain_text": _clip(sections_text(sections.get(str(i), {})))}
@@ -1708,13 +1712,26 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
                      metrics: Optional[list] = None, alerts: bool = True,
                      document_id: Optional[str] = None, lock_period: bool = True,
                      force: bool = False, direction_id: Optional[str] = None,
-                     new_direction: Optional[str] = None) -> dict:
+                     new_direction: Optional[str] = None,
+                     into_dashboard_id: Optional[str] = None,
+                     page_name: Optional[str] = None) -> dict:
     """Создаёт (или пересобирает) дашборд по объекту.
 
     `dashboard_id` — пересобрать существующий: страницы и виджеты заменяются,
     сам дашборд с его правами, комментариями и историей остаётся. Без него
     создаётся новый. Раньше каждое нажатие плодило новый дашборд.
+
+    `into_dashboard_id` — добавить в существующий дашборд ОТДЕЛЬНОЙ НОВОЙ
+    страницей (решение заказчика 23.09): его страницы и виджеты не трогаются,
+    всё предложенное ложится на одну страницу `page_name` (по умолчанию — имя
+    объекта).
+
+    В ответе `undo` — что отменяет кнопка «Создано N — отменить»: созданный
+    дашборд целиком или добавленная страница. У пересборки его нет: прежнее
+    наполнение уже заменено, вернуть его нечем.
     """
+    if dashboard_id and into_dashboard_id:
+        raise DashboardError("Выберите одно: пересобрать дашборд или добавить в него страницу")
     obj = await conn.fetchrow(
         "select id, name from objects where id=$1::uuid and organization_id=$2", object_id, org_id)
     if obj is None:
@@ -1743,6 +1760,13 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
         # права доступа, обсуждение и история версий.
         await conn.execute("delete from widgets where dashboard_id=$1::uuid", did)
         await conn.execute("delete from dashboard_pages where dashboard_id=$1::uuid", did)
+    elif into_dashboard_id:
+        d = await conn.fetchrow(
+            "select id from dashboards where id=$1::uuid and organization_id=$2",
+            into_dashboard_id, org_id)
+        if d is None:
+            raise DashboardError("Дашборд не найден")
+        did = str(d["id"])
     else:
         from . import _directions  # локально: _directions тянет _rls
 
@@ -1777,7 +1801,32 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
             page_periods[title] = per
         elif page_periods[title] != per:
             page_periods[title] = None
-    for spec in specs:
+    below_all = 0
+    into_pid = ""
+    if into_dashboard_id:
+        # Одна новая страница: страницы плана встают на неё друг под другом, в
+        # своём порядке. «Поток» раскладывает по (y, x), а у каждой страницы
+        # плана отсчёт с нуля — без сдвига «Обзор» и «Динамика» перемешались бы.
+        periods = {spec.get("config", {}).get("period") for spec in specs}
+        title = await _free_page_name(conn, did, (page_name or "").strip() or obj["name"])
+        page = await svc.create_page(conn, org_id, user_id, did, title, None, AUTO_LAYOUT_MODE,
+                                     periods.pop() if len(periods) == 1 else None)
+        into_pid = first_pid = str(page["id"])
+        pages[title] = into_pid
+        order: list = []
+        for spec in specs:
+            t = spec.get("page") or PAGE_OVERVIEW
+            if t not in order:
+                order.append(t)
+        for t in order:
+            group = [s for s in specs if (s.get("page") or PAGE_OVERVIEW) == t]
+            for spec in group:
+                await svc.create_widget(
+                    conn, org_id, user_id, into_pid, spec["name"], spec["widget_type"], spec["config"],
+                    {"position_x": spec["position_x"], "position_y": spec["position_y"] + below_all,
+                     "width": spec["width"], "height": spec["height"]})
+            below_all += max(s["position_y"] + s["height"] for s in group)
+    for spec in (specs if not into_dashboard_id else []):
         title = spec.get("page") or PAGE_OVERVIEW
         if title not in pages:
             # Дата среза — на самой странице, а не только в имени: имя человек
@@ -1796,7 +1845,10 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
     # на «Обзор» — раньше принятие предложения создавало только черновик, а
     # виджет по нему человек добавлял руками и часто про это забывал.
     made_metrics = 0
-    if metrics:
+    if metrics and into_dashboard_id:
+        made_metrics = await _create_metric_widgets(
+            conn, org_id, user_id, object_id, metrics, into_pid, below_all, alerts)
+    elif metrics:
         if PAGE_OVERVIEW not in pages:
             page = await svc.create_page(conn, org_id, user_id, did, PAGE_OVERVIEW, None, AUTO_LAYOUT_MODE)
             pages[PAGE_OVERVIEW] = str(page["id"])
@@ -1811,8 +1863,86 @@ async def auto_build(conn, org_id, user_id, object_id: str, name=None,
 
     await _remember_selection(conn, object_id, _prune_marks(selection, plan["candidates"]),
                               metrics, alerts)
+    if dashboard_id:
+        undo = None
+    elif into_dashboard_id:
+        undo = {"dashboard_id": did, "page_ids": [into_pid], "whole": False}
+    else:
+        undo = {"dashboard_id": did, "page_ids": list(pages.values()), "whole": True}
     return {"dashboard_id": did, "page_id": first_pid, "pages": len(pages),
-            "widgets": len(specs) + made_metrics, "metrics": made_metrics}
+            "page_names": list(pages), "widgets": len(specs) + made_metrics,
+            "metrics": made_metrics, "undo": undo}
+
+
+async def _free_page_name(conn, dashboard_id: str, base: str) -> str:
+    """Имя новой страницы, не занятое в дашборде: «Окна и часы», «… (2)»."""
+    names = {r["name"] for r in await conn.fetch(
+        "select name from dashboard_pages where dashboard_id=$1::uuid", dashboard_id)}
+    if base not in names:
+        return base
+    n = 2
+    while f"{base} ({n})" in names:
+        n += 1
+    return f"{base} ({n})"
+
+
+# Сколько живёт кнопка «Создано N — отменить». Дальше удаление — обычным
+# порядком: дашборд удаляет только суперадминистратор (решение 11.08).
+UNDO_MINUTES = 30
+
+
+async def undo_auto_build(conn, org_id, user_id, dashboard_id: str,
+                          page_ids: Optional[List[str]] = None, whole: bool = False) -> dict:
+    """Отменить только что сделанную сборку: «Создано N — отменить».
+
+    🔴 Это НЕ общее право удаления — удаляет дашборды только суперадминистратор
+    (решение заказчика 11.08). Отмена — узкое исключение ради его же решения
+    23.09 и держится четырьмя условиями: собрал сам, не позже UNDO_MINUTES,
+    дашборд ещё черновик (опубликованный или отправленный на проверку кто-то
+    уже видит), и отменяется ровно то, что сборка создала — новый дашборд
+    целиком или добавленную страницу, но не чужие страницы рядом с ней.
+    """
+    from . import service as svc  # ленивый импорт: избегаем цикла модулей
+
+    d = await conn.fetchrow(
+        "select id, name, created_by, publication_status, "
+        f"created_at > now() - interval '{UNDO_MINUTES} minutes' as fresh "
+        "from dashboards where id=$1::uuid and organization_id=$2", dashboard_id, org_id)
+    if d is None:
+        raise DashboardError("Дашборд не найден")
+    late = (f"Отменить сборку можно в течение {UNDO_MINUTES} минут — сейчас уже поздно. "
+            "Лишние виджеты и страницы можно убрать вручную.")
+    if d["publication_status"] != "draft":
+        raise DashboardError("Дашборд уже отправлен на проверку или опубликован — "
+                             "отменить сборку нельзя: его, возможно, уже видят.")
+    if whole:
+        if str(d["created_by"]) != str(user_id):
+            raise DashboardError("Отменить сборку может только тот, кто её сделал")
+        if not d["fresh"]:
+            raise DashboardError(late)
+        shows = await conn.fetchval(
+            "select count(*) from showcase_items where dashboard_id=$1::uuid", dashboard_id)
+        if shows:
+            raise DashboardError("Дашборд уже включён в витрину — отменить сборку нельзя")
+        await svc.purge_dashboard_rows(conn, dashboard_id)
+        return {"undone": "dashboard", "name": d["name"]}
+
+    ids = list(dict.fromkeys(str(i) for i in (page_ids or []) if i))
+    if not ids:
+        raise DashboardError("Нечего отменять")
+    rows = await conn.fetch(
+        "select id, created_by, "
+        f"created_at > now() - interval '{UNDO_MINUTES} minutes' as fresh "
+        "from dashboard_pages where dashboard_id=$1::uuid and id = any($2::uuid[])",
+        dashboard_id, ids)
+    if len(rows) != len(ids):
+        raise DashboardError("Страница не найдена")
+    if any(str(r["created_by"]) != str(user_id) for r in rows):
+        raise DashboardError("Отменить сборку может только тот, кто её сделал")
+    if not all(r["fresh"] for r in rows):
+        raise DashboardError(late)
+    await conn.execute("delete from dashboard_pages where id = any($1::uuid[])", ids)
+    return {"undone": "pages", "pages": len(ids)}
 
 
 async def place_metric_widget(conn, org_id, user_id, *, page_id: str, metric_code: str,
