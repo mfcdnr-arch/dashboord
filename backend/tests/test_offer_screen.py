@@ -185,8 +185,7 @@ async def test_journal_offers_only_the_file_that_brought_a_new_form(client, admi
     async with db.acquire() as conn:
         # Хвосты прошлого прогона, упавшего на заготовке: иначе объект с тем же
         # именем не заведётся, и тест упадёт не по существу.
-        await conn.execute("delete from dataset_releases where code='ztest_offer_ds'")
-        await conn.execute("delete from objects where name='ztest_offer_obj'")
+        await _purge_offer_journal(conn)
         oid = await conn.fetchval(
             "insert into objects(organization_id,name) values($1,'ztest_offer_obj') returning id", ids["org"])
         fid = await conn.fetchval(
@@ -228,5 +227,18 @@ async def test_journal_offers_only_the_file_that_brought_a_new_form(client, admi
         if did:
             await purge_dashboard(did)
         async with db.acquire() as conn:
-            await conn.execute("delete from dataset_releases where code='ztest_offer_ds'")
-            await conn.execute("delete from objects where id=$1", oid)
+            await _purge_offer_journal(conn)
+
+
+async def _purge_offer_journal(conn):
+    """Убрать заготовку теста журнала целиком.
+
+    🔴 Удалить объект мало: у папки внешний ключ на объект — SET NULL, и папка
+    с документами оставалась висеть в «📥 Загрузке» (найдено на стенде: шесть
+    файлов ztest_offer_*.xlsx после трёх прогонов). Порядок — от выпусков к
+    объекту: выпуск держит версию документа (NO ACTION).
+    """
+    await conn.execute("delete from dataset_releases where code='ztest_offer_ds'")
+    await conn.execute("delete from documents where original_filename like 'ztest\\_offer\\_%'")
+    await conn.execute("delete from folders where name='ztest_offer_folder'")
+    await conn.execute("delete from objects where name='ztest_offer_obj'")
