@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import WidgetComments from './dashboards/WidgetComments'
 import type { EChartsOption } from 'echarts'
@@ -14,6 +14,7 @@ import { useVirtualCols, VCOL_W, VCOL_FIRST_W, VIRT_FROM_COLS } from '../lib/use
 import { exportWidgetXlsx } from '../api'
 import PassportDialog from './dashboards/PassportDialog'
 import { fmtNumber as fmt, heatSteps, logScaleAdvice, sparkSeries } from '../lib/format'
+import { fitChartHeight } from '../lib/fitHeight'
 import { distinctLabels, dropCommonWords, elideMiddle, fitRotatedAxis, plural, textWidth } from '../lib/text'
 import { Modal, ModalTitle } from './Modal'
 
@@ -43,87 +44,58 @@ function sameDay(a?: string, b?: string): boolean {
 // прокрутку и показала только нижнюю часть оси — линия графика уехала из виду.
 // Числа важнее картинки, поэтому ужимается график, а не подписи.
 function useFitHeight(base: number) {
-  const box = useRef<HTMLDivElement>(null)
+  // Колбэк-ref, а не useRef: эффект обязан переподключиться, когда блок
+  // графика ПОЯВИЛСЯ. С зависимостью только от `base` эффект отрабатывал один
+  // раз при монтировании тела виджета, и если графика в тот момент не было
+  // (тело сперва рисует другой ответ), наблюдение не подключалось никогда —
+  // график оставался базовой высоты с прокруткой в карточке.
+  const [node, setNode] = useState<HTMLDivElement | null>(null)
+  const box = useCallback((n: HTMLDivElement | null) => setNode(n), [])
   const labels = useRef<HTMLDivElement>(null)
   const [h, setH] = useState(base)
-  // Потолок, при котором содержимое ТОЧНО помещалось: запоминаем его в момент
-  // каждого ужатия. Без него возврат высоты качается — вырос, переполнил,
-  // ужался, снова вырос (замер это и поймал: у соседних графиков «Динамики»
-  // высота гуляла 161/196 от прогона к прогону, а в карточке появлялась
-  // прокрутка на 12px). С потолком сходимость гарантирована: расти можно
-  // только до заведомо помещавшегося.
-  //
-  // 🔴 Начальное значение — БЕСКОНЕЧНОСТЬ, а не `base`. Потолок означает
-  // «высота, при которой содержимое точно помещалось», и пока переполнения не
-  // видели, такого знания нет вовсе. Прежнее `base` выдавало догадку за факт:
-  // график не мог вырасти выше базовых 196px, даже когда карточка давала
-  // больше места, и под «Сравнением» оставалось ~90px пустоты. Пустое место
-  // внизу — это не запас прочности, это невыполненная работа: карточку
-  // растянули руками именно затем, чтобы увидеть график крупнее.
-  const cap = useRef(Number.POSITIVE_INFINITY)
-  const room = useRef(0)
+  // Высота, с которой график сейчас НАРИСОВАН. Меряем её, а не ищем элемент
+  // графика в DOM: он грузится лениво, и пока идёт загрузка, на его месте
+  // заглушка той же высоты — по высоте они неотличимы, по разметке нет.
+  const drawn = useRef(base)
+  drawn.current = h
 
   useLayoutEffect(() => {
-    const el = box.current
+    const el = node
     if (!el) return
     // Ограничивает высоту не прямой родитель, а карточка виджета выше по дереву;
     // между ними лежат и другие блоки («подробнее», «данные на»), которые тоже
-    // занимают место. Поэтому меряем не «сколько осталось», а фактическое
-    // переполнение карточки и ужимаем график ровно на него.
+    // занимают место. Поэтому считаем всё содержимое области прокрутки.
     let scroller: HTMLElement | null = el.parentElement
     while (scroller && getComputedStyle(scroller).overflowY === 'visible') scroller = scroller.parentElement
     if (!scroller || !scroller.clientHeight) return // предпросмотр в форме: высота не ограничена
 
     const calc = () => {
       const s = scroller as HTMLElement
-      // Карточка ВЫРОСЛА — прежний потолок больше ни о чём не говорит: места
-      // стало больше, и содержимое может поместиться выше прежнего.
-      //
-      // 🔴 Сбрасывать потолок на ЛЮБОЕ изменение размера нельзя — замер поймал
-      // качание: график рос, переполнял карточку, ужимался (потолок 161), от
-      // собственного ужатия менялась высота области прокрутки, потолок
-      // сбрасывался — и всё начиналось заново; высота гуляла 191/161 без
-      // остановки. Уменьшение места потолок не отменяет: ниже он от этого стать
-      // может, выше — нет, а переполнение его и опустит.
-      if (s.clientHeight > room.current) cap.current = Number.POSITIVE_INFINITY
-      room.current = s.clientHeight
-      const over = s.scrollHeight - s.clientHeight
-      if (over > 0) {
-        setH((cur) => {
-          const next = Math.max(MIN_CHART_H, cur - over)
-          cap.current = next
-          return next
-        })
-        return
-      }
-      // 🔴 Свободное место `scrollHeight` показать НЕ может: он никогда не
-      // меньше clientHeight, поэтому прежнее «cur + (clientHeight -
-      // scrollHeight)» всегда прибавляло ноль — ужавшись однажды, график не
-      // возвращался никогда, даже когда место освобождалось. Замер на дашборде
-      // «РЦО: окна и часы»: содержимое 174px в контейнере 346px, а график стоял
-      // на минимуме 118px вместо своих 196. Считаем свободное место по нижнему
-      // краю самого содержимого.
+      const first = s.firstElementChild as HTMLElement | null
       const last = s.lastElementChild as HTMLElement | null
-      if (!last) return
+      if (!first || !last || !s.clientHeight) return
       const cs = getComputedStyle(s)
-      const free = s.getBoundingClientRect().bottom
-        - parseFloat(cs.paddingBottom || '0') - parseFloat(cs.borderBottomWidth || '0')
-        - last.getBoundingClientRect().bottom
-      // Порог и запас в 2px — чтобы график не «дышал» туда-обратно на пиксель.
-      if (free < 8) return
-      setH((cur) => (cur < cap.current ? Math.min(cap.current, cur + free - 2) : cur))
+      const padTop = parseFloat(cs.paddingTop || '0')
+      const room = s.clientHeight - padTop - parseFloat(cs.paddingBottom || '0')
+      // Начало содержимого — по самой области, а не по первому блоку: у того
+      // может быть отступ сверху, и он тоже занимает место. Прокрутку вычитаем,
+      // иначе прокрученная карточка «теряла» бы верх содержимого.
+      const top = s.getBoundingClientRect().top + parseFloat(cs.borderTopWidth || '0') + padTop - s.scrollTop
+      const content = last.getBoundingClientRect().bottom - top
+      const next = fitChartHeight({ room, content, chart: drawn.current, cur: drawn.current, min: MIN_CHART_H })
+      if (next !== null) setH(next)
     }
     calc()
-    // Наблюдаем и сам блок графика: он меняет высоту вслед за расчётом, и без
-    // этого пересчёт после роста не запускался вовсе — график вырастал один раз
-    // «вслепую», ещё до того как отрисуется его содержимое, и мог переполнить
-    // карточку. Зацикливания нет: рост ограничен потолком `cap`.
+    // Наблюдаем область, сам блок графика, подписи под ним и каждый блок
+    // области: подписи и кнопки под графиком появляются позже графика, и без
+    // наблюдения за ними пересчёт после их появления не запускался.
     const ro = new ResizeObserver(calc)
     ro.observe(scroller)
     ro.observe(el)
+    for (const c of Array.from(scroller.children)) ro.observe(c)
     if (labels.current) ro.observe(labels.current)
     return () => ro.disconnect()
-  }, [base])
+  }, [base, node])
 
   return { box, labels, h }
 }
