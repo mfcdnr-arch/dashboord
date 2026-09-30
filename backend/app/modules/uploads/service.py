@@ -174,13 +174,24 @@ async def journal(conn, org_id, limit: int = JOURNAL_LIMIT, period: Optional[dat
         "  (select ej.template_match from extraction_jobs ej join document_versions v2 on v2.id=ej.document_version_id "
         "   where v2.document_id=d.id order by ej.created_at desc limit 1) as template_match, "
         "  exists(select 1 from dataset_releases r join document_versions v3 on v3.id=r.source_document_version_id "
-        "         where v3.document_id=d.id and r.status<>'superseded') as released "
+        "         where v3.document_id=d.id and r.status<>'superseded') as released, "
+        # Файл ПРИНЁС форму: с него начался ряд выпусков хотя бы одного кода.
+        # Решение заказчика 23.09: предлагать виджеты новой форме, а не каждому
+        # недельному файлу той же формы.
+        "  exists(select 1 from dataset_releases r join document_versions v4 on v4.id=r.source_document_version_id "
+        "         where v4.document_id=d.id and not exists (select 1 from dataset_releases r0 "
+        "           where r0.organization_id=r.organization_id and r0.code=r.code "
+        "             and r0.created_at < r.created_at)) as first_of_form "
         "from documents d "
         "left join folders f on f.id=d.folder_id "
         "left join objects o on o.id=f.object_id "
         "left join users u on u.id=d.uploaded_by "
         "where d.organization_id=$1 and ($3::date is null or d.reporting_period_start = $3) "
         "order by d.created_at desc limit $2", org_id, limit, period)
+    from ..objects.build_offer import objects_with_dashboards
+
+    covered = await objects_with_dashboards(
+        conn, org_id, [r["object_id"] for r in rows if r["first_of_form"] and r["released"]])
     out = []
     for r in rows:
         out.append({
@@ -198,6 +209,11 @@ async def journal(conn, org_id, limit: int = JOURNAL_LIMIT, period: Optional[dat
             "routed_note": r["routed_note"],
             "state": _state(r),
             "released": r["released"],
+            # «Это новая форма, дашбордов по ней нет — предложить виджеты?»
+            # Только у файла, с которого форма началась, и только пока её не
+            # смотрит ни один дашборд; дальше — кнопкой «✨ Собрать».
+            "offer": bool(r["released"] and r["first_of_form"] and r["object_id"]
+                          and str(r["object_id"]) not in covered),
         })
     return out
 

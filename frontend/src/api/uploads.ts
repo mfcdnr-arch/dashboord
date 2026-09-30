@@ -30,6 +30,8 @@ export interface JournalItem {
   routed_note: string | null
   state: string
   released: boolean
+  /** Файл принёс НОВУЮ форму, и дашборда по ней нет — предложить виджеты. */
+  offer?: boolean
 }
 
 export async function uploadToInbox(file: File, period?: string, force = false): Promise<UploadResult> {

@@ -167,7 +167,6 @@ export interface BuildSuggestion {
   first_period?: string | null
   last_period?: string | null
   dataset_codes?: string[]
-  dashboards?: number
 }
 
 export async function getBuildSuggestion(objectId: string): Promise<BuildSuggestion> {

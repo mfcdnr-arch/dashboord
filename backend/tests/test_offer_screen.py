@@ -5,6 +5,8 @@
 узкое исключение из правила «удаляет только суперадминистратор» (11.08): своё,
 только что, только черновик и ровно то, что сборка создала.
 """
+from datetime import date
+
 import pytest
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
@@ -174,3 +176,57 @@ async def test_candidate_config_drives_a_real_preview(client, admin_headers, see
         assert isinstance(r.json(), dict) and "error" not in r.json(), "предпросмотр посчитан без ошибки"
     finally:
         await _cleanup_fields(rel)
+
+
+async def test_journal_offers_only_the_file_that_brought_a_new_form(client, admin_headers, ids):
+    """«Это новая форма, дашбордов по ней нет» — только у файла, с которого форма
+    началась; второй недельный файл той же формы предложения не несёт, а
+    появившийся дашборд снимает его и у первого (решение заказчика 23.09)."""
+    async with db.acquire() as conn:
+        # Хвосты прошлого прогона, упавшего на заготовке: иначе объект с тем же
+        # именем не заведётся, и тест упадёт не по существу.
+        await conn.execute("delete from dataset_releases where code='ztest_offer_ds'")
+        await conn.execute("delete from objects where name='ztest_offer_obj'")
+        oid = await conn.fetchval(
+            "insert into objects(organization_id,name) values($1,'ztest_offer_obj') returning id", ids["org"])
+        fid = await conn.fetchval(
+            "insert into folders(organization_id,object_id,name) values($1,$2,'ztest_offer_folder') returning id",
+            ids["org"], oid)
+        docs = []
+        for n, (period, made) in enumerate([(date(2026, 4, 6), "now() - interval '2 hours'"),
+                                            (date(2026, 4, 13), "now() - interval '1 hour'")]):
+            doc = await conn.fetchval(
+                "insert into documents(organization_id, folder_id, original_filename, source_type, "
+                "reporting_period_start, uploaded_by) values($1,$2,$3,'xlsx',$4::date,$5) returning id",
+                ids["org"], fid, f"ztest_offer_{n}.xlsx", period, ids["admin"])
+            ver = await conn.fetchval(
+                "insert into document_versions(document_id, version_no, storage_path, checksum, "
+                "file_size_bytes, uploaded_by) values($1,1,$2,$3,10,$4) returning id",
+                doc, f"documents/ztest_offer_{n}", f"ztest_offer_sum{n}", ids["admin"])
+            await conn.execute(
+                "insert into dataset_releases(organization_id, code, name, status, reporting_period_start, "
+                f"created_by, object_id, source_document_version_id, created_at) "
+                f"values($1,'ztest_offer_ds','Форма','released',$2::date,$3,$4,$5,{made})",
+                ids["org"], period, ids["admin"], oid, ver)
+            docs.append(str(doc))
+    did = None
+    try:
+        def offers(items):
+            return {i["id"]: i["offer"] for i in items if i["id"] in docs}
+
+        items = (await client.get("/uploads?limit=200", headers=admin_headers)).json()["items"]
+        assert offers(items) == {docs[0]: True, docs[1]: False}, \
+            "предложение — у файла, принёсшего форму; недельный повтор его не несёт"
+
+        did = (await client.post("/dashboards", headers=admin_headers,
+                                 json={"name": "ztest_offer_by_form", "force": True})).json()["id"]
+        async with db.acquire() as conn:
+            await conn.execute("update dashboards set folder_id=$2 where id=$1::uuid", did, fid)
+        items = (await client.get("/uploads?limit=200", headers=admin_headers)).json()["items"]
+        assert offers(items) == {docs[0]: False, docs[1]: False}, "дашборд по форме есть — не предлагаем"
+    finally:
+        if did:
+            await purge_dashboard(did)
+        async with db.acquire() as conn:
+            await conn.execute("delete from dataset_releases where code='ztest_offer_ds'")
+            await conn.execute("delete from objects where id=$1", oid)

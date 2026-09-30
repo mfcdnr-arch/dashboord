@@ -17,6 +17,7 @@ from ..ingestion import review as review_svc
 from . import analytics
 from . import calendar as calendar_svc
 from . import levels as levels_svc
+from .build_offer import objects_with_dashboards
 
 router = APIRouter(prefix="/objects", tags=["objects"])
 
@@ -217,29 +218,21 @@ async def build_suggestion(object_id: str, user: dict = Depends(manage)):
             "array_agg(distinct code) as codes "
             "from dataset_releases where object_id=$1::uuid and status <> 'superseded'", object_id)
         releases = int(rel["releases"] or 0)
-        codes = [c for c in (rel["codes"] or []) if c]
         if not releases:
             return {"suggest": False, "reason": "no_data", "releases": 0, "periods": 0}
 
-        in_folder = await conn.fetchval(
-            "select count(*) from dashboards d join folders f on f.id = d.folder_id "
-            "where f.object_id=$1::uuid and d.publication_status <> 'archived'", object_id)
-        by_widget = await conn.fetchval(
-            "select count(distinct w.dashboard_id) from widgets w "
-            "where w.organization_id=$1 and w.config->>'dataset_code' = any($2::text[])",
-            org_id, codes) if codes else 0
-        existing = int(in_folder or 0) + int(by_widget or 0)
+        # Правило общее с журналом «📥 Загрузки» (build_offer).
+        existing = str(object_id) in await objects_with_dashboards(conn, org_id, [object_id])
 
         return {
-            "suggest": existing == 0,
+            "suggest": not existing,
             "reason": "has_dashboard" if existing else "ready",
             "object_name": obj["name"],
             "releases": releases,
             "periods": int(rel["periods"] or 0),
             "first_period": rel["first_period"].isoformat() if rel["first_period"] else None,
             "last_period": rel["last_period"].isoformat() if rel["last_period"] else None,
-            "dataset_codes": codes,
-            "dashboards": existing,
+            "dataset_codes": [c for c in (rel["codes"] or []) if c],
         }
 
 
