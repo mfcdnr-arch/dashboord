@@ -575,11 +575,34 @@ async def dashboard_freshness(dashboard_id: str, user: dict = Depends(get_curren
 
 @router.get("/dashboards/{dashboard_id}/missing-fields")
 async def dashboard_missing_fields(dashboard_id: str, user: dict = Depends(manage)):
-    """Показатели, которые есть в данных, но не показаны на этом дашборде."""
+    """Графы, появившиеся в формах с тех пор, как дашборд собран, и не показанные на нём."""
     async with db.get_pool().acquire() as conn:
         if not await service._can_view(conn, user["organization_id"], user, dashboard_id):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Дашборд не найден")
         return await service.missing_dashboard_fields(conn, user["organization_id"], dashboard_id)
+
+
+class ReviewedField(BaseModel):
+    dataset_code: str = Field(min_length=1, max_length=200)
+    code: str = Field(min_length=1, max_length=300)
+
+
+class MissingReviewIn(BaseModel):
+    fields: List[ReviewedField] = Field(min_length=1, max_length=2000)
+
+
+@router.post("/dashboards/{dashboard_id}/missing-fields/review")
+async def review_dashboard_missing_fields(dashboard_id: str, body: MissingReviewIn,
+                                          user: dict = Depends(manage)):
+    """«Больше не предлагать»: графы просмотрены и на этот дашборд не нужны."""
+    async with db.acquire(user["id"]) as conn:
+        if not await service._can_view(conn, user["organization_id"], user, dashboard_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Дашборд не найден")
+        try:
+            return await service.review_missing_fields(
+                conn, user["organization_id"], dashboard_id, [f.model_dump() for f in body.fields])
+        except DashboardError as e:
+            raise _bad(e)
 
 
 @router.get("/dashboards/{dashboard_id}/versions")

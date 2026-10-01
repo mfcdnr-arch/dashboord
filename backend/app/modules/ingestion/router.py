@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from ... import db
 from ..audit import service as audit_svc
 from ..auth.deps import require_roles
-from . import analyze, impact, mapping, queue, service
+from . import analyze, impact, mapping, new_fields, queue, service
 
 router = APIRouter(tags=["ingestion"])
 manage = require_roles("superadmin", "admin", "moderator")
@@ -392,6 +392,11 @@ async def create_release(job_id: str, body: ReleaseIn, user: dict = Depends(mana
                               "auto": False, "values": res.get("values_count"),
                               "rows": res.get("rows"),
                               "superseded": res.get("superseded_release_id")})
+                # «В форме появилась новая графа — добавить виджет?» (этап 5).
+                # Новая графа приходит именно ручным выпуском: авто-выпуск
+                # срабатывает только при совпадении структуры формы.
+                res["new_fields"] = new_fields.brief(
+                    await new_fields.announce_safely(conn, user["organization_id"], body.code))
                 return res
         except mapping.FormMismatch as mismatch:
             raise HTTPException(status.HTTP_409_CONFLICT, detail=mismatch.info)
@@ -524,6 +529,10 @@ async def create_releases_by_sheet(job_id: str, body: ReleaseBySheetIn,
                 new_data={"code": body.code, "by_sheet": True, "year": body.year,
                           "sheets": res["sheets"], "released": res["released"],
                           "skipped": len(res["skipped"]), "failed": len(res["failed"])})
+            # Новые графы — один раз на книгу, а не на лист: годовая книга
+            # РЦО принесла бы полтора десятка уведомлений за одно нажатие.
+            res["new_fields"] = new_fields.brief(
+                await new_fields.announce_safely(conn, user["organization_id"], body.code))
         return res
 
 

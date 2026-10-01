@@ -97,7 +97,8 @@ async def test_folders_list_exposes_flag(client, admin_headers, folder):
 
 
 async def test_dashboard_freshness_and_missing_fields(client, admin_headers, seed_dataset, ids):
-    """Свежесть считается по датасетам виджетов; неиспользованные поля видны."""
+    """Свежесть считается по датасетам виджетов; подсказка не считает недостачей
+    графы, которые были в форме ещё до сборки дашборда."""
     r = await client.post("/dashboards", headers=admin_headers, json={"name": "ztest_flags_dash"})
     did = r.json()["id"]
     try:
@@ -117,11 +118,14 @@ async def test_dashboard_freshness_and_missing_fields(client, admin_headers, see
         assert fresh["as_of"], fresh
         assert fresh["datasets"] == 1
 
-        # «fact» на дашборде не показан — система должна о нём сказать.
+        # «fact» на дашборде не показан, но он был в форме ДО сборки: его видел
+        # тот, кто собирал, и не вынес сознательно. До 01.10.2026 подсказка
+        # называла такие графы недостачей и на дашборде РЦО насчитывала 359.
+        # Что подсказка ловит графы, появившиеся ПОСЛЕ сборки, — в
+        # test_new_fields_notice.py (на своей форме: этот набор общий).
         r = await client.get(f"/dashboards/{did}/missing-fields", headers=admin_headers)
         codes = {f["code"] for f in r.json()["fields"]}
-        assert "fact" in codes, r.json()
-        assert "plan" not in codes, "показанное на дашборде не считается недостающим"
+        assert "fact" not in codes and "plan" not in codes, r.json()
 
         # Галочку подсказок можно выключить — она хранится на дашборде.
         r = await client.patch(f"/dashboards/{did}", headers=admin_headers,

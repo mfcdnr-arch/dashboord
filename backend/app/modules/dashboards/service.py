@@ -35,6 +35,7 @@ from ._comments import (  # noqa: F401
 from ._describe import describe_dashboard  # noqa: F401
 from ._explain import explain_widgets, widget_captions, widget_configs  # noqa: F401
 from ._levels import build_ladder_page, page_ladder, plan_ladder_page  # noqa: F401
+from ._missing import missing_dashboard_fields, review_missing_fields  # noqa: F401
 from ._passport import widget_passport  # noqa: F401
 from ._planfact import (  # noqa: F401
     PLAN_FACT_SCALE,
@@ -714,46 +715,6 @@ async def dashboard_freshness(conn, org_id, dashboard_id: str) -> dict:
         "datasets": len(codes),
         "releases": int(row["releases"]) if row else 0,
     }
-
-
-async def missing_dashboard_fields(conn, org_id, dashboard_id: str) -> dict:
-    """Показатели, которые есть в данных, но не показаны на дашборде.
-
-    Форма со временем прирастает графами, а дашборд остаётся прежним — и никто
-    об этом не узнаёт, пока кто-нибудь не сверит их вручную. Система подсказывает,
-    но НЕ добавляет виджеты сама: дашборд, который сам себе дорисовывает
-    карточки, однажды поедет вёрсткой прямо на совещании.
-    """
-    configs = await conn.fetch("select config from widgets where dashboard_id=$1::uuid", dashboard_id)
-    codes = _widget_dataset_codes([c["config"] for c in configs])
-    if not codes:
-        return {"fields": [], "count": 0}
-
-    used: set = set()
-    for c in configs:
-        cfg = json.loads(c["config"]) if isinstance(c["config"], str) else (c["config"] or {})
-        for key in ("value_field", "plan_field", "fact_field", "label_field"):
-            if cfg.get(key):
-                used.add(cfg[key])
-        for f in cfg.get("value_fields") or []:
-            used.add(f)
-        for s in cfg.get("series") or []:
-            if isinstance(s, dict) and s.get("value_field"):
-                used.add(s["value_field"])
-
-    rows = await conn.fetch(
-        "select distinct v.canonical_field_code as code, cf.name, r.code as dataset_code "
-        "from dataset_releases r "
-        "join dataset_values v on v.dataset_release_id = r.id and v.value_number is not null "
-        "left join canonical_fields cf on cf.object_id = r.object_id and cf.code = v.canonical_field_code "
-        "where r.organization_id=$1 and r.code = any($2::text[]) and r.status <> 'superseded'",
-        org_id, list(codes))
-    missing = [
-        {"code": r["code"], "name": r["name"] or r["code"], "dataset_code": r["dataset_code"]}
-        for r in rows if r["code"] not in used
-    ]
-    missing.sort(key=lambda f: f["name"])
-    return {"fields": missing, "count": len(missing)}
 
 
 async def _owns_dashboard(conn, org_id, dashboard_id: str) -> bool:

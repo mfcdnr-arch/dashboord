@@ -17,7 +17,7 @@ from arq import cron
 from ... import db
 from ..maintenance import service as maint
 from ..reports import service as reports_svc
-from . import queue, service
+from . import new_fields, queue, service
 from .queue import redis_settings
 from .service import run_extraction
 
@@ -46,6 +46,10 @@ async def daily_freshness(ctx) -> None:
     """
     await _for_each_org(maint.check_freshness)
     await _for_each_org(maint.check_cadence)
+    # Новые графы форм. Пути выпуска объявляют их сами, но недельный
+    # загрузчик ведомств пишет мимо них; ежедневный проход ловит остальное,
+    # а журнал не даёт объявить одну графу дважды.
+    await _for_each_org(new_fields.check_all)
 
 
 async def weekly_retention(ctx) -> None:

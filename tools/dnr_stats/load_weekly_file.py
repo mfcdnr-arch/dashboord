@@ -56,6 +56,10 @@ sys.path.insert(0, "/app")
 # контейнера api, где `app` доступен. Своя копия правила «те же это данные или
 # другие» разошлась бы со штатным выпуском при первой же правке.
 from app.modules.ingestion import mapping  # noqa: E402
+# Новые графы ведомства объявляет то же правило, что у штатного выпуска:
+# скрипт пишет мимо build_release, и без этого вызова новая услуга ведомства
+# дошла бы до колокольчика только ежедневной страховкой воркера.
+from app.modules.ingestion import new_fields  # noqa: E402
 
 # --- Править перед каждым новым файлом ---
 SOURCE_FILE = "/tmp/dnr_week.xlsx"
@@ -280,6 +284,10 @@ async def main():
                                          meta["name"], date_prev, admin_id, offices, "prev")
         n2, how2 = await _build_release(conn, org_id, object_id, code, meta["dataset_code"],
                                          meta["name"], date_cur, admin_id, offices, "cur")
+        news = await new_fields.announce_safely(conn, org_id, meta["dataset_code"])
+        if news:
+            print(f"{code:12s} новых граф: {len(news['fields'])}"
+                  f"{' — уведомление отправлено' if news.get('notice_id') else ''}")
         # Судьбу КАЖДОЙ даты называем словами: «0 значений» не различает
         # «этот файл мы уже грузили» и «данные за эту дату исправлены».
         print(f"{code:12s} услуг={n_blocks:2d}  {date_prev} {how1} ({n1})  |  {date_cur} {how2} ({n2})")
