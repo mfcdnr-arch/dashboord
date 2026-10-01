@@ -231,15 +231,18 @@ async def test_manual_release_reports_new_fields(client, admin_headers, folder, 
     """Сквозь HTTP: ручной выпуск формы с новой графой называет её в ответе и
     уведомляет тех, чей дашборд смотрит форму."""
     code = "ztest_nf_http"
-    up1 = await _upload(client, admin_headers, folder["folder_id"], _form(WEEK1), "2026-07-22", monkeypatch)
-    await service.run_extraction(up1["extraction_job_id"])
-    job = (await client.get(f"/extraction-jobs/{up1['extraction_job_id']}", headers=admin_headers)).json()
-    first = await _release(client, admin_headers, job["job_id"], job["tables"][0], code, "2026-07-22")
-    assert first.get("new_fields") is None, "первый выпуск формы — не новые графы"
-
-    did = (await client.post("/dashboards", headers=admin_headers,
-                             json={"name": "ztest_nf_http_dash", "force": True})).json()["id"]
+    did = None
+    # Уборка охватывает ВЕСЬ сценарий: тест, упавший на первом же выпуске,
+    # иначе оставлял записи журнала новых граф (найдено прогоном «поломкой»).
     try:
+        up1 = await _upload(client, admin_headers, folder["folder_id"], _form(WEEK1), "2026-07-22", monkeypatch)
+        await service.run_extraction(up1["extraction_job_id"])
+        job = (await client.get(f"/extraction-jobs/{up1['extraction_job_id']}", headers=admin_headers)).json()
+        first = await _release(client, admin_headers, job["job_id"], job["tables"][0], code, "2026-07-22")
+        assert first.get("new_fields") is None, "первый выпуск формы — не новые графы"
+
+        did = (await client.post("/dashboards", headers=admin_headers,
+                                 json={"name": "ztest_nf_http_dash", "force": True})).json()["id"]
         pid = (await client.post(f"/dashboards/{did}/pages", headers=admin_headers,
                                  json={"name": "Стр"})).json()["id"]
         await client.post(f"/dashboard-pages/{pid}/widgets", headers=admin_headers, json={
@@ -270,7 +273,8 @@ async def test_manual_release_reports_new_fields(client, admin_headers, folder, 
         r = await client.get(f"/dashboards/{did}/missing-fields", headers=admin_headers)
         assert [f["code"] for f in r.json()["fields"]] == ["zap"], r.json()
     finally:
-        await purge_dashboard(did)
+        if did:
+            await purge_dashboard(did)
         async with db.acquire() as conn:
             await conn.execute("delete from dataset_new_fields where code=$1", code)
             await conn.execute(
