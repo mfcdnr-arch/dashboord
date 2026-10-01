@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { pageReportDates, type Dashboard, type DashPage, type DashPreset } from '../../api'
 import type { Density } from '../../lib/density'
+import { plural } from '../../lib/text'
 import { PubBadge, input, linkDanger, presetChip } from './shared'
 
 /**
@@ -435,8 +436,10 @@ export function DashboardHeader({
               )}
               {canManage && (
                 <button type="button" style={menuItem} onClick={() => { setMoreOpen(false); a.toggleSuggestFields() }}
-                  title="Подсказка о показателях, которых нет на дашборде">
-                  💡 Подсказки о показателях: {dashboard.suggest_new_fields === false ? 'выкл' : 'вкл'}
+                  title={dashboard.suggest_new_fields === false
+                    ? 'Включить: подсказка и уведомление о новых графах формы, которых нет на дашборде'
+                    : 'Выключить: не подсказывать и не уведомлять о новых графах формы'}>
+                  💡 Подсказки о новых графах: {dashboard.suggest_new_fields === false ? 'выкл' : 'вкл'}
                 </button>
               )}
               {canManage && <hr style={menuSep} />}
@@ -587,8 +590,8 @@ export function DashboardHeader({
         {canManage && missingCount > 0 && (
           <button type="button" style={{ ...linkDanger, color: 'var(--accent-text)', fontSize: 12, marginLeft: 'auto' }}
             onClick={onOpenMissing}
-            title="Показатели, которые есть в данных, но не показаны ни одним виджетом">
-            💡 {missingCount} показателей не показаны
+            title="Графы, которые появились в форме после сборки дашборда и не показаны ни одним виджетом">
+            💡 {missingCount} {plural(missingCount, 'новая графа не показана', 'новые графы не показаны', 'новых граф не показаны')}
           </button>
         )}
         </div>

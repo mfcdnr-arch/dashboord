@@ -3,118 +3,12 @@ import {
   getNotifications, markAllNotificationsRead, markNotificationRead,
   type NotificationItem, type NotificationsResult,
 } from '../api'
-import { plural } from '../lib/text'
+import { fmtDt, message, targetOf, type NotifyTarget } from '../lib/notifications'
 
 // Колокольчик уведомлений в шапке: непрочитанные + выпадающая лента.
-// Опрос каждые 60с. Служебные события: устаревание данных, ретенция и т.п.
+// Опрос каждые 60с. Текст и переход каждого события — lib/notifications.ts.
 
-function fmtDt(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-}
-
-/** Отчётные даты показываем по-русски: в системе принят ДД.ММ.ГГГГ. */
-function ruDate(v: unknown): string {
-  const s = String(v ?? '')
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s.split('-').reverse().join('.') : s
-}
-
-function message(n: NotificationItem): string {
-  const p = n.payload || {}
-  if (n.event_type === 'data.stale') return `Объект «${p.object_name}»: нет новых данных ${p.days_since_upload} дн. (порог ${p.threshold_days}).`
-  if (n.event_type === 'data.missing') {
-    return `Объект «${p.object_name}»: отчёт за ${ruDate(p.expected_period)} не поступил `
-      + `(форма приходит раз в ${p.cadence_days} дн., последний — за ${ruDate(p.last_period)}).`
-  }
-  // Дыра ВНУТРИ ряда: ряд продолжился, и «отчёт не поступил» тут неверно —
-  // отчёты идут, просто одного дня в них нет. Даты называем поимённо: без них
-  // человеку негде начать искать.
-  if (n.event_type === 'data.gap') {
-    const miss = (Array.isArray(p.missing) ? p.missing : []).map(ruDate)
-    const shown = miss.slice(0, 5).join(', ')
-    return `Объект «${p.object_name}»: в ряду отчётов пропуск — нет ${miss.length > 1 ? 'отчётов' : 'отчёта'} за `
-      + `${shown}${miss.length > 5 ? ` и ещё ${miss.length - 5}` : ''} `
-      + `(форма приходит раз в ${p.cadence_days} дн.). Данные за этот период на дашбордах не учтены.`
-  }
-  if (n.event_type === 'dashboard.review_requested') {
-    return `«${p.dashboard_name}» ждёт проверки${p.author ? ` — отправил ${p.author}` : ''}.`
-  }
-  if (n.event_type === 'data.retention') return `Ретенция: удалено релизов — ${p.deleted_releases} (окно ${p.window_months} мес.).`
-  // Предупреждение, а не отчёт об удалении: планировщик ничего не удаляет,
-  // он зовёт человека решить. Поэтому в тексте — что именно под отсечкой и
-  // прямое указание, что данные ещё на месте.
-  if (n.event_type === 'data.retention_due') {
-    const n = Number(p.releases) || 0
-    return `Под окно хранения (${p.window_months} мес.) попадает ${n} `
-      + `${plural(n, 'выпуск', 'выпуска', 'выпусков')} данных`
-      + `${p.oldest ? `, самый ранний — за ${ruDate(p.oldest)}` : ''}`
-      + `${p.values ? ` (значений: ${p.values})` : ''}. `
-      + 'Ничего не удалено: откройте «Настройки» → «Хранение данных», посмотрите список и решите сами.'
-  }
-  if (n.event_type === 'widget.created.no_explicit_access') return `Новый виджет без явных прав: ${p.widget_name ?? ''}`
-  if (n.event_type === 'system.degraded') {
-    // Называем ПРИЧИНУ: «автопочинка не помогла» без неё отправляет человека
-    // разбираться вслепую, а чаще всего дело в ресурсах, которые приложение
-    // чинить и не умеет.
-    const why = Array.isArray(p.reasons) && p.reasons.length ? ` Что не так: ${p.reasons.join('; ')}.` : ''
-    return `Система в плохом состоянии (${p.status_after ?? 'degraded'}).${why}`
-      + ' Посмотрите раздел «Отчёты» → «Здоровье системы».'
-  }
-  // Воркер перезапущен хостовым сторожем. Сообщаем ОБЯЗАТЕЛЬНО, в том числе об
-  // удачном перезапуске: молчание скрыло бы, что воркер падает регулярно.
-  if (n.event_type === 'system.worker_restarted') return p.healthy
-    ? 'Фоновый воркер не отмечался и был перезапущен автоматически — конвейер данных снова работает. Если это повторяется, стоит разобраться с причиной: «Отчёты» → «Здоровье системы».'
-    : 'Фоновый воркер перезапущен автоматически, но так и не отметился: загрузка файлов, выпуск данных и уведомления остановлены. Нужен разбор причины — «Отчёты» → «Здоровье системы».'
-  if (n.event_type === 'appeal.created' || n.event_type === 'appeal.message') return `${p.author ?? ''}: ${p.snippet ?? ''}`
-  if (n.event_type === 'appeal.replied') return `${p.author ?? 'Администратор'} ответил на ваше обращение: ${p.snippet ?? ''}`
-  if (n.event_type === 'data.auto_released') {
-    return `Данные из «${p.document ?? 'файла'}» за ${ruDate(p.period)} выпущены автоматически`
-      + `${p.folder ? ` (папка «${p.folder}»)` : ''}: форма совпала с прошлым отчётом, замечаний нет. `
-      + `Значений: ${p.values ?? '—'}. Уже считаются на дашбордах.`
-  }
-  if (n.event_type === 'appeal.seen') return `${p.author ?? 'Администратор'} открыл ваше обращение${p.subject ? ` «${p.subject}»` : ''} — ответ придёт следующим уведомлением.`
-  return n.label
-}
-
-/**
-   * Куда ведёт уведомление.
-   *
-   * Уведомление без перехода — тупик: человек прочитал «ztest: не работает
-   * выгрузка» и должен сам вспомнить, в каком разделе искать это обращение.
-   * Поэтому каждое событие знает свою сущность (entity_type/entity_id), и клик
-   * открывает именно её. Обычного пользователя ведём в «Кабинет»: раздела
-   * «Обращения» у него нет, его переписка живёт там.
-   */
-function targetOf(n: NotificationItem, staff: boolean): NotifyTarget | null {
-  const id = n.entity_id || undefined
-  if (n.event_type.startsWith('appeal.')) {
-    return { section: staff ? 'appeals' : 'profile', appealId: id }
-  }
-  if (n.event_type === 'dashboard.comment' || n.event_type === 'dashboard.review_requested') {
-    return { section: 'dashboards', dashboardId: id }
-  }
-  if (n.event_type === 'data.stale' || n.event_type === 'data.missing' || n.event_type === 'data.gap') {
-    return { section: 'objects', objectId: id }
-  }
-  // У выпуска своего экрана нет — ведём к объекту, где лежит файл (id берём из
-  // payload: entity_id здесь — сам выпуск).
-  if (n.event_type === 'data.auto_released') {
-    const oid = (n.payload || {}).object_id as string | undefined
-    return oid ? { section: 'objects', objectId: oid } : { section: 'objects' }
-  }
-  if (n.event_type === 'data.retention') return { section: 'settings' }
-  if (n.event_type === 'data.retention_due') return { section: 'settings' }
-  if (n.event_type === 'system.degraded') return { section: 'reports' }
-  if (n.event_type === 'system.worker_restarted') return { section: 'reports' }
-  return null
-}
-
-export type NotifyTarget = {
-  section: string
-  appealId?: string
-  dashboardId?: string
-  objectId?: string
-}
+export type { NotifyTarget }
 
 export default function NotificationBell(
   { staff, onNavigate }: { staff: boolean; onNavigate?: (t: NotifyTarget) => void },
@@ -141,7 +35,8 @@ export default function NotificationBell(
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={() => { setOpen((v) => !v); if (!open) load() }} title="Уведомления"
+      <button type="button" onClick={() => { setOpen((v) => !v); if (!open) load() }} title="Уведомления"
+        aria-label={unread > 0 ? `Уведомления, непрочитанных: ${unread}` : 'Уведомления'} aria-expanded={open}
         style={{ position: 'relative', height: 32, width: 36, border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', cursor: 'pointer', fontSize: 16 }}>
         🔔
         {unread > 0 && (
@@ -160,22 +55,26 @@ export default function NotificationBell(
           {!data ? <div style={{ padding: 14, color: 'var(--text-faint)', fontSize: 13 }}>Загрузка…</div>
             : data.items.length === 0 ? <div style={{ padding: 14, color: 'var(--text-faint)', fontSize: 13 }}>Уведомлений нет.</div>
               : data.items.map((n) => (
-                <div key={n.recipient_id} onClick={() => readOne(n)}
+                // Кнопка, а не div с onClick: строку ленты надо уметь открыть
+                // с клавиатуры, а div в обход Tab не попадает вовсе.
+                <button key={n.recipient_id} type="button" onClick={() => readOne(n)}
                   title={targetOf(n, staff) ? 'Открыть' : undefined}
                   style={{
+                    display: 'block', width: '100%', boxSizing: 'border-box', textAlign: 'left',
+                    font: 'inherit', color: 'inherit', border: 'none',
                     padding: '10px 12px', borderBottom: '1px solid var(--border-faint)',
                     // Курсор-указатель, пока есть куда вести: у прочитанного
                     // уведомления переход остаётся, и «default» врал бы.
                     cursor: targetOf(n, staff) || !n.is_read ? 'pointer' : 'default',
                     background: n.is_read ? 'var(--surface)' : 'var(--surface-accent)',
                   }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {!n.is_read && <span style={{ width: 7, height: 7, borderRadius: 4, background: 'var(--accent)', flexShrink: 0 }} />}
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {!n.is_read && <span aria-label="не прочитано" style={{ width: 7, height: 7, borderRadius: 4, background: 'var(--accent)', flexShrink: 0 }} />}
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{n.label}</span>
                     <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>{fmtDt(n.created_at)}</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{message(n)}</div>
-                </div>
+                  </span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{message(n)}</span>
+                </button>
               ))}
         </div>
       )}

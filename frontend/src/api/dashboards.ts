@@ -703,10 +703,31 @@ export async function dashboardFreshness(
 }
 
 /** Показатели, которые есть в данных, но не показаны на дашборде. */
+/** Графа формы, появившаяся после сборки дашборда и не показанная ни одним виджетом. */
+export type MissingField = {
+  code: string; name: string; dataset_code: string
+  /** Отчёт, в котором графа появилась впервые. */
+  first_period?: string | null
+  /** Виджеты, которые уже показывают её неявно (таблица всей формы, рейтинг по мере). */
+  covered_by?: string[]
+}
+
 export async function dashboardMissingFields(
   id: string,
-): Promise<{ count: number; fields: { code: string; name: string; dataset_code: string }[] }> {
+): Promise<{ count: number; fields: MissingField[] }> {
   const res = await fetch(`/dashboards/${id}/missing-fields`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+/** «Больше не предлагать»: графы просмотрены и этому дашборду не нужны. */
+export async function reviewMissingFields(
+  id: string, fields: { dataset_code: string; code: string }[],
+): Promise<{ reviewed: number }> {
+  const res = await fetch(`/dashboards/${id}/missing-fields/review`, {
+    method: 'POST', headers: { ...authH(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+  })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }

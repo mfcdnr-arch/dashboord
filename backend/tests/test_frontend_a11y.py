@@ -147,7 +147,11 @@ def test_notice_announces_errors_and_results():
 
 # --- заголовок страницы и текстовые альтернативы графикам (находки аудита) ---
 
-SECTION_RE = re.compile(r"section === '(\w+)'[^<]*<([A-Z]\w*)", re.S)
+# Только разметка разделов: `{section === 'x' ? (<Компонент` и `) : section === 'x' ? (<…`.
+# Прежний шаблон ловил любое `section === '…'`, и обработчик колокольчика с
+# `t.section === 'dashboards'` (01.10.2026) приписал разделу «Дашборды» ближайший
+# компонент шапки — ThemeToggle.
+SECTION_RE = re.compile(r"[{:]\s*section === '(\w+)'\s*\?\s*\(\s*<([A-Z]\w*)", re.S)
 IMPORT_RE = re.compile(r"import\s+(\w+)\s+from\s+'(\.[^']+)'")
 
 
@@ -161,7 +165,10 @@ def test_every_section_page_has_a_heading():
     app = (SRC / "App.tsx").read_text(encoding="utf-8")
     imports = {name: path for name, path in IMPORT_RE.findall(app)}
     missing = []
-    for section, comp in SECTION_RE.findall(app):
+    found = SECTION_RE.findall(app)
+    # Защита от вырождения: страж, не нашедший разделов, проходит молча.
+    assert len(found) >= 15, f"страж нашёл разделов: {len(found)} — шаблон разметки разделов в App.tsx изменился"
+    for section, comp in found:
         rel = imports.get(comp)
         if not rel:
             continue                      # не импортированный компонент — не страница

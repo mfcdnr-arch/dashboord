@@ -239,6 +239,11 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [openObject, setOpenObject] = useState<string | null>(null)
   // Куда вести из «Загрузки»: папка и файл, чтобы открылась сразу разметка.
   const [openFolder, setOpenFolder] = useState<string | null>(null)
+  // «Добавить виджет?» из уведомления о новых графах: открыть дашборд и сразу
+  // окно с отмеченными графами. Счётчик — чтобы повторный клик по тому же
+  // уведомлению сработал снова.
+  const [newFieldsIntent, setNewFieldsIntent] =
+    useState<{ dashboardId: string; codes: string[]; seq: number } | null>(null)
   const [openDocument, setOpenDocument] = useState<string | null>(null)
   // Показатель, к которому ведёт быстрый поиск (п. 9): раздел «Метрики»
   // remount'ится при каждом переходе в него (см. `nav`-переключатель ниже),
@@ -432,9 +437,24 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         <NotificationBell
           staff={staff}
           onNavigate={(t) => {
-            setOpenDash(t.dashboardId ?? null)
             setOpenAppeal(t.appealId ?? null)
             setOpenObject(t.objectId ?? null)
+            // Как палитра Ctrl+K: иначе открылся бы файл, к которому вели в прошлый раз.
+            setOpenFolder(null); setOpenDocument(null)
+            if (t.section === 'dashboards' && t.dashboardId) {
+              // Через goTo (с navSeq), а не только setOpenDash: раздел
+              // «Дашборды» мог быть уже открыт, а начальный дашборд он
+              // применяет лишь при монтировании — клик по уведомлению тогда
+              // только закрывал ленту.
+              const did = t.dashboardId
+              if (t.newFields?.length) {
+                const codes = t.newFields
+                setNewFieldsIntent((prev) => ({ dashboardId: did, codes, seq: (prev?.seq ?? 0) + 1 }))
+              }
+              goTo({ section: 'dashboards', dashboard: did })
+              return
+            }
+            setOpenDash(t.dashboardId ?? null)
             setSection(t.section)
           }}
         />
@@ -503,6 +523,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ) : section === 'dashboards' ? (
             <DashboardsPage canManage={canManage} isAdmin={isAdmin} isSuperadmin={isSuperadmin} initialDashboardId={openDash} initialPageId={openPage}
               link={dashLink} navSeq={navSeq} onLocationChange={setDashLink}
+              newFieldsIntent={newFieldsIntent}
               // Отправив жалобу с виджета, человек хочет прочитать ответ. Своя
               // переписка у обычного пользователя живёт в «Кабинете» (раздела
               // «Обращения» у него нет) — то же правило, что у уведомлений.
