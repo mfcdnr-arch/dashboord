@@ -82,7 +82,23 @@ async def _purge_leftovers(_seeded):
         await conn.execute("delete from user_roles where user_id in (select id from users where login like 'ztest_%')")
         await conn.execute("update dashboards set published_by=null where published_by in (select id from users where login like 'ztest_%')")
         await conn.execute("delete from users where login like 'ztest_%'")
+        await _purge_orphan_new_fields(conn)
     yield
+    async with db.acquire() as conn:
+        await _purge_orphan_new_fields(conn)
+
+
+async def _purge_orphan_new_fields(conn) -> None:
+    """Журнал новых граф форм, от которых не осталось ни одного выпуска.
+
+    Любой тест, выпускающий форму с новой графой через штатный ручной выпуск,
+    пишет в журнал (этап 5), а уборка таких тестов чистит выпуски и объекты,
+    но про журнал не знает. Чистим по признаку, а не по маске кода: у ЗАГС код
+    `zags_offices`, и уборка «z%» задела бы настоящие данные стенда.
+    """
+    await conn.execute(
+        "delete from dataset_new_fields n where not exists (select 1 from dataset_releases r "
+        "where r.organization_id = n.organization_id and r.code = n.code)")
 
 
 async def login(client, username, password):
