@@ -90,7 +90,12 @@ const uiLogin = async (page, user, pass) => {
       if (box) box.setAttribute('data-shot', 'bell')
     })
     await page.waitForTimeout(400)
-    await shot(page.locator('[data-shot=bell]'), 'v11_notice')
+    // Только шапка ленты и наша строка: остальные уведомления стенда к главе не относятся.
+    {
+      const box = await page.locator('[data-shot=bell]').boundingBox()
+      const r = await row.boundingBox()
+      await shot(page, 'v11_notice', { clip: { x: box.x, y: box.y, width: box.width, height: r.y + r.height - box.y + 1 } })
+    }
 
     // ── Окно «Новые графы формы» ───────────────────────────────────────────
     await row.click()
@@ -101,14 +106,19 @@ const uiLogin = async (page, user, pass) => {
     await page.waitForTimeout(600)
 
     // ── Подсказка в шапке ──────────────────────────────────────────────────
-    const hint = page.locator('button', { hasText: /новых? граф/ }).first()
+    const hint = page.locator('button', { hasText: /нов(ая|ые|ых) граф/ }).first()
     await hint.waitFor({ timeout: 10000 })
     await page.evaluate(() => {
-      const b = [...document.querySelectorAll('button')].find((x) => /новы[хе]? граф/.test(x.textContent))
+      const b = [...document.querySelectorAll('button')].find((x) => /нов(ая|ые|ых) граф/.test(x.textContent))
       const row = b && b.parentElement
       if (row) row.setAttribute('data-shot', 'hint')
     })
-    await shot(page.locator('[data-shot=hint]'), 'v11_hint')
+    // Полоса во всю ширину в документе стала бы нечитаемой нитью — берём её правую часть с подсказкой.
+    {
+      const bar = await page.locator('[data-shot=hint]').boundingBox()
+      const x = Math.max(bar.x, bar.x + bar.width - 560)
+      await shot(page, 'v11_hint', { clip: { x, y: bar.y - 6, width: bar.x + bar.width - x, height: bar.height + 12 } })
+    }
   } finally {
     await browser.close()
     cleanup()
