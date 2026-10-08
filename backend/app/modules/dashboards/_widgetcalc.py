@@ -2139,7 +2139,7 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         # Обрезка та же, что у числовых: круговая складывает хвост в «Прочие».
         tally = await _tally.count_by(conn, org_id, cfg, period, row, allowed)
         res = {"type": t, "title": name, "categories": tally["categories"],
-               "values": tally["values"], "count": True}
+               "values": tally["values"], "count": True, "group_title": tally["group_title"]}
         if tally.get("note"):
             res["note"] = tally["note"]
         if t == "pie":

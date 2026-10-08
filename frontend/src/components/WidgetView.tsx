@@ -900,6 +900,11 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         )}
         <AggregateNote data={data} />
         <TargetLine data={data} />
+        {/* Подсчёт строк называет то, чего не учёл (дата не распознана): иначе
+            «просрочено 2» читалось бы как «у остальных порядок». */}
+        {data.count && data.note && (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>{data.note}</div>
+        )}
       </div>
     )
   }
@@ -1906,7 +1911,11 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     const rows: string[] = data.rows || []
     const cols: string[] = data.columns || []
     const cells: number[][] = data.cells || []
-    if (rows.length === 0 || cols.length === 0) return <Empty why="В отчёте нет строк или выбранных граф — проверьте настройку виджета." />
+    if (rows.length === 0 || cols.length === 0) {
+      return <Empty why={data.count
+        ? 'В отчёте нет строк, подходящих под условия подсчёта.'
+        : 'В отчёте нет строк или выбранных граф — проверьте настройку виджета.'} />
+    }
     // 🔴 На равномерной шкале «от нуля до максимума» карта РЦО сливалась в один
     // бледный тон: замер — 67,7 % клеток лежат в нижней пятой части шкалы,
     // потому что распределение длиннохвостое (медиана 27 при максимуме 290 на
@@ -1976,9 +1985,15 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     const opt: EChartsOption = {
       tooltip: { position: 'top', formatter: (p: any) => `${cols[p.value[0]]} · ${rows[p.value[1]]}: <b>${fmt(p.value[2])}</b>` },
       grid: { left: 8, right: 12, top: 10, bottom: longX ? 24 + colLines * 13 : 44, containLabel: true },
+      // Матрица подсчёта (риски «вероятность × влияние») без названий осей —
+      // просто сетка чисел: какая шкала по строкам, какая по столбцам, не видно.
       xAxis: { type: 'category', data: shortCols, splitArea: { show: true },
-        axisLabel: { fontSize: 10, interval: 0, lineHeight: 12 } },
-      yAxis: { type: 'category', data: shortRows, splitArea: { show: true }, axisLabel: { fontSize: 11, interval: 0 } },
+        axisLabel: { fontSize: 10, interval: 0, lineHeight: 12 },
+        ...(data.count && data.col_title ? { name: String(data.col_title), nameLocation: 'middle' as const,
+          nameGap: 22, nameTextStyle: { fontSize: 11, color: 'var(--text-muted)' } } : {}) },
+      yAxis: { type: 'category', data: shortRows, splitArea: { show: true }, axisLabel: { fontSize: 11, interval: 0 },
+        ...(data.count && data.row_title ? { name: String(data.row_title), nameLocation: 'middle' as const,
+          nameGap: 26, nameTextStyle: { fontSize: 11, color: 'var(--text-muted)' } } : {}) },
       visualMap: steps
         // Ступени по РАСПРЕДЕЛЕНИЮ, а не по отрезку от нуля до максимума.
         ? { type: 'piecewise', pieces: steps.pieces, orient: 'horizontal', left: 'center', bottom: 0,
@@ -2465,7 +2480,11 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   }
 
   // bar | line | pie
-  if ((data.categories || []).length === 0) return <Empty why="У выбранной графы нет значений за этот отчёт." />
+  if ((data.categories || []).length === 0) {
+    return <Empty why={data.count
+      ? 'В отчёте нет строк, подходящих под условия подсчёта.'
+      : 'У выбранной графы нет значений за этот отчёт.'} />
+  }
   return (
     <div style={{ height: '100%' }}>
       <EChart option={P(chartOption(data, chartHeight(data)))} height={chartHeight(data)} onPick={onPick} />

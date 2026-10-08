@@ -9,6 +9,7 @@ import { dataUriBytes, fileToEmbeddableDataUri } from '../../lib/image'
 import { DEFAULT_SIZE, WT, btn, btnAuto, btnGhost, resizeOnTypeChange, sel, tab, tabActive, wtBadge } from './shared'
 import { WidgetPicker, WIDGET_META } from './WidgetPicker'
 import Field from '../Field'
+import { WhereEditor, whereFromConfig, whereToConfig, type WhereCond } from './WhereEditor'
 
 /** Датасет — это НЕ один файл, а ряд отчётов одной формы: пятнадцать недель
  *  лежат под одним кодом. Подпись должна говорить об этом прямо, иначе человек
@@ -218,6 +219,15 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   // переживает спуск — виджет с одной графой внутри ветки замолкает, потому
   // что свод из ветки исключается, а замены у него нет.
   const [rankMeasure, setRankMeasure] = useState<string>((cfg0.measure as string) || '')
+  // Подсчёт строк (08.10.2026): карточка, столбики, круговая и тепловая карта
+  // считают строки формы под условиями, а не складывают числовую графу. Формам-
+  // реестрам (проблемные вопросы, итоги и планы недели) иначе остаются таблицы.
+  const [countMode, setCountMode] = useState<boolean>(Boolean(cfg0.count))
+  const [groupBy, setGroupBy] = useState<string>((cfg0.group_by as string) || '')
+  const [groupBy2, setGroupBy2] = useState<string>((cfg0.group_by2 as string) || '')
+  const [axis1, setAxis1] = useState<string>(Array.isArray(cfg0.group_values) ? cfg0.group_values.join(', ') : '')
+  const [axis2, setAxis2] = useState<string>(Array.isArray(cfg0.group_values2) ? cfg0.group_values2.join(', ') : '')
+  const [conds, setConds] = useState<WhereCond[]>(whereFromConfig(cfg0.where))
   const [viz, setViz] = useState(cfg0.viz || 'bar')
   const [scale, setScale] = useState<string>((initial?.config?.scale as string) || '')
   const [heading, setHeading] = useState(cfg0.heading || '')
@@ -312,14 +322,19 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const isImage = type === 'image'
   const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
   const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall', 'matrix', 'bullet', 'thermometer', 'ranked', 'spark_table', 'field_list'].includes(type)
-  const usesValueField = (['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall', 'spark_table'].includes(type)
+  const canCount = (type === 'kpi' && source === 'dataset') || ['bar', 'pie', 'heatmap'].includes(type)
+  const counting = canCount && countMode
+  const usesValueField = !counting && ((['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall', 'spark_table'].includes(type)
     || (type === 'ranked' && !rankMeasure))
     || (type === 'matrix' && matrixBy !== 'fields')
-    || (['kpi', 'gauge'].includes(type) && source === 'dataset')
+    || (['kpi', 'gauge'].includes(type) && source === 'dataset'))
   // Воронка тоже набирается из нескольких полей, но порядок галочек для неё
   // ЗНАЧИМ: это последовательность этапов, а не просто набор столбцов.
-  const usesMulti = type === 'compare' || type === 'heatmap' || type === 'pivot' || type === 'funnel'
+  const usesMulti = type === 'compare' || (type === 'heatmap' && !counting) || type === 'pivot' || type === 'funnel'
     || (type === 'matrix' && matrixBy === 'fields')
+  // Для подсчёта годятся ЛЮБЫЕ графы, а не только числовые: «Статус», «Куратор».
+  const allFields = (dc: string) => sources.datasets.find((d) => d.code === dc)?.fields || []
+  const axisList = (t: string) => t.split(',').map((x) => x.trim()).filter(Boolean)
   const toggleField = (c: string) => setMultiFields((s) => s.includes(c) ? s.filter((x) => x !== c) : [...s, c])
 
   // Шкала спидометра (gauge): максимум; пусто — авто.
@@ -370,6 +385,27 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   function baseConfig(): Record<string, unknown> | null {
     if (type === 'text') return { heading: heading.trim() || undefined, body: bodyText.trim() || undefined, align }
     if (type === 'image') return imgUrl.trim() ? { url: imgUrl.trim(), caption: caption.trim() || undefined, fit: 'contain' } : null
+    if (counting) {
+      if (!dataset) return null
+      const where = whereToConfig(conds)
+      const base: Record<string, unknown> = { dataset_code: dataset, count: true, ...(where.length ? { where } : {}) }
+      if (type === 'bar' || type === 'pie') {
+        if (!groupBy) return null
+        base.group_by = groupBy
+      }
+      if (type === 'heatmap') {
+        if (!groupBy || !groupBy2) return null
+        Object.assign(base, { group_by: groupBy, group_by2: groupBy2,
+          ...(axisList(axis1).length ? { group_values: axisList(axis1) } : {}),
+          ...(axisList(axis2).length ? { group_values2: axisList(axis2) } : {}) })
+      }
+      if (type === 'kpi') {
+        if (cmpPrev) base.compare_prev = true
+        if (spark) base.spark = true
+        if (target.trim() && !isNaN(Number(target))) base.target = Number(target)
+      }
+      return base
+    }
     if (type === 'kpi' || type === 'gauge') {
       const base = source === 'formula' ? (formulaDsl.trim() ? { formula: formulaDsl.trim(), unit: formulaUnit.trim() || undefined } : null)
         : source === 'metric' ? (metricCode ? { metric_code: metricCode } : null) : ((dataset && valueField) ? { dataset_code: dataset, value_field: valueField } : null)
@@ -387,9 +423,13 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       : ((dataset && planField && factField)
         ? { dataset_code: dataset, plan_field: planField, fact_field: factField, ...(forecast ? { forecast: true } : {}) }
         : null)
-    if (type === 'table') return dataset
-      ? { dataset_code: dataset, ...(Object.keys(cellFmt).length ? { cell_format: cellFmt } : {}) }
-      : null
+    if (type === 'table') {
+      const where = whereToConfig(conds)
+      return dataset
+        ? { dataset_code: dataset, ...(Object.keys(cellFmt).length ? { cell_format: cellFmt } : {}),
+            ...(where.length ? { where } : {}) }
+        : null
+    }
     if (type === 'objects_compare') return objField ? { value_field: objField } : null
     if (type === 'cross_dataset_compare') {
       const valid = crossSeries.filter((s) => s.dataset_code && s.value_field)
@@ -615,8 +655,53 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       {usesDataset && (
         <Field size="sm" label="Датасет"><select style={sel} value={dataset} onChange={(e) => { setDataset(e.target.value); const nf = numFields(e.target.value); setValueField(nf[0]?.code || ''); setPlanField(nf[0]?.code || ''); setFactField(nf[0]?.code || ''); setMultiFields([]) }}>{sources.datasets.map((d) => <option key={d.code} value={d.code}>{dsOption(d)}</option>)}</select></Field>
       )}
+      {canCount && dataset && (
+        <Field size="sm" label="Что показать">
+          <select style={sel} value={countMode ? 'count' : 'value'} onChange={(e) => setCountMode(e.target.value === 'count')}>
+            <option value="value">Значение графы</option>
+            <option value="count">Число строк (подсчёт)</option>
+          </select>
+        </Field>
+      )}
       {usesValueField && (
         <Field size="sm" label="Поле (значение)"><select style={sel} value={valueField} onChange={(e) => setValueField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></Field>
+      )}
+      {counting && (type === 'bar' || type === 'pie') && (
+        <Field size="sm" label="Разбить по графе">
+          <select style={sel} value={groupBy} onChange={(e) => setGroupBy(e.target.value)}>
+            <option value="">— графа —</option>
+            {allFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
+          </select>
+        </Field>
+      )}
+      {counting && type === 'heatmap' && (
+        <>
+          <Field size="sm" label="Строки карты — графа">
+            <select style={sel} value={groupBy} onChange={(e) => setGroupBy(e.target.value)}>
+              <option value="">— графа —</option>
+              {allFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
+            </select>
+          </Field>
+          <Field size="sm" label="Столбцы карты — графа">
+            <select style={sel} value={groupBy2} onChange={(e) => setGroupBy2(e.target.value)}>
+              <option value="">— графа —</option>
+              {allFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
+            </select>
+          </Field>
+          {/* Шкала целиком: пустая клетка матрицы рисков — тоже ответ, а без
+              заданного порядка ось показала бы только встретившиеся значения. */}
+          <Field size="sm" label="Значения строк по порядку (необяз.)">
+            <input style={{ ...sel, width: 170 }} placeholder="например: 5, 4, 3, 2, 1" value={axis1} onChange={(e) => setAxis1(e.target.value)} />
+          </Field>
+          <Field size="sm" label="Значения столбцов по порядку (необяз.)">
+            <input style={{ ...sel, width: 170 }} placeholder="например: 1, 2, 3, 4, 5" value={axis2} onChange={(e) => setAxis2(e.target.value)} />
+          </Field>
+        </>
+      )}
+      {(counting || (type === 'table' && dataset)) && (
+        <WhereEditor fields={allFields(dataset)} value={conds} onChange={setConds}
+          title={counting ? 'Считать только строки, где… (все условия сразу; без условий — все строки)'
+            : 'Показывать только строки, где… (без условий — все строки)'} />
       )}
       {isObjectsCompare && (
         <Field size="sm" label="Показатель (по подразделениям)"><select style={sel} value={objField} onChange={(e) => setObjField(e.target.value)}>

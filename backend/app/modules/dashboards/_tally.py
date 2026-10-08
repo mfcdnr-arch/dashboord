@@ -178,6 +178,16 @@ async def _rows(conn, release_id, fields: Sequence[str], row=None, allowed=None)
     return rows
 
 
+async def _titles(conn, release_id, codes: Sequence[str]) -> Dict[str, str]:
+    """Имена граф-осей: на матрице рисков оси подписаны «Вероятность» и
+    «Влияние», а не кодом поля."""
+    rows = await conn.fetch(
+        "select cf.code, cf.name from canonical_fields cf join dataset_releases r "
+        "on r.object_id = cf.object_id where r.id=$1 and cf.code = any($2::text[])",
+        release_id, [c for c in codes if c])
+    return {r["code"]: r["name"] for r in rows}
+
+
 def _filter(rows: Dict[int, dict], where: List[dict], report_day) -> Tuple[List[int], int]:
     unparsed: List[int] = []
     keep = [i for i, r in sorted(rows.items())
@@ -257,8 +267,9 @@ async def count_by(conn, org_id, cfg: dict, period=None, row=None, allowed=None)
             counts[lab] += 1
         else:
             outside += 1
+    names = await _titles(conn, rel, [field])
     return {"categories": axis, "values": [float(counts[a]) for a in axis],
-            "note": _note(unparsed, outside)}
+            "group_title": names.get(field, field), "note": _note(unparsed, outside)}
 
 
 async def count_matrix(conn, org_id, cfg: dict, period=None, row=None, allowed=None) -> dict:
@@ -286,7 +297,9 @@ async def count_matrix(conn, org_id, cfg: dict, period=None, row=None, allowed=N
             outside += 1
     cells = [[xi, yi, float(grid[(y, x)])] for yi, y in enumerate(ys) for xi, x in enumerate(xs)]
     nums = [c[2] for c in cells]
+    names = await _titles(conn, rel, [f1, f2])
     return {"rows": ys, "columns": xs, "cells": cells,
+            "row_title": names.get(f1, f1), "col_title": names.get(f2, f2),
             "min": min(nums) if nums else 0, "max": max(nums) if nums else 0,
             "note": _note(unparsed, outside), "count": True}
 
