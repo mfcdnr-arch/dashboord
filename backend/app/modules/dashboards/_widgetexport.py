@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from ...plural import plural as _plural
 from ._base import DashboardError
 from ._rls import _can_view, visible_widget_ids
 from ._sheetnames import LIMIT, clean_title, short_cores
@@ -89,15 +90,6 @@ def _num(v) -> str:
     if v is None:
         return ""
     return str(int(v)) if float(v).is_integer() else str(v)
-
-
-def _plural(n: int, one: str, few: str, many: str) -> str:
-    """Русское склонение по числу. Ловушка — 11–14: «11 строк», а не «11 строка»."""
-    tail = abs(n) % 100
-    if 11 <= tail <= 14:
-        return many
-    last = tail % 10
-    return one if last == 1 else few if 2 <= last <= 4 else many
 
 
 _LEVEL_RU = {"danger": "ниже 90 % плана", "poor": "заметное отставание",

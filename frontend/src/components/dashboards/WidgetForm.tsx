@@ -392,6 +392,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       if (type === 'bar' || type === 'pie') {
         if (!groupBy) return null
         base.group_by = groupBy
+        if (axisList(axis1).length) base.group_values = axisList(axis1)
       }
       if (type === 'heatmap') {
         if (!groupBy || !groupBy2) return null
@@ -670,12 +671,19 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         <Field size="sm" label="Поле (значение)"><select style={sel} value={valueField} onChange={(e) => setValueField(e.target.value)}>{numFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}</select></Field>
       )}
       {counting && (type === 'bar' || type === 'pie') && (
-        <Field size="sm" label="Разбить по графе">
-          <select style={sel} value={groupBy} onChange={(e) => setGroupBy(e.target.value)}>
-            <option value="">— графа —</option>
-            {allFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
-          </select>
-        </Field>
+        <>
+          <Field size="sm" label="Разбить по графе">
+            <select style={sel} value={groupBy} onChange={(e) => setGroupBy(e.target.value)}>
+              <option value="">— графа —</option>
+              {allFields(dataset).map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
+            </select>
+          </Field>
+          {/* Уровни риска читаются по порядку «Высокий → Низкий», а не по
+              числу вопросов; заданные значения показываются и с нулём. */}
+          <Field size="sm" label="Значения по порядку (необяз.)">
+            <input style={{ ...sel, width: 220 }} placeholder="например: Высокий, Средний, Низкий" value={axis1} onChange={(e) => setAxis1(e.target.value)} />
+          </Field>
+        </>
       )}
       {counting && type === 'heatmap' && (
         <>

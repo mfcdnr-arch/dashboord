@@ -9,6 +9,7 @@ import math
 import statistics
 from typing import Dict, List, Optional
 
+from ...plural import plural
 from ..ingestion.hierarchy import pick_separator
 from . import _levels, _tally
 from . import _widgetsources as ws
@@ -197,15 +198,7 @@ def _trim_waterfall(res: dict) -> None:
 
 
 def _plural_rows(n: int) -> str:
-    tail = abs(n) % 100
-    if 11 <= tail <= 14:
-        return "строк"
-    last = tail % 10
-    if last == 1:
-        return "строка"
-    if 2 <= last <= 4:
-        return "строки"
-    return "строк"
+    return plural(n, "строка", "строки", "строк")
 
 
 def _month_buckets(pairs, title: str):

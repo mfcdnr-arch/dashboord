@@ -132,7 +132,7 @@ async def test_overdue_counts_against_the_report_date_and_names_unparsed(client,
     d = await _pv(client, admin_headers, "kpi", {"count": True, "where": [
         {"field": "srok", "op": "date_before_report"}]})
     assert d["value"] == 2, d  # 01.10 и 05.10 раньше 06.10; 20.10 — нет
-    assert "1 строк дата не распознана" in d["note"], d
+    assert "У 1 строки дата не распознана" in d["note"] and "она не вошла" in d["note"], d
     # Старый отчёт (29.09) судит по своей дате: 01.10 тогда ещё не истёк.
     d = await _pv(client, admin_headers, "kpi", {"count": True, "period": "2026-09-29",
                                                  "where": [{"field": "srok", "op": "date_before_report"}]})
@@ -147,6 +147,18 @@ async def test_split_by_values_orders_numbers_and_puts_empty_last(client, admin_
     assert d["values"] == [2, 1, 1, 1] and sum(d["values"]) == 5
     d = await _pv(client, admin_headers, "pie", {"count": True, "group_by": "ver"})
     assert d["categories"] == ["1", "2", "3", "4", "5"] and sum(d["values"]) == 5
+    # Разбивка сравнивает значения ТАК ЖЕ, как условие отбора: «В работе» и
+    # «в работе» — один статус, подписанный записью, что встречается чаще.
+    # До правки это были два сектора при одном числе у фильтра «в работе».
+    d = await _pv(client, admin_headers, "pie", {"count": True, "group_by": "status"})
+    assert d["categories"][0] == "В работе" and d["values"][0] == 3, d
+    assert "в работе" not in d["categories"]
+    # Заданный порядок тоже не зависит от регистра: уровень из классификатора,
+    # вписанный строчными, находит свои строки, а не уходит «вне шкалы».
+    d = await _pv(client, admin_headers, "bar", {"count": True, "group_by": "uroven",
+                                                 "group_values": ["высокий", "Средний", "Низкий"]})
+    assert d["categories"] == ["высокий", "Средний", "Низкий"] and d["values"] == [2, 1, 0], d
+    assert "2 строки со значением вне заданной шкалы не показаны" in (d.get("note") or ""), d
 
 
 async def test_risk_matrix_keeps_the_whole_scale_and_names_what_falls_outside(client, admin_headers, form):
@@ -162,7 +174,7 @@ async def test_risk_matrix_keeps_the_whole_scale_and_names_what_falls_outside(cl
     d = await _pv(client, admin_headers, "heatmap", {
         "count": True, "group_by": "ver", "group_by2": "vliyanie",
         "group_values": [1, 2, 3], "group_values2": [1, 2, 3, 4, 5]})
-    assert sum(c[2] for c in d["cells"]) == 3 and "2 строк со значением вне заданной шкалы" in d["note"]
+    assert sum(c[2] for c in d["cells"]) == 3 and "2 строки со значением вне заданной шкалы не показаны" in d["note"]
 
 
 async def test_table_shows_only_matching_rows(client, admin_headers, form):

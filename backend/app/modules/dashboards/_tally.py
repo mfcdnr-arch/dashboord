@@ -34,6 +34,7 @@ import re
 from datetime import date
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from ...plural import plural
 from ..metrics import resolver as mr
 from ._base import DashboardError
 
@@ -195,19 +196,40 @@ def _filter(rows: Dict[int, dict], where: List[dict], report_day) -> Tuple[List[
     return keep, len(unparsed)
 
 
-def _axis(values: List, fixed: Optional[list]) -> List[str]:
-    """Порядок значений оси. Заданный человеком (шкала «1–5») — как есть и
-    целиком, даже с нулями: пустая клетка матрицы рисков — тоже ответ. Иначе
-    числа по возрастанию, текст — по убыванию частоты."""
+def _key(v) -> str:
+    """Ключ значения на оси — то же сравнение, что у условий отбора (`_norm`).
+
+    Иначе фильтр «статус = В работе» считал бы и «в работе», а разбивка по
+    статусу показала бы их двумя секторами: одна категория — два числа."""
+    return "" if _label(v) == EMPTY_LABEL else _norm(v)
+
+
+def _axis(values: List, fixed: Optional[list]) -> List[Tuple[str, str]]:
+    """Значения оси парами (ключ, подпись).
+
+    Заданный человеком порядок (шкала «1–5», «Высокий, Средний, Низкий») —
+    как есть и целиком, даже с нулями: пустая клетка матрицы рисков — тоже
+    ответ. Иначе числа по возрастанию, текст — по убыванию частоты. Подпись —
+    та запись значения, что в форме встречается чаще (а не первая попавшаяся)."""
     if fixed:
-        return [_label(x) for x in fixed]
-    labels = [_label(v) for v in values]
-    uniq = list(dict.fromkeys(labels))
-    if uniq and all(_num(x) is not None for x in uniq if x != EMPTY_LABEL):
-        nums = sorted((x for x in uniq if x != EMPTY_LABEL), key=lambda x: _num(x) or 0)
-        return nums + ([EMPTY_LABEL] if EMPTY_LABEL in uniq else [])
-    freq = {x: labels.count(x) for x in uniq}
-    return sorted(uniq, key=lambda x: (x == EMPTY_LABEL, -freq[x], x))
+        out: Dict[str, str] = {}
+        for x in fixed:
+            out.setdefault(_key(x), _label(x))
+        return list(out.items())
+    spelled: Dict[str, Dict[str, int]] = {}
+    for v in values:
+        lab = _label(v)
+        by = spelled.setdefault(_key(v), {})
+        by[lab] = by.get(lab, 0) + 1
+    label = {k: max(by, key=lambda x: (by[x], -list(by).index(x))) for k, by in spelled.items()}
+    freq = {k: sum(by.values()) for k, by in spelled.items()}
+    keys = list(spelled)
+    if keys and all(_num(label[k]) is not None for k in keys if k):
+        nums = sorted((k for k in keys if k), key=lambda k: _num(label[k]) or 0)
+        keys = nums + ([""] if "" in spelled else [])
+    else:
+        keys = sorted(keys, key=lambda k: (k == "", -freq[k], label[k]))
+    return [(k, label[k]) for k in keys]
 
 
 def _note(unparsed: int, outside: int = 0) -> Optional[str]:
@@ -215,10 +237,12 @@ def _note(unparsed: int, outside: int = 0) -> Optional[str]:
     пропадать молча: иначе «5 вопросов» читается как «всего 5»."""
     parts = []
     if unparsed:
-        parts.append(f"У {unparsed} строк дата не распознана (например, «на постоянной основе») — "
-                     "в подсчёт по сроку они не вошли.")
+        rows = plural(unparsed, "строки", "строк", "строк")
+        parts.append(f"У {unparsed} {rows} дата не распознана (например, «на постоянной основе») — "
+                     f"в подсчёт по сроку {plural(unparsed, 'она не вошла', 'они не вошли', 'они не вошли')}.")
     if outside:
-        parts.append(f"{outside} строк со значением вне заданной шкалы не показаны.")
+        parts.append(f"{outside} {plural(outside, 'строка', 'строки', 'строк')} со значением вне "
+                     f"заданной шкалы не {plural(outside, 'показана', 'показаны', 'показаны')}.")
     return " ".join(parts) or None
 
 
@@ -259,16 +283,16 @@ async def count_by(conn, org_id, cfg: dict, period=None, row=None, allowed=None)
     rows = await _rows(conn, rel, [field] + [c["field"] for c in where], row, allowed)
     keep, unparsed = _filter(rows, where, day)
     axis = _axis([rows[i].get(field) for i in keep], cfg.get("group_values"))
-    counts = {a: 0 for a in axis}
+    counts = {k: 0 for k, _ in axis}
     outside = 0
     for i in keep:
-        lab = _label(rows[i].get(field))
-        if lab in counts:
-            counts[lab] += 1
+        k = _key(rows[i].get(field))
+        if k in counts:
+            counts[k] += 1
         else:
             outside += 1
     names = await _titles(conn, rel, [field])
-    return {"categories": axis, "values": [float(counts[a]) for a in axis],
+    return {"categories": [lab for _, lab in axis], "values": [float(counts[k]) for k, _ in axis],
             "group_title": names.get(field, field), "note": _note(unparsed, outside)}
 
 
@@ -287,18 +311,18 @@ async def count_matrix(conn, org_id, cfg: dict, period=None, row=None, allowed=N
         raise DashboardError(
             f"Матрица подсчёта: у графы больше {MAX_AXIS} значений — это уже не матрица. "
             "Покажите подсчёт столбиками или таблицей.")
-    grid = {(y, x): 0 for y in ys for x in xs}
+    grid = {(y, x): 0 for y, _ in ys for x, _ in xs}
     outside = 0
     for i in keep:
-        k = (_label(rows[i].get(f1)), _label(rows[i].get(f2)))
+        k = (_key(rows[i].get(f1)), _key(rows[i].get(f2)))
         if k in grid:
             grid[k] += 1
         else:
             outside += 1
-    cells = [[xi, yi, float(grid[(y, x)])] for yi, y in enumerate(ys) for xi, x in enumerate(xs)]
+    cells = [[xi, yi, float(grid[(y, x)])] for yi, (y, _) in enumerate(ys) for xi, (x, _) in enumerate(xs)]
     nums = [c[2] for c in cells]
     names = await _titles(conn, rel, [f1, f2])
-    return {"rows": ys, "columns": xs, "cells": cells,
+    return {"rows": [lab for _, lab in ys], "columns": [lab for _, lab in xs], "cells": cells,
             "row_title": names.get(f1, f1), "col_title": names.get(f2, f2),
             "min": min(nums) if nums else 0, "max": max(nums) if nums else 0,
             "note": _note(unparsed, outside), "count": True}

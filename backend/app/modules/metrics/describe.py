@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from app.plural import plural as _plural
+
 _AGG_RU = {
     "SUM": "сумма значений",
     "AVG": "среднее значение",
@@ -31,13 +33,6 @@ _PREV_RU = {"month": "прошлым месяцем", "quarter": "прошлым
             "first": "первым периодом данных"}
 
 
-def _plural(n: int, one: str, few: str, many: str) -> str:
-    """Русское склонение после числа: 1 период, 2 периода, 5 периодов."""
-    if n % 10 == 1 and n % 100 != 11:
-        return one
-    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
-        return few
-    return many
 
 
 def _col(names: Dict[str, str], code: str) -> str:

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from ...plural import plural as _plural
 from ._alerts import _cfg
 
 # Сколько показателей перечислять поимённо. Список из пятнадцати имён госформы
@@ -35,18 +36,6 @@ _TYPE_RU = {
 
 def _ru_date(value) -> str:
     return value.strftime("%d.%m.%Y") if hasattr(value, "strftime") else str(value)
-
-
-def _plural(n: int, one: str, few: str, many: str) -> str:
-    tail = n % 100
-    if 11 <= tail <= 14:
-        return many
-    last = n % 10
-    if last == 1:
-        return one
-    if 2 <= last <= 4:
-        return few
-    return many
 
 
 async def describe_dashboard(conn, org_id, dashboard_id: str) -> dict:
