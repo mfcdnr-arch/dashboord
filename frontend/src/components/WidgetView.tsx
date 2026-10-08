@@ -905,6 +905,21 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         {data.count && data.note && (
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>{data.note}</div>
         )}
+        {data.no_data && (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>{data.no_data}</div>
+        )}
+      </div>
+    )
+  }
+  if (data.type === 'gauge' && data.value == null) {
+    // Стрелка на нуле читалась бы как «0 % выполнения» — то есть как провал,
+    // а на деле графа просто не заполнена. Шкалу без значения не рисуем.
+    return (
+      <div style={{ textAlign: 'center', paddingTop: 12 }}>
+        <div style={{ fontSize: 30, fontWeight: 700, color: 'var(--text-muted)' }}>—</div>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.45 }}>
+          {data.no_data || 'Значения нет.'}
+        </div>
       </div>
     )
   }

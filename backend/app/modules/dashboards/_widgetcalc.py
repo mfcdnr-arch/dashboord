@@ -263,6 +263,17 @@ async def _column_value(conn, org_id, cfg: dict, field: str, row, allowed, perio
     return value, how, len(series)
 
 
+# Графа не заполнена в отчёте — значения нет. Не ноль: «0 %» на спидометре
+# выполнения читается как «план провален», а у формы Минэкономразвития лист
+# «Сводка» в этом месте честно пишет «—». Сумма по нулю строк — тоже не ноль,
+# а отсутствие сведений; ноль, вписанный в форму, остаётся нулём.
+NO_DATA_NOTE = "В этом отчёте графа не заполнена — значения нет (это не ноль)."
+
+
+def _unfilled(value, rows_used: int):
+    return None if rows_used == 0 else value
+
+
 def _apply_target(res: dict, cfg: dict, value) -> None:
     """Цель/бенчмарк на показателе (KPI/gauge): добавляет target и % достижения."""
     t = cfg.get("target")
@@ -1584,10 +1595,8 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
                 "change": yoy_change, "change_pct": yoy_change_pct, "unit": cfg.get("unit")}
 
     if t == "kpi":
-        if cfg.get("formula"):
-            value, unit = await _formula_value(conn, org_id, cfg["formula"]), cfg.get("unit")
-        elif cfg.get("metric_code"):
-            value, unit = await _metric_value(conn, org_id, cfg["metric_code"])
+        # До 08.10.2026 здесь стоял второй такой же блок «формула / показатель»
+        # ДО основного — формулу и показатель карточки считали дважды.
         how, rows_used = "sum", 0
         counted: Optional[dict] = None
         if cfg.get("formula"):
@@ -1603,9 +1612,12 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             value, how, rows_used = await _column_value(
                 conn, org_id, cfg, cfg["value_field"], row, allowed, period)
             unit = cfg.get("unit")
+            value = _unfilled(value, rows_used)
         else:
             raise DashboardError("KPI: укажите формулу, metric_code или dataset_code+value_field")
         res = {"type": "kpi", "value": value, "unit": unit, "title": name}
+        if value is None:
+            res["no_data"] = NO_DATA_NOTE
         if counted is not None:
             res["count"], res["rows_total"] = True, counted["rows_total"]
             if counted.get("note"):
@@ -1633,7 +1645,7 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             if cfg.get("spark") and len(trend) > 1:
                 res["spark"] = [v for _p, v in trend]
                 res["spark_periods"] = [p for p, _v in trend]
-            if cfg.get("compare_prev") and len(trend) > 1:
+            if cfg.get("compare_prev") and len(trend) > 1 and value is not None:
                 prev_period, prev_value = trend[-2]
                 res["prev_value"], res["prev_period"] = prev_value, prev_period
                 res["delta"] = value - prev_value
@@ -1654,6 +1666,7 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             value, how, rows_used = await _column_value(
                 conn, org_id, cfg, cfg["value_field"], row, allowed, period)
             unit = cfg.get("unit")
+            value = _unfilled(value, rows_used)
         else:
             raise DashboardError("Gauge: укажите формулу, metric_code или dataset_code+value_field")
         gmax = cfg.get("gauge_max")
@@ -1666,6 +1679,8 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             else:
                 gmax = round((value or 0) * 1.25) or 100
         res = {"type": "gauge", "value": value, "unit": unit, "max": gmax, "title": name}
+        if value is None:
+            res["no_data"] = NO_DATA_NOTE
         if how == "avg" and rows_used > 1:
             res["aggregate"], res["rows_used"] = how, rows_used
         _apply_target(res, cfg, value)
