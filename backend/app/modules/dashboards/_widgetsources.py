@@ -339,7 +339,10 @@ async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None
         rel, cols,
     )
     names = {t["code"]: t["name"] for t in titles}
-    return {"columns": cols, "column_titles": names, "rows": rows}
+    # Сколько строк в отчёте ДО отбора: пустая лента «особо значимых» должна
+    # говорить «под условия не подошло ни одной из 22», а не «ничего не найдено».
+    return {"columns": cols, "column_titles": names, "rows": rows,
+            **({"rows_total": len(by_row)} if where else {})}
 
 
 async def _dataset_as_of(conn, org_id, dataset_code: str, period=None):

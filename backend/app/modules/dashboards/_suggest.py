@@ -344,6 +344,10 @@ async def document_release_info(conn, org_id, document_id: str) -> dict:
 
 # Дата в конце названия выпуска: «Показатели MAX 22.07.2026», «Форма 2026-07-22».
 _TRAILING_DATE = re.compile(r"[\s,·—-]*\(?\b(\d{2}[.\-/]\d{2}[.\-/]\d{2,4}|\d{4}-\d{2}-\d{2})\b\)?\s*$")
+# Связка, повисшая после даты: «… отчёт за», «… на», «… по состоянию на».
+_DANGLING = re.compile(
+    r"(?:^|[\s,·—-]+)(?:(?:отч[её]т|данные|сведения|информация)\s+)?"
+    r"(?:по\s+состоянию\s+)?(?:за|на|от|по)$", re.IGNORECASE)
 
 
 def form_title(name: str) -> str:
@@ -365,8 +369,16 @@ def form_title(name: str) -> str:
     raw = re.sub(r"\.(xlsx|xls|csv|pdf|docx)$", "", raw, flags=re.IGNORECASE)
     raw = raw.replace("_", " ")
     raw = re.sub(r"\s{2,}", " ", raw).strip()
-    cleaned = _TRAILING_DATE.sub("", raw).strip(" ,·—-")
-    return cleaned or (name or "").strip()
+    m = _TRAILING_DATE.search(raw)
+    if not m:
+        return raw or (name or "").strip()
+    cleaned = raw[:m.start()].strip(" ,·—-")
+    # Вместе с датой уходит и связка перед ней: «Показатели · отчёт за
+    # 06.10.2026» давало подпись «Показатели · отчёт за», «МВД услуги на
+    # 19.08.2026» — «МВД услуги на». Если без связки не остаётся ничего
+    # («Отчёт за 06.10.2026»), связку оставляем: имя из одного предлога хуже.
+    bare = _DANGLING.sub("", cleaned).strip(" ,·—-")
+    return bare or cleaned or (name or "").strip()
 
 
 async def _dataset_display_name(conn, org_id, code: str) -> str:

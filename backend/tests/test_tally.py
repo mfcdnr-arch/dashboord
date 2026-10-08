@@ -144,7 +144,7 @@ async def test_split_by_values_orders_numbers_and_puts_empty_last(client, admin_
     частоте, «не заполнено» — последним и названо, а не потеряно."""
     d = await _pv(client, admin_headers, "bar", {"count": True, "group_by": "uroven"})
     assert d["categories"] == ["Высокий", "Снят", "Средний", _tally.EMPTY_LABEL]
-    assert d["values"] == [2, 1, 1, 1] and sum(d["values"]) == 5
+    assert d["values"] == [2, 1, 1, 1] and sum(d["values"]) == 5 and d["rows_total"] == 5
     d = await _pv(client, admin_headers, "pie", {"count": True, "group_by": "ver"})
     assert d["categories"] == ["1", "2", "3", "4", "5"] and sum(d["values"]) == 5
     # Разбивка сравнивает значения ТАК ЖЕ, как условие отбора: «В работе» и
@@ -181,6 +181,9 @@ async def test_table_shows_only_matching_rows(client, admin_headers, form):
     """«Лента» — таблица из строк, подходящих под условие."""
     d = await _pv(client, admin_headers, "table", {"where": [{"field": "uroven", "op": "eq", "value": "высокий"}]})
     assert [r["row"] for r in d["rows"]] == ["Вопрос А", "Вопрос Г"]
+    # Из скольких строк отбирали: пустая лента говорит «не подошла ни одна из 5»,
+    # а не «ничего не найдено», как результат поиска.
+    assert d["rows_total"] == 5
 
 
 async def test_card_trend_counts_each_report(client, admin_headers, form):

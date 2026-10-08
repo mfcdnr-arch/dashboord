@@ -141,10 +141,22 @@ function fmtPeriod(p: string): string {
 
 // Палитра серий — из CSS-токенов темы (см. theme.css: --chart-*); при смене темы
 // Body перерисовывается (useThemeVersion) и графики пересобираются с новыми цветами.
+/** Почему пусто у подсчёта и у ленты: строк нет вовсе — или ни одна не
+ *  подошла под условия. «Нет строк, подходящих под условия» на виджете без
+ *  условий было бы неправдой. */
+function countEmpty(data: any): string {
+  return data.rows_total
+    ? `Под условия не подошла ни одна строка (всего в отчёте ${fmt(data.rows_total)}).`
+    : 'В отчёте нет строк.'
+}
+
 function chartOption(data: any, height = 200): EChartsOption {
   const C = chartColors()
   const cats: string[] = data.categories || []
   const vals: number[] = data.values || []
+  // Подсчёт строк — целые числа: деления «0,30 · 0,60» на оси «сколько
+  // вопросов» бессмысленны (так и было на пустом листе формы).
+  const countAxis = data.count ? { minInterval: 1, max: Math.max(...vals, 0) === 0 ? 1 : undefined } : {}
   if (data.type === 'pie') {
     return {
       tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
@@ -203,7 +215,7 @@ function chartOption(data: any, height = 200): EChartsOption {
       // (417px при окне 1150) под саму ось остаётся ~180px, и подписи «100 150
       // 200 250» наезжали друг на друга. Точное число у каждой полосы всё равно
       // подписано справа, поэтому спрятать лишнее деление ничего не теряет.
-      xAxis: { type: 'value' as const, splitNumber: 3, axisLabel: { hideOverlap: true, fontSize: 10 } },
+      xAxis: { type: 'value' as const, splitNumber: 3, axisLabel: { hideOverlap: true, fontSize: 10 }, ...countAxis },
       yAxis: { ...catAxis, inverse: true },
       series: [{ type: 'bar', name: 'Сейчас', data: vals, color: C.c1, itemStyle: { color: C.c1 },
         barMaxWidth: 18,
@@ -226,7 +238,7 @@ function chartOption(data: any, height = 200): EChartsOption {
       } },
     legend: ghost ? { bottom: 0, itemHeight: 8, itemWidth: 14, textStyle: { fontSize: 10 } } : undefined,
     xAxis: { type: 'category', data: catsFit.labels, axisLabel: { interval: 0, rotate: rotateCats ? 30 : 0, fontSize: 11 } },
-    yAxis: { type: 'value' },
+    yAxis: { type: 'value', ...countAxis },
     // Призрак идёт ПЕРВЫМ в списке: у столбиков с barGap:'-100%' вторая серия
     // рисуется поверх первой, поэтому «раньше» должно быть до «сейчас».
     series: [{ type: isLine ? 'line' : 'bar', name: 'Сейчас', data: vals, smooth: isLine,
@@ -866,7 +878,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     )
   }
   if (data.type === 'kpi') {
-    const kpiText = fmt(data.value) + (data.unit ? ' ' + data.unit : '')
+    const kpiText = fmt(data.value) + (data.unit && data.value != null ? ' ' + data.unit : '')
     const up = (data.delta ?? 0) > 0
     const flat = !data.delta
     return (
@@ -875,7 +887,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             обе строки и появляется полоса прокрутки. */}
         <FitText size={data.prev_value != null ? 26 : 30} title={kpiText}
           style={{ fontWeight: 700, color: levelLook(data.alert?.level)?.color || 'var(--accent-text)' }}>{fmt(data.value)}
-          {data.unit && <span style={{ fontSize: '0.5em', color: 'var(--text-muted)', marginLeft: 6 }}>{data.unit}</span>}
+          {data.unit && data.value != null && <span style={{ fontSize: '0.5em', color: 'var(--text-muted)', marginLeft: 6 }}>{data.unit}</span>}
         </FitText>
         {/* Прирост к прошлому отчёту: голое число не отвечает на вопрос «это
             много или мало» — а «+38 174 (+4,3 %) к 22.07» отвечает. */}
@@ -1375,6 +1387,12 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
   if (data.type === 'table') {
     const cols: string[] = data.columns || []
     let rows: any[] = data.rows || []
+    // Пустая таблица — не «ничего не найдено»: так она читалась как результат
+    // поиска. Говорим, почему пусто: строк нет вовсе или ни одна не подошла
+    // под условия ленты.
+    if (rows.length === 0) {
+      return <Empty why={countEmpty(data)} />
+    }
     // Условное форматирование ячеек (п. 2 списка предложений).
     // «Цвет по порогам» посчитан на сервере ТЕМ ЖЕ кодом, что красит карточку
     // показателя, и приезжает уровнем внутри строки (`__fmt`) — при сортировке
@@ -1927,8 +1945,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     const cols: string[] = data.columns || []
     const cells: number[][] = data.cells || []
     if (rows.length === 0 || cols.length === 0) {
-      return <Empty why={data.count
-        ? 'В отчёте нет строк, подходящих под условия подсчёта.'
+      return <Empty why={data.count ? countEmpty(data)
         : 'В отчёте нет строк или выбранных граф — проверьте настройку виджета.'} />
     }
     // 🔴 На равномерной шкале «от нуля до максимума» карта РЦО сливалась в один
@@ -1997,19 +2014,23 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     const shortCols = dropCommonWords(cols).map(colLabel)
     const colLines = Math.max(...shortCols.map((c) => c.split('\n').length))
     const longX = shortCols.some((c) => c.length > 6)
+    const numbersInCells = Boolean(data.count) && rows.length * cols.length <= 60
     const opt: EChartsOption = {
       tooltip: { position: 'top', formatter: (p: any) => `${cols[p.value[0]]} · ${rows[p.value[1]]}: <b>${fmt(p.value[2])}</b>` },
       grid: { left: 8, right: 12, top: 10, bottom: longX ? 24 + colLines * 13 : 44, containLabel: true },
-      // Матрица подсчёта (риски «вероятность × влияние») без названий осей —
-      // просто сетка чисел: какая шкала по строкам, какая по столбцам, не видно.
       xAxis: { type: 'category', data: shortCols, splitArea: { show: true },
-        axisLabel: { fontSize: 10, interval: 0, lineHeight: 12 },
-        ...(data.count && data.col_title ? { name: String(data.col_title), nameLocation: 'middle' as const,
-          nameGap: 22, nameTextStyle: { fontSize: 11, color: 'var(--text-muted)' } } : {}) },
-      yAxis: { type: 'category', data: shortRows, splitArea: { show: true }, axisLabel: { fontSize: 11, interval: 0 },
-        ...(data.count && data.row_title ? { name: String(data.row_title), nameLocation: 'middle' as const,
-          nameGap: 26, nameTextStyle: { fontSize: 11, color: 'var(--text-muted)' } } : {}) },
-      visualMap: steps
+        axisLabel: { fontSize: 10, interval: 0, lineHeight: 12 } },
+      // Строки сверху вниз в том порядке, в каком пришли: как в форме и в
+      // таблице. Ось категорий ECharts по умолчанию кладёт первую строку ВНИЗ —
+      // у матрицы рисков с порядком «5, 4, 3, 2, 1» высокая вероятность
+      // оказывалась внизу, а «Отделение № 1» РЦО — последней строкой карты.
+      yAxis: { type: 'category', data: shortRows, inverse: true, splitArea: { show: true },
+        axisLabel: { fontSize: 11, interval: 0 } },
+      visualMap: numbersInCells
+        // У матрицы подсчёта число стоит в каждой клетке — ползунок цвета
+        // ничего не добавляет, а внизу карточки наезжал на подписи столбцов.
+        ? { show: false, min: 0, max: Math.max(1, data.max || 0), inRange: { color: C.heat } }
+        : steps
         // Ступени по РАСПРЕДЕЛЕНИЮ, а не по отрезку от нуля до максимума.
         ? { type: 'piecewise', pieces: steps.pieces, orient: 'horizontal', left: 'center', bottom: 0,
             itemWidth: 14, itemHeight: 10, textStyle: { fontSize: 10 } }
@@ -2025,8 +2046,15 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     const h = Math.min(1600, Math.max(200, rows.length * ROW_PX + (longX ? 96 : 82)))
     return (
       <div style={{ height: '100%' }}>
+        {/* Какая шкала по строкам и какая по столбцам. Подписи осей ECharts при
+            длинном имени графы уезжали за край карточки — строкой надёжнее. */}
+        {data.count && (data.row_title || data.col_title) && (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2, lineHeight: 1.45 }}>
+            Строки — {String(data.row_title || '')}, столбцы — {String(data.col_title || '')}; в клетке — число строк.
+          </div>
+        )}
         <EChart option={P(opt)} height={h} />
-        {steps && (
+        {steps && !numbersInCells && (
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>
             Ступени шкалы — по распределению значений: в каждой примерно пятая часть клеток.
             Значения различаются в {fmt(Math.round(steps.spread))} раз, и на равномерной шкале
@@ -2496,8 +2524,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
 
   // bar | line | pie
   if ((data.categories || []).length === 0) {
-    return <Empty why={data.count
-      ? 'В отчёте нет строк, подходящих под условия подсчёта.'
+    return <Empty why={data.count ? countEmpty(data)
       : 'У выбранной графы нет значений за этот отчёт.'} />
   }
   return (

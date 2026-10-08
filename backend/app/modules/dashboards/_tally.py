@@ -293,7 +293,8 @@ async def count_by(conn, org_id, cfg: dict, period=None, row=None, allowed=None)
             outside += 1
     names = await _titles(conn, rel, [field])
     return {"categories": [lab for _, lab in axis], "values": [float(counts[k]) for k, _ in axis],
-            "group_title": names.get(field, field), "note": _note(unparsed, outside)}
+            "group_title": names.get(field, field), "note": _note(unparsed, outside),
+            "rows_total": len(rows)}
 
 
 async def count_matrix(conn, org_id, cfg: dict, period=None, row=None, allowed=None) -> dict:
@@ -325,7 +326,7 @@ async def count_matrix(conn, org_id, cfg: dict, period=None, row=None, allowed=N
     return {"rows": [lab for _, lab in ys], "columns": [lab for _, lab in xs], "cells": cells,
             "row_title": names.get(f1, f1), "col_title": names.get(f2, f2),
             "min": min(nums) if nums else 0, "max": max(nums) if nums else 0,
-            "note": _note(unparsed, outside), "count": True}
+            "note": _note(unparsed, outside), "count": True, "rows_total": len(rows)}
 
 
 async def matching_rows(conn, release_id, where, report_day, row=None, allowed=None) -> set:
