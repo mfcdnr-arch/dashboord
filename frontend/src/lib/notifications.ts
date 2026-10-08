@@ -1,5 +1,5 @@
 import type { NotificationItem } from '../api'
-import { plural } from './text'
+import { elideMiddle, plural } from './text'
 
 /**
  * Текст и переход уведомления — отдельно от колокольчика.
@@ -16,8 +16,27 @@ export type NotifyTarget = {
   appealId?: string
   dashboardId?: string
   objectId?: string
-  /** Открыть на дашборде окно новых граф и отметить эти графы. */
-  newFields?: string[]
+  /** Открыть на дашборде окно новых граф и отметить эти графы формы. Форма —
+   *  обязательно: у двух форм дашборда коды граф могут совпасть. */
+  newFields?: { datasetCode: string; codes: string[] }
+  /** Куда идти, если дашборд из уведомления успели удалить: остальные
+   *  дашборды формы по порядку, затем объект формы (`objectId`). */
+  fallbackDashboardIds?: string[]
+}
+
+/**
+ * «Добавить виджет?» из уведомления — что страница дашборда должна сделать:
+ * открыть дашборд и окно новых граф с отмеченными графами формы. Одноразовое:
+ * страница забирает его и сообщает об этом (`onNewFieldsConsumed`), иначе окно
+ * всплывало бы при каждом следующем заходе на этот дашборд (найдено ревью 08.10).
+ */
+export type NewFieldsIntent = {
+  dashboardId: string
+  datasetCode: string
+  codes: string[]
+  fallbackDashboardIds: string[]
+  objectId?: string
+  seq: number
 }
 
 export function fmtDt(iso: string): string {
@@ -35,19 +54,44 @@ type Named = { id?: string; code?: string; name?: string }
 const list = (v: unknown): Named[] => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : [])
 const quoted = (names: string[]) => names.map((n) => `«${n}»`).join(', ')
 
+/**
+ * Графы одной услуги — одной строкой. Имена граф РЦО по 190 знаков и приходят
+ * тройками «Принято / Выдано / Отказ» одной услуги: три полных имени давали
+ * уведомление на 762 знака с трижды повторённым названием услуги (замер ревью
+ * 08.10). Голова имени (всё до последнего разделителя) — одна на группу, и её
+ * середина при нужде схлопывается; полный список — в окне дашборда.
+ */
+function groupFieldNames(names: string[]): { text: string; count: number }[] {
+  const groups: { head: string; tails: string[]; first: string }[] = []
+  for (const name of names) {
+    const sep = name.includes(' · ') ? ' · ' : (name.includes(': ') ? ': ' : '')
+    const cut = sep ? name.lastIndexOf(sep) : -1
+    const head = cut > 0 ? name.slice(0, cut) : ''
+    const tail = cut > 0 ? name.slice(cut + sep.length) : name
+    const last = groups[groups.length - 1]
+    if (head && last && last.head === head) last.tails.push(tail)
+    else groups.push({ head, tails: [tail], first: name })
+  }
+  return groups.map((g) => (g.head && g.tails.length > 1
+    ? { text: `«${elideMiddle(g.head, 70)}» — ${g.tails.join(', ')}`, count: g.tails.length }
+    : { text: `«${elideMiddle(g.first, 90)}»`, count: 1 }))
+}
+
 /** «В форме появились новые графы»: что появилось, где не показано и вопрос. */
 function newFieldsText(p: Record<string, unknown>): string {
   const fields = list(p.fields).map((f) => String(f.name ?? f.code ?? ''))
   const total = Number(p.total) || fields.length
-  const shown = fields.slice(0, 3)
-  const more = total - shown.length
+  const shown = groupFieldNames(fields).slice(0, 3)
+  const more = total - shown.reduce((n, g) => n + g.count, 0)
   const gone = Number(p.gone) || 0
   const dash = list(p.dashboards).map((d) => String(d.name ?? ''))
   const dashTotal = Number(p.dashboards_total) || dash.length
   const one = total === 1
   let s = `Форма «${p.object_name ?? p.dataset_code}»`
     + `${p.period ? ` (отчёт за ${ruDate(p.period)})` : ''}: `
-    + `${one ? 'появилась новая графа' : `появились новые графы (${total})`} — ${quoted(shown)}`
+    // Точка с запятой — только между группами: внутри группы стоят запятые.
+    + `${one ? 'появилась новая графа' : `появились новые графы (${total})`} — `
+    + `${shown.map((g) => g.text).join(shown.some((g) => g.count > 1) ? '; ' : ', ')}`
     + `${more > 0 ? ` и ещё ${more}` : ''}.`
   // Переименование заголовка даёт новый код графы, и система принимает его
   // за новую графу. Подавлять по догадке нельзя — называем, что видно.
@@ -144,16 +188,19 @@ export function targetOf(n: NotificationItem, staff: boolean): NotifyTarget | nu
     return { section: 'dashboards', dashboardId: id }
   }
   // Новые графы: на первый дашборд формы — сразу с окном «добавить виджет?» и
-  // отмеченными новыми графами. Без дашбордов события не бывает, но если их
-  // успели удалить — к объекту, где лежит форма.
+  // отмеченными новыми графами. Список дашбордов — снимок на момент
+  // объявления, и первый из них могли успеть удалить: тогда страница пробует
+  // следующие, а за ними — объект, где лежит форма.
   if (n.event_type === 'data.new_fields') {
     const p = n.payload || {}
-    const dash = list(p.dashboards)[0]
-    if (dash?.id) {
-      return { section: 'dashboards', dashboardId: String(dash.id),
-        newFields: list(p.fields).map((f) => String(f.code ?? '')).filter(Boolean) }
+    const dash = list(p.dashboards).map((d) => String(d.id ?? '')).filter(Boolean)
+    const objectId = (p.object_id as string | undefined) || id
+    if (dash.length) {
+      return { section: 'dashboards', dashboardId: dash[0], fallbackDashboardIds: dash.slice(1), objectId,
+        newFields: { datasetCode: String(p.dataset_code ?? ''),
+          codes: list(p.fields).map((f) => String(f.code ?? '')).filter(Boolean) } }
     }
-    return { section: 'objects', objectId: id }
+    return { section: 'objects', objectId }
   }
   if (n.event_type === 'data.stale' || n.event_type === 'data.missing' || n.event_type === 'data.gap') {
     return { section: 'objects', objectId: id }

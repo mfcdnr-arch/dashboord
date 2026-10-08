@@ -151,6 +151,8 @@ export interface HeaderActions {
   archive: () => void
   toggleAutoArchive: () => void
   toggleSuggestFields: () => void
+  /** «Вернуть скрытые графы» — снять отметки «больше не предлагать». */
+  resetReviewed: () => void
   ladderPage: () => void
   del: () => void
   comments: () => void
@@ -170,7 +172,7 @@ export function DashboardHeader({
   dashboard, pages, page, onOpenPage, onBack,
   canManage, isAdmin, isSuperadmin, editMode, setEditMode, flowMode,
   asOf, quickPeriods, pFrom, pTo, setPFrom, setPTo, crossRow, setCrossRow, catOptions,
-  missingCount, onOpenMissing, presets, applyPreset, removePreset, savePreset,
+  missingCount, reviewedCount = 0, onOpenMissing, presets, applyPreset, removePreset, savePreset,
   newPage, setNewPage, addPage, busy, exporting, a,
   density, setDensity,
 }: {
@@ -196,6 +198,8 @@ export function DashboardHeader({
   setCrossRow: (v: string | null) => void
   catOptions: string[]
   missingCount: number
+  /** Сколько граф скрыто отметкой «больше не предлагать». */
+  reviewedCount?: number
   onOpenMissing: () => void
   presets: DashPreset[]
   applyPreset: (p: DashPreset) => void
@@ -442,6 +446,15 @@ export function DashboardHeader({
                   💡 Подсказки о новых графах: {dashboard.suggest_new_fields === false ? 'выкл' : 'вкл'}
                 </button>
               )}
+              {/* Без этого «Больше не предлагать» было необратимым: нажатое по
+                  ошибке прятало графы навсегда, вернуть их можно было только
+                  правкой базы. */}
+              {canManage && reviewedCount > 0 && (
+                <button type="button" style={menuItem} onClick={() => { setMoreOpen(false); a.resetReviewed() }}
+                  title="Снять отметки «больше не предлагать»: эти графы снова появятся в подсказке">
+                  ↺ Вернуть скрытые графы ({reviewedCount})
+                </button>
+              )}
               {canManage && <hr style={menuSep} />}
               {canManage && <button type="button" style={menuItem} onClick={() => { setMoreOpen(false); a.archive() }}>📦 В архив</button>}
               {canManage && (
@@ -590,8 +603,10 @@ export function DashboardHeader({
         {canManage && missingCount > 0 && (
           <button type="button" style={{ ...linkDanger, color: 'var(--accent-text)', fontSize: 12, marginLeft: 'auto' }}
             onClick={onOpenMissing}
-            title="Графы, которые появились в форме после сборки дашборда и не показаны ни одним виджетом">
-            💡 {missingCount} {plural(missingCount, 'новая графа не показана', 'новые графы не показаны', 'новых граф не показаны')}
+            title="Графы, появившиеся в форме после сборки дашборда: ни один виджет не называет их отдельно">
+            {/* Не «не показаны»: таблица всей формы может показывать их среди
+                своих колонок, и окно об этом говорит («уже видна в …»). */}
+            💡 {missingCount} {plural(missingCount, 'новая графа', 'новые графы', 'новых граф')} без своего виджета
           </button>
         )}
         </div>

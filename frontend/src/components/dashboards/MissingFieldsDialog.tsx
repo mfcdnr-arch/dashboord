@@ -27,24 +27,26 @@ const keyOf = (f: { dataset_code: string; code: string }) => `${f.dataset_code}\
  * закрыть иначе, чем добавив виджет, висит вечно и учит себя не читать.
  */
 export function MissingFieldsDialog(
-  { fields, busy, highlight, error, onClose, onAdd, onDismiss }: {
+  { fields, busy, highlight, error, hintsOff, onClose, onAdd, onDismiss }: {
     fields: MissingField[]
     busy?: boolean
     /** Ошибка добавления или отметки — внутри окна: страница за ним не видна. */
     error?: string | null
-    /** Коды граф из уведомления: отметить и поставить первыми. */
-    highlight?: string[]
+    /** Графы из уведомления (форма + код): отметить и поставить первыми. Только
+     *  по коду нельзя — у двух форм дашборда коды могут совпасть, и отмеченной
+     *  оказалась бы графа, о которой уведомление не говорило. */
+    highlight?: { dataset_code: string; code: string }[]
+    /** Подсказки на дашборде выключены, окно открыто по уведомлению. */
+    hintsOff?: boolean
     onClose: () => void
     onAdd: (picked: MissingField[]) => void
     onDismiss?: (shown: MissingField[]) => void
   },
 ) {
-  const hl = new Set(highlight || [])
-  const ordered = hl.size
-    ? [...fields.filter((f) => hl.has(f.code)), ...fields.filter((f) => !hl.has(f.code))]
-    : fields
-  const [picked, setPicked] = useState<Set<string>>(
-    () => new Set(fields.filter((f) => hl.has(f.code)).map(keyOf)))
+  const hl = new Set((highlight || []).map(keyOf))
+  const isHl = (f: MissingField) => hl.has(keyOf(f))
+  const ordered = hl.size ? [...fields.filter(isHl), ...fields.filter((f) => !isHl(f))] : fields
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(fields.filter(isHl).map(keyOf)))
   const toggle = (k: string) => setPicked((s) => {
     const next = new Set(s)
     if (next.has(k)) next.delete(k); else next.add(k)
@@ -80,6 +82,7 @@ export function MissingFieldsDialog(
             Эти графы появились в форме после того, как дашборд собрали, и ни один виджет их
             не называет. Отмеченные добавятся карточками на текущую страницу — вид и размер
             потом можно изменить как у любого виджета.
+            {hintsOff && ' Подсказки о новых графах на этом дашборде выключены — окно открыто по уведомлению.'}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
@@ -100,7 +103,7 @@ export function MissingFieldsDialog(
                   <input type="checkbox" checked={picked.has(k)} onChange={() => toggle(k)}
                     style={{ marginTop: 3 }} />
                   <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
-                    {hl.has(f.code) && <span style={newMark}>из уведомления</span>}
+                    {isHl(f) && <span style={newMark}>из уведомления</span>}
                     {f.name}
                     {(f.first_period || covered.length > 0) && (
                       <span style={{ display: 'block', fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1 }}>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { clearToken, getAppealsStats, getHealth, getMe, getSetupStatus, getToken, listOffices, UNAUTHORIZED_EVENT, type Health, type Me, listServices, listRefDocs } from './api'
 import Login from './components/Login'
 import ChangePassword from './components/ChangePassword'
@@ -23,6 +23,7 @@ import ShowcasesPage from './components/ShowcasesPage'
 import DnrStatsPage from './components/DnrStatsPage'
 import AppealsPage from './components/AppealsPage'
 import NotificationBell from './components/NotificationBell'
+import type { NewFieldsIntent } from './lib/notifications'
 import OnboardingHint from './components/OnboardingHint'
 import UploadsPage from './components/UploadsPage'
 import ThemeToggle from './components/ThemeToggle'
@@ -241,9 +242,11 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [openFolder, setOpenFolder] = useState<string | null>(null)
   // «Добавить виджет?» из уведомления о новых графах: открыть дашборд и сразу
   // окно с отмеченными графами. Счётчик — чтобы повторный клик по тому же
-  // уведомлению сработал снова.
-  const [newFieldsIntent, setNewFieldsIntent] =
-    useState<{ dashboardId: string; codes: string[]; seq: number } | null>(null)
+  // уведомлению сработал снова; страница забирает намерение и сбрасывает его
+  // (`onNewFieldsConsumed`), иначе окно всплывало бы при каждом следующем
+  // заходе на дашборд.
+  const [newFieldsIntent, setNewFieldsIntent] = useState<NewFieldsIntent | null>(null)
+  const intentSeq = useRef(0)
   const [openDocument, setOpenDocument] = useState<string | null>(null)
   // Показатель, к которому ведёт быстрый поиск (п. 9): раздел «Метрики»
   // remount'ится при каждом переходе в него (см. `nav`-переключатель ниже),
@@ -447,11 +450,20 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
               // применяет лишь при монтировании — клик по уведомлению тогда
               // только закрывал ленту.
               const did = t.dashboardId
-              if (t.newFields?.length) {
-                const codes = t.newFields
-                setNewFieldsIntent((prev) => ({ dashboardId: did, codes, seq: (prev?.seq ?? 0) + 1 }))
+              if (t.newFields?.codes.length) {
+                intentSeq.current += 1
+                setNewFieldsIntent({
+                  dashboardId: did, datasetCode: t.newFields.datasetCode, codes: t.newFields.codes,
+                  fallbackDashboardIds: t.fallbackDashboardIds || [], objectId: t.objectId,
+                  seq: intentSeq.current,
+                })
               }
-              goTo({ section: 'dashboards', dashboard: did })
+              // Тот же дашборд уже открыт — не сбрасывать его страницу и фильтры
+              // (период, строку): уведомление о комментарии или о новых графах
+              // не повод пересчитывать экран по последнему отчёту.
+              const same = section === 'dashboards' && dashLink.dashboard === did
+              goTo(same ? { ...dashLink, section: 'dashboards', dashboard: did }
+                : { section: 'dashboards', dashboard: did })
               return
             }
             setOpenDash(t.dashboardId ?? null)
@@ -524,6 +536,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <DashboardsPage canManage={canManage} isAdmin={isAdmin} isSuperadmin={isSuperadmin} initialDashboardId={openDash} initialPageId={openPage}
               link={dashLink} navSeq={navSeq} onLocationChange={setDashLink}
               newFieldsIntent={newFieldsIntent}
+              onNewFieldsConsumed={() => setNewFieldsIntent(null)}
+              // Дашборд из уведомления удалён, и запасных нет — к объекту формы.
+              onOpenObject={(oid) => { setOpenObject(oid); setOpenFolder(null); setOpenDocument(null); setSection('objects') }}
               // Отправив жалобу с виджета, человек хочет прочитать ответ. Своя
               // переписка у обычного пользователя живёт в «Кабинете» (раздела
               // «Обращения» у него нет) — то же правило, что у уведомлений.

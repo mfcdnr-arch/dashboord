@@ -702,7 +702,6 @@ export async function dashboardFreshness(
   return res.json()
 }
 
-/** Показатели, которые есть в данных, но не показаны на дашборде. */
 /** Графа формы, появившаяся после сборки дашборда и не показанная ни одним виджетом. */
 export type MissingField = {
   code: string; name: string; dataset_code: string
@@ -714,7 +713,7 @@ export type MissingField = {
 
 export async function dashboardMissingFields(
   id: string,
-): Promise<{ count: number; fields: MissingField[] }> {
+): Promise<{ count: number; fields: MissingField[]; reviewed?: number }> {
   const res = await fetch(`/dashboards/${id}/missing-fields`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
@@ -727,6 +726,15 @@ export async function reviewMissingFields(
   const res = await fetch(`/dashboards/${id}/missing-fields/review`, {
     method: 'POST', headers: { ...authH(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ fields }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+/** «Вернуть скрытые графы»: снять все отметки «больше не предлагать». */
+export async function resetReviewedFields(id: string): Promise<{ returned: number }> {
+  const res = await fetch(`/dashboards/${id}/missing-fields/review/reset`, {
+    method: 'POST', headers: authH(),
   })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()

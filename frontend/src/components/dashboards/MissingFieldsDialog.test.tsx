@@ -11,14 +11,22 @@ const FIELDS: MissingField[] = [
 ]
 
 describe('окно «новые графы формы»', () => {
-  it('графы из уведомления отмечены и стоят первыми', () => {
+  it('графы из уведомления отмечены и стоят первыми — своей формы, а не всех с тем же кодом', () => {
     const onAdd = vi.fn()
-    render(<MissingFieldsDialog fields={FIELDS} highlight={['zap']} onClose={() => {}} onAdd={onAdd} />)
+    render(<MissingFieldsDialog fields={FIELDS} highlight={[{ dataset_code: 'f1', code: 'zap' }]}
+      onClose={() => {}} onAdd={onAdd} />)
     const boxes = screen.getAllByRole('checkbox') as HTMLInputElement[]
-    expect(boxes.map((b) => b.checked)).toEqual([true, true, false])
-    expect(screen.getAllByText('из уведомления')).toHaveLength(2)
-    fireEvent.click(screen.getByRole('button', { name: 'Добавить 2' }))
-    expect(onAdd.mock.calls[0][0].map((f: MissingField) => `${f.dataset_code}:${f.code}`)).toEqual(['f1:zap', 'f2:zap'])
+    expect(boxes.map((b) => b.checked)).toEqual([true, false, false])
+    expect(screen.getAllByText('из уведомления')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить 1' }))
+    // До ревью 08.10 отмечалась и f2:zap: уведомление говорило про одну форму,
+    // а карточка добавлялась и для другой.
+    expect(onAdd.mock.calls[0][0].map((f: MissingField) => `${f.dataset_code}:${f.code}`)).toEqual(['f1:zap'])
+  })
+
+  it('по уведомлению при выключенных подсказках окно говорит, почему оно открыто', () => {
+    render(<MissingFieldsDialog fields={FIELDS} hintsOff onClose={() => {}} onAdd={() => {}} />)
+    expect(screen.getByText(/Подсказки о новых графах на этом дашборде выключены/)).toBeInTheDocument()
   })
 
   it('без уведомления ничего не отмечено; сказано, когда графа появилась и где уже видна', () => {
@@ -36,7 +44,8 @@ describe('окно «новые графы формы»', () => {
   })
 
   it('пустой список — объяснение, а не «Выбрано: 0 из 0»', () => {
-    render(<MissingFieldsDialog fields={[]} highlight={['zap']} onClose={() => {}} onAdd={() => {}} />)
+    render(<MissingFieldsDialog fields={[]} highlight={[{ dataset_code: 'f1', code: 'zap' }]}
+      onClose={() => {}} onAdd={() => {}} />)
     expect(screen.getByText(/их уже добавили или отметили/)).toBeInTheDocument()
     expect(screen.queryByText(/Выбрано/)).toBeNull()
   })

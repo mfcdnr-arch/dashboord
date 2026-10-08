@@ -75,6 +75,10 @@ async def main():
         oid = await conn.fetchval(
             "insert into objects(organization_id,name) values($1,$2) returning id", org, OBJ)
         await rel(conn, org, admin, oid, date(2026, 9, 22), BASE)
+        # Как после штатного выпуска: правило просмотрело первый отчёт формы
+        # (это «новая форма», не новые графы) — иначе второй отчёт сочтётся
+        # частью той же первой поставки и новостью не станет.
+        await nf.announce(conn, org, CODE)
         print(oid)
     elif step == "news":
         oid = await conn.fetchval("select id from objects where name=$1", OBJ)

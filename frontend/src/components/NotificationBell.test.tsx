@@ -26,7 +26,8 @@ describe('колокольчик', () => {
     const row = await screen.findByRole('button', { name: /В форме появились новые графы/ })
     expect(row.tagName).toBe('BUTTON')
     fireEvent.click(row)
-    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith(
-      { section: 'dashboards', dashboardId: 'd1', newFields: ['zap'] }))
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith({
+      section: 'dashboards', dashboardId: 'd1', fallbackDashboardIds: [], objectId: 'obj-1',
+      newFields: { datasetCode: '', codes: ['zap'] } }))
   })
 })

@@ -34,8 +34,9 @@ import { AboutDashboard, EditDashboardDialog } from './dashboards/AboutDashboard
 import { RenameDialog } from './dashboards/RenameDialog'
 import { useConfirm } from './dashboards/ConfirmDialog'
 import type { LinkState } from '../lib/deeplink'
-import { dashboardFreshness, dashboardMissingFields, reviewMissingFields, buildLadderPage, getLadderPagePlan,
-  type LadderPagePlan } from '../api/dashboards'
+import { dashboardFreshness, dashboardMissingFields, reviewMissingFields, resetReviewedFields, buildLadderPage,
+  getLadderPagePlan, type LadderPagePlan } from '../api/dashboards'
+import type { NewFieldsIntent } from '../lib/notifications'
 import { FreshnessBar } from './dashboards/FreshnessBar'
 import { DashboardHeader } from './dashboards/DashboardHeader'
 import { AttentionBar } from './dashboards/AttentionBar'
@@ -158,7 +159,7 @@ const QUICK_PERIODS: { label: string; hint: string; range: () => [string, string
 
 export default function DashboardsPage({
   canManage, isAdmin, isSuperadmin, initialDashboardId, initialPageId, onOpenAppeals,
-  link, navSeq, onLocationChange, newFieldsIntent,
+  link, navSeq, onLocationChange, newFieldsIntent, onNewFieldsConsumed, onOpenObject,
 }: {
   canManage: boolean; isAdmin?: boolean; isSuperadmin?: boolean
   initialDashboardId?: string | null; initialPageId?: string | null
@@ -180,8 +181,13 @@ export default function DashboardsPage({
    * Переход из уведомления «в форме появились новые графы»: открыть окно
    * «добавить виджет?» на этом дашборде и отметить эти графы. `seq` растёт с
    * каждым кликом, чтобы повторный клик по тому же уведомлению сработал снова.
+   * Страница забирает намерение и сообщает об этом (`onNewFieldsConsumed`):
+   * не сброшенное, оно открывало окно при каждом следующем заходе на дашборд.
    */
-  newFieldsIntent?: { dashboardId: string; codes: string[]; seq: number } | null
+  newFieldsIntent?: NewFieldsIntent | null
+  onNewFieldsConsumed?: () => void
+  /** Дашборд из уведомления удалён, запасных нет — открыть объект формы. */
+  onOpenObject?: (objectId: string) => void
 }) {
   // Подтверждения — своим окном: системное браузер вправе подавить, и кнопка
   // необратимого действия выглядит нерабочей (см. ConfirmDialog).
@@ -232,9 +238,13 @@ export default function DashboardsPage({
   // открыться со списком предыдущего дашборда, пока новый ещё грузится.
   const [missingFor, setMissingFor] = useState<string | null>(null)
   const [missingOpen, setMissingOpen] = useState(false)
-  const [missingHighlight, setMissingHighlight] = useState<string[]>([])
+  const [missingHighlight, setMissingHighlight] = useState<{ dataset_code: string; code: string }[]>([])
   const [missingErr, setMissingErr] = useState<string | null>(null)
-  const [pendingNewFields, setPendingNewFields] = useState<{ id: string; codes: string[] } | null>(null)
+  const [missingReviewed, setMissingReviewed] = useState(0)
+  const [pendingNewFields, setPendingNewFields] = useState<NewFieldsIntent | null>(null)
+  // Какой дашборд открыт сейчас — для ответов, пришедших после перехода:
+  // поздний ответ предыдущего дашборда не должен лечь в шапку текущего.
+  const selIdRef = useRef<string | null>(null)
   // Тиражирование шаблона на другой объект (перепривязка показателей по именам).
   const [cloneTpl, setCloneTpl] = useState<{ id: string; name: string } | null>(null)
   const [addingFields, setAddingFields] = useState(false)
@@ -472,33 +482,88 @@ export default function DashboardsPage({
   // однажды поедет вёрсткой прямо на совещании. Перечитываем и при изменении
   // числа виджетов: добавленная конструктором графа иначе висела бы в
   // подсказке до перезагрузки.
+  //
+  // Подсказки выключены — списка нет, КРОМЕ перехода из уведомления: человек
+  // нажал «добавить виджет?» и должен получить окно, а не тишину (подсказку
+  // могли выключить уже после того, как уведомление ушло).
+  selIdRef.current = sel?.dashboard.id ?? null
+  // Ошибка открытия дашборда приходит позже, чем намерение из уведомления:
+  // замыкание `openDashboard` видит прежнее (пустое) состояние, ref — текущее.
+  const pendingRef = useRef<NewFieldsIntent | null>(null)
+  pendingRef.current = pendingNewFields
+  // Список нужен, если подсказки включены, если пришли по уведомлению на этот
+  // дашборд или если окно уже открыто (иначе первое же перечитывание после
+  // открытия погасило бы его при выключенных подсказках).
+  const wantsMissing = !!sel && canManage && (sel.dashboard.suggest_new_fields !== false
+    || pendingNewFields?.dashboardId === sel.dashboard.id || missingOpen)
   function loadMissing() {
-    if (!sel || !canManage || sel.dashboard.suggest_new_fields === false) {
+    if (!sel || !wantsMissing) {
       setMissingFields(null); setMissingFor(null); return
     }
+    const fromNotice = pendingNewFields?.dashboardId === sel.dashboard.id
     const id = sel.dashboard.id
+    if (missingFor !== id) { setMissingFields(null); setMissingFor(null) }
     dashboardMissingFields(id)
-      .then((r) => { setMissingFields(r.fields); setMissingFor(id) })
-      .catch(() => { setMissingFields(null); setMissingFor(null) })
+      .then((r) => {
+        if (selIdRef.current !== id) return
+        setMissingFields(r.fields); setMissingFor(id); setMissingReviewed(r.reviewed || 0)
+      })
+      .catch((e) => {
+        if (selIdRef.current !== id) return
+        setMissingFields(null); setMissingFor(null)
+        // Пришли по уведомлению — молчаливая неудача выглядела бы так, будто
+        // клик ничего не сделал.
+        if (fromNotice) { setPendingNewFields(null); fail(e) }
+      })
   }
-  useEffect(loadMissing, [sel?.dashboard.id, sel?.dashboard.suggest_new_fields, canManage, widgets.length]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Из уведомления: запомнить, а открыть окно, когда список ЭТОГО дашборда
-  // загрузится (дашборд открывается тем же переходом и ещё не готов).
+  // Ноль виджетов при уже загруженном списке того же дашборда — промежуточное
+  // состояние смены страницы (список очищается и загружается заново);
+  // перечитывать на нём — лишний запрос на каждое переключение страницы.
+  const missingKey = useRef('')
   useEffect(() => {
-    if (newFieldsIntent) setPendingNewFields({ id: newFieldsIntent.dashboardId, codes: newFieldsIntent.codes })
+    const key = `${sel?.dashboard.id}|${wantsMissing}`
+    if (widgets.length === 0 && page && missingKey.current === key) return
+    missingKey.current = key
+    loadMissing()
+  }, [sel?.dashboard.id, wantsMissing, widgets.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Из уведомления: забрать намерение (одноразово) и открыть окно, когда
+  // список ЭТОГО дашборда загрузится — дашборд открывается тем же переходом и
+  // ещё не готов.
+  useEffect(() => {
+    if (!newFieldsIntent) return
+    setPendingNewFields(newFieldsIntent)
+    onNewFieldsConsumed?.()
   }, [newFieldsIntent?.seq]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!pendingNewFields || sel?.dashboard.id !== pendingNewFields.id) return
-    if (missingFields === null || missingFor !== pendingNewFields.id) return
-    setMissingHighlight(pendingNewFields.codes)
+    if (!pendingNewFields || sel?.dashboard.id !== pendingNewFields.dashboardId) return
+    if (missingFields === null || missingFor !== pendingNewFields.dashboardId) return
+    setMissingHighlight(pendingNewFields.codes.map((code) => ({ dataset_code: pendingNewFields.datasetCode, code })))
     setMissingErr(null)
     setMissingOpen(true)
     setPendingNewFields(null)
   }, [pendingNewFields, sel?.dashboard.id, missingFields, missingFor])
 
+  // Дашборд из уведомления не открылся (его успели удалить): следующий
+  // дашборд формы из того же уведомления, а за ними — объект формы.
+  function nextFromNotice(failedId: string): boolean {
+    const p = pendingRef.current
+    if (!p || p.dashboardId !== failedId) return false
+    const [next, ...rest] = p.fallbackDashboardIds
+    if (next) {
+      setPendingNewFields({ ...p, dashboardId: next, fallbackDashboardIds: rest })
+      openDashboard(next)
+      return true
+    }
+    setPendingNewFields(null)
+    if (p.objectId && onOpenObject) { onOpenObject(p.objectId); return true }
+    return false
+  }
+
   async function openDashboard(id: string, pageId?: string) {
     setError(null); setPage(null); setWidgets([]); setPFrom(''); setPTo(''); setCrossRow(null)
+    // Ушли на другой дашборд — окно из уведомления к нему не относится.
+    setPendingNewFields((p) => (p && p.dashboardId !== id ? null : p))
     try {
       const d = await getDashboard(id)
       setSel(d)
@@ -507,7 +572,7 @@ export default function DashboardsPage({
       // не молчим об этом падением, а показываем первую.
       const target = (pageId && d.pages.find((p) => p.id === pageId)) || d.pages[0]
       if (target) openPage(target)
-    } catch (e) { fail(e) }
+    } catch (e) { if (!nextFromNotice(id)) fail(e) }
   }
   // Переход из меню «↗ куда дальше»: открыть дашборд и ту страницу, где лежит
   // связанный виджет. Если это текущий дашборд, дёргать его заново не нужно —
@@ -856,6 +921,7 @@ export default function DashboardsPage({
   async function addMissingFields(picked: MissingField[]) {
     if (!sel || !page || !picked.length) return
     setAddingFields(true); setMissingErr(null)
+    let added = 0
     try {
       // Не через addWidgetsBatch: та показывает ошибку на странице, ЗА окном,
       // и закрытое окно выглядело бы как «добавлено». Ошибку (например, дашборд
@@ -869,10 +935,14 @@ export default function DashboardsPage({
           // помещается вовсе (это чинили 16.08 кнопкой «↕ Подогнать размеры»).
           width: 4, height: 5, position_x: 0, position_y: 999,
         })
+        added += 1
       }
       setMissingOpen(false)
     } catch (e) {
-      setMissingErr((e as Error).message)
+      // Часть карточек могла уже лечь на страницу — сказать об этом, иначе
+      // «ошибка» читается как «не добавилось ничего».
+      const msg = (e as Error).message
+      setMissingErr(added ? `Добавлено ${added} из ${picked.length}. Остальные не добавлены: ${msg}` : msg)
     } finally {
       setAddingFields(false)
       await reloadPage().catch(() => {}); setReloadKey((k) => k + 1)
@@ -889,6 +959,19 @@ export default function DashboardsPage({
       loadMissing()
     } catch (e) { setMissingErr((e as Error).message) } finally { setAddingFields(false) }
   }
+
+  async function resetReviewed() {
+    if (!sel) return
+    try {
+      await resetReviewedFields(sel.dashboard.id)
+      loadMissing()
+    } catch (e) { fail(e) }
+  }
+
+  // Открыто по уведомлению при выключенных подсказках — после закрытия список
+  // не нужен (`wantsMissing` станет ложным, и перечитывание его уберёт):
+  // человек просил не напоминать.
+  const closeMissing = () => setMissingOpen(false)
 
   // Переключатель, а не «выключить»: до 01.10.2026 пункт меню всегда писал
   // false, и включить подсказки обратно из интерфейса было нельзя.
@@ -1232,7 +1315,9 @@ export default function DashboardsPage({
             asOf={shownAsOf} quickPeriods={QUICK_PERIODS}
             pFrom={pFrom} pTo={pTo} setPFrom={setPFrom} setPTo={setPTo}
             crossRow={crossRow} setCrossRow={setCrossRow} catOptions={catOptions}
-            missingCount={page ? (missingFields?.length || 0) : 0}
+            missingCount={page && missingFor === sel.dashboard.id && sel.dashboard.suggest_new_fields !== false
+              ? (missingFields?.length || 0) : 0}
+            reviewedCount={missingFor === sel.dashboard.id ? missingReviewed : 0}
             onOpenMissing={() => { setMissingHighlight([]); setMissingErr(null); setMissingOpen(true) }}
             presets={presets} applyPreset={applyPreset} removePreset={removePreset} savePreset={() => setPresetName('')}
             newPage={newPage} setNewPage={setNewPage} addPage={addPage} busy={busy} exporting={exporting}
@@ -1249,7 +1334,7 @@ export default function DashboardsPage({
                 currentPath: sel.dashboard.folder_name ? `${sel.dashboard.object_name}/${sel.dashboard.folder_name}` : null,
               }),
               saveTemplate: () => setTemplateName(sel.dashboard.name),
-              archive: () => setArchiveOpen(true), toggleAutoArchive, toggleSuggestFields, ladderPage,
+              archive: () => setArchiveOpen(true), toggleAutoArchive, toggleSuggestFields, resetReviewed, ladderPage,
               del: doDeleteDashboard, comments: () => setCommentsOpen(true), kiosk: () => setKiosk(true),
               about: () => setAboutOpen(true),
               rename: () => setEditDash({ name: sel.dashboard.name, description: sel.dashboard.description || '' }),
@@ -1287,14 +1372,15 @@ export default function DashboardsPage({
             }}
           />
 
-          {missingOpen && missingFields && (
+          {missingOpen && missingFields && missingFor === sel.dashboard.id && (
             <MissingFieldsDialog
-              key={missingHighlight.join(',')}
+              key={missingHighlight.map((h) => `${h.dataset_code}:${h.code}`).join(',')}
               fields={missingFields}
               busy={addingFields}
               highlight={missingHighlight}
               error={missingErr}
-              onClose={() => setMissingOpen(false)}
+              hintsOff={sel.dashboard.suggest_new_fields === false}
+              onClose={closeMissing}
               onAdd={addMissingFields}
               onDismiss={dismissMissingFields}
             />

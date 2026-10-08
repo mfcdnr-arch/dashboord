@@ -38,11 +38,30 @@ describe('уведомление «в форме появились новые �
     expect(t).toContain('пропали 35 граф прошлого отчёта — возможно, это переименование, а не новые графы')
   })
 
-  it('ведёт на дашборд с отмеченными новыми графами; без дашборда — к объекту', () => {
-    expect(targetOf(item('data.new_fields', NEW_ONE), true))
-      .toEqual({ section: 'dashboards', dashboardId: 'd1', newFields: ['zap'] })
+  it('ведёт на дашборд с отмеченными новыми графами формы; остальные дашборды и объект — запасом', () => {
+    expect(targetOf(item('data.new_fields', NEW_ONE), true)).toEqual({
+      section: 'dashboards', dashboardId: 'd1', fallbackDashboardIds: [], objectId: 'obj-1',
+      newFields: { datasetCode: 'rco_daily', codes: ['zap'] } })
+    const two = targetOf(item('data.new_fields', {
+      ...NEW_ONE, object_id: 'obj-9', dashboards: [{ id: 'd1', name: 'А' }, { id: 'd2', name: 'Б' }] }), true)
+    expect(two?.fallbackDashboardIds).toEqual(['d2'])
+    expect(two?.objectId).toBe('obj-9')
     expect(targetOf(item('data.new_fields', { ...NEW_ONE, dashboards: [] }), true))
       .toEqual({ section: 'objects', objectId: 'obj-1' })
+  })
+
+  it('графы одной услуги — одной строкой: длинное имя не повторяется трижды', () => {
+    const head = 'ИП "Хиневич Денис Олегович" · (698) Прием заявлений о свидетельствовании подлинности подписи переводчика'
+    const t = message(item('data.new_fields', {
+      ...NEW_ONE, total: 3,
+      fields: [{ code: 'a', name: `${head} · Выдано, ед.` }, { code: 'b', name: `${head} · Отказ, ед.` },
+        { code: 'c', name: `${head} · Принято, ед.` }],
+    }))
+    expect(t).toContain('— Выдано, ед., Отказ, ед., Принято, ед.')
+    expect(t.split('Хиневич').length - 1).toBe(1)
+    expect(t).not.toContain('и ещё')
+    // Замер ревью: на настоящих графах РЦО было 762 знака.
+    expect(t.length).toBeLessThan(330)
   })
 })
 
