@@ -285,16 +285,24 @@ async def _dataset_period_series(conn, org_id, dataset_code: str, value_field: s
 
 
 async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None, period=None,
-                         fields: Optional[List[str]] = None):
+                         fields: Optional[List[str]] = None, where=None):
     """`fields` — показать только эти графы; пусто — всю форму.
 
     Своей настройки у таблицы нет: список подставляет фильтр лестницы, называя
     графы выбранной ветки. Без него таблица оставалась единственным виджетом,
     который внутри ветки показывал форму целиком.
+
+    `where` — отбор строк теми же условиями, что у подсчёта (`_tally`): «лента
+    особо значимых итогов» — таблица только из строк, где отметка «да».
     """
     rel = await mr._active_release(conn, org_id, dataset_code, period)
     if rel is None:
         raise DashboardError(f"Датасет '{dataset_code}' не найден или не выпущен")
+    keep_rows = None
+    if where:
+        from . import _tally  # локально: _tally сам читает выпуск через resolver
+        day = await conn.fetchval("select reporting_period_start from dataset_releases where id=$1", rel)
+        keep_rows = await _tally.matching_rows(conn, rel, where, day, row, allowed)
     only = set(fields) if fields else None
     frows = await conn.fetch(
         "select distinct canonical_field_code from dataset_values where dataset_release_id=$1 "
@@ -312,7 +320,7 @@ async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None
         r[v["canonical_field_code"]] = (
             float(v["value_number"]) if v["value_number"] is not None else v["value_text"])
     rows = [{"row": by_row[i].get("__row__"), **{c: by_row[i].get(c) for c in cols}}
-            for i in sorted(by_row)]
+            for i in sorted(by_row) if keep_rows is None or i in keep_rows]
     # Человеческие названия столбцов: в таблице на дашборде руководитель должен
     # видеть «Количество обращений … за отчётную неделю», а не машинный код
     # поля. Ключ остаётся кодом — по нему собраны строки и работает экспорт.

@@ -80,6 +80,11 @@ def narrow_cfg(cfg: dict, titles: Dict[str, str], sep: str,
     """
     if not path:
         return cfg
+    # Подсчёт строк (_tally) от ветки не зависит: строк формы столько же в
+    # любой ветке, и число, показанное «внутри Росреестра», было бы числом по
+    # всей форме под чужим именем. Честнее промолчать.
+    if cfg.get("count"):
+        return None
 
     def keep(code: Optional[str]) -> bool:
         if not code:

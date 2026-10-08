@@ -10,7 +10,7 @@ import statistics
 from typing import Dict, List, Optional
 
 from ..ingestion.hierarchy import pick_separator
-from . import _levels
+from . import _levels, _tally
 from . import _widgetsources as ws
 from ._aggregate import aggregate_series, is_share, is_total_column, measure_of
 from ._alerts import alert_styles, cell_alert_levels, evaluate_alert
@@ -870,6 +870,11 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
             res["scale"] = cfg["scale"]
         return res
 
+    if t == "heatmap" and cfg.get("count"):
+        # Матрица подсчёта: число строк по паре граф (матрица рисков).
+        return {"type": "heatmap", "title": name,
+                **await _tally.count_matrix(conn, org_id, cfg, period, row, allowed)}
+
     if t == "heatmap":
         # Тепловая карта: матрица строки(датасета) × поля, значение — интенсивность цвета.
         # Для МФЦ удобно: услуги × периоды/отделы, нагрузка по строкам и столбцам.
@@ -1591,10 +1596,16 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         elif cfg.get("metric_code"):
             value, unit = await _metric_value(conn, org_id, cfg["metric_code"])
         how, rows_used = "sum", 0
+        counted: Optional[dict] = None
         if cfg.get("formula"):
             value, unit = await _formula_value(conn, org_id, cfg["formula"]), cfg.get("unit")
         elif cfg.get("metric_code"):
             value, unit = await _metric_value(conn, org_id, cfg["metric_code"])
+        elif cfg.get("count") and cfg.get("dataset_code"):
+            # Режим подсчёта (_tally): число строк формы, подходящих под условия.
+            tally = await _tally.count_value(conn, org_id, cfg, period, row, allowed)
+            value, unit = tally["value"], cfg.get("unit")
+            counted = tally
         elif cfg.get("dataset_code") and cfg.get("value_field"):
             value, how, rows_used = await _column_value(
                 conn, org_id, cfg, cfg["value_field"], row, allowed, period)
@@ -1602,6 +1613,10 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         else:
             raise DashboardError("KPI: укажите формулу, metric_code или dataset_code+value_field")
         res = {"type": "kpi", "value": value, "unit": unit, "title": name}
+        if counted is not None:
+            res["count"], res["rows_total"] = True, counted["rows_total"]
+            if counted.get("note"):
+                res["note"] = counted["note"]
         # Способ сворачивания строк подписывается в карточке, но только когда
         # он неочевиден: среднее по нескольким строкам — приближение, и выдать
         # его за точный итог значило бы соврать. Сумма подписи не требует.
@@ -1611,15 +1626,17 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         # показатель: прирост к прошлому отчёту и мини-график по периодам.
         # Оба ВЫКЛЮЧЕНЫ по умолчанию — это лишние запросы, а на странице
         # карточек бывает полтора десятка.
-        if cfg.get("dataset_code") and cfg.get("value_field") and (cfg.get("compare_prev") or cfg.get("spark")):
+        if cfg.get("dataset_code") and (cfg.get("value_field") or res.get("count")) \
+                and (cfg.get("compare_prev") or cfg.get("spark")):
             # 🔴 Ряд обрезаем ПО ЭФФЕКТИВНОМУ ПЕРИОДУ виджета, а не берём весь.
             # Иначе карточка, закреплённая за отчётом (страница-срез) или
             # суженная фильтром периода, рисовала бы линию по точкам, пришедшим
             # ПОЗЖЕ её собственной даты, — снимок показывал бы будущее, а
             # «прирост к прошлому» считался бы от последней пары ряда, а не от
             # пары, соседней с этим отчётом.
-            trend = await _dataset_period_series(
-                conn, org_id, cfg["dataset_code"], cfg["value_field"], None, period, row, allowed)
+            trend = (await _tally.count_series(conn, org_id, cfg, period, row, allowed)
+                     if res.get("count") else await _dataset_period_series(
+                         conn, org_id, cfg["dataset_code"], cfg["value_field"], None, period, row, allowed))
             if cfg.get("spark") and len(trend) > 1:
                 res["spark"] = [v for _p, v in trend]
                 res["spark_periods"] = [p for p, _v in trend]
@@ -2103,7 +2120,7 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         # подставляет фильтр лестницы, называя графы ветки. Без этого таблица
         # внутри «Росреестра» показывала бы всю форму целиком.
         table = await _dataset_table(conn, org_id, cfg["dataset_code"], row, allowed, period,
-                                     fields=cfg.get("value_fields"))
+                                     fields=cfg.get("value_fields"), where=cfg.get("where"))
         res = {"type": "table", "title": name, **table}
         # Условное форматирование ячеек: цвет по порогам считаем ТЕМ ЖЕ кодом,
         # что красит карточку показателя, а «полоску по величине» отдаём
@@ -2117,6 +2134,19 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         return res
 
     # bar | line | pie
+    if cfg.get("count") and t in ("bar", "pie"):
+        # Подсчёт по значениям графы: «сколько вопросов в каждом статусе».
+        # Обрезка та же, что у числовых: круговая складывает хвост в «Прочие».
+        tally = await _tally.count_by(conn, org_id, cfg, period, row, allowed)
+        res = {"type": t, "title": name, "categories": tally["categories"],
+               "values": tally["values"], "count": True}
+        if tally.get("note"):
+            res["note"] = tally["note"]
+        if t == "pie":
+            _trim_pie(res)
+        else:
+            _trim_bars(res)
+        return res
     if not cfg.get("dataset_code") or not cfg.get("value_field"):
         raise DashboardError("График: укажите dataset_code и value_field")
     series = await _dataset_series(conn, org_id, cfg["dataset_code"], cfg["value_field"], row, allowed, period)

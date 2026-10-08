@@ -300,6 +300,36 @@ def _join(*parts: str) -> str:
     return " ".join(p for p in parts if p)
 
 
+def _count_sections(c: "_Ctx", t: str, cfg: dict, per: str) -> Dict[str, str]:
+    """Пояснение режима подсчёта (_tally): что считается и по каким условиям."""
+    from ._tally import describe_where  # локально: слова условий живут рядом с расчётом
+
+    cond = describe_where(cfg.get("where"), c.name)
+    base = f"Число строк формы «{c.form()}»" + (f" {cond}" if cond else "")
+    g1, g2 = cfg.get("group_by"), cfg.get("group_by2")
+    s: Dict[str, str] = {}
+    if t == "heatmap" and g1 and g2:
+        s["what"] = f"{base} — по паре граф «{c.name(g1)}» × «{c.name(g2)}»."
+        s["answers"] = "Где скопились записи: какие сочетания значений встречаются чаще."
+    elif t in ("bar", "pie") and g1:
+        s["what"] = f"{base} — по значениям графы «{c.name(g1)}»."
+        s["answers"] = "Как записи распределены по значениям графы."
+    elif t == "table":
+        s["what"] = f"Строки формы «{c.form()}»" + (f" {cond}" if cond else "") + "."
+        s["answers"] = "Какие именно записи подходят под условие."
+    else:
+        s["what"] = base + "."
+        s["answers"] = "Сколько записей подходит под условие."
+    s["how"] = ("Считаются строки последнего отчёта формы, у которых заполнена хоть одна графа; "
+                "пустые строки бланка в счёт не идут.")
+    dated = any((x or {}).get("op") == "date_before_report" for x in cfg.get("where") or [])
+    s["caveats"] = _join(
+        "Срок сравнивается с ОТЧЁТНОЙ датой, а не с сегодняшним днём: старый отчёт показывает "
+        "то, что было просрочено тогда. Строки, где дата не распознана, в счёт не идут — "
+        "виджет называет их число." if dated else "", per)
+    return {k: v for k, v in s.items() if v}
+
+
 def widget_sections(w: dict, ctx: dict) -> Dict[str, str]:
     """Части пояснения виджета. Пусто там, где сказать нечего.
 
@@ -342,6 +372,9 @@ def widget_sections(w: dict, ctx: dict) -> Dict[str, str]:
 
     if cfg.get("formula"):
         return {"what": f"Значение считается формулой: {cfg['formula']}.", "caveats": per}
+
+    if cfg.get("count") and c.ds:
+        return _count_sections(c, t, cfg, per)
 
     if t == "field_list":
         what = f"выбранные графы ({len(vfs)})" if vfs else "все графы"

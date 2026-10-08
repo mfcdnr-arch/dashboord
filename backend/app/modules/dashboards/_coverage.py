@@ -50,6 +50,8 @@ def named_fields(cfg: Optional[dict]) -> List[Tuple[str, str]]:
     for s in cfg.get("series") or []:
         if isinstance(s, dict):
             add(s.get("dataset_code") or own, (s.get("value_field"),))
+    # Подсчёт по значениям графы (_tally) показывает эту графу осью.
+    add(own, (cfg.get("group_by"), cfg.get("group_by2")))
     return out
 
 
