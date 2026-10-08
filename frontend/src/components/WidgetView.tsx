@@ -13,7 +13,8 @@ import { alertLook, levelLook } from '../lib/alertColors'
 import { useVirtualCols, VCOL_W, VCOL_FIRST_W, VIRT_FROM_COLS } from '../lib/useVirtualCols'
 import { exportWidgetXlsx } from '../api'
 import PassportDialog from './dashboards/PassportDialog'
-import { fmtNumber as fmt, heatSteps, logScaleAdvice, sparkSeries } from '../lib/format'
+import { fmtCell, fmtNumber as fmt, heatSteps, logScaleAdvice, sparkSeries } from '../lib/format'
+import { colorAt, textOn } from '../lib/contrast'
 import { fitChartHeight } from '../lib/fitHeight'
 import { distinctLabels, dropCommonWords, elideMiddle, fitRotatedAxis, plural, textWidth } from '../lib/text'
 import { Modal, ModalTitle } from './Modal'
@@ -1463,7 +1464,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                   /* В отчёте таблица развёрнута вертикально, но цвет порога —
                      это данные, а не украшение экрана: он остаётся. */
                   <td key={i} style={{ ...td, textAlign: 'right', ...cellStyle(r, c) }}>
-                    {typeof r[c] === 'number' ? fmt(r[c]) : (r[c] ?? '—')}
+                    {fmtCell(r[c])}
                   </td>
                 ))}
               </tr>
@@ -1538,7 +1539,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                     title={cellFmt[c] === 'bar' && typeof r[c] === 'number' && barMax[c]
                       ? `${colName(c)} — ${Math.round((Math.abs(r[c]) / barMax[c]) * 100)} % от наибольшего в столбце`
                       : colName(c)}>
-                    {typeof r[c] === 'number' ? fmt(r[c]) : (r[c] ?? '—')}
+                    {fmtCell(r[c])}
                   </td>
                 ))}
                 {virtOn && vcols.range.padAfter > 0 && <td style={{ padding: 0 }} aria-hidden />}
@@ -2014,10 +2015,23 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     const shortCols = dropCommonWords(cols).map(colLabel)
     const colLines = Math.max(...shortCols.map((c) => c.split('\n').length))
     const longX = shortCols.some((c) => c.length > 6)
-    const numbersInCells = Boolean(data.count) && rows.length * cols.length <= 60
+    const labelled = rows.length * cols.length <= 60
+    const numbersInCells = Boolean(data.count) && labelled
+    // Заливка клетки — та же, что даст шкала: по ней выбирается цвет числа.
+    // Тёмное «1» на насыщенной клетке матрицы рисков почти пропадало.
+    const vmin = numbersInCells ? 0 : (data.min ?? 0)
+    const vmax = numbersInCells ? Math.max(1, data.max || 0) : (data.max || 1)
+    const cellBg = (v: number): string | null => {
+      if (steps && !numbersInCells) {
+        const piece = steps.pieces.find((pc) => (pc.gte == null || v >= pc.gte) && (pc.lt == null || v < pc.lt))
+        return piece ? piece.color : null
+      }
+      return colorAt(C.heat, vmax > vmin ? (v - vmin) / (vmax - vmin) : 0)
+    }
     const opt: EChartsOption = {
       tooltip: { position: 'top', formatter: (p: any) => `${cols[p.value[0]]} · ${rows[p.value[1]]}: <b>${fmt(p.value[2])}</b>` },
-      grid: { left: 8, right: 12, top: 10, bottom: longX ? 24 + colLines * 13 : 44, containLabel: true },
+      grid: { left: 8, right: 12, top: 10, bottom: (longX ? 24 + colLines * 13 : 44) - (numbersInCells ? 22 : 0),
+        containLabel: true },
       xAxis: { type: 'category', data: shortCols, splitArea: { show: true },
         axisLabel: { fontSize: 10, interval: 0, lineHeight: 12 } },
       // Строки сверху вниз в том порядке, в каком пришли: как в форме и в
@@ -2029,21 +2043,24 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
       visualMap: numbersInCells
         // У матрицы подсчёта число стоит в каждой клетке — ползунок цвета
         // ничего не добавляет, а внизу карточки наезжал на подписи столбцов.
-        ? { show: false, min: 0, max: Math.max(1, data.max || 0), inRange: { color: C.heat } }
+        ? { show: false, min: vmin, max: vmax, inRange: { color: C.heat } }
         : steps
         // Ступени по РАСПРЕДЕЛЕНИЮ, а не по отрезку от нуля до максимума.
         ? { type: 'piecewise', pieces: steps.pieces, orient: 'horizontal', left: 'center', bottom: 0,
             itemWidth: 14, itemHeight: 10, textStyle: { fontSize: 10 } }
         : { min: data.min ?? 0, max: data.max || 1, calculable: true, orient: 'horizontal', left: 'center', bottom: 0,
             itemHeight: 80, textStyle: { fontSize: 10 }, inRange: { color: C.heat } },
-      series: [{ type: 'heatmap', data: cells, label: { show: rows.length * cols.length <= 60, fontSize: 10, formatter: (p: any) => fmt(p.value[2]) },
+      series: [{ type: 'heatmap', data: labelled ? cells.map((c) => ({ value: c, label: { color: textOn(cellBg(c[2])) } })) : cells,
+        label: { show: labelled, fontSize: 10, formatter: (p: any) => fmt(p.value[2]) },
         emphasis: { itemStyle: { shadowBlur: 6, shadowColor: 'rgba(0,0,0,0.3)' } } }],
     }
     // 🔴 Прежний потолок в 380px означал, что при 63 отделениях на строку
     // остаётся 4,6px — подписи ложились друг на друга, и карта переставала быть
     // читаемой вовсе. Высота идёт по числу строк, как у матрицы: длинная
     // страница читается лучше, чем нечитаемый мазок в маленькой карточке.
-    const h = Math.min(1600, Math.max(200, rows.length * ROW_PX + (longX ? 96 : 82)))
+    // Без шкалы цвета (числа стоят в клетках) полоса под ней не нужна.
+    const h = Math.min(1600, Math.max(numbersInCells ? 150 : 200,
+      rows.length * ROW_PX + (longX ? 96 : 82) - (numbersInCells ? 30 : 0)))
     return (
       <div style={{ height: '100%' }}>
         {/* Какая шкала по строкам и какая по столбцам. Подписи осей ECharts при
@@ -2641,7 +2658,7 @@ function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
                 <tbody>
                   {t.rows.map((r: any, i: number) => (
                     <tr key={i}><td style={{ ...td, fontWeight: 600 }}>{r.row}</td>
-                      {t.columns.map((c: string) => <td key={c} style={td}>{typeof r[c] === 'number' ? fmt(r[c]) : (r[c] ?? '—')}</td>)}
+                      {t.columns.map((c: string) => <td key={c} style={td}>{fmtCell(r[c])}</td>)}
                     </tr>
                   ))}
                 </tbody>

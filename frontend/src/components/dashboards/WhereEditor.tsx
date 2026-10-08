@@ -81,25 +81,28 @@ export function WhereEditor({ fields, value, onChange, title }: {
         const kind = kindOf(c.op)
         const fname = fields.find((f) => f.code === c.field)?.name || 'графа'
         return (
-          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
-            <select style={{ ...sel, maxWidth: 260 }} aria-label={`Графа условия ${i + 1}`}
+          // Ряд не переносится: при переносе крестик «убрать» уезжал на
+          // отдельную строку и читался как принадлежащий следующему условию.
+          // Вместо этого поля сжимаются.
+          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'nowrap', marginBottom: 4 }}>
+            <select style={{ ...sel, flex: '1 1 160px', minWidth: 0, maxWidth: 260 }} aria-label={`Графа условия ${i + 1}`}
               value={c.field} onChange={(e) => set(i, { field: e.target.value })}>
               <option value="">— графа —</option>
               {fields.map((f) => <option key={f.code} value={f.code}>{f.name}</option>)}
             </select>
-            <select style={sel} aria-label={`Условие для «${fname}»`} value={c.op}
+            <select style={{ ...sel, flex: '0 1 auto', minWidth: 0, maxWidth: 220 }} aria-label={`Условие для «${fname}»`} value={c.op}
               onChange={(e) => set(i, { op: e.target.value })}>
               {WHERE_OPS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
             </select>
             {kind !== null && (
-              <input style={{ ...sel, width: 180 }} aria-label={`Значение для «${fname}»`}
+              <input style={{ ...sel, flex: '1 1 120px', minWidth: 0, width: 'auto', boxSizing: 'border-box' }} aria-label={`Значение для «${fname}»`}
                 inputMode={kind === 'number' ? 'decimal' : undefined}
                 placeholder={kind === 'list' ? 'например: В работе, Отложен' : kind === 'number' ? 'число' : 'значение'}
                 value={c.value} onChange={(e) => set(i, { value: e.target.value })} />
             )}
             <button type="button" aria-label={`Убрать условие ${i + 1}`} title="Убрать условие"
               onClick={() => onChange(value.filter((_, j) => j !== i))}
-              style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 14 }}>✕</button>
+              style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 14, flexShrink: 0 }}>✕</button>
           </div>
         )
       })}

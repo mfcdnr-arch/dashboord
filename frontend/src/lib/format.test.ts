@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fmtFixed, heatSteps, logScaleAdvice, sparkSeries } from './format'
+import { fmtCell, fmtFixed, fmtNumber, heatSteps, logScaleAdvice, sparkSeries } from './format'
 
 // Палитра тепловой карты — пять оттенков, как в теме.
 const PAL = ['#faf0e9', '#e0b58f', '#e0885f', '#a5563c', '#e04e39']
@@ -96,5 +96,18 @@ describe('fmtFixed — дробные числа по-русски', () => {
     expect(fmtFixed(null)).toBe('—')
     expect(fmtFixed(undefined)).toBe('—')
     expect(fmtFixed(Infinity)).toBe('—')
+  })
+})
+
+describe('значение ячейки таблицы', () => {
+  it('дата ISO печатается по-русски, остальное — как есть', () => {
+    expect(fmtCell('2026-10-06')).toBe('06.10.2026')
+    expect(fmtCell('2026-10-06 00:00:00')).toBe('06.10.2026')
+    expect(fmtCell('согласно графика')).toBe('согласно графика')
+    expect(fmtCell('До 2026-10-06')).toBe('До 2026-10-06') // часть текста не трогаем
+    expect(fmtCell(1234.5)).toBe(fmtNumber(1234.5)) // числа — тем же правилом, что везде
+    expect(fmtCell(null)).toBe('—')
+    expect(fmtCell('')).toBe('—')
+    expect(fmtCell(0)).toBe('0')
   })
 })
