@@ -304,10 +304,18 @@ async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None
         day = await conn.fetchval("select reporting_period_start from dataset_releases where id=$1", rel)
         keep_rows = await _tally.matching_rows(conn, rel, where, day, row, allowed)
     only = set(fields) if fields else None
+    # Столбцы — в порядке ИСХОДНОГО листа. До 08.10.2026 шли по алфавиту
+    # кодов: у формы Минэкономразвития «Дата/время/место» вставала первой, а
+    # «Краткая характеристика» уезжала от своего «Наименования», и сверять
+    # таблицу с файлом было нельзя. У граф, перенесённых без файла, места в
+    # листе нет — они идут следом, по коду, как раньше.
     frows = await conn.fetch(
-        "select distinct canonical_field_code from dataset_values where dataset_release_id=$1 "
-        "order by canonical_field_code", rel)
-    cols = [f["canonical_field_code"] for f in frows if only is None or f["canonical_field_code"] in only]
+        "select v.code, min(ec.column_index) pos from "
+        "(select distinct canonical_field_code code from dataset_values where dataset_release_id=$1) v "
+        "left join dataset_release_fields rf on rf.dataset_release_id=$1 and rf.canonical_field_code=v.code "
+        "left join extracted_columns ec on ec.id=rf.extracted_column_id "
+        "group by v.code order by min(ec.column_index) nulls last, v.code", rel)
+    cols = [f["code"] for f in frows if only is None or f["code"] in only]
     params: list = [rel, row]
     acl = _row_acl_clause(params, allowed)
     vals = await conn.fetch(

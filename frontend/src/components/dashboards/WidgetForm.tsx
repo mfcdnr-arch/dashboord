@@ -427,7 +427,10 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
       const where = whereToConfig(conds)
       return dataset
         ? { dataset_code: dataset, ...(Object.keys(cellFmt).length ? { cell_format: cellFmt } : {}),
-            ...(where.length ? { where } : {}) }
+            ...(where.length ? { where } : {}),
+            // Выбранные графы. Без них таблица показывает форму целиком —
+            // так и было до 08.10.2026, и у старых виджетов ключа нет.
+            ...(multiFields.length ? { value_fields: multiFields } : {}) }
         : null
     }
     if (type === 'objects_compare') return objField ? { value_field: objField } : null
@@ -702,6 +705,22 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         <WhereEditor fields={allFields(dataset)} value={conds} onChange={setConds}
           title={counting ? 'Считать только строки, где… (все условия сразу; без условий — все строки)'
             : 'Показывать только строки, где… (без условий — все строки)'} />
+      )}
+      {type === 'table' && dataset && allFields(dataset).length > 0 && (
+        <Field size="sm" label="Какие графы показать (ничего не отмечено — все графы формы)">
+          {/* «Лента» на дашборде читается, когда в ней три-четыре нужные
+              графы, а не вся форма с пустыми столбцами. Порядок — как в форме. */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 132, overflowY: 'auto',
+            width: 'min(460px, 100%)', boxSizing: 'border-box',
+            padding: '4px 6px', border: '1px solid var(--border-faint)', borderRadius: 8 }}>
+            {allFields(dataset).map((f) => (
+              <label key={f.code} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 13, lineHeight: 1.3 }}>
+                <input type="checkbox" checked={multiFields.includes(f.code)} onChange={() => toggleField(f.code)} style={{ marginTop: 2, flexShrink: 0 }} />
+                <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{f.name}</span>
+              </label>
+            ))}
+          </div>
+        </Field>
       )}
       {isObjectsCompare && (
         <Field size="sm" label="Показатель (по подразделениям)"><select style={sel} value={objField} onChange={(e) => setObjField(e.target.value)}>
