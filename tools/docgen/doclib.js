@@ -69,10 +69,16 @@ function UL(...items) {
     numbering: { reference: 'bullets', level: 0 }, spacing: { after: 60, line: 280 },
   }));
 }
+// Каждый нумерованный список — свой экземпляр нумерации. Без этого все списки
+// документа ссылались на один, и каждый следующий продолжал предыдущий: в
+// главе 36 руководства модератора шаги начинались с «32.» (найдено осмотром
+// отрисованной главы 08.10.2026; касалось всех руководств).
+let olInstance = 0;
 function OL(...items) {
+  const instance = ++olInstance;
   return items.map((it) => new Paragraph({
     children: (Array.isArray(it) ? it : [it]).map((p) => (typeof p === 'string' ? tr(p) : p)),
-    numbering: { reference: 'nums', level: 0 }, spacing: { after: 60, line: 280 },
+    numbering: { reference: 'nums', level: 0, instance }, spacing: { after: 60, line: 280 },
   }));
 }
 function CODE(text) {
