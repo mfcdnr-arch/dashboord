@@ -1,4 +1,4 @@
-"""Подсказка «💡 новые графы не показаны» на дашборде (этап 5, 01.10.2026).
+"""Подсказка «💡 новые графы» на дашборде (этап 5, 01.10.2026; ревью 08.10.2026).
 
 Форма прирастает графами, дашборд остаётся прежним, и узнать об этом можно было
 только сверив их вручную. Подсказка была и раньше, но отвечала на другой вопрос
@@ -10,12 +10,15 @@
 Теперь она отвечает на вопрос «что появилось в форме с тех пор, как дашборд
 собрали»:
   • кандидаты — графы с числами в ПОСЛЕДНЕМ выпуске формы (не вся история);
-  • минус графы, которые виджеты называют прямо (`_coverage.named_fields`);
-  • минус «база дашборда» — графы, объявленные в выпусках, созданных ДО первого
-    виджета на этой форме: их видел тот, кто собирал дашборд, и выбрал
-    сознательно. Дата создания виджета, а не выпуска: перевыпуск 22.09
-    пересоздал все выпуски РЦО, и отсчёт по выпускам объявил бы новыми все
-    384 графы; прежние (снятые) выпуски при этом остаются и базу держат;
+  • минус графы, которые виджеты называют прямо (`_coverage.named_fields`), —
+    своей формы: у двух форм коды граф могут совпасть;
+  • минус «база дашборда» — графы выпусков с отчётным периодом не позже того,
+    по который форма была на дашборде при сборке (`dashboard_form_since`,
+    миграция 060): их видел тот, кто собирал дашборд, и выбрал сознательно.
+    База — по ПЕРИОДУ, а не по времени создания: история, загруженная после
+    сборки, тоже база («впервые в отчёте за 13.01» не может быть «появилась
+    после сборки»), а перевыпуск, перенос данных и удаление ранних виджетов
+    базу не сдвигают;
   • минус отмеченные человеком «больше не предлагать» (dashboards.fields_reviewed);
   • минус безымянные «Столбец N» (код сдвигается при каждом росте формы).
 Графы, которые виджет показывает НЕЯВНО (таблица всей формы, рейтинг по мере),
@@ -37,38 +40,49 @@ def _cfg(raw) -> dict:
     return json.loads(raw) if isinstance(raw, str) else (raw or {})
 
 
+async def _forms_of(conn, dashboard_id: str) -> Dict[str, object]:
+    """Формы дашборда и период, по который каждая была на нём при сборке."""
+    widgets = await conn.fetch("select config from widgets where dashboard_id=$1::uuid", dashboard_id)
+    codes: List[str] = []
+    for w in widgets:
+        for c in _coverage.dataset_codes(_cfg(w["config"])):
+            if c not in codes:
+                codes.append(c)
+    since = {r["code"]: r["period"] for r in await conn.fetch(
+        "select code, period from dashboard_form_since where dashboard_id=$1::uuid", dashboard_id)}
+    return {c: since.get(c) for c in sorted(codes)}
+
+
 async def missing_dashboard_fields(conn, org_id, dashboard_id: str) -> dict:
     """Новые с момента сборки графы форм дашборда, которых нет ни в одном виджете."""
     d = await conn.fetchrow(
         "select fields_reviewed from dashboards where id=$1::uuid and organization_id=$2",
         dashboard_id, org_id)
     if d is None:
-        return {"fields": [], "count": 0}
+        return {"fields": [], "count": 0, "reviewed": 0}
     reviewed_all = _cfg(d["fields_reviewed"])
     widgets = await conn.fetch(
-        "select name, widget_type, config, created_at from widgets where dashboard_id=$1::uuid",
-        dashboard_id)
+        "select name, widget_type, config from widgets where dashboard_id=$1::uuid", dashboard_id)
 
     named: set = set()
-    first_widget_at: Dict[str, object] = {}
-    whole: Dict[str, List[str]] = {}
+    # (имя виджета, прячет ли он нули) — «уже видна в …» не должна обещать
+    # графу, которую виджет не рисует.
+    whole: Dict[str, List[tuple]] = {}
     measures: Dict[str, List[tuple]] = {}
     for w in widgets:
         cfg = _cfg(w["config"])
         named.update(_coverage.named_fields(cfg))
-        for code in _coverage.dataset_codes(cfg):
-            at = first_widget_at.get(code)
-            if at is None or w["created_at"] < at:
-                first_widget_at[code] = w["created_at"]
         own = cfg.get("dataset_code")
         if own and _coverage.reads_whole_form(w["widget_type"], cfg):
-            whole.setdefault(own, []).append(w["name"])
+            whole.setdefault(own, []).append((w["name"], _coverage.hides_zero(w["widget_type"], cfg)))
         m = _coverage.measure_of_cfg(cfg)
         if own and m:
             measures.setdefault(own, []).append((m, w["name"]))
 
+    forms = await _forms_of(conn, dashboard_id)
+    reviewed_count = sum(len(reviewed_all.get(c) or []) for c in forms)
     out: List[dict] = []
-    for code, since in sorted(first_widget_at.items()):
+    for code, since in forms.items():
         latest = await conn.fetchrow(
             "select id, object_id from dataset_releases "
             "where organization_id=$1 and code=$2 and status <> 'superseded' "
@@ -76,23 +90,30 @@ async def missing_dashboard_fields(conn, org_id, dashboard_id: str) -> dict:
             org_id, code)
         if latest is None:
             continue
-        numeric = {r["c"] for r in await conn.fetch(
-            "select distinct canonical_field_code as c from dataset_values "
-            "where dataset_release_id=$1 and value_number is not null", latest["id"])}
-        # База: графы выпусков, созданных до первого виджета этой формы. Если
-        # дашборд собран раньше любого выпуска (шаблон, ручная сборка до
-        # данных), базой служит первый выпуск — иначе «новой» оказалась бы
-        # вся форма.
+        # Графы с числами и, отдельно, с ненулевым числом — второе нужно
+        # «Показателям списком», которые нули прячут.
+        numeric: set = set()
+        nonzero: set = set()
+        for r in await conn.fetch(
+                "select canonical_field_code as c, bool_or(value_number <> 0) as nz from dataset_values "
+                "where dataset_release_id=$1 and value_number is not null group by 1", latest["id"]):
+            numeric.add(r["c"])
+            if r["nz"]:
+                nonzero.add(r["c"])
+        # База: графы выпусков по период сборки включительно, любого статуса и
+        # времени создания. Дашборд собран раньше любого выпуска формы (шаблон,
+        # ручная сборка до данных) — базой служит первый выпуск по периоду,
+        # иначе «новой» оказалась бы вся форма.
         #
         # Графы базы — по объявлениям выпуска, а у выпусков без объявлений (их
         # писали в обход штатного пути до 23.09) — по значениям. Значения
-        # читаем ТОЛЬКО у таких выпусков: у РЦО в базе полсотни отчётов по
+        # читаем ТОЛЬКО у таких выпусков: у РЦО в базе две сотни отчётов по
         # двадцать тысяч значений, и чтение всех сделало бы подсказку тяжёлой.
         base_rows = await conn.fetch(
             "with base0 as (select id from dataset_releases where organization_id=$1 and code=$2 "
-            "                 and created_at <= $3), "
+            "                 and $3::date is not null and reporting_period_start <= $3::date), "
             "first as (select id from dataset_releases where organization_id=$1 and code=$2 "
-            "          order by created_at limit 1), "
+            "          order by reporting_period_start nulls last, created_at limit 1), "
             "base as (select id from base0 union all "
             "         select id from first where not exists (select 1 from base0)) "
             "select canonical_field_code as c from dataset_release_fields "
@@ -104,7 +125,8 @@ async def missing_dashboard_fields(conn, org_id, dashboard_id: str) -> dict:
             org_id, code, since)
         base = {r["c"] for r in base_rows}
         reviewed = set(reviewed_all.get(code) or [])
-        cand = numeric - named - base - reviewed
+        own_named = {f for c, f in named if c == code}
+        cand = numeric - own_named - base - reviewed
         if not cand:
             continue
         titles = {r["code"]: r["name"] for r in await conn.fetch(
@@ -119,41 +141,67 @@ async def missing_dashboard_fields(conn, org_id, dashboard_id: str) -> dict:
             name = titles.get(c) or c
             if is_unnamed(name):
                 continue
-            covered = list(whole.get(code, []))
+            covered = [wn for wn, hz in whole.get(code, []) if not hz or c in nonzero]
             if not is_total_column(name):
                 covered += [wn for m, wn in measures.get(code, [])
                             if _levels.measure_of_name(name, sep) == m]
             out.append({"code": c, "name": name, "dataset_code": code,
                         "first_period": firsts.get(c), "covered_by": covered})
     out.sort(key=lambda f: (f["dataset_code"], f["name"]))
-    return {"fields": out, "count": len(out)}
+    return {"fields": out, "count": len(out), "reviewed": reviewed_count}
 
 
 async def review_missing_fields(conn, org_id, dashboard_id: str, fields: List[dict]) -> dict:
     """«Больше не предлагать» — отметить графы просмотренными у этого дашборда.
 
     Отметка дашборда, а не формы: другой дашборд на той же форме может
-    захотеть эту графу показать. Снять отметку из интерфейса нельзя — вывести
-    отклонённую графу можно обычным конструктором виджета; выключение и
-    включение подсказок отметок не сбрасывает.
+    захотеть эту графу показать. Отмечается только то, что подсказка сейчас
+    действительно предлагает: произвольные пары не попадают в отметки (иначе
+    их раздувал бы любой запрос, а журнал аудита копировал бы раздутое при
+    каждой правке дашборда). Снять отметки — `reset_reviewed_fields`.
+
+    Чтение и запись — под блокировкой строки дашборда: два одновременных
+    «Больше не предлагать» (две вкладки, два модератора) иначе затёрли бы
+    отметки друг друга, и графа молча вернулась бы в подсказку.
+    """
+    async with conn.transaction():
+        cur = await conn.fetchval(
+            "select fields_reviewed from dashboards where id=$1::uuid and organization_id=$2 for update",
+            dashboard_id, org_id)
+        if cur is None:
+            raise DashboardError("Дашборд не найден")
+        offered = {(f["dataset_code"], f["code"])
+                   for f in (await missing_dashboard_fields(conn, org_id, dashboard_id))["fields"]}
+        reviewed: Dict[str, List[str]] = {k: list(v) for k, v in _cfg(cur).items()}
+        added = 0
+        for f in fields:
+            code, field = str(f.get("dataset_code") or ""), str(f.get("code") or "")
+            if (code, field) not in offered:
+                continue
+            lst = reviewed.setdefault(code, [])
+            if field not in lst:
+                lst.append(field)
+                added += 1
+        if added:
+            await conn.execute(
+                "update dashboards set fields_reviewed=$2::jsonb where id=$1::uuid",
+                dashboard_id, json.dumps(reviewed, ensure_ascii=False))
+    return {"reviewed": added}
+
+
+async def reset_reviewed_fields(conn, org_id, dashboard_id: str) -> dict:
+    """«Вернуть скрытые графы» — снять все отметки «больше не предлагать».
+
+    Без этого отметка была необратимой: нажатое по ошибке «Больше не
+    предлагать 7 граф» прятало их навсегда, а вернуть можно было только правкой
+    базы — против правила «управление через интерфейс».
     """
     cur = await conn.fetchval(
         "select fields_reviewed from dashboards where id=$1::uuid and organization_id=$2",
         dashboard_id, org_id)
     if cur is None:
         raise DashboardError("Дашборд не найден")
-    reviewed: Dict[str, List[str]] = {k: list(v) for k, v in _cfg(cur).items()}
-    added = 0
-    for f in fields:
-        code, field = f.get("dataset_code"), f.get("code")
-        if not code or not field:
-            continue
-        lst = reviewed.setdefault(code, [])
-        if field not in lst:
-            lst.append(field)
-            added += 1
-    if added:
-        await conn.execute(
-            "update dashboards set fields_reviewed=$2::jsonb where id=$1::uuid",
-            dashboard_id, json.dumps(reviewed, ensure_ascii=False))
-    return {"reviewed": added}
+    n = sum(len(v or []) for v in _cfg(cur).values())
+    if n:
+        await conn.execute("update dashboards set fields_reviewed='{}'::jsonb where id=$1::uuid", dashboard_id)
+    return {"returned": n}

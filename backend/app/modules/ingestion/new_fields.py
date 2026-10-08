@@ -5,21 +5,30 @@
 раз в месяц), а дашборд остаётся прежним, и узнать об этом можно было только
 сверив их вручную.
 
-Правило — здесь и только здесь. Графа кода X новая, если:
-  1. у X больше одного выпуска — первый выпуск формы это «новая форма», её
+Правило — здесь и только здесь. «Новое» считается относительно того, что
+система УЖЕ видела: каждый выпуск правило однажды просматривает и помечает
+(`dataset_releases.new_fields_checked_at`). Всё, что принесла одна операция —
+книга по листам, недельный файл с двумя датами, — просматривается разом и даёт
+одну новость. До 08.10.2026 графу сравнивали со ВСЕМИ прочими выпусками формы,
+и при выпуске книги «прочими» оказывались соседние листы той же книги: графа,
+появившаяся не на последнем листе, не объявлялась никогда.
+
+Графа кода X новая, если:
+  1. у X есть просмотренные выпуски — без них это «новая форма», её
      обслуживает предложение виджетов на «📥 Загрузке» (этап 4);
-  2. у графы есть ЧИСЛО в самом свежем активном выпуске X по отчётному периоду.
-     Число, а не «ненулевое»: новые услуги РЦО в первый день все нули, а
-     ненулевое правило потеряло бы настоящий рост формы. Число отсекает столбец
-     названий строк (значений у него нет), пустые и текстовые графы;
-  3. её нет ни в одном ДРУГОМ выпуске X — любого статуса. Снятый выпуск тоже
-     значит «графу уже видели»: иначе перевыпуск того же периода с «Заместить»
-     объявлял бы её второй раз. Загрузка истории сюда же не попадает — её выпуск
-     не самый свежий; графа, всплывшая только в старых месяцах, — прошлое, а не
-     новость. Возврат прежней графы тоже гасится этим условием;
-  4. о ней ещё не объявляли (журнал `dataset_new_fields`): удалённый выпуск
+  2. самый свежий активный выпуск X (по отчётному периоду) ещё не просмотрен.
+     Иначе операция принесла только историю: графа из прошлых месяцев —
+     прошлое, а не новость, даже если в просмотренных её нет;
+  3. у графы есть ЧИСЛО в этом самом свежем выпуске. Число, а не «ненулевое»:
+     новые услуги РЦО в первый день все нули, а ненулевое правило потеряло бы
+     настоящий рост формы. Число отсекает столбец названий строк, пустые и
+     текстовые графы;
+  4. её нет ни в одном ПРОСМОТРЕННОМ выпуске X — любого статуса. Снятый выпуск
+     тоже значит «графу уже видели»: иначе перевыпуск того же периода с
+     «Заместить» объявлял бы её второй раз. Возврат прежней графы гасится тем же;
+  5. о ней ещё не объявляли (журнал `dataset_new_fields`): удалённый выпуск
      уносит свои объявления граф, и без журнала графа ожила бы снова;
-  5. у неё есть имя: «Столбец N» — безымянный столбец разметки, его код
+  6. у неё есть имя: «Столбец N» — безымянный столбец разметки, его код
      сдвигается при каждом росте формы, и объявлять его значило бы повторять
      одно и то же при каждом новом столбце.
 
@@ -30,9 +39,11 @@
 было в прошлом отчёте и пропало в этом: «пропало столько же — возможно, графы
 переименованы».
 
-Повторная проверка безопасна (журнал), поэтому зовут её несколько путей:
-ручной выпуск, выпуск по листам — один раз на книгу, недельный загрузчик
-ведомств и ежедневная страховка воркера.
+Отметка «просмотрен» ставится в той же точке сохранения, что и объявление:
+сорвалось объявление — выпуски остаются непросмотренными, и следующая проверка
+(ежедневная страховка воркера) возьмёт их снова. Повторная проверка безопасна,
+поэтому зовут её несколько путей: ручной выпуск, выпуск по листам — один раз на
+книгу, недельный загрузчик ведомств и ежедневная страховка воркера.
 """
 from __future__ import annotations
 
@@ -59,15 +70,6 @@ def is_unnamed(name: Optional[str]) -> bool:
     return bool(name and _UNNAMED.match(name))
 
 
-async def _releases(conn, org_id, code: str) -> list:
-    """Два самых свежих активных выпуска кода — по отчётному периоду."""
-    return await conn.fetch(
-        "select id, object_id, reporting_period_start as period from dataset_releases "
-        "where organization_id=$1 and code=$2 and status <> 'superseded' "
-        "order by reporting_period_start desc nulls last, created_at desc limit 2",
-        org_id, code)
-
-
 async def _numeric_codes(conn, release_id) -> set:
     rows = await conn.fetch(
         "select distinct canonical_field_code as c from dataset_values "
@@ -76,35 +78,39 @@ async def _numeric_codes(conn, release_id) -> set:
 
 
 async def detect(conn, org_id, code: str) -> Optional[dict]:
-    """Новые графы самого свежего выпуска кода или None.
+    """Новые графы, принесённые непросмотренными выпусками кода, или None.
 
-    Только читает: ни журнала, ни уведомления. Отдельно от `announce`, чтобы
-    правило можно было проверить, ничего не записав.
+    Только читает: ни журнала, ни отметок, ни уведомления. Отдельно от
+    `announce`, чтобы правило можно было проверить, ничего не записав.
     """
-    total = await conn.fetchval(
-        "select count(*) from dataset_releases where organization_id=$1 and code=$2", org_id, code)
-    if (total or 0) < 2:
+    seen = await conn.fetchval(
+        "select count(*) from dataset_releases where organization_id=$1 and code=$2 "
+        "and new_fields_checked_at is not null", org_id, code)
+    if not seen:
         return None
-    rel = await _releases(conn, org_id, code)
-    if not rel:
+    latest = await conn.fetchrow(
+        "select id, object_id, reporting_period_start as period, new_fields_checked_at as checked "
+        "from dataset_releases where organization_id=$1 and code=$2 and status <> 'superseded' "
+        "order by reporting_period_start desc nulls last, created_at desc limit 1",
+        org_id, code)
+    if latest is None or latest["checked"] is not None:
         return None
-    latest = rel[0]
-    # «Нет ни в одном другом выпуске»: и по объявленным графам, и по значениям.
-    # Объявлений может не оказаться у выпусков, записанных в обход
+    # «Нет ни в одном просмотренном выпуске»: и по объявленным графам, и по
+    # значениям. Объявлений может не оказаться у выпусков, записанных в обход
     # build_release до 23.09 (их дописывал backfill_release_fields), а по
     # значениям не видно граф, у которых в прошлом не было ни одного числа.
     rows = await conn.fetch(
-        "with others as (select id from dataset_releases "
-        "                where organization_id=$2 and code=$3 and id <> $1), "
+        "with seen as (select id from dataset_releases "
+        "              where organization_id=$2 and code=$3 and new_fields_checked_at is not null), "
         "cand as (select distinct canonical_field_code as c from dataset_values "
         "         where dataset_release_id=$1 and value_number is not null) "
         "select cand.c, cf.name from cand "
         "left join canonical_fields cf on cf.object_id=$4 and cf.code=cand.c "
         "where not exists (select 1 from dataset_release_fields f "
-        "                  where f.dataset_release_id in (select id from others) "
+        "                  where f.dataset_release_id in (select id from seen) "
         "                    and f.canonical_field_code = cand.c) "
         "  and not exists (select 1 from dataset_values v "
-        "                  where v.dataset_release_id in (select id from others) "
+        "                  where v.dataset_release_id in (select id from seen) "
         "                    and v.canonical_field_code = cand.c) "
         "  and not exists (select 1 from dataset_new_fields n "
         "                  where n.organization_id=$2 and n.code=$3 and n.field_code = cand.c) "
@@ -115,13 +121,17 @@ async def detect(conn, org_id, code: str) -> Optional[dict]:
     if not fields:
         return None
 
-    # Сколько граф с числами было в прошлом отчёте и пропало в этом —
-    # подсказка, что «новые» могут оказаться переименованными.
+    # Сколько граф с числами было в последнем ПРОСМОТРЕННОМ отчёте и пропало в
+    # этом — подсказка, что «новые» могут оказаться переименованными.
+    # Сравнивать с соседним листом той же книги нельзя: переименование на
+    # середине книги в нём уже случилось, и пропажа не была бы видна.
     gone = 0
-    if len(rel) > 1:
-        before = await _numeric_codes(conn, rel[1]["id"])
-        now = await _numeric_codes(conn, latest["id"])
-        lost = before - now
+    prev = await conn.fetchval(
+        "select id from dataset_releases where organization_id=$1 and code=$2 "
+        "and status <> 'superseded' and new_fields_checked_at is not null "
+        "order by reporting_period_start desc nulls last, created_at desc limit 1", org_id, code)
+    if prev:
+        lost = await _numeric_codes(conn, prev) - await _numeric_codes(conn, latest["id"])
         if lost:
             names = await conn.fetch(
                 "select code, name from canonical_fields where object_id=$1 and code = any($2::text[])",
@@ -132,6 +142,12 @@ async def detect(conn, org_id, code: str) -> Optional[dict]:
         "release_id": latest["id"], "object_id": latest["object_id"],
         "period": latest["period"], "fields": fields, "gone": gone,
     }
+
+
+async def _mark_seen(conn, org_id, code: str) -> None:
+    await conn.execute(
+        "update dataset_releases set new_fields_checked_at = now() "
+        "where organization_id=$1 and code=$2 and new_fields_checked_at is null", org_id, code)
 
 
 async def watching_dashboards(conn, org_id, code: str) -> List[dict]:
@@ -168,21 +184,40 @@ async def editor_user_ids(conn, org_id) -> list:
 
 
 async def announce(conn, org_id, code: str) -> Optional[dict]:
-    """Найти новые графы кода, записать в журнал и, если форму смотрит
-    дашборд, уведомить. Возвращает то, что объявлено, или None.
+    """Найти новые графы кода, записать в журнал, пометить выпуски
+    просмотренными и, если форму смотрит дашборд, уведомить. Возвращает то,
+    что объявлено, или None.
 
-    Повторный вызов ничего не делает: объявленные графы уже в журнале.
+    Повторный вызов ничего не делает: выпуски уже просмотрены, графы в журнале.
+    Два одновременных выпуска одной формы выстраиваются в очередь (замок на
+    код): иначе оба увидели бы одну графу новой и уведомление пришло бы дважды.
     """
+    await conn.execute("select pg_advisory_xact_lock(hashtextextended($1, 0))",
+                       f"new_fields:{org_id}:{code}")
     found = await detect(conn, org_id, code)
+    await _mark_seen(conn, org_id, code)
     if found is None:
         return None
+    # Сначала журнал: объявляем только то, что в него действительно легло.
+    fresh = set()
+    for f in found["fields"]:
+        ok = await conn.fetchval(
+            "insert into dataset_new_fields(organization_id, object_id, code, field_code, field_name, "
+            "release_id, period) values($1,$2,$3,$4,$5,$6,$7) "
+            "on conflict (organization_id, code, field_code) do nothing returning field_code",
+            org_id, found["object_id"], code, f["code"], f["name"], found["release_id"], found["period"])
+        if ok:
+            fresh.add(ok)
+    fields = [f for f in found["fields"] if f["code"] in fresh]
+    if not fields:
+        return None
+    found = {**found, "fields": fields}
     obj_name = await conn.fetchval("select name from objects where id=$1", found["object_id"]) \
         if found["object_id"] else None
     dashboards = await watching_dashboards(conn, org_id, code)
 
     notice_id = None
     if dashboards and found["object_id"]:
-        fields = found["fields"]
         payload = {
             "dataset_code": code,
             "object_id": str(found["object_id"]),
@@ -197,14 +232,11 @@ async def announce(conn, org_id, code: str) -> Optional[dict]:
         }
         users = await editor_user_ids(conn, org_id)
         notice_id = await notif.notify(conn, org_id, EVENT, "object", found["object_id"], payload, users)
-
-    for f in found["fields"]:
-        await conn.execute(
-            "insert into dataset_new_fields(organization_id, object_id, code, field_code, field_name, "
-            "release_id, period, notice_id) values($1,$2,$3,$4,$5,$6,$7,$8) "
-            "on conflict (organization_id, code, field_code) do nothing",
-            org_id, found["object_id"], code, f["code"], f["name"], found["release_id"],
-            found["period"], notice_id)
+        if notice_id:
+            await conn.execute(
+                "update dataset_new_fields set notice_id=$4 "
+                "where organization_id=$1 and code=$2 and field_code = any($3::text[])",
+                org_id, code, list(fresh), notice_id)
     return {**found, "object_name": obj_name, "dashboards": dashboards,
             "notice_id": str(notice_id) if notice_id else None}
 
@@ -215,8 +247,9 @@ async def announce_safely(conn, org_id, code: str) -> Optional[dict]:
     Объявление — подсказка, а подсказка не вправе сорвать работу человека
     (урок 02.09: сбой проверки качества внутри транзакции откатывал сам
     выпуск). Точка сохранения откатывает только объявление; цена — сломанное
-    правило молча перестанет объявлять, и узнать об этом можно из лога, а
-    ежедневная страховка воркера попробует ещё раз.
+    правило молча перестанет объявлять, и узнать об этом можно из лога. Отметки
+    «просмотрен» откатываются вместе с объявлением, поэтому ежедневная
+    страховка воркера возьмёт эти выпуски снова.
     """
     try:
         async with conn.transaction():
@@ -236,14 +269,15 @@ def brief(res: Optional[dict]) -> Optional[dict]:
 
 
 async def check_all(conn, org_id) -> list:
-    """Страховка воркера: пройти все формы организации.
+    """Страховка воркера: пройти формы организации с непросмотренными выпусками.
 
-    Пути выпуска зовут `announce` сами, но не все (недельный загрузчик ведомств
-    пишет мимо `build_release`), и ежедневный проход ловит остальное.
+    Пути выпуска зовут `announce` сами, но не все (авто-выпуск, служебные
+    загрузчики), и объявление могло сорваться — тогда выпуски остались
+    непросмотренными, и ежедневный проход возьмёт их.
     """
     codes = await conn.fetch(
-        "select code from dataset_releases where organization_id=$1 "
-        "group by code having count(*) > 1 order by code", org_id)
+        "select distinct code from dataset_releases where organization_id=$1 "
+        "and new_fields_checked_at is null order by code", org_id)
     out = []
     for r in codes:
         # Безопасный вызов: сбой одной формы не должен срывать проверку остальных.

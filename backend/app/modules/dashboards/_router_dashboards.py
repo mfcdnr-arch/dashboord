@@ -594,13 +594,32 @@ class MissingReviewIn(BaseModel):
 @router.post("/dashboards/{dashboard_id}/missing-fields/review")
 async def review_dashboard_missing_fields(dashboard_id: str, body: MissingReviewIn,
                                           user: dict = Depends(manage)):
-    """«Больше не предлагать»: графы просмотрены и на этот дашборд не нужны."""
+    """«Больше не предлагать»: графы просмотрены и на этот дашборд не нужны.
+
+    Права — те же, что на добавление виджета (управляющая роль и доступ к
+    дашборду), а не правка настроек дашборда: «больше не предлагать» — второй
+    исход того же вопроса «добавить виджет?», и модератору, который может
+    добавить графу, незачем запрещать от неё отказаться. Отказ обратим —
+    `…/review/reset`.
+    """
     async with db.acquire(user["id"]) as conn:
         if not await service._can_view(conn, user["organization_id"], user, dashboard_id):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Дашборд не найден")
         try:
             return await service.review_missing_fields(
                 conn, user["organization_id"], dashboard_id, [f.model_dump() for f in body.fields])
+        except DashboardError as e:
+            raise _bad(e)
+
+
+@router.post("/dashboards/{dashboard_id}/missing-fields/review/reset")
+async def reset_dashboard_reviewed_fields(dashboard_id: str, user: dict = Depends(manage)):
+    """«Вернуть скрытые графы»: снять все отметки «больше не предлагать»."""
+    async with db.acquire(user["id"]) as conn:
+        if not await service._can_view(conn, user["organization_id"], user, dashboard_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Дашборд не найден")
+        try:
+            return await service.reset_reviewed_fields(conn, user["organization_id"], dashboard_id)
         except DashboardError as e:
             raise _bad(e)
 

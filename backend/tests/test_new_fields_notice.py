@@ -82,6 +82,11 @@ async def _rel(conn, f, period, fields, *, status="validated", declare=True):
     return rid
 
 
+async def _seen(conn, f):
+    """Как после штатного пути выпуска: правило просмотрело выпуски формы."""
+    await nf.announce(conn, f["org"], CODE)
+
+
 BASE = {"obr": ("Обращения", [10, 20]), "uved": ("Уведомления", [1, 2])}
 JUL1, JUL8, JUL15, JUN1 = date(2026, 7, 1), date(2026, 7, 8), date(2026, 7, 15), date(2026, 6, 1)
 
@@ -98,6 +103,7 @@ async def test_new_numeric_field_is_detected_once(form):
     повторная проверка её не объявляет (журнал)."""
     async with db.acquire() as conn:
         await _rel(conn, form, JUL1, BASE)
+        await _seen(conn, form)
         # Новые услуги в первый день — нули: «ненулевое» правило их потеряло бы.
         await _rel(conn, form, JUL8, {**BASE, "zap": ("Записались", [0, 0])})
         found = await nf.announce(conn, form["org"], CODE)
@@ -115,8 +121,10 @@ async def test_superseded_history_and_returning_fields_are_not_news(form):
         # Графа была в выпуске, который потом сняли, — её уже «видели».
         await _rel(conn, form, JUL1, {**BASE, "old": ("Прежняя услуга", [5, 5])}, status="superseded")
         await _rel(conn, form, JUL1, BASE)
+        await _seen(conn, form)
         await _rel(conn, form, JUL8, {**BASE, "old": ("Прежняя услуга", [3, 4])})
         assert await nf.detect(conn, form["org"], CODE) is None, "возврат прежней графы — не новость"
+        await _seen(conn, form)
 
         # Загрузка истории: выпуск за более ранний период приносит графу,
         # которой в свежем отчёте нет, — это прошлое, а не новость.
@@ -129,6 +137,7 @@ async def test_text_unnamed_and_undeclared_fields(form):
     выпуска которой нет объявлений, но есть значения, — не новая."""
     async with db.acquire() as conn:
         await _rel(conn, form, JUL1, {**BASE, "legacy": ("Старая графа", [1, 1])}, declare=False)
+        await _seen(conn, form)
         await _rel(conn, form, JUL8, {
             **BASE, "legacy": ("Старая графа", [2, 2]),
             "note": ("Комментарии", None), "stolbec_7": ("Столбец 7", [1, 2])})
@@ -139,6 +148,7 @@ async def test_rename_is_reported_not_hidden(form):
     """Переименование даёт новый код — объявляем, но называем, сколько пропало."""
     async with db.acquire() as conn:
         await _rel(conn, form, JUL1, {**BASE, "svc_a": ("Услуга А", [1, 2])})
+        await _seen(conn, form)
         await _rel(conn, form, JUL8, {**BASE, "svc_a2": ("(101) Услуга А", [1, 2])})
         found = await nf.detect(conn, form["org"], CODE)
         assert found and found["gone"] == 1, "пропала одна графа — подсказка про переименование"
@@ -148,6 +158,7 @@ async def test_deleted_release_does_not_revive_the_field(form):
     """Выпуск, принёсший графу, удалили — при следующем появлении она не «новая»."""
     async with db.acquire() as conn:
         await _rel(conn, form, JUL1, BASE)
+        await _seen(conn, form)
         r2 = await _rel(conn, form, JUL8, {**BASE, "zap": ("Записались", [1, 1])})
         assert await nf.announce(conn, form["org"], CODE)
         await conn.execute("delete from dataset_values where dataset_release_id=$1", r2)
@@ -165,6 +176,7 @@ async def test_notice_goes_to_editors_of_watched_forms_only(client, admin_header
                                  json={"name": "Стр"})).json()["id"]
         async with db.acquire() as conn:
             await _rel(conn, form, JUL1, BASE)
+            await _seen(conn, form)
         await client.post(f"/dashboard-pages/{pid}/widgets", headers=admin_headers, json={
             "name": "Обращения", "widget_type": "kpi",
             "config": {"dataset_code": CODE, "value_field": "obr"}})
@@ -291,6 +303,7 @@ async def test_dashboard_hint_shows_only_what_appeared_after_it_was_built(
     вынесенные в виджеты, — сознательный выбор, а не недостача."""
     async with db.acquire() as conn:
         await _rel(conn, form, JUL1, {**BASE, "old": ("Не вынесено", [1, 1])})
+        await _seen(conn, form)
     did = (await client.post("/dashboards", headers=admin_headers,
                              json={"name": "ztest_nf_hint", "force": True})).json()["id"]
     try:
@@ -322,5 +335,161 @@ async def test_dashboard_hint_shows_only_what_appeared_after_it_was_built(
         assert r.status_code == 200 and r.json()["reviewed"] == 1
         r = await client.get(f"/dashboards/{did}/missing-fields", headers=admin_headers)
         assert r.json()["count"] == 0
+    finally:
+        await purge_dashboard(did)
+
+
+# ── Ревью 08.10.2026: «новое» — относительно уже просмотренного ──────────────
+
+async def test_book_with_new_field_in_the_middle_is_announced(form):
+    """Книга по листам: графа появилась на втором листе, а не на последнем.
+    Прежнее правило видело её в соседнем листе той же книги и молчало всегда
+    (на истории РЦО — 101 графа из 105 при недельных поставках)."""
+    async with db.acquire() as conn:
+        await _rel(conn, form, JUL1, BASE)
+        await _seen(conn, form)
+        # Одна операция — два листа: графа на обоих.
+        await _rel(conn, form, JUL8, {**BASE, "zap": ("Записались", [0, 1])})
+        await _rel(conn, form, JUL15, {**BASE, "zap": ("Записались", [2, 3])})
+        found = await nf.announce(conn, form["org"], CODE)
+        assert found and [f["code"] for f in found["fields"]] == ["zap"], found
+        assert await nf.announce(conn, form["org"], CODE) is None, "книга просмотрена — второй раз нечего"
+
+
+async def test_history_loaded_after_the_freshest_report_is_not_news(form):
+    """Сперва свежий отчёт, потом история за прошлые месяцы. Графа свежего
+    отчёта, которой нет в истории, не «появилась» — она была с первой загрузки."""
+    async with db.acquire() as conn:
+        await _rel(conn, form, JUL15, {**BASE, "zap": ("Записались", [1, 1])})
+        await _seen(conn, form)
+        await _rel(conn, form, JUN1, BASE)
+        await _rel(conn, form, JUL1, BASE)
+        assert await nf.announce(conn, form["org"], CODE) is None
+        assert await conn.fetchval(
+            "select count(*) from dataset_releases where code=$1 and new_fields_checked_at is null", CODE) == 0, \
+            "история просмотрена — ежедневная страховка не возьмёт её снова"
+
+
+async def test_failed_announce_is_picked_up_by_the_daily_check(form, monkeypatch):
+    """Сорвалось объявление — выпуск остаётся непросмотренным, и ежедневная
+    страховка воркера объявляет графу (раньше она повторяла тот же провал)."""
+    async with db.acquire() as conn:
+        await _rel(conn, form, JUL1, BASE)
+        await _seen(conn, form)
+        await _rel(conn, form, JUL8, {**BASE, "zap": ("Записались", [1, 1])})
+
+        real = nf.watching_dashboards
+
+        async def boom(*_a, **_k):
+            raise RuntimeError("сбой при объявлении")
+
+        monkeypatch.setattr(nf, "watching_dashboards", boom)
+        assert await nf.announce_safely(conn, form["org"], CODE) is None
+        assert await conn.fetchval(
+            "select count(*) from dataset_new_fields where code=$1", CODE) == 0, "журнал откатился"
+        assert await conn.fetchval(
+            "select count(*) from dataset_releases where code=$1 and new_fields_checked_at is null", CODE) == 1, \
+            "отметка «просмотрен» откатилась вместе с объявлением"
+
+        monkeypatch.setattr(nf, "watching_dashboards", real)
+        done = await nf.check_all(conn, form["org"])
+        assert {"code": CODE, "fields": 1} in done, done
+
+
+async def _dash_on_form(client, admin_headers, name):
+    did = (await client.post("/dashboards", headers=admin_headers,
+                             json={"name": name, "force": True})).json()["id"]
+    pid = (await client.post(f"/dashboards/{did}/pages", headers=admin_headers,
+                             json={"name": "Стр"})).json()["id"]
+    return did, pid
+
+
+async def _widget(client, admin_headers, pid, name, wtype, cfg):
+    r = await client.post(f"/dashboard-pages/{pid}/widgets", headers=admin_headers,
+                          json={"name": name, "widget_type": wtype, "config": cfg})
+    assert r.status_code in (200, 201), r.text
+    return r.json()["id"]
+
+
+async def _hint(client, admin_headers, did):
+    r = await client.get(f"/dashboards/{did}/missing-fields", headers=admin_headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+async def test_hint_base_is_the_period_at_build_time(client, admin_headers, form):
+    """База подсказки — отчётный период на момент сборки, а не время создания:
+    история, загруженная после сборки, — тоже база; удаление первого виджета
+    базу не сдвигает."""
+    async with db.acquire() as conn:
+        await _rel(conn, form, JUL8, BASE)
+    did, pid = await _dash_on_form(client, admin_headers, "ztest_nf_since")
+    try:
+        first = await _widget(client, admin_headers, pid, "Обращения", "kpi",
+                              {"dataset_code": CODE, "value_field": "obr"})
+        async with db.acquire() as conn:
+            assert await conn.fetchval(
+                "select period from dashboard_form_since where dashboard_id=$1::uuid and code=$2",
+                did, CODE) == JUL8, "первый виджет на форме фиксирует её период"
+            # История за июнь приходит ПОСЛЕ сборки и приносит «hist».
+            await _rel(conn, form, JUN1, {**BASE, "hist": ("Июньская услуга", [4, 4])})
+            await _rel(conn, form, JUL15, {**BASE, "hist": ("Июньская услуга", [5, 5]),
+                                           "zap": ("Записались", [1, 2])})
+        h = await _hint(client, admin_headers, did)
+        assert [f["code"] for f in h["fields"]] == ["zap"], \
+            "графа из истории до сборки — не новость, хоть история и загружена позже"
+
+        # Второй виджет на той же форме, первый удалён: база прежняя.
+        await _widget(client, admin_headers, pid, "Уведомления", "kpi",
+                      {"dataset_code": CODE, "value_field": "uved"})
+        r = await client.delete(f"/widgets/{first}", headers=admin_headers)
+        assert r.status_code in (200, 204), r.text
+        h = await _hint(client, admin_headers, did)
+        assert [f["code"] for f in h["fields"]] == ["zap"], "неразобранная графа не пропадает"
+    finally:
+        await purge_dashboard(did)
+
+
+async def test_field_list_hiding_zeros_does_not_count_as_showing(client, admin_headers, form):
+    """«Показатели списком» прячут нули — «уже видна в …» про нулевую графу
+    была бы неправдой (на РЦО — 5 из 7 граф подсказки)."""
+    async with db.acquire() as conn:
+        await _rel(conn, form, JUL1, BASE)
+    did, pid = await _dash_on_form(client, admin_headers, "ztest_nf_zero")
+    try:
+        await _widget(client, admin_headers, pid, "Список", "field_list", {"dataset_code": CODE})
+        await _widget(client, admin_headers, pid, "Список с нулями", "field_list",
+                      {"dataset_code": CODE, "hide_zero": False})
+        async with db.acquire() as conn:
+            await _rel(conn, form, JUL8, {**BASE, "zap": ("Записались", [0, 0]),
+                                          "ved": ("Выдано", [1, 2])})
+        by = {f["code"]: f["covered_by"] for f in (await _hint(client, admin_headers, did))["fields"]}
+        assert by["ved"] == ["Список", "Список с нулями"], by
+        assert by["zap"] == ["Список с нулями"], by
+    finally:
+        await purge_dashboard(did)
+
+
+async def test_review_marks_only_offered_fields_and_can_be_undone(client, admin_headers, form):
+    """«Больше не предлагать» отмечает только предложенные графы (произвольные
+    пары не раздувают отметки) и снимается кнопкой «вернуть скрытые»."""
+    async with db.acquire() as conn:
+        await _rel(conn, form, JUL1, BASE)
+    did, pid = await _dash_on_form(client, admin_headers, "ztest_nf_review")
+    try:
+        await _widget(client, admin_headers, pid, "Обращения", "kpi", {"dataset_code": CODE, "value_field": "obr"})
+        async with db.acquire() as conn:
+            await _rel(conn, form, JUL8, {**BASE, "zap": ("Записались", [1, 1])})
+        r = await client.post(f"/dashboards/{did}/missing-fields/review", headers=admin_headers, json={
+            "fields": [{"dataset_code": CODE, "code": "zap"}, {"dataset_code": CODE, "code": "nope"},
+                       {"dataset_code": "chuzhaya_forma", "code": "zap"}]})
+        assert r.status_code == 200 and r.json()["reviewed"] == 1, r.text
+        h = await _hint(client, admin_headers, did)
+        assert h["count"] == 0 and h["reviewed"] == 1, h
+
+        r = await client.post(f"/dashboards/{did}/missing-fields/review/reset", headers=admin_headers)
+        assert r.status_code == 200 and r.json()["returned"] == 1, r.text
+        h = await _hint(client, admin_headers, did)
+        assert [f["code"] for f in h["fields"]] == ["zap"] and h["reviewed"] == 0, h
     finally:
         await purge_dashboard(did)
