@@ -484,161 +484,124 @@ def _header_set(headers: Sequence[str]) -> set:
     return {_norm_name(h) for h in headers if (h or "").strip()}
 
 
-async def compare_with_object_form(conn, object_id, code: str,
-                                   headers: Sequence[str]) -> Optional[dict]:
-    """Та ли это форма, что ведётся в объекте? None — та (или сравнивать не с чем).
+async def compare_with_object_form(conn, object_id, code: str, headers: Sequence[str], *,
+                                   version_id=None, sheet_name: Optional[str] = None) -> Optional[dict]:
+    """Та ли это форма, что ведётся в объекте под кодом `code`? None — та
+    (или сравнивать не с чем).
 
-    Сравнение по составу граф, а не по отпечатку: отпечаток меняется от любой
-    добавленной графы, а выросшая форма — всё ещё та же форма. Другой код
-    набора в том же объекте — тоже сигнал: «объект = одна форма», и второй код
-    либо чужая форма, либо ряд прошлых отчётов, разорванный новым именем.
+    С 09.10.2026 шаблон хранится на ФОРМУ (объект + код), и у объекта бывает
+    несколько форм — листы одной книги («Отчёт МФЦ для Минэкономразвития»:
+    показатели, вопросы, итоги, планы). Правила по порядку:
+
+      1. У кода уже есть шаблон — сравниваем состав граф, как раньше (порог
+         `FORM_MIN_SHARED`): выросшая форма проходит, чужая — нет.
+      2. Лист с ТЕМ ЖЕ именем ведётся в объекте под ДРУГИМ кодом — выпуск под
+         новым кодом разорвал бы ряд этой формы. 🔴 Проверка по имени листа
+         стоит раньше долевой: у «Итогов недели» и «Планов на неделю» общих
+         граф 82–91 %, и по составу их не различить.
+      3. Новый код, а ЭТОТ ЖЕ файл уже дал выпуск другой формы объекта с
+         другого листа — это соседняя форма книги: пропускаем, ей заведётся
+         свой шаблон.
+      4. Состав совпадает с формой другого кода — «та же форма под новым
+         кодом»: ряд разорвался бы, останавливаем.
+      5. Иначе — новая форма в объекте, принесённая отдельным файлом: тот самый
+         случай 22.09.2026 (перечень услуг под кодом формы МАХ). Останавливаем
+         и предлагаем перенести в новый объект или подтвердить.
     """
-    tpl = await conn.fetchrow(
-        "select t.dataset_code, t.headers, r.reporting_period_start as period "
-        "from object_layout_templates t left join dataset_releases r on r.id = t.source_release_id "
-        "where t.object_id = $1", object_id)
-    if tpl is None:
+    from . import form_templates as ft
+
+    tpls = await ft.for_object(conn, object_id)
+    if not tpls:
         return None
-    old = _header_set(_jsonb(tpl["headers"], []))
     new = _header_set(headers)
-    if not old or not new:
+    if not new:
         return None
-    shared = len(old & new)
-    share = max(shared / len(old), shared / len(new))
-    other_code = bool(tpl["dataset_code"]) and tpl["dataset_code"] != code
-    if share >= FORM_MIN_SHARED and not other_code:
-        return None
-    since = f" (прошлый выпуск — за {tpl['period'].strftime('%d.%m.%Y')})" if tpl["period"] else ""
-    if share < FORM_MIN_SHARED:
-        what = (f"Этот файл не похож на форму, которая ведётся в объекте{since}: "
-                f"совпадает {shared} из {len(old)} граф.")
-    else:
-        what = (f"В объекте ведётся форма под кодом «{tpl['dataset_code']}»{since}, "
-                f"а выпуск идёт под кодом «{code}».")
-    return {
-        "kind": "other_form",
-        "shared": shared, "template_total": len(old), "new_total": len(new),
-        "template_code": tpl["dataset_code"], "code": code,
-        "message": (what + " Одна форма — один объект: иначе данные двух форм смешаются "
-                    "на дашбордах, а разметка этой формы перестанет узнаваться сама. "
-                    "Перенесите файл в новый объект или подтвердите, что это та же форма."),
-    }
+    sheet_key = _norm_name(sheet_name or "")
+
+    def _since(t) -> str:
+        p = t["release_period"]
+        return f" (прошлый выпуск — за {p.strftime('%d.%m.%Y')})" if p else ""
+
+    def _share(t) -> tuple:
+        old = _header_set(_jsonb(t["headers"], []))
+        if not old:
+            return 0, 0, 1.0
+        shared = len(old & new)
+        return shared, len(old), max(shared / len(old), shared / len(new))
+
+    def _stop(case: str, what: str, t, shared: int, total: int) -> dict:
+        return {
+            "kind": "other_form", "case": case,
+            "shared": shared, "template_total": total, "new_total": len(new),
+            "template_code": t["dataset_code"], "template_sheet": t["sheet_name"], "code": code,
+            "message": (what + " Иначе данные двух форм смешаются на дашбордах, а разметка "
+                        "формы перестанет узнаваться сама. Перенесите файл в новый объект или "
+                        "подтвердите, что всё верно."),
+        }
+
+    same = next((t for t in tpls if t["dataset_code"] == code), None)
+    if same is not None:
+        shared, total, share = _share(same)
+        if share >= FORM_MIN_SHARED:
+            return None
+        where = f" (лист «{same['sheet_name']}»)" if same["sheet_name"] else ""
+        return _stop("same_code", f"Под кодом «{code}» ведётся другая форма{where}{_since(same)}: "
+                     f"совпадает {shared} из {total} граф.", same, shared, total)
+
+    if sheet_key:
+        twin = next((t for t in tpls if t["sheet_name"] and _norm_name(t["sheet_name"]) == sheet_key
+                     and sheet_date(t["sheet_name"], 2000) is None), None)
+        if twin is not None:
+            shared, total, _ = _share(twin)
+            return _stop("twin_sheet", f"Лист «{sheet_name}» в объекте ведётся под кодом «{twin['dataset_code']}»"
+                         f"{_since(twin)}, а выпуск идёт под кодом «{code}» — ряд формы разорвался бы.",
+                         twin, shared, total)
+
+    if version_id is not None:
+        neighbour = await conn.fetchval(
+            "select 1 from dataset_releases where object_id = $1::uuid and source_document_version_id = $2 "
+            "and code <> $3 and status <> 'superseded' limit 1", str(object_id), version_id, code)
+        if neighbour:
+            return None
+
+    best = max(tpls, key=lambda t: _share(t)[2])
+    shared, total, share = _share(best)
+    if share >= FORM_MIN_SHARED:
+        return _stop("same_form_new_code", f"Эта форма уже ведётся в объекте под кодом «{best['dataset_code']}»{_since(best)}, "
+                     f"а выпуск идёт под кодом «{code}».", best, shared, total)
+    names = ", ".join(f"«{t['sheet_name'] or t['dataset_code']}»" for t in tpls[:4])
+    return _stop("new_form", f"Этот файл не похож ни на одну форму, которая ведётся в объекте ({names}): "
+                 f"с ближайшей совпадает {shared} из {total} граф.", best, shared, total)
 
 
 async def save_layout_template(conn, *, object_id, fingerprint: str, mode: str, layout: dict,
                                fields: List[dict], cells: List[dict], row_count: int,
                                dataset_code: str, release_id, user_id,
                                headers: Optional[List[str]] = None,
+                               sheet_name: Optional[str] = None,
                                reason: Optional[str] = None) -> bool:
-    """Запоминает разметку последнего выпуска. Один шаблон на объект.
+    """Запоминает разметку последнего выпуска ФОРМЫ (объект + код).
 
-    Возвращает True, если строка была ЗАВЕДЕНА этим вызовом (а не обновлена) —
-    `xmax = 0` в системном столбце верно ровно для строки, вставленной в ЭТОЙ
-    же команде, включая ветку `on conflict do update`. По этому признаку
-    отличаем «форма распознаётся первый раз» от «пришёл очередной отчёт той же
-    формы» — от него зависит, стоит ли предлагать вынести показатели на
-    «Главную» (FR: спросить один раз, при первом выпуске новой формы).
+    Подробности и признак «шаблон заведён впервые» — в `form_templates.save`.
     """
-    # Прежний шаблон — в историю, если меняется форма или код набора. Очередной
-    # отчёт той же формы (отпечаток совпал) историю не засоряет.
-    await conn.execute(
-        "insert into object_layout_template_history(object_id, fingerprint, mode, layout, fields, "
-        "cells, row_count, dataset_code, source_release_id, headers, levels, valid_from, "
-        "replaced_by, replaced_reason) "
-        "select object_id, fingerprint, mode, layout, fields, cells, row_count, dataset_code, "
-        "source_release_id, headers, levels, updated_at, $2, $5 from object_layout_templates "
-        "where object_id=$1 and (fingerprint <> $3 or dataset_code is distinct from $4)",
-        object_id, user_id, fingerprint, dataset_code,
-        reason or "разметку заменил новый выпуск")
-    row = await conn.fetchrow(
-        "insert into object_layout_templates(object_id, fingerprint, mode, layout, fields, cells, "
-        "row_count, dataset_code, source_release_id, updated_by, updated_at, headers) "
-        "values($1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7,$8,$9,$10,now(),$11::jsonb) "
-        "on conflict (object_id) do update set fingerprint=excluded.fingerprint, mode=excluded.mode, "
-        "layout=excluded.layout, fields=excluded.fields, cells=excluded.cells, "
-        "row_count=excluded.row_count, dataset_code=excluded.dataset_code, "
-        "source_release_id=excluded.source_release_id, updated_by=excluded.updated_by, "
-        "updated_at=now(), headers=excluded.headers "
-        "returning (xmax = 0) as inserted",
-        object_id, fingerprint, mode,
-        json.dumps(layout, ensure_ascii=False, default=str),
-        json.dumps(fields, ensure_ascii=False, default=str),
-        json.dumps(cells, ensure_ascii=False, default=str),
-        int(row_count or 0), dataset_code, release_id, user_id,
-        json.dumps(list(headers or []), ensure_ascii=False, default=str),
-    )
-    return bool(row["inserted"])
+    from . import form_templates as ft
 
-
-async def template_history(conn, object_id) -> dict:
-    """Действующий шаблон объекта и прежние — для экрана объекта."""
-    def _row(r) -> dict:
-        return {
-            "dataset_code": r["dataset_code"],
-            "fields": len(_jsonb(r["fields"], [])),
-            "headers": len(_jsonb(r["headers"], [])),
-            "period": r["period"].isoformat() if r["period"] else None,
-        }
-    cur = await conn.fetchrow(
-        "select t.*, r.reporting_period_start as period from object_layout_templates t "
-        "left join dataset_releases r on r.id = t.source_release_id where t.object_id=$1", object_id)
-    hist = await conn.fetch(
-        "select h.*, r.reporting_period_start as period, u.login as replaced_by_login "
-        "from object_layout_template_history h "
-        "left join dataset_releases r on r.id = h.source_release_id "
-        "left join users u on u.id = h.replaced_by "
-        "where h.object_id=$1 order by h.replaced_at desc limit 20", object_id)
-    return {
-        "current": ({**_row(cur), "updated_at": cur["updated_at"].isoformat()} if cur else None),
-        "history": [{**_row(h), "id": str(h["id"]), "replaced_at": h["replaced_at"].isoformat(),
-                     "replaced_by": h["replaced_by_login"], "reason": h["replaced_reason"]}
-                    for h in hist],
-    }
-
-
-async def restore_template(conn, object_id, history_id: str, user_id) -> None:
-    """Вернуть прежний шаблон. Действующий при этом не пропадает — уходит в историю.
-
-    Транзакция — снаружи.
-    """
-    h = await conn.fetchrow(
-        "select * from object_layout_template_history where id=$1::uuid and object_id=$2",
-        history_id, object_id)
-    if h is None:
-        raise LookupError("Прежний шаблон не найден")
-    await conn.execute(
-        "insert into object_layout_template_history(object_id, fingerprint, mode, layout, fields, "
-        "cells, row_count, dataset_code, source_release_id, headers, levels, valid_from, "
-        "replaced_by, replaced_reason) "
-        "select object_id, fingerprint, mode, layout, fields, cells, row_count, dataset_code, "
-        "source_release_id, headers, levels, updated_at, $2, 'вместо него возвращён прежний шаблон' "
-        "from object_layout_templates where object_id=$1", object_id, user_id)
-    await conn.execute(
-        "insert into object_layout_templates(object_id, fingerprint, mode, layout, fields, cells, "
-        "row_count, dataset_code, source_release_id, headers, levels, updated_by, updated_at) "
-        "values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now()) "
-        "on conflict (object_id) do update set fingerprint=excluded.fingerprint, mode=excluded.mode, "
-        "layout=excluded.layout, fields=excluded.fields, cells=excluded.cells, "
-        "row_count=excluded.row_count, dataset_code=excluded.dataset_code, "
-        "source_release_id=excluded.source_release_id, headers=excluded.headers, "
-        "levels=excluded.levels, updated_by=excluded.updated_by, updated_at=now()",
-        object_id, h["fingerprint"], h["mode"], h["layout"], h["fields"], h["cells"],
-        h["row_count"], h["dataset_code"], h["source_release_id"], h["headers"], h["levels"], user_id)
-    await conn.execute("delete from object_layout_template_history where id=$1", h["id"])
-    await refresh_template_verdicts(conn, object_id)
+    return await ft.save(
+        conn, object_id=object_id, code=dataset_code, sheet_name=sheet_name,
+        fingerprint=fingerprint, mode=mode, layout=layout, fields=fields, cells=cells,
+        row_count=row_count, release_id=release_id, user_id=user_id, headers=headers, reason=reason)
 
 
 async def refresh_template_verdicts(conn, object_id, limit: int = 50) -> int:
     """Пересчитать «готов / требует внимания» у файлов объекта, ещё не выпущенных.
 
-    Вердикт считается один раз — сразу после распознавания. Но шаблон объекта
+    Вердикт считается один раз — сразу после распознавания. Но шаблон формы
     появляется ПОЗЖЕ, с первым выпуском: файлы, залитые до него, так и остались
-    бы в состоянии «нужна разметка», хотя разметка для них уже есть. Человек
-    увидел бы в папке стопку файлов, требующих его внимания, и не понял бы, что
-    система уже умеет их разметить.
+    бы в состоянии «нужна разметка», хотя разметка для них уже есть.
 
-    Считаем только по невыпущенным файлам и с потолком: разбор сетки дорогой,
-    а у выпущенных состояние всё равно «данные выпущены».
+    Вызывается ОДИН раз в конце операции (ручной выпуск, книга по листам,
+    авто-выпуск, возврат шаблона), а не внутри каждого `build_release`: на книге
+    из четырёх форм это было бы четыре полных пересчёта подряд.
     """
     jobs = await conn.fetch(
         "select j.id from extraction_jobs j "
@@ -650,18 +613,9 @@ async def refresh_template_verdicts(conn, object_id, limit: int = 50) -> int:
         "                  where r.source_document_version_id = dv.id and r.status <> 'superseded') "
         "order by d.reporting_period_start desc nulls last limit $2",
         object_id, limit)
-    updated = 0
     for j in jobs:
-        tables = await conn.fetch(
-            "select id from extracted_tables where extraction_job_id=$1 order by table_index", j["id"])
-        tpl = await layout_template_for_tables(conn, object_id, [str(t["id"]) for t in tables])
-        if tpl is None:
-            continue
-        await conn.execute(
-            "update extraction_jobs set template_match=$2, template_note=$3 where id=$1",
-            j["id"], tpl["match"], tpl["note"])
-        updated += 1
-    return updated
+        await check_job_templates(conn, str(j["id"]), object_id)
+    return len(jobs)
 
 
 def skip_rows_by_labels(area: List[List[str]], header_rows: int, fields: List[dict],
@@ -679,101 +633,315 @@ def skip_rows_by_labels(area: List[List[str]], header_rows: int, fields: List[di
             if col < len(area[i]) and _norm_name(str(area[i][col])) in want]
 
 
-async def layout_template_for_tables(conn, object_id, table_ids: Sequence[str]) -> Optional[dict]:
-    """Шаблон объекта, приложенный к таблицам текущего задания.
+# --------------------------------------------------------------------------- #
+# Сверка шаблонов форм с листами файла
+#
+# 🔴 Отпечаток формы зависит ТОЛЬКО от строк шапки и ширины листа: данные в него
+# не входят (`structure_fingerprint` берёт заголовки, а тип столбца по данным в
+# хеш не попадает). Поэтому сверку не нужно вести по развёрнутому листу целиком:
+# хватает нескольких верхних строк. Раньше каждый лист разворачивался полностью
+# (объединения по всей сетке + разбор типов по всем строкам), и годовая книга
+# РЦО из 201 листа сверялась 113 с — при каждом открытии файла и дважды в
+# воркере. Полный разбор остаётся только для выбранного листа.
+# --------------------------------------------------------------------------- #
 
-    Подставляем разметку ТОЛЬКО при совпадении отпечатка: не совпал — значит
-    форма другая, и чужая разметка дала бы неверные цифры молча. В этом случае
-    шаблон всё равно возвращается (с `match=structure_differs`), чтобы человек
-    видел, что система его помнит, но применить не может.
+# Сколько верхних строк листа читать для сверки сверх начала области данных.
+_HEAD_ROWS = 21
+
+
+def _quick_fingerprint(heads: dict, nrows: int, width: int, merges: Sequence,
+                       lay: dict, table_hdr) -> Optional[str]:
+    """Отпечаток по верхним строкам листа — тот же, что даёт полный разбор.
+
+    None — быстрый путь неприменим (ориентация «показатели в строках», шапка
+    выходит за область данных, нужной строки нет среди прочитанных): тогда
+    считает полный разбор.
     """
-    tpl = await conn.fetchrow(
-        "select t.fingerprint, t.mode, t.layout, t.fields, t.cells, t.row_count, t.dataset_code, t.headers, "
-        "t.updated_at, r.name as release_name, r.reporting_period_start as release_period "
-        "from object_layout_templates t "
-        "left join dataset_releases r on r.id = t.source_release_id "
-        "where t.object_id=$1", object_id)
-    if tpl is None:
+    orient = lay.get("orientation") or "columns"
+    if orient == "rows" or nrows <= 0:
         return None
-
-    lay = {**DEFAULT_LAYOUT, **_jsonb(tpl["layout"], {})}
-    out: dict[str, Any] = {
-        "mode": tpl["mode"],
-        "fields": _jsonb(tpl["fields"], []),
-        "cells": _jsonb(tpl["cells"], []),
-        "dataset_code": tpl["dataset_code"],
-        "updated_at": tpl["updated_at"],
-        "source_release_name": tpl["release_name"],
-        "source_release_period": (
-            tpl["release_period"].isoformat() if tpl["release_period"] else None),
-        "table_id": None,
-        "match": "structure_differs",
-        "layout": lay,
-        "rows_differ": False,
-        "diff": None,
-        "note": "Форма отличается от прошлого выпуска — изменился состав или порядок граф. "
-                "Разметьте её вручную: прошлая разметка дала бы неверные цифры.",
-    }
-
-    for tid in table_ids:
-        row = await conn.fetchrow(
-            "select data, merges, header_rows from extracted_tables where id=$1::uuid", tid)
-        if row is None:
+    hdr = int((lay["header_rows"] if lay.get("header_rows") is not None else table_hdr) or 0)
+    rect = lay.get("data_rect")
+    if rect:
+        r1 = max(0, min(int(rect[0]), nrows - 1))
+        r2 = max(r1, min(int(rect[2]), nrows - 1))
+    else:
+        r1, r2 = 0, nrows - 1
+    take = max(hdr, 1)
+    if r1 + take - 1 > r2:
+        return None   # шапка длиннее области — область может расшириться, считаем полностью
+    if any(r not in heads for r in range(r1, r1 + take)):
+        return None
+    sub = []
+    for r in range(r1, r1 + take):
+        row = [str(v) for v in (heads[r] or [])]
+        sub.append(row + [""] * max(0, width - len(row)))
+    last = r1 + take - 1
+    for m in merges:
+        a, b, c, d = (int(x) for x in m)
+        if c < r1 or a > last:
             continue
-        grid = _jsonb(row["data"], [])
-        merges = [tuple(m) for m in _jsonb(row["merges"], [])]
-        rect, extended = fit_rect(lay["data_rect"], grid)
-        hdr = int((lay["header_rows"] if lay["header_rows"] is not None else row["header_rows"]) or 0)
-        area = analysis_grid(grid, merges, rect, lay["orientation"])
-        if structure_fingerprint(area, hdr, lay["orientation"]) != tpl["fingerprint"]:
-            # Не совпало — объясняем словами, ЧТО изменилось в бланке: по хешу
-            # видно только «не то», а человеку решать, разметить заново или
-            # искать, почему прислали другую форму.
-            diff = describe_structure_change(
-                _jsonb(tpl["headers"], []), structure_headers(area, hdr),
-                int(lay["header_rows"] or 0), hdr)
-            out["note"] = (f"Форма отличается от прошлого выпуска: {diff}. "
-                           "Разметьте её вручную — прошлая разметка дала бы неверные цифры.")
-            out["diff"] = diff
+        origin = heads.get(a)
+        if origin is None:
+            return None   # начало объединения выше прочитанного — честно считаем полностью
+        value = str(origin[b]) if b < len(origin) else ""
+        if value == "":
+            continue
+        for r in range(max(a, r1), min(c, last) + 1):
+            row = sub[r - r1]
+            for col in range(b, min(d, len(row) - 1) + 1):
+                row[col] = value
+    return structure_fingerprint(sub, hdr, orient)
+
+
+async def _sheet_heads(conn, table_ids: Sequence[str], max_row: int) -> List[dict]:
+    """Верхние строки, число строк и ширина каждого листа — без полной сетки."""
+    rows = await conn.fetch(
+        "select id, sheet_or_page, table_index, merges, header_rows, "
+        "  jsonb_array_length(data) as nrows, "
+        "  (select coalesce(max(jsonb_array_length(e)), 0) from jsonb_array_elements(data) e) as width, "
+        "  (select jsonb_agg(data -> g order by g) from generate_series(0, least($2, jsonb_array_length(data) - 1)) g) "
+        "    as heads "
+        "from extracted_tables where id = any($1::uuid[]) order by table_index",
+        [str(t) for t in table_ids], max_row)
+    out = []
+    for r in rows:
+        heads = _jsonb(r["heads"], []) or []
+        out.append({
+            "id": str(r["id"]), "title": r["sheet_or_page"] or "", "index": r["table_index"],
+            "merges": [tuple(m) for m in _jsonb(r["merges"], [])], "header_rows": r["header_rows"],
+            "nrows": int(r["nrows"] or 0), "width": int(r["width"] or 0),
+            "heads": {i: row for i, row in enumerate(heads)},
+        })
+    return out
+
+
+async def _full_fingerprint(conn, table_id: str, lay: dict, table_hdr) -> tuple:
+    """Полный разбор листа по разметке: (отпечаток, сетка разметки, этажи шапки, extended, rect)."""
+    row = await conn.fetchrow("select data, merges from extracted_tables where id=$1::uuid", table_id)
+    grid = _jsonb(row["data"], []) if row else []
+    merges = [tuple(m) for m in _jsonb(row["merges"], [])] if row else []
+    rect, extended = fit_rect(lay["data_rect"], grid)
+    hdr = int((lay["header_rows"] if lay["header_rows"] is not None else table_hdr) or 0)
+    area = analysis_grid(grid, merges, rect, lay["orientation"])
+    return structure_fingerprint(area, hdr, lay["orientation"]), area, hdr, extended, rect
+
+
+def _pick_sheet(tpl: dict, matched: List[dict], period) -> tuple:
+    """Какой из совпавших листов отдать форме. (лист | None, причина «ambiguous» | None).
+
+    Порядок выбран по реальным книгам заказчика:
+      • книга «лист = ДАТА» (годовой ежедневный отчёт РЦО): берём лист, чья
+        дата равна отчётной дате файла. 🔴 Раньше брался ПЕРВЫЙ совпавший лист,
+        и для книги за 15.09 это был лист «26.08» — авто-выпуск записал бы
+        данные 26.08 под датой 15.09. Нет листа с этой датой — не выбираем вовсе;
+      • книга «лист = ФОРМА» (Минэкономразвития): лист с тем же именем, с
+        которого снята разметка формы;
+      • единственный совпавший лист;
+      • иначе — неоднозначно, решает человек.
+    """
+    if not matched:
+        return None, None
+    if period is not None:
+        on_date = [t for t in matched if sheet_date(t["title"], period.year) == period]
+        if len(on_date) == 1:
+            return on_date[0], None
+    dated = [t for t in matched if sheet_date(t["title"], 2000) is not None]
+    if len(dated) >= 2:
+        return None, "ambiguous"
+    name = _norm_name(tpl.get("sheet_name") or "")
+    if name:
+        same = [t for t in matched if _norm_name(t["title"]) == name]
+        if len(same) == 1:
+            return same[0], None
+    if len(matched) == 1:
+        return matched[0], None
+    return None, "ambiguous"
+
+
+async def match_templates(conn, object_id, table_ids: Sequence[str], period=None) -> List[dict]:
+    """Шаблоны форм объекта, приложенные к листам файла.
+
+    Каждая форма получает не больше одного листа, каждый лист — не больше одной
+    формы. Подставляем разметку ТОЛЬКО при совпадении отпечатка: не совпал —
+    форма другая, и чужая разметка дала бы неверные цифры молча. Такой шаблон
+    возвращается с `match='structure_differs'` и словами, что изменилось, —
+    но лишь когда у формы есть «свой» лист (с тем же именем) или форма у объекта
+    одна: в файле, где лежит только одна форма книги из четырёх, остальные три
+    просто отсутствуют, и это не беда.
+
+    Возвращает список: {dataset_code, sheet_name, table_id, table_sheet, match
+    (exact | structure_differs | ambiguous), layout, fields, cells, mode,
+    rows_differ, positional_skips, diff, note, updated_at, source_release_name,
+    source_release_period}.
+    """
+    from . import form_templates as ft
+
+    tpls = await ft.for_object(conn, object_id)
+    if not tpls or not table_ids:
+        return []
+    lays = {t["dataset_code"]: {**DEFAULT_LAYOUT, **_jsonb(t["layout"], {})} for t in tpls}
+    max_row = max(int((lay.get("data_rect") or [0])[0] or 0) for lay in lays.values()) + _HEAD_ROWS
+    sheets = await _sheet_heads(conn, table_ids, max_row)
+
+    matched: dict = {}
+    for t in tpls:
+        lay = lays[t["dataset_code"]]
+        hits = []
+        for s in sheets:
+            fp = _quick_fingerprint(s["heads"], s["nrows"], s["width"], s["merges"], lay, s["header_rows"])
+            if fp is None:
+                fp = (await _full_fingerprint(conn, s["id"], lay, s["header_rows"]))[0]
+            if fp == t["fingerprint"]:
+                hits.append(s)
+        matched[t["dataset_code"]] = hits
+
+    # Выбор листа и разбор конфликтов: один лист — одной форме.
+    picks: dict = {}
+    for t in tpls:
+        sheet, why = _pick_sheet(dict(t), matched[t["dataset_code"]], period)
+        picks[t["dataset_code"]] = (sheet, why)
+    owners: dict = {}
+    for code, (sheet, _why) in picks.items():
+        if sheet is not None:
+            owners.setdefault(sheet["id"], []).append(code)
+    for sid, codes in owners.items():
+        if len(codes) > 1:
+            # Два шаблона на один лист — отдаём тому, у кого лист «свой» по имени.
+            title = next(s["title"] for s in sheets if s["id"] == sid)
+            own = [c for c in codes
+                   if _norm_name(next(t["sheet_name"] or "" for t in tpls if t["dataset_code"] == c))
+                   == _norm_name(title)]
+            for c in codes:
+                if own[:1] != [c]:
+                    picks[c] = (None, "ambiguous")
+
+    out: List[dict] = []
+    for t in tpls:
+        code = t["dataset_code"]
+        lay = lays[code]
+        sheet, why = picks[code]
+        base: dict[str, Any] = {
+            "dataset_code": code, "sheet_name": t["sheet_name"], "mode": t["mode"],
+            "fields": _jsonb(t["fields"], []), "cells": _jsonb(t["cells"], []),
+            "updated_at": t["updated_at"], "source_release_name": t["release_name"],
+            "source_release_period": t["release_period"].isoformat() if t["release_period"] else None,
+            "table_id": None, "table_sheet": None, "layout": lay, "rows_differ": False,
+            "positional_skips": bool(lay.get("skip_rows") or lay.get("skip_labels")), "diff": None,
+            # Все листы, совпавшие с формой: экран разметки подставит её разметку
+            # на любом из них (у книги «лист = дата» человек выбирает лист сам).
+            "table_ids": [s["id"] for s in matched[code]],
+        }
+        if sheet is None and why == "ambiguous":
+            n = len(matched[code])
+            out.append({**base, "match": "ambiguous",
+                        "note": (f"Форма совпала с {n} листами файла, и какой из них за отчётную дату — "
+                                 "не ясно. Выберите лист сами или выпустите книгу по листам.")})
+            continue
+        if sheet is None:
+            # Своего листа у формы в файле нет. Говорим «форма изменилась» только
+            # если лист с её именем ЕСТЬ (его бланк поменяли) или форма у объекта
+            # одна (тогда это и есть «тот самый файл»).
+            name = _norm_name(t["sheet_name"] or "")
+            cand = next((s for s in sheets if name and _norm_name(s["title"]) == name), None)
+            if cand is None and len(tpls) == 1:
+                cand = sheets[-1]
+            if cand is None:
+                continue
+            _fp, area, hdr, _ext, _rect = await _full_fingerprint(conn, cand["id"], lay, cand["header_rows"])
+            diff = describe_structure_change(_jsonb(t["headers"], []), structure_headers(area, hdr),
+                                             int(lay["header_rows"] or 0), hdr)
+            where = f"Лист «{cand['title']}»: форма" if len(tpls) > 1 else "Форма"
+            out.append({**base, "match": "structure_differs", "table_id": cand["id"],
+                        "table_sheet": cand["title"], "diff": diff,
+                        "note": (f"{where} отличается от прошлого выпуска: {diff}. "
+                                 "Разметьте её вручную — прошлая разметка дала бы неверные цифры.")})
             continue
 
+        _fp, area, hdr, extended, rect = await _full_fingerprint(conn, sheet["id"], lay, sheet["header_rows"])
         rows_now = max(0, len(area) - hdr)
-        same_rows = tpl["row_count"] in (None, 0) or rows_now == tpl["row_count"]
+        same_rows = t["row_count"] in (None, 0) or rows_now == t["row_count"]
         skip = list(lay["skip_rows"] or []) if same_rows else []
-        by_label = []
+        by_label: List[int] = []
         if not same_rows:
             # Номера снятых строк при другом числе строк указали бы на ЧУЖИЕ
             # строки. Подписи переживают рост формы: снимаем то же, что сняли
             # в прошлый раз, но по имени строки.
-            by_label = skip_rows_by_labels(area, hdr, _jsonb(tpl["fields"], []),
-                                           lay.get("skip_labels") or [])
+            by_label = skip_rows_by_labels(area, hdr, _jsonb(t["fields"], []), lay.get("skip_labels") or [])
             skip = by_label
-        note = "Разметка подставлена из прошлого выпуска — проверьте и подтвердите выпуск."
+        where = f"Лист «{sheet['title']}»: р" if len(tpls) > 1 else "Р"
+        note = f"{where}азметка подставлена из прошлого выпуска — проверьте и подтвердите выпуск."
         if not same_rows or extended:
             moved = (f" Снятые в прошлый раз строки найдены по подписи и сняты снова: {len(by_label)}."
                      if by_label else
-                     " Снятые в прошлый раз строки перенести нельзя — проверьте, нет ли в данных итогов.")
-            note = (f"Разметка подставлена из прошлого выпуска, но строк в файле другое количество "
-                    f"({rows_now} вместо {tpl['row_count']}). Область данных расширена до последней "
+                     (" Снятые в прошлый раз строки перенести нельзя — проверьте, нет ли в данных итогов."
+                      if base["positional_skips"] else ""))
+            note = (f"{where}азметка подставлена из прошлого выпуска, но строк в файле другое количество "
+                    f"({rows_now} вместо {t['row_count']}). Область данных расширена до последней "
                     "заполненной строки." + moved)
-        out.update({
-            "table_id": str(tid),
-            "match": "exact",
-            "layout": {
-                "data_rect": rect,
-                "header_rows": hdr,
-                "orientation": lay["orientation"],
-                # Исключённые строки позиционные: при другом числе строк они
-                # указали бы на ЧУЖИЕ строки — тогда берём их по подписям.
-                "skip_rows": skip,
-                "skip_labels": list(lay.get("skip_labels") or []),
-            },
-            "rows_differ": (not same_rows) or extended,
-            "note": note,
-        })
-        break
-
+        out.append({**base, "match": "exact", "table_id": sheet["id"], "table_sheet": sheet["title"],
+                    "layout": {"data_rect": rect, "header_rows": hdr, "orientation": lay["orientation"],
+                               "skip_rows": skip, "skip_labels": list(lay.get("skip_labels") or [])},
+                    "rows_differ": (not same_rows) or extended, "note": note})
     return out
+
+
+def summarize_matches(entries: List[dict], forms_total: int) -> tuple:
+    """Сводка сверки по файлу: (вердикт задания, текст).
+
+    exact — узнана хотя бы одна форма и ни один «свой» лист не изменился;
+    structure_differs — изменился бланк хотя бы одной формы (лист ждёт человека);
+    none — ни одна форма не узнана.
+    """
+    exact = [e for e in entries if e["match"] == "exact"]
+    bad = [e for e in entries if e["match"] in ("structure_differs", "ambiguous")]
+    if not exact and not bad:
+        return "none", "Разметка этой формы ещё не сохранена — разметьте файл, и следующий придёт готовым."
+    if forms_total <= 1:
+        e = (exact or bad)[0]
+        return ("exact" if exact else "structure_differs"), e["note"]
+    names = ", ".join(f"«{e['table_sheet'] or e['sheet_name'] or e['dataset_code']}»" for e in exact)
+    parts = []
+    if exact:
+        parts.append(f"Узнано форм: {len(exact)} — {names}.")
+    for e in bad:
+        parts.append(e["note"])
+    return ("structure_differs" if bad else "exact"), " ".join(parts)
+
+
+async def check_job_templates(conn, job_id: str, object_id=None, period=None) -> List[dict]:
+    """Сверить листы задания с шаблонами форм и записать вердикты: по каждому
+    листу и сводку на задание. Возвращает список совпадений `match_templates`.
+    """
+    from . import form_templates as ft
+
+    if object_id is None:
+        ctx = await resolve_context(conn, job_id)
+        object_id = ctx["object_id"] if ctx else None
+    tables = await conn.fetch(
+        "select id from extracted_tables where extraction_job_id=$1::uuid order by table_index", job_id)
+    if object_id is None or not tables:
+        return []
+    if period is None:
+        period = await conn.fetchval(
+            "select d.reporting_period_start from extraction_jobs j "
+            "join document_versions dv on dv.id = j.document_version_id "
+            "join documents d on d.id = dv.document_id where j.id = $1::uuid", job_id)
+    entries = await match_templates(conn, object_id, [str(t["id"]) for t in tables], period)
+    forms_total = len(await ft.codes_with_template(conn, object_id))
+    await conn.execute(
+        "update extracted_tables set template_code=null, template_match=null, template_note=null "
+        "where extraction_job_id=$1::uuid", job_id)
+    for e in entries:
+        if e["table_id"]:
+            await conn.execute(
+                "update extracted_tables set template_code=$2, template_match=$3, template_note=$4 "
+                "where id=$1::uuid", e["table_id"], e["dataset_code"], e["match"], e["note"])
+    match, note = summarize_matches(entries, forms_total)
+    await conn.execute(
+        "update extraction_jobs set template_match=$2, template_note=$3 where id=$1::uuid",
+        job_id, match, note)
+    return entries
 
 
 # Совпадение числа строки с суммой строк над ней: доля заполненных граф, которые
@@ -1490,7 +1658,7 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
     # Разбор листа — ДО любой записи: по нему сверяется, та ли это форма, и
     # отказ должен прийти раньше, чем в справочнике появятся чужие графы.
     table = await conn.fetchrow(
-        "select header_rows, data, merges, data_rect from extracted_tables where id=$1::uuid",
+        "select header_rows, data, merges, data_rect, sheet_or_page from extracted_tables where id=$1::uuid",
         table_id,
     )
     # Разбор листа и кортежи значений считает общая `sheet_values`: по ним же
@@ -1502,7 +1670,9 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
     form = None
     if not cells:
         form = await compare_with_object_form(
-            conn, object_id, code, structure_headers(sv["area"], sv["header_rows"]))
+            conn, object_id, code, structure_headers(sv["area"], sv["header_rows"]),
+            version_id=ctx["document_version_id"],
+            sheet_name=table["sheet_or_page"] if table else None)
         if form is not None and not confirm_other_form:
             raise FormMismatch(form)
 
@@ -1567,9 +1737,12 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
     for f in fields:
         col_id = col_id_by_index.get(f["column_index"])
         await conn.execute(
-            "insert into dataset_release_fields(dataset_release_id, canonical_field_code, extracted_column_id) "
-            "values($1,$2,$3)",
-            release_id, f["field_code"], col_id,
+            "insert into dataset_release_fields(dataset_release_id, canonical_field_code, "
+            "extracted_column_id, is_row_label) values($1,$2,$3,$4)",
+            # Признак — ровно у той графы, из которой sheet_values берёт
+            # row_label (первая отмеченная). Флажок у каждой отмеченной уронил
+            # бы уникальный индекс «одна графа-название на выпуск».
+            release_id, f["field_code"], col_id, f is label_field,
         )
         if col_id is not None:
             await conn.execute(
@@ -1637,7 +1810,13 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         if label_col is not None and i < len(area) and label_col < len(area[i])
     }) if not cells else []
     is_first_template = False
-    if form is None:
+    # Подтверждённая «новая форма в объекте» получает свой шаблон: она ничего не
+    # затирает (шаблон на форму), и человек сказал, что всё верно. Остальные
+    # подтверждённые расхождения шаблон НЕ пишут: «та же форма под новым
+    # кодом» узнавалась бы дважды и выпускалась бы под двумя кодами, а чужой
+    # бланк под ведущимся кодом затёр бы его разметку (22.09.2026).
+    keep_template = form is not None and form.get("case") != "new_form"
+    if not keep_template:
         is_first_template = await save_layout_template(
             conn, object_id=object_id,
             fingerprint=structure_fingerprint(area, header_rows, lay["orientation"]),
@@ -1654,10 +1833,12 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
             # выпущенных строк (n_rows) для этого не годится — оно уже за вычетом.
             row_count=max(0, len(area) - header_rows),
             dataset_code=code, release_id=release_id, user_id=user["id"],
+            sheet_name=table["sheet_or_page"] if table and not cells else None,
         )
-    # Файлы, залитые ДО появления шаблона, должны узнать, что разметка для них
-    # теперь есть: иначе папка показывала бы «нужна разметка» на всей пачке.
-    await refresh_template_verdicts(conn, object_id)
+    # Вердикты «готов / требует внимания» у файлов, залитых ДО появления шаблона,
+    # пересчитывает ТОТ, кто выпускает (`refresh_template_verdicts` в конце
+    # операции): на книге из четырёх форм пересчёт внутри каждого выпуска шёл бы
+    # четыре раза подряд.
 
     # проставляем ссылку на замещающий выпуск (сам статус уже 'superseded')
     superseded_id = None
@@ -1679,9 +1860,10 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         # вынести на «Главную» ключевыми: до этого момента поля формы ещё не
         # существовали, а после первого раза повторный вопрос был бы навязчив.
         "new_form": is_first_template,
-        # Выпуск чужой формы по подтверждению: шаблон объекта оставлен прежним.
+        # Выпуск по подтверждению расхождения: шаблон формы оставлен прежним.
         "form_check": form,
-        "template_kept": form is not None,
+        "template_kept": keep_template,
+        "object_id": str(object_id) if object_id else None,
         "dataset_code": code,
         "numeric_fields": [{"field_code": f["field_code"], "field_name": f["field_name"]}
                            for f in value_fields if sv["field_type"].get(f["field_code"]) == "number"],
@@ -1690,41 +1872,48 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
 
 
 async def match_any_template(conn, org_id, table_ids: Sequence[str]) -> List[dict]:
-    """Формы организации, отпечаток которых совпал с этим файлом.
+    """Объекты организации, чьи формы узнались в этом файле.
 
     Нужна общей зоне загрузки: человек кладёт файл, не выбирая папку, и систему
     просят узнать форму «в лицо». Сравнить хеши напрямую нельзя — отпечаток
-    считается ПО РАЗМЕТКЕ (область данных, число этажей шапки, ориентация), а у
-    каждого шаблона она своя; поэтому область файла выкраивается по разметке
-    КАЖДОГО шаблона и только потом сравнивается.
+    считается ПО РАЗМЕТКЕ (область данных, этажи шапки, ориентация), а у каждого
+    шаблона она своя; поэтому шапка файла выкраивается по разметке КАЖДОГО
+    шаблона и только потом сравнивается (быстрым путём — по верхним строкам).
 
-    Возвращает все совпадения, а не первое: две формы с одинаковой структурой —
-    повод спросить человека, а не выбрать за него молча.
+    🔴 Совпадения группируются по ОБЪЕКТУ: книга Минэкономразвития совпадает с
+    четырьмя формами одного объекта, и это одно совпадение, а не «несколько
+    форм» — иначе каждая недельная книга застревала бы во «Входящих». Два
+    РАЗНЫХ объекта — повод спросить человека, а не выбрать за него молча.
     """
-    tpls = await conn.fetch(
-        "select t.object_id, t.fingerprint, t.layout, t.dataset_code, o.name as object_name, "
-        "  t.source_release_id "
-        "from object_layout_templates t join objects o on o.id = t.object_id "
-        "where o.organization_id=$1", org_id)
-    if not tpls:
+    from . import form_templates as ft
+
+    tpls = await ft.for_org(conn, org_id)
+    if not tpls or not table_ids:
         return []
-    tables = []
-    for tid in table_ids:
-        row = await conn.fetchrow(
-            "select data, merges, header_rows from extracted_tables where id=$1::uuid", tid)
-        if row is not None:
-            tables.append((tid, _jsonb(row["data"], []),
-                           [tuple(m) for m in _jsonb(row["merges"], [])], row["header_rows"]))
-    out: List[dict] = []
-    for tpl in tpls:
-        lay = {**DEFAULT_LAYOUT, **_jsonb(tpl["layout"], {})}
-        for tid, grid, merges, hdr_rows in tables:
-            rect, _extended = fit_rect(lay["data_rect"], grid)
-            hdr = int((lay["header_rows"] if lay["header_rows"] is not None else hdr_rows) or 0)
-            area = analysis_grid(grid, merges, rect, lay["orientation"])
-            if structure_fingerprint(area, hdr, lay["orientation"]) == tpl["fingerprint"]:
-                out.append({"object_id": tpl["object_id"], "object_name": tpl["object_name"],
-                            "dataset_code": tpl["dataset_code"],
-                            "source_release_id": tpl["source_release_id"], "table_id": str(tid)})
+    lays = [{**DEFAULT_LAYOUT, **_jsonb(t["layout"], {})} for t in tpls]
+    max_row = max(int((lay.get("data_rect") or [0])[0] or 0) for lay in lays) + _HEAD_ROWS
+    sheets = await _sheet_heads(conn, table_ids, max_row)
+    by_object: dict = {}
+    for tpl, lay in zip(tpls, lays, strict=True):
+        hit = None
+        name = _norm_name(tpl["sheet_name"] or "")
+        # Свой лист (то же имя) — первым: у «Итогов» и «Планов» отпечатки разные,
+        # но у двух листов одной формы — одинаковые, и выбрать надо «свой».
+        ordered = sorted(sheets, key=lambda s: 0 if name and _norm_name(s["title"]) == name else 1)
+        for s in ordered:
+            fp = _quick_fingerprint(s["heads"], s["nrows"], s["width"], s["merges"], lay, s["header_rows"])
+            if fp is None:
+                fp = (await _full_fingerprint(conn, s["id"], lay, s["header_rows"]))[0]
+            if fp == tpl["fingerprint"]:
+                hit = s
                 break
-    return out
+        if hit is None:
+            continue
+        key = str(tpl["object_id"])
+        entry = by_object.setdefault(key, {
+            "object_id": tpl["object_id"], "object_name": tpl["object_name"],
+            "dataset_code": tpl["dataset_code"], "source_release_id": tpl["source_release_id"],
+            "table_id": hit["id"], "forms": []})
+        entry["forms"].append({"dataset_code": tpl["dataset_code"], "table_id": hit["id"],
+                               "sheet_name": hit["title"], "source_release_id": tpl["source_release_id"]})
+    return list(by_object.values())

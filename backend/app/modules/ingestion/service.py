@@ -113,13 +113,13 @@ async def run_extraction(job_id: str) -> None:
 
 
 async def _check_template(conn, job_id: str) -> None:
-    """Сверка с шаблоном объекта сразу после распознавания.
+    """Сверка листов файла с шаблонами форм сразу после распознавания.
 
-    Вердикт пишется в задание, чтобы список документов в папке показывал
-    состояние каждого файла («данные подготовлены» / «требует внимания») без
-    пересчёта разметки на каждый файл: разбор сетки стоит дорого, а в папке их
-    десятки. Сам конструктор считает сверку заново — он должен работать и на
-    заданиях, распознанных до появления этой проверки.
+    Вердикт пишется по каждому листу и сводкой в задание, чтобы список
+    документов в папке показывал состояние файла («данные подготовлены» /
+    «требует внимания») без пересчёта разметки на каждый файл. Сам конструктор
+    считает сверку заново — он должен работать и на заданиях, распознанных до
+    появления этой проверки.
 
     Сбой сверки не должен ронять распознавание: файл уже разобран, и потерять
     результат из-за подсказки было бы обиднее всего.
@@ -129,45 +129,37 @@ async def _check_template(conn, job_id: str) -> None:
         ctx = await mapping.resolve_context(conn, job_id)
         if ctx is None or ctx["object_id"] is None:
             return
-        tables = await conn.fetch(
-            "select id from extracted_tables where extraction_job_id=$1::uuid order by table_index", job_id)
-        tpl = await mapping.layout_template_for_tables(
-            conn, ctx["object_id"], [str(t["id"]) for t in tables])
-        if tpl is None:
-            match, note = "none", "Разметка этой формы ещё не сохранена — разметьте файл, и следующий придёт готовым."
-        else:
-            match, note = tpl["match"], tpl["note"]
-        await conn.execute(
-            "update extraction_jobs set template_match=$2, template_note=$3 where id=$1::uuid",
-            job_id, match, note)
+        await mapping.check_job_templates(conn, job_id, ctx["object_id"])
     except Exception as exc:  # noqa: BLE001 — подсказка не важнее самого разбора
         log.warning("Сверка с шаблоном не удалась для задания %s: %s", job_id, exc)
 
 
 async def _auto_release(conn, job_id: str) -> None:
-    """Выпуск данных без участия человека — когда файл в точности повторяет
-    прошлый (запрос заказчика 17.08).
+    """Выпуск данных без участия человека — когда форма в точности повторяет
+    прошлый отчёт (запрос заказчика 17.08).
 
     Раньше правило было «автомат готовит — выпускает человек» (15.08), и оно
-    остаётся для всего, что хоть чем-то отличается. Автоматически выпускаем
-    только при СОВПАДЕНИИ ВСЕХ условий сразу:
+    остаётся для всего, что хоть чем-то отличается. С 09.10.2026 файл может
+    нести НЕСКОЛЬКО форм (книга Минэкономразвития: показатели, вопросы, итоги,
+    планы), и каждая проверяется и выпускается сама по себе — в своей точке
+    сохранения: сбой одной не отменяет остальные. Условия для каждой формы:
 
       • у папки включена автоподготовка (тот же тумблер, что запускает
         распознавание: папка «на хранение» не должна попадать в дашборды);
       • и отдельно — не снят тумблер авто-выпуска: «готовь без меня» и
         «выпускай без меня» это разные решения, и второе папка может
         отменить, не теряя первого;
-      • отпечаток структуры совпал с прошлым выпуском (`match == exact`) —
-        изменившийся бланк по-прежнему ждёт человека, потому что чужая
-        разметка дала бы неверные цифры молча;
-      • число строк тоже совпало (`rows_differ` ложно): появился новый субъект
-        — позиционно снятые строки переносить нельзя, исключение «строка 4»
-        выбросило бы данные того, кто встал на её место;
-      • у файла указана отчётная дата и за неё ЕЩЁ НЕТ выпуска — замещать
-        существующие данные автоматически нельзя, это потеря информации;
-      • проверки качества не дали ни одного замечания. Именно они ловят
-        главную беду недельных форм: перенесённые без изменения строки,
-        уменьшившийся накопительный итог, недельное больше накопительного.
+      • отпечаток структуры листа совпал с шаблоном формы (`match == exact`) —
+        изменившийся бланк ждёт человека, потому что чужая разметка дала бы
+        неверные цифры молча;
+      • число строк совпало (`rows_differ` ложно) — ИЛИ в разметке формы нет
+        позиционно снятых строк. Снятая «строка 4» при новом субъекте указала
+        бы на чужую строку, поэтому такие формы смотрит человек; а у реестра
+        (вопросы, мероприятия) строк каждую неделю другое число, и снимать в
+        нём нечего — без этого послабления реестр не выпускался бы сам никогда;
+      • у файла указана отчётная дата и за неё ЕЩЁ НЕТ выпуска этой формы —
+        замещать существующие данные автоматически нельзя;
+      • проверки качества не дали ни одного замечания.
 
     Любая осечка не должна ронять распознавание: файл уже разобран, и терять
     результат из-за неудавшегося выпуска нельзя — человек всё равно сможет
@@ -184,7 +176,7 @@ async def _auto_release(conn, job_id: str) -> None:
             "join documents d on d.id = dv.document_id "
             "join folders f on f.id = d.folder_id "
             "where ej.id = $1::uuid", job_id)
-        if job is None or not job["auto_prepare"] or job["template_match"] != "exact":
+        if job is None or not job["auto_prepare"]:
             return
         if job["auto_release"] is False:
             # Автоподготовка и авто-выпуск — РАЗНЫЕ решения: «готовь без меня»
@@ -197,87 +189,108 @@ async def _auto_release(conn, job_id: str) -> None:
         ctx = await mapping.resolve_context(conn, job_id)
         if ctx is None or ctx["object_id"] is None:
             return
+        period = job["reporting_period_start"]
         tables = await conn.fetch(
             "select id from extracted_tables where extraction_job_id=$1::uuid order by table_index", job_id)
-        tpl = await mapping.layout_template_for_tables(
-            conn, ctx["object_id"], [str(t["id"]) for t in tables])
-        if tpl is None or tpl.get("match") != "exact" or not tpl.get("table_id"):
-            return
-        if tpl.get("rows_differ"):
-            # Состав граф тот же, но СТРОК стало другое число: в форме появился
-            # (или исчез) субъект. Позиционно снятые строки при этом переносить
-            # нельзя — исключение «строка 4» выбросило бы данные того, кто встал
-            # на её место. Такой файл смотрит человек.
-            return
-        code = tpl.get("dataset_code")
-        fields = tpl.get("fields") or []
-        if not code or not fields:
-            return
-
-        period = job["reporting_period_start"]
-        exists = await conn.fetchval(
-            "select 1 from dataset_releases where organization_id=$1 and code=$2 "
-            "and reporting_period_start=$3 and status <> 'superseded'",
-            job["organization_id"], code, period)
-        if exists:
-            # За этот период данные уже есть. Замещать их автоматически нельзя:
-            # решение «эти цифры теперь неверны» принимает человек.
-            return
-
-        warnings = await _auto_quality(conn, job, tpl, code, period, fields)
-        if warnings:
-            # Замечания есть — оставляем файл человеку. Он увидит их в панели
-            # выпуска и решит сам; молча выпустить сомнительные данные хуже,
-            # чем подождать.
-            return
-
-        # Автор выпуска — тот, кто загрузил файл: в журнале должно быть видно
-        # живого человека, а не «система». Колонка называется uploaded_by.
+        entries = await mapping.match_templates(
+            conn, ctx["object_id"], [str(t["id"]) for t in tables], period)
+        multi = len(entries) > 1
         author = await conn.fetchval(
             "select uploaded_by from document_versions where id=$1", job["document_version_id"])
-        res = await mapping.build_release(
-            conn, job_id=str(job_id), table_id=str(tpl["table_id"]), code=code,
-            name=job["original_filename"] or code,
-            reporting_period_start=period, reporting_period_end=None,
-            fields=fields, layout=tpl.get("layout"), cells=tpl.get("cells") or [],
-            supersede=False, user={"id": author}, auto=True,
-        )
-        await _announce_auto_release(conn, job, code, period, res, author, ctx["object_id"])
-        log.info("Авто-выпуск: задание %s, набор %s, отчёт за %s", job_id, code, period)
+        released: list = []
+        for tpl in entries:
+            if tpl.get("match") != "exact" or not tpl.get("table_id"):
+                continue
+            if tpl.get("rows_differ") and tpl.get("positional_skips"):
+                # Состав граф тот же, но СТРОК стало другое число, а в разметке
+                # есть позиционно снятые строки: исключение «строка 4»
+                # выбросило бы данные того, кто встал на её место. Смотрит человек.
+                continue
+            code = tpl.get("dataset_code")
+            fields = tpl.get("fields") or []
+            if not code or not fields:
+                continue
+            exists = await conn.fetchval(
+                "select 1 from dataset_releases where organization_id=$1 and code=$2 "
+                "and reporting_period_start=$3 and status <> 'superseded'",
+                job["organization_id"], code, period)
+            if exists:
+                # За этот период данные уже есть. Замещать их автоматически нельзя:
+                # решение «эти цифры теперь неверны» принимает человек.
+                continue
+            try:
+                async with conn.transaction():
+                    warnings = await _auto_quality(conn, job, tpl, code, period, fields)
+                    if warnings:
+                        # Замечания есть — оставляем лист человеку. Он увидит их в
+                        # панели выпуска и решит сам; молча выпустить сомнительные
+                        # данные хуже, чем подождать.
+                        continue
+                    # Имя выпуска у книги из нескольких форм — имя ЛИСТА: по нему
+                    # подпись формы на дашборде читается «Итоги недели», а не
+                    # «Отчёт МФЦ» у всех четырёх.
+                    name = (tpl.get("table_sheet") if multi and tpl.get("table_sheet")
+                            else job["original_filename"] or code)
+                    res = await mapping.build_release(
+                        conn, job_id=str(job_id), table_id=str(tpl["table_id"]), code=code,
+                        name=name, reporting_period_start=period, reporting_period_end=None,
+                        fields=fields, layout=tpl.get("layout"), cells=tpl.get("cells") or [],
+                        supersede=False, user={"id": author}, auto=True,
+                    )
+                    released.append((code, tpl.get("table_sheet"), res))
+            except Exception as exc:  # noqa: BLE001 — одна форма не отменяет остальные
+                log.warning("Авто-выпуск формы %s по заданию %s не выполнен: %s", code, job_id, exc)
+        if released:
+            await _announce_auto_release(conn, job, period, released, author, ctx["object_id"])
+            await mapping.refresh_template_verdicts(conn, ctx["object_id"])
+            for code, _sheet, _res in released:
+                log.info("Авто-выпуск: задание %s, набор %s, отчёт за %s", job_id, code, period)
     except Exception as exc:  # noqa: BLE001 — выпуск не важнее самого разбора
         log.warning("Авто-выпуск не выполнен для задания %s: %s", job_id, exc)
 
 
-async def _announce_auto_release(conn, job, code: str, period, res: dict, author, object_id) -> None:
-    """След авто-выпуска: запись в журнал действий и одно уведомление.
+async def _announce_auto_release(conn, job, period, released: list, author, object_id) -> None:
+    """След авто-выпуска: запись в журнал действий на КАЖДЫЙ выпуск и ОДНО
+    уведомление на файл.
 
     **Создание выпуска до сих пор не попадало в аудит вообще** — ни ручное, ни
-    автоматическое (там были только отмена, возврат и удаление). Это самая
-    ответственная операция конвейера: после неё меняются цифры на дашбордах,
-    и на вопрос «откуда взялись эти данные» журнал не отвечал. Пишем оба
-    случая, признак `auto` различает их.
+    автоматическое. Это самая ответственная операция конвейера: после неё
+    меняются цифры на дашбордах, и на вопрос «откуда взялись эти данные» журнал
+    не отвечал. Пишем оба случая, признак `auto` различает их.
 
-    Уведомление — ОДНО на выпуск и только при автоматическом: человек, нажавший
-    кнопку сам, в сообщении о своём же действии не нуждается. Получатели —
-    загрузивший файл (он узнает, что делать больше ничего не нужно) и
-    управляющие: данные ушли на дашборды без их участия, и они вправе это
-    увидеть в тот же день, а не через неделю.
+    Уведомление — одно на файл и только при автоматическом выпуске: книга из
+    четырёх форм не должна давать четыре сообщения за одну загрузку. Получатели —
+    загрузивший файл и управляющие: данные ушли на дашборды без их участия.
     """
     from ..audit import service as audit_svc
     from ..notifications import service as notif_svc
 
-    # `object_id` — чтобы клик по уведомлению вёл к объекту, где лежит файл:
-    # у выпуска своего экрана нет, а уведомление без перехода — тупик.
+    forms = []
+    for code, sheet, res in released:
+        # `object_id` — чтобы клик по уведомлению вёл к объекту, где лежит файл:
+        # у выпуска своего экрана нет, а уведомление без перехода — тупик.
+        payload = {
+            "code": code, "period": str(period), "auto": True,
+            "values": res.get("values_count"), "rows": res.get("rows"),
+            "document": job["original_filename"], "folder": job["folder_name"],
+            "object_id": str(object_id) if object_id else None,
+            **({"sheet": sheet} if sheet else {}),
+        }
+        await audit_svc.write_event(
+            conn, job["organization_id"], author, "create", "dataset_release",
+            res["release_id"], new_data=payload)
+        forms.append({"code": code, "sheet": sheet, "release_id": res["release_id"],
+                      "rows": res.get("rows"), "values": res.get("values_count")})
+
+    code, sheet, res = released[0]
     payload = {
         "code": code, "period": str(period), "auto": True,
-        "values": res.get("values_count"), "rows": res.get("rows"),
+        "values": sum(int(f["values"] or 0) for f in forms),
+        "rows": res.get("rows"),
         "document": job["original_filename"], "folder": job["folder_name"],
         "object_id": str(object_id) if object_id else None,
+        **({"forms": forms} if len(forms) > 1 else {}),
     }
-    await audit_svc.write_event(
-        conn, job["organization_id"], author, "create", "dataset_release",
-        res["release_id"], new_data=payload)
-
     recipients = set(await notif_svc.management_user_ids(conn, job["organization_id"]))
     if author:
         recipients.add(author)
