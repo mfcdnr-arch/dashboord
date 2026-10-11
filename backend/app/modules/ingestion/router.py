@@ -143,10 +143,16 @@ async def _job_payload(conn, job_id: str) -> dict:
             conn, ctx["object_id"], [t["id"] for t in out_tables], period)
     by_table = {(e["table_id"] or e.get("candidate_table_id")): e for e in templates
                 if e["table_id"] or e.get("candidate_table_id")}
+    # Какие формы уже выпущены из ЭТОГО файла: экран открывает книгу на первом
+    # невыпущенном узнанном листе — туда, куда человек и шёл из «выпущено 1 из 4».
+    done = {r["code"] for r in await conn.fetch(
+        "select distinct code from dataset_releases where source_document_version_id=$1 "
+        "and status <> 'superseded'", job["document_version_id"])}
     for t in out_tables:
         e = by_table.get(t["id"])
         t["template_code"] = e["dataset_code"] if e else None
         t["template_match"] = e["match"] if e else None
+        t["released"] = bool(e and e["dataset_code"] in done)
 
     return {
         "job_id": str(job["id"]),

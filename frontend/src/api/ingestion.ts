@@ -25,6 +25,8 @@ export interface ExtractedTable {
   /** Форма (код набора), узнанная на этом листе, и как узнана. */
   template_code?: string | null
   template_match?: string | null
+  /** Форма этого листа уже выпущена из этого файла. */
+  released?: boolean
 }
 /** Разметка прошлого выпуска этой же формы (шаблон объекта).
  *

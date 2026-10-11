@@ -488,6 +488,7 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack, o
                 style={{ ...chip, ...(t.id === tableId ? chipActive : {}) }}>
                 {t.template_match === 'exact' && <span title={`Форма узнана: ${t.template_code}`}>✓ </span>}
                 {t.sheet_or_page || `Таблица ${t.table_index + 1}`} · {t.row_count}×{t.column_count}
+                {t.released && <span style={{ opacity: 0.75 }}> · выпущен</span>}
               </button>
             ))}
             {/* Повторное распознавание нужно не только после ошибки: разбор
@@ -808,10 +809,12 @@ function templateFor(j: ExtractionJob, tid: string): LayoutTemplate | null {
   return all.length === 1 && all[0].match !== 'exact' ? all[0] : null
 }
 
-/** С какого листа открыть файл: с первого, где узнана форма. */
+/** С какого листа открыть файл: с первого узнанного и ещё не выпущенного,
+ *  иначе с первого узнанного. Из «выпущено 1 из 4» человек идёт выпускать
+ *  оставшееся — открывать его на уже выпущенном листе значило бы заставить искать. */
 function firstTable(j: ExtractionJob): string {
-  const hit = j.tables.find((t) => (j.layout_templates || []).some((x) => x.match === 'exact' && x.table_id === t.id))
-  return (hit || j.tables[0]).id
+  const known = j.tables.filter((t) => (j.layout_templates || []).some((x) => x.match === 'exact' && x.table_id === t.id))
+  return (known.find((t) => !t.released) || known[0] || j.tables[0]).id
 }
 
 function TemplateBanner({ tpl, applied, onApply, onDrop }: {

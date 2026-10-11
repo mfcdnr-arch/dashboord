@@ -135,6 +135,11 @@ async def test_partial_book_release_is_named(client, admin_headers, obj, monkeyp
     # «Данные выпущены» спрятало бы, что вторая форма книги не выпущена.
     assert doc["pipeline"] == "released_partial", doc
     assert "1 из 2" in doc["pipeline_hint"]
+    # Экран разметки знает, какой лист уже выпущен, и открывает файл на
+    # первом НЕвыпущенном: туда человек и шёл из «выпущено 1 из 2».
+    r = await client.get(f"/extraction-jobs/{job['job_id']}", headers=admin_headers)
+    flags = {t["sheet_or_page"]: t["released"] for t in r.json()["tables"]}
+    assert flags == {"Показатели": True, "Итоги недели": False}, flags
 
 
 async def test_forget_and_restore_a_form(client, admin_headers, obj, monkeypatch):  # noqa: F811
