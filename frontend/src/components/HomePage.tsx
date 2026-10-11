@@ -14,7 +14,7 @@ const KIND_ICON: Record<string, string> = { dataset: '📄', metric: '📐', das
 const iconBox: React.CSSProperties = { width: 40, height: 40, flexShrink: 0 }
 const FEATURE_ICONS: Record<string, React.ReactNode> = {
   builder: (
-    <svg style={iconBox} viewBox="0 0 40 40">
+    <svg style={iconBox} viewBox="0 0 40 40" aria-hidden="true" focusable="false">
       <rect x="4" y="4" width="14" height="14" rx="2" fill="none" stroke="var(--accent)" strokeWidth="2" />
       <rect x="22" y="4" width="14" height="9" rx="2" fill="none" stroke="var(--accent)" strokeWidth="2" />
       <rect x="4" y="22" width="9" height="14" rx="2" fill="none" stroke="var(--accent)" strokeWidth="2" />
@@ -22,7 +22,7 @@ const FEATURE_ICONS: Record<string, React.ReactNode> = {
     </svg>
   ),
   transparency: (
-    <svg style={iconBox} viewBox="0 0 40 40">
+    <svg style={iconBox} viewBox="0 0 40 40" aria-hidden="true" focusable="false">
       <rect x="6" y="20" width="5" height="10" fill="var(--chart-2)" />
       <rect x="14" y="14" width="5" height="16" fill="var(--chart-2)" />
       <rect x="22" y="18" width="5" height="12" fill="var(--chart-2)" />
@@ -31,19 +31,19 @@ const FEATURE_ICONS: Record<string, React.ReactNode> = {
     </svg>
   ),
   access: (
-    <svg style={iconBox} viewBox="0 0 40 40">
+    <svg style={iconBox} viewBox="0 0 40 40" aria-hidden="true" focusable="false">
       <path d="M20 4 L34 9 V19 C34 28 28 34 20 37 C12 34 6 28 6 19 V9 Z" fill="none" stroke="var(--accent)" strokeWidth="2" />
       <path d="M14 20 L18 24 L27 14" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   ),
   suggest: (
-    <svg style={iconBox} viewBox="0 0 40 40">
+    <svg style={iconBox} viewBox="0 0 40 40" aria-hidden="true" focusable="false">
       <path d="M20 6a10 10 0 0 0-6 18c1.2 1 2 2.4 2 4v2h8v-2c0-1.6.8-3 2-4a10 10 0 0 0-6-18Z" fill="none" stroke="var(--accent)" strokeWidth="2" />
       <line x1="16" y1="34" x2="24" y2="34" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" />
     </svg>
   ),
   archive: (
-    <svg style={iconBox} viewBox="0 0 40 40">
+    <svg style={iconBox} viewBox="0 0 40 40" aria-hidden="true" focusable="false">
       <rect x="6" y="10" width="28" height="8" rx="2" fill="none" stroke="var(--accent)" strokeWidth="2" />
       <rect x="8" y="18" width="24" height="16" rx="2" fill="none" stroke="var(--accent)" strokeWidth="2" />
       <line x1="16" y1="24" x2="24" y2="24" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" />

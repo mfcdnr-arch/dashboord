@@ -46,7 +46,7 @@ const ICON_BOX: React.CSSProperties = { width: 26, height: 26, flexShrink: 0 }
 const W = 'rgba(255,255,255,0.92)'
 const FEATURE_ICONS: Record<string, React.ReactNode> = {
   dashboards: (
-    <svg style={ICON_BOX} viewBox="0 0 26 26">
+    <svg style={ICON_BOX} viewBox="0 0 26 26" aria-hidden="true" focusable="false">
       <rect x="2" y="2" width="10" height="10" rx="1.5" fill="none" stroke={W} strokeWidth="1.6" />
       <rect x="14" y="2" width="10" height="6" rx="1.5" fill="none" stroke={W} strokeWidth="1.6" />
       <rect x="2" y="14" width="6" height="10" rx="1.5" fill="none" stroke={W} strokeWidth="1.6" />
@@ -54,7 +54,7 @@ const FEATURE_ICONS: Record<string, React.ReactNode> = {
     </svg>
   ),
   transparency: (
-    <svg style={ICON_BOX} viewBox="0 0 26 26">
+    <svg style={ICON_BOX} viewBox="0 0 26 26" aria-hidden="true" focusable="false">
       <rect x="3" y="14" width="3.5" height="7" fill={W} />
       <rect x="9" y="9" width="3.5" height="12" fill={W} />
       <circle cx="18" cy="8" r="5" fill="none" stroke={W} strokeWidth="1.6" />
@@ -62,19 +62,19 @@ const FEATURE_ICONS: Record<string, React.ReactNode> = {
     </svg>
   ),
   analytics: (
-    <svg style={ICON_BOX} viewBox="0 0 26 26">
+    <svg style={ICON_BOX} viewBox="0 0 26 26" aria-hidden="true" focusable="false">
       <polyline points="2,20 9,12 14,16 24,4" fill="none" stroke={W} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       <polyline points="17,4 24,4 24,11" fill="none" stroke={W} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   ),
   access: (
-    <svg style={ICON_BOX} viewBox="0 0 26 26">
+    <svg style={ICON_BOX} viewBox="0 0 26 26" aria-hidden="true" focusable="false">
       <path d="M13 2 L23 6 V12 C23 19 18 23 13 25 C8 23 3 19 3 12 V6 Z" fill="none" stroke={W} strokeWidth="1.6" />
       <path d="M8.5 13 L11.5 16.5 L18 9" fill="none" stroke={W} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   ),
   reports: (
-    <svg style={ICON_BOX} viewBox="0 0 26 26">
+    <svg style={ICON_BOX} viewBox="0 0 26 26" aria-hidden="true" focusable="false">
       <rect x="4" y="2" width="14" height="18" rx="1.5" fill="none" stroke={W} strokeWidth="1.6" />
       <line x1="7.5" y1="7" x2="14.5" y2="7" stroke={W} strokeWidth="1.4" strokeLinecap="round" />
       <line x1="7.5" y1="11" x2="14.5" y2="11" stroke={W} strokeWidth="1.4" strokeLinecap="round" />
@@ -82,7 +82,7 @@ const FEATURE_ICONS: Record<string, React.ReactNode> = {
     </svg>
   ),
   suggest: (
-    <svg style={ICON_BOX} viewBox="0 0 26 26">
+    <svg style={ICON_BOX} viewBox="0 0 26 26" aria-hidden="true" focusable="false">
       <path d="M13 3a6.5 6.5 0 0 0-4 11.7c.8.6 1.3 1.5 1.3 2.5v1.3h5.4v-1.3c0-1 .5-1.9 1.3-2.5A6.5 6.5 0 0 0 13 3Z" fill="none" stroke={W} strokeWidth="1.6" />
       <line x1="10.3" y1="22" x2="15.7" y2="22" stroke={W} strokeWidth="1.6" strokeLinecap="round" />
     </svg>
@@ -133,7 +133,7 @@ export default function Login(
 
   if (blockedMsg) {
     return (
-      <div style={{ ...page, flexDirection: narrow ? 'column' : 'row', position: 'relative' }}>
+      <main style={{ ...page, flexDirection: narrow ? 'column' : 'row', position: 'relative' }}>
         <ThemeCorner />
         <div style={{ ...hero, padding: narrow ? '32px 24px' : '56px 52px', minHeight: narrow ? undefined : '100vh' }}>
           <div style={heroInner}>
@@ -151,12 +151,12 @@ export default function Login(
         <div style={{ ...formSide, padding: narrow ? '28px 24px 44px' : 24, minHeight: narrow ? undefined : '100vh' }}>
           <BlockedAppealForm login={username.trim()} onBack={() => setBlockedMsg(null)} />
         </div>
-      </div>
+      </main>
     )
   }
 
   return (
-    <div style={{ ...page, flexDirection: narrow ? 'column' : 'row', position: 'relative' }}>
+    <main style={{ ...page, flexDirection: narrow ? 'column' : 'row', position: 'relative' }}>
       <ThemeCorner />
       {/* Левая панель — о портале */}
       <div style={{ ...hero, padding: narrow ? '32px 24px' : '56px 52px', minHeight: narrow ? undefined : '100vh' }}>
@@ -225,7 +225,7 @@ export default function Login(
           </div>
         </form>
       </div>
-    </div>
+    </main>
   )
 }
 

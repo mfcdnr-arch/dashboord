@@ -36,6 +36,20 @@ PLACEHOLDER = re.compile(r'placeholder=(?:"([^"]*)"|\{`([^`]*)`\}|\{([^}]*)\})')
 EXAMPLE = re.compile(r"^\s*(напр\b|например|например:|https?://|…|\.\.\.)", re.I)
 
 
+# Компонент-подпись, у которого первый `return` — не `<label>` (11.10.2026):
+# `Field` с подсказкой ⓘ возвращает `<div>`, где подпись связана с полем через
+# htmlFor/id, а без подсказки — обёртку `<label>`. WRAP_DEF смотрит только на
+# первый return и такой компонент не узнавал — страж решил бы, что 125 полей
+# потеряли имя. Признак здесь — тело функции целиком: в нём есть `<label` и
+# компонент получает `children`.
+FUNC_BODY = re.compile(r"(?:export\s+(?:default\s+)?)?function\s+([A-Z]\w*)\s*\(([\s\S]*?)\n\}\n")
+
+
+def _label_components(src: str) -> set:
+    return {m.group(1) for m in FUNC_BODY.finditer(src)
+            if "<label" in m.group(2) and "children" in m.group(2) and "{children}" in m.group(2)}
+
+
 def _end_of_tag(src: str, i: int) -> int:
     depth = 0
     while i < len(src):
@@ -80,7 +94,7 @@ def _sources() -> dict:
 
 def _unnamed() -> list:
     texts = _sources()
-    defs = {p: set(WRAP_DEF.findall(t)) for p, t in texts.items()}
+    defs = {p: set(WRAP_DEF.findall(t)) | _label_components(t) for p, t in texts.items()}
     exported = {n for p, ns in defs.items() for n in ns if re.search(r"export\s+(?:default\s+)?function\s+" + n + r"\b", texts[p])}
     out = []
     for p, src in texts.items():
