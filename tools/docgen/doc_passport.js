@@ -50,7 +50,7 @@ const ch = [
       ['web', 'nginx + React 18/TypeScript/Vite, ECharts', 'SPA-интерфейс; nginx раздаёт статику, проксирует API, TLS, gzip, security-заголовки, rate-limit'],
       ['api', 'Python 3.12 / FastAPI / asyncpg', 'REST API, бизнес-логика, RBAC/RLS, движок формул'],
       ['worker', 'arq (Redis)', 'Фоновые задачи: извлечение документов, свежесть, ретенция, автоархив'],
-      ['postgres', 'PostgreSQL 16', 'Основное хранилище (55 миграций с трекингом)'],
+      ['postgres', 'PostgreSQL 16', 'Основное хранилище (61 миграция с трекингом)'],
       ['redis', 'Redis 7', 'Кэш, очереди, блокировки входа'],
       ['minio', 'MinIO (S3)', 'Файловое хранилище документов'],
       ['мониторинг', 'Prometheus, Grafana, Loki, promtail, node-exporter, cAdvisor', 'Метрики, логи, готовый обзорный дашборд (опционально)'],
