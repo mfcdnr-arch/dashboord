@@ -31,7 +31,7 @@ export interface Doc {
   size: number | null
   created_at: string
   version_id: string | null
-  /** Состояние конвейера: new | parsing | failed | ready | attention | needs_markup | released.
+  /** Состояние конвейера: new | parsing | failed | ready | attention | needs_markup | released | released_partial.
    *  Считается на сервере из статуса распознавания, сверки со шаблоном и наличия выпуска. */
   pipeline?: string
   /** Что это значит для человека и что делать дальше. */
@@ -273,21 +273,27 @@ export interface ConfirmedLevels {
   fingerprint?: string
 }
 export interface LevelsState {
-  suggestion: LevelSuggestion
+  /** Формы объекта; у книги из нескольких листов ступени подтверждаются для каждой. */
+  forms?: { dataset_code: string; sheet_name: string | null }[]
+  dataset_code?: string | null
+  /** Форм несколько, а какая — не выбрано: предложения нет, нужен выбор. */
+  needs_form?: boolean
+  suggestion: LevelSuggestion | null
   confirmed: ConfirmedLevels | null
   /** Форма изменилась с момента подтверждения — применять его нельзя. */
   stale: boolean
   has_template: boolean
 }
 
-export async function getFormLevels(objectId: string): Promise<LevelsState> {
-  const res = await fetch(`/objects/${objectId}/levels`, { headers: authH() })
+export async function getFormLevels(objectId: string, code?: string | null): Promise<LevelsState> {
+  const q = code ? `?code=${encodeURIComponent(code)}` : ''
+  const res = await fetch(`/objects/${objectId}/levels${q}`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
 
 export async function confirmFormLevels(
-  objectId: string, body: Omit<ConfirmedLevels, 'fingerprint'>,
+  objectId: string, body: Omit<ConfirmedLevels, 'fingerprint'> & { dataset_code?: string | null },
 ): Promise<ConfirmedLevels> {
   const res = await fetch(`/objects/${objectId}/levels`, {
     method: 'POST', headers: { ...authH(), 'Content-Type': 'application/json' },
@@ -328,11 +334,14 @@ export async function getQualityReview(
   return res.json()
 }
 
-/** Шаблон разметки объекта: действующий и прежние (с 23.09.2026 не теряются). */
+/** Шаблоны разметки ФОРМ объекта (с 09.10.2026 — на форму: объект + код набора). */
 export interface TemplateInfo {
-  dataset_code: string | null; fields: number; headers: number; period: string | null
+  dataset_code: string | null; sheet_name: string | null; title?: string
+  fields: number; headers: number; period: string | null
 }
 export interface TemplateHistory {
+  /** Действующие шаблоны всех форм объекта (у книги из нескольких листов — несколько). */
+  templates: (TemplateInfo & { updated_at: string })[]
   current: (TemplateInfo & { updated_at: string }) | null
   history: (TemplateInfo & { id: string; replaced_at: string; replaced_by: string | null; reason: string | null })[]
 }
@@ -345,6 +354,15 @@ export async function getLayoutTemplates(objectId: string): Promise<TemplateHist
 
 export async function restoreLayoutTemplate(objectId: string, historyId: string): Promise<TemplateHistory> {
   const res = await fetch(`/objects/${objectId}/layout-templates/${historyId}/restore`, {
+    method: 'POST', headers: authH(),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+/** Перестать узнавать форму: её шаблон уходит в историю (вернуть можно). */
+export async function forgetLayoutTemplate(objectId: string, code: string): Promise<TemplateHistory> {
+  const res = await fetch(`/objects/${objectId}/layout-templates/forms/${encodeURIComponent(code)}/forget`, {
     method: 'POST', headers: authH(),
   })
   if (!res.ok) throw new Error(await errText(res))

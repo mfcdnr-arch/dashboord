@@ -117,14 +117,21 @@ async def test_newer_book_replaces_only_changed_sheets(
 
     kept = [s for s in res["skipped"] if "не изменился" in s["reason"]]
     assert len(kept) == 2, res["skipped"]
-    assert res["released"] == 2 and res["replaced"] == 1, res
+    # Дописанный лист 22.07 к этому моменту уже выпустил АВТО-выпуск: после
+    # первой книги у формы есть шаблон, и из книги «лист = дата» он берёт лист
+    # с отчётной датой файла (до 09.10.2026 брался первый совпавший — данные
+    # 01.07 легли бы под датой 22.07). Повторно лист не выпускается.
+    auto = [s for s in res["skipped"] if s["period"] == "2026-07-22"]
+    assert auto and "этого же файла" in auto[0]["reason"], res["skipped"]
+    assert res["released"] == 1 and res["replaced"] == 1, res
     replaced = [c for c in res["created"] if c.get("replaced")]
     assert [c["period"] for c in replaced] == ["2026-07-08"], res["created"]
 
     act = await _active()
     assert act["2026-07-08"][1] == 222, "на дашборде обязана быть исправленная цифра"
     assert act["2026-07-01"][1] == 100 and act["2026-07-15"][1] == 300
-    assert "2026-07-22" in act, "дописанный лист должен выпуститься"
+    assert act.get("2026-07-22", (None, None))[1] == 400, \
+        "дописанный лист должен выпуститься — и именно он, а не первый лист книги"
 
     async with db.acquire() as conn:
         # Прежний выпуск не уничтожен, а снят с использования: решение обратимо.

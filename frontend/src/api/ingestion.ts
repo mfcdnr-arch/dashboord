@@ -22,6 +22,9 @@ export interface ExtractedTable {
   /** Область данных [r1,c1,r2,c2], предложенная системой (отсечён текст письма). */
   data_rect: number[] | null
   columns: ExtractedColumn[]
+  /** Форма (код набора), узнанная на этом листе, и как узнана. */
+  template_code?: string | null
+  template_match?: string | null
 }
 /** Разметка прошлого выпуска этой же формы (шаблон объекта).
  *
@@ -29,7 +32,7 @@ export interface ExtractedTable {
  *  можно подставить (`table_id` — к какой таблице). `structure_differs` —
  *  форма изменилась: применять нельзя, иначе цифры будут неверными молча. */
 export interface LayoutTemplate {
-  match: 'exact' | 'structure_differs'
+  match: 'exact' | 'structure_differs' | 'ambiguous'
   mode: 'table' | 'cells'
   table_id: string | null
   layout: { data_rect: number[] | null; header_rows: number | null; orientation: 'columns' | 'rows'; skip_rows: number[] }
@@ -42,6 +45,13 @@ export interface LayoutTemplate {
   /** Число строк изменилось или область расширена — человеку стоит проверить границы. */
   rows_differ: boolean
   note: string
+  /** Лист книги, с которого снята разметка формы, и лист этого файла, где она узнана. */
+  sheet_name?: string | null
+  table_sheet?: string | null
+  /** Лист, чей бланк не совпал с формой (разметку к нему применять нельзя). */
+  candidate_table_id?: string | null
+  /** Все листы файла, совпавшие с формой (у книги «лист = дата» их много). */
+  table_ids?: string[]
 }
 
 export interface ExtractionJob {
@@ -49,6 +59,8 @@ export interface ExtractionJob {
   job_id?: string
   /** Как размечали эту форму в прошлый раз — конструктор открывается размеченным. */
   layout_template?: LayoutTemplate | null
+  /** Шаблоны всех форм объекта, приложенные к листам файла (книга из нескольких форм). */
+  layout_templates?: LayoutTemplate[]
   /** Код датасета по умолчанию — от имени объекта (или уже использованный им).
    *  Раньше в форме стояло жёсткое «dataset», из-за чего второй объект
    *  сталкивался с первым: данные ищутся по коду без учёта объекта. */

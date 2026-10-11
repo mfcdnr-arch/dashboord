@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   confirmFormLevels, getFormLevels,
   type LevelsState,
@@ -29,20 +29,28 @@ export default function FormLevels(
   const [rowName, setRowName] = useState('')
   const [group, setGroup] = useState(true)
   const [measure, setMeasure] = useState<string>('')
+  // Форма объекта: у книги из нескольких листов ступени у каждой свои.
+  const [code, setCodeState] = useState<string | null>(null)
+  // Ref — для перечитывания по возврату к вкладке: слушатель вешается один раз,
+  // и без ref он перечитывал бы всегда первую форму.
+  const codeRef = useRef<string | null>(null)
+  const setCode = (c: string | null) => { codeRef.current = c; setCodeState(c) }
 
-  const load = () => {
+  const load = (want: string | null = codeRef.current) => {
     setErr(null)
-    getFormLevels(objectId).then((s) => {
+    getFormLevels(objectId, want).then((s) => {
+      // Форм несколько, а какая — не выбрано: берём первую, переключатель рядом.
+      if (s.needs_form && s.forms?.length) { setCode(s.forms[0].dataset_code); load(s.forms[0].dataset_code); return }
       setSt(s)
       // Подтверждённое подставляем в поля: человек правит, а не вводит заново.
       const c = s.confirmed
       setNames(Object.fromEntries((c?.levels || []).map((l) => [l.index, l.name])))
       setRowName(c?.row_level || '')
       setGroup(c?.group_lone ?? true)
-      setMeasure(c?.measure_default || s.suggestion.measure_default || '')
+      setMeasure(c?.measure_default || s.suggestion?.measure_default || '')
     }).catch((e) => setErr((e as Error).message))
   }
-  useEffect(() => { setSt(null); setOpen(false); load() }, [objectId]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setSt(null); setOpen(false); setCode(null); load(null) }, [objectId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Перечитываем при возврате к вкладке. Форма меняется не здесь, а на
   // «Загрузке»: человек выпускает новый файл изменившейся структуры, отпечаток
@@ -60,15 +68,28 @@ export default function FormLevels(
   }, [objectId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (err) return <Frame><span style={{ color: 'var(--danger)' }}>{err}</span></Frame>
-  if (!st) return null
+  if (!st || !st.suggestion) return null
 
   const s = st.suggestion
+  const forms = st.forms || []
+  // Переключатель формы — только у книги из нескольких форм.
+  const picker = forms.length > 1 && (
+    <label style={{ fontSize: 13, color: 'var(--text-muted)', display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+      форма
+      <select value={code || ''} onChange={(e) => { setCode(e.target.value); setOpen(false); load(e.target.value) }}
+        style={{ height: 28, borderRadius: 6, border: '1px solid var(--border-strong)', background: 'var(--surface)', color: 'var(--text)', fontSize: 13 }}>
+        {forms.map((f) => <option key={f.dataset_code} value={f.dataset_code}>{f.sheet_name || f.dataset_code}</option>)}
+      </select>
+    </label>
+  )
   // Ступеней в форме нет — сказать это прямо и не предлагать мастер. Пустая
   // лестница на плоской форме выглядела бы недоделкой, а не ответом.
   if (s.kind !== 'hierarchy') {
     return (
       <Frame>
-        <b>🪜 Ступени формы</b>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <b>🪜 Ступени формы</b>{picker}
+        </div>
         <div style={{ color: 'var(--text-muted)', marginTop: 6 }}>{s.reason}</div>
       </Frame>
     )
@@ -83,6 +104,7 @@ export default function FormLevels(
       await confirmFormLevels(objectId, {
         levels: s.levels.map((l) => ({ index: l.index, name: (names[l.index] || '').trim() })),
         row_level: rowName.trim(), group_lone: group, measure_default: measure || null,
+        dataset_code: st.dataset_code ?? null,
       })
       load(); setOpen(false)
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
@@ -91,7 +113,7 @@ export default function FormLevels(
   return (
     <Frame>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <b>🪜 Ступени формы</b>
+        <b>🪜 Ступени формы</b>{picker}
         <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>
           {ready
             ? `подтверждены: ${st.confirmed!.levels.map((l) => l.name).join(' → ')} → ${st.confirmed!.row_level}`

@@ -55,6 +55,8 @@ class LevelsIn(BaseModel):
     """
     levels: list[LevelIn]
     row_level: str = Field(min_length=1, max_length=100)
+    # Форма объекта (код набора), если их несколько — книга из нескольких листов.
+    dataset_code: Optional[str] = None
     group_lone: bool = True
     measure_default: Optional[str] = None
 
@@ -238,20 +240,22 @@ async def build_suggestion(object_id: str, user: dict = Depends(manage)):
 
 @router.get("/{object_id}/layout-templates")
 async def get_layout_templates(object_id: str, user: dict = Depends(manage)):
-    """Действующий шаблон разметки и прежние — с возвратом одной кнопкой."""
-    from ..ingestion import mapping
+    """Действующие шаблоны форм объекта и прежние — с возвратом одной кнопкой."""
+    from ..ingestion import form_templates as ft
     async with db.get_pool().acquire() as conn:
         obj = await conn.fetchval(
             "select id from objects where id=$1::uuid and organization_id=$2",
             object_id, user["organization_id"])
         if not obj:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
-        return await mapping.template_history(conn, obj)
+        return await ft.history(conn, obj)
 
 
 @router.post("/{object_id}/layout-templates/{history_id}/restore")
 async def restore_layout_template(object_id: str, history_id: str, user: dict = Depends(manage)):
-    """Вернуть прежний шаблон разметки; действующий уходит в историю, а не пропадает."""
+    """Вернуть прежний шаблон формы; действующий шаблон этой формы уходит в
+    историю, а не пропадает. Соседние формы объекта не трогаются."""
+    from ..ingestion import form_templates as ft
     from ..ingestion import mapping
     async with db.get_pool().acquire() as conn:
         obj = await conn.fetchval(
@@ -261,17 +265,44 @@ async def restore_layout_template(object_id: str, history_id: str, user: dict = 
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
         async with conn.transaction():
             try:
-                await mapping.restore_template(conn, obj, history_id, user["id"])
+                code = await ft.restore(conn, obj, history_id, user["id"])
             except LookupError as e:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
             await write_event(
                 conn, user["organization_id"], user["id"], "update", "object", object_id,
-                new_data={"layout_template": "возвращён прежний шаблон", "history_id": history_id})
-        return await mapping.template_history(conn, obj)
+                new_data={"layout_template": "возвращён прежний шаблон", "history_id": history_id,
+                          "dataset_code": code})
+            await mapping.refresh_template_verdicts(conn, obj)
+        return await ft.history(conn, obj)
+
+
+@router.post("/{object_id}/layout-templates/forms/{code}/forget")
+async def forget_layout_template(object_id: str, code: str, user: dict = Depends(manage)):
+    """Перестать узнавать форму: её шаблон уходит в историю (вернуть можно).
+
+    Ошибочный выпуск под новым кодом заводит собственный шаблон, и без этой
+    кнопки он навсегда участвовал бы в узнавании файлов.
+    """
+    from ..ingestion import form_templates as ft
+    from ..ingestion import mapping
+    async with db.get_pool().acquire() as conn:
+        obj = await conn.fetchval(
+            "select id from objects where id=$1::uuid and organization_id=$2",
+            object_id, user["organization_id"])
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
+        async with conn.transaction():
+            if not await ft.forget(conn, obj, code, user["id"]):
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "У объекта нет шаблона этой формы")
+            await write_event(
+                conn, user["organization_id"], user["id"], "update", "object", object_id,
+                new_data={"layout_template": "форму перестали узнавать", "dataset_code": code})
+            await mapping.refresh_template_verdicts(conn, obj)
+        return await ft.history(conn, obj)
 
 
 @router.get("/{object_id}/levels")
-async def get_levels(object_id: str, user: dict = Depends(manage)):
+async def get_levels(object_id: str, code: Optional[str] = None, user: dict = Depends(manage)):
     """Ступени формы: что предлагает система и что подтвердил человек."""
     async with db.get_pool().acquire() as conn:
         obj = await conn.fetchrow(
@@ -279,7 +310,7 @@ async def get_levels(object_id: str, user: dict = Depends(manage)):
             object_id, user["organization_id"])
         if not obj:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
-        return await levels_svc.get_state(conn, obj["id"])
+        return await levels_svc.get_state(conn, obj["id"], code)
 
 
 @router.post("/{object_id}/levels")
@@ -292,8 +323,9 @@ async def confirm_levels(object_id: str, body: LevelsIn, user: dict = Depends(ma
         if not obj:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
         try:
-            saved = await levels_svc.save(
-                conn, obj["id"], body.model_dump(), user["id"])
+            payload = body.model_dump()
+            code = payload.pop("dataset_code", None)
+            saved = await levels_svc.save(conn, obj["id"], payload, user["id"], code)
         except ValueError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
         await write_event(

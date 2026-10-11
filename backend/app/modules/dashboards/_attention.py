@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from ..ingestion.quality import check_release, previous_release_values
+from ..ingestion.quality import check_release, previous_release_values, release_is_registry
 from ._rowrls import allowed_rows_for_dataset
 
 # Больше трёх форм на странице — редкость; ограничение защищает от страницы,
@@ -81,7 +81,8 @@ async def page_attention(conn, org_id, page_id: str, user: dict) -> dict:
             "select code, name from canonical_fields where object_id=$1", rel["object_id"])}
         # Прошлого выпуска может не быть (первый файл формы) — арифметику
         # внутри файла это не отменяет, поэтому молчать здесь больше нельзя.
-        warnings = check_release(current, names, previous, prev_period, partial=partial)
+        warnings = check_release(current, names, previous, prev_period, partial=partial,
+                                 registry=await release_is_registry(conn, rel["id"]))
         if warnings:
             period = rel["reporting_period_start"]
             items.append({

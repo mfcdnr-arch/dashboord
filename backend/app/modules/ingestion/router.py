@@ -127,18 +127,34 @@ async def _job_payload(conn, job_id: str) -> dict:
             "data_rect": json.loads(t["data_rect"]) if t["data_rect"] else None,
             "columns": [dict(c) for c in cols],
         })
-    # Разметка прошлого выпуска этой же формы: если структура совпала, конструктор
-    # откроется уже размеченным. Не совпала — шаблон приходит с пометкой, что
+    # Разметка прошлых выпусков форм объекта: каждый лист, совпавший с формой,
+    # откроется уже размеченным и с её кодом набора. У книги из нескольких форм
+    # (Минэкономразвития: показатели, вопросы, итоги, планы) шаблонов несколько,
+    # и каждому — свой лист. Не совпавший шаблон приходит с пометкой, что
     # применить его нельзя (чужая разметка молча дала бы неверные цифры).
     ctx = await mapping.resolve_context(conn, job_id)
-    template = None
+    templates: List[dict] = []
     if ctx is not None and ctx["object_id"] is not None:
-        template = await mapping.layout_template_for_tables(
-            conn, ctx["object_id"], [t["id"] for t in out_tables])
+        period = await conn.fetchval(
+            "select d.reporting_period_start from document_versions dv "
+            "join documents d on d.id = dv.document_id where dv.id = $1",
+            job["document_version_id"])
+        templates = await mapping.match_templates(
+            conn, ctx["object_id"], [t["id"] for t in out_tables], period)
+    by_table = {(e["table_id"] or e.get("candidate_table_id")): e for e in templates
+                if e["table_id"] or e.get("candidate_table_id")}
+    for t in out_tables:
+        e = by_table.get(t["id"])
+        t["template_code"] = e["dataset_code"] if e else None
+        t["template_match"] = e["match"] if e else None
 
     return {
         "job_id": str(job["id"]),
-        "layout_template": template,
+        "layout_templates": templates,
+        # Прежний контракт (один шаблон) — первая узнанная форма, иначе первая
+        # из несовпавших: у объекта с одной формой это ровно прежний ответ.
+        "layout_template": next((e for e in templates if e["match"] == "exact"),
+                                templates[0] if templates else None),
         "suggested_code": await _suggest_dataset_code(conn, str(job["document_version_id"])),
         "document_version_id": str(job["document_version_id"]),
         "status": job["status"],
@@ -397,6 +413,10 @@ async def create_release(job_id: str, body: ReleaseIn, user: dict = Depends(mana
                 # срабатывает только при совпадении структуры формы.
                 res["new_fields"] = new_fields.brief(
                     await new_fields.announce_safely(conn, user["organization_id"], body.code))
+                # Файлы, залитые до появления шаблона этой формы, теперь могут
+                # узнаваться — пересчитываем их «готов / требует внимания».
+                if res.get("object_id"):
+                    await mapping.refresh_template_verdicts(conn, res["object_id"])
                 return res
         except mapping.FormMismatch as mismatch:
             raise HTTPException(status.HTTP_409_CONFLICT, detail=mismatch.info)

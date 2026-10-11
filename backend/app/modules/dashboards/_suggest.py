@@ -414,14 +414,11 @@ async def collect_object_datasets(conn, org_id, object_id: str,
         *([org_id, object_id, only_code] if only_code else [org_id, object_id]))
     # Подтверждённые ступени формы («Ведомство → Услуга») — по ним большая форма
     # раскладывается по страницам (решение заказчика 23.09.2026). Шаблон, а с
-    # ним и ступени, один на объект и относятся к его коду набора; устаревшее
+    # ним и ступени, свои у каждой формы объекта (объект + код); устаревшее
     # подтверждение `load_confirmed` не отдаёт вовсе — лучше без раскладки,
     # чем с неверной.
     from ..objects.levels import load_confirmed  # локально: objects тянет dashboards
 
-    levels = await load_confirmed(conn, object_id)
-    levels_code = await conn.fetchval(
-        "select dataset_code from object_layout_templates where object_id=$1::uuid", object_id)
     out = []
     for d in rows:
         fields = await _dataset_numeric_fields(conn, org_id, d["code"])
@@ -478,9 +475,63 @@ async def collect_object_datasets(conn, org_id, object_id: str,
             "period_dates": [r["p"].isoformat() for r in dates],
             "sums": {r["code"]: float(r["total"]) for r in sums if r["total"] is not None},
             "volumes": {r["code"]: float(r["total"]) for r in volumes if r["total"] is not None},
-            "levels": levels if levels and levels_code == d["code"] else None,
+            "levels": await load_confirmed(conn, object_id, d["code"]),
+            **(await _registry_info(conn, org_id, d["code"])),
         })
     return out
+
+
+# Графа реестра годится для разбивки «сколько строк по значению», если значений
+# немного: статус, уровень риска, «да/нет». У «Краткой характеристики» каждое
+# значение своё, и столбики из двадцати единиц ничего не говорят.
+REGISTRY_GROUP_MAX = 8
+REGISTRY_GROUP_MIN = 2
+# Сколько разбивок рекомендовать: больше — страница из одинаковых круговых.
+REGISTRY_GROUPS_RECOMMENDED = 3
+
+
+async def _registry_info(conn, org_id, code: str) -> dict:
+    """Форма-реестр ли это и по каким графам считать строки.
+
+    Реестр — строка формы это предмет (вопрос, мероприятие), графы в основном
+    текст, а немногие числа — баллы и оценки (`quality.is_registry`, то же
+    правило, по которому проверка качества не ругается на повтор строк).
+    🔴 Сумма баллов риска смысла не имеет, а «Итоги» и «Планы» недели чисел не
+    содержат вовсе — мастер на них не предлагал ничего (08.10.2026). Отвечать
+    на вопросы реестра надо ЧИСЛОМ СТРОК: всего, по статусам, по уровням.
+    """
+    from ..ingestion.quality import is_registry
+
+    rel = await mr._active_release(conn, org_id, code)
+    if rel is None:
+        return {"registry": False}
+    cols = await conn.fetch(
+        "select rf.canonical_field_code as code, coalesce(cf.name, rf.canonical_field_code) as name, "
+        "  coalesce(cf.data_type, 'text') as data_type, "
+        "  (select count(distinct lower(trim(coalesce(v.value_text, v.value_number::text)))) "
+        "     from dataset_values v where v.dataset_release_id = $1 "
+        "      and v.canonical_field_code = rf.canonical_field_code "
+        "      and coalesce(trim(coalesce(v.value_text, v.value_number::text)), '') <> '') as distinct_values, "
+        "  (select count(*) from dataset_values v where v.dataset_release_id = $1 "
+        "      and v.canonical_field_code = rf.canonical_field_code "
+        "      and coalesce(trim(coalesce(v.value_text, v.value_number::text)), '') <> '') as filled "
+        "from dataset_release_fields rf "
+        "join dataset_releases r on r.id = rf.dataset_release_id "
+        "left join canonical_fields cf on cf.object_id = r.object_id and cf.code = rf.canonical_field_code "
+        "left join extracted_columns ec on ec.id = rf.extracted_column_id "
+        "where rf.dataset_release_id = $1 and not rf.is_row_label "
+        "order by ec.column_index nulls last, rf.canonical_field_code", rel)
+    if not is_registry([c["data_type"] for c in cols]):
+        return {"registry": False}
+    n_rows = await conn.fetchval(
+        "select count(distinct row_index) from dataset_values where dataset_release_id = $1", rel)
+    groups = [{"code": c["code"], "name": c["name"], "distinct": int(c["distinct_values"] or 0),
+               "numeric": c["data_type"] == "number"}
+              for c in cols
+              if REGISTRY_GROUP_MIN <= int(c["distinct_values"] or 0) <= REGISTRY_GROUP_MAX
+              and int(c["distinct_values"] or 0) < max(int(c["filled"] or 0), 1)]
+    return {"registry": True, "registry_rows": int(n_rows or 0), "registry_groups": groups,
+            "registry_fields": [{"code": c["code"], "name": c["name"]} for c in cols]}
 
 
 # Вид показателя на дашборде. Раньше все получали одинаковую карточку; теперь
@@ -1156,6 +1207,10 @@ def _candidate_key(sp: dict) -> str:
     # (у тренда — больше 60 отчётов), и отметки человека пропадали бы, когда
     # ряд перерастает порог (ревью этапа 2).
     extra = [str(cfg[k]) for k in ("by", "period") if cfg.get(k)]
+    if cfg.get("count"):
+        # Подсчёт строк: «сколько по уровням риска» и «сколько по статусам» —
+        # разные виджеты одного вида, их различает графа разбивки.
+        extra += ["count", *[str(cfg[k]) for k in ("group_by", "group_by2") if cfg.get(k)]]
     return ":".join([str(cfg.get("dataset_code") or ""), sp["widget_type"],
                      "+".join(sorted(str(f) for f in fields if f)), *extra])
 
@@ -1193,6 +1248,16 @@ def plan_candidates(datasets: list, selection: Optional[dict] = None,
         views = (sel or {}).get("views") or {}
         volumes = d.get("volumes") or {}
 
+        if d.get("registry"):
+            ds_specs: list = _registry_specs(d, blocks)
+            if not ds_specs:
+                continue
+            notes.append(f"«{form_title(dsname)}» — реестр (строка формы — запись, графы почти "
+                         "все текст): предлагаю считать строки — всего и по значениям граф. "
+                         "Складывать баллы и оценки реестра смысла нет.")
+            specs += _finalize_specs(ds_specs, code, sel, pin_period)
+            continue
+
         fields = [f for f in d["fields"] if want_fields is None or f["code"] in want_fields]
         if not fields:
             continue
@@ -1205,7 +1270,7 @@ def plan_candidates(datasets: list, selection: Optional[dict] = None,
         manual = bool(sel and sel.get("manual")) and want_fields is not None
         has_dyn = d["periods"] > 1
         rows = int(d.get("rows") or 0)
-        ds_specs: list = []
+        ds_specs = []
 
         def view_of(f, views=views, has_dyn=has_dyn):
             v = views.get(f["code"]) or default_view(f["name"], has_dyn)
@@ -1446,31 +1511,75 @@ def plan_candidates(datasets: list, selection: Optional[dict] = None,
                              "config": {"dataset_code": code, "period": period},
                              "width": 12, "height": 6, "recommended": True, "reason": ""})
 
-        include = set((sel or {}).get("include") or [])
-        exclude = set((sel or {}).get("exclude") or [])
-        for sp in ds_specs:
-            sp["dataset_code"] = code
-            sp.setdefault("cards", 0)
-            # Ключ — ДО закрепления даты: галочка человека не должна пропадать,
-            # когда через неделю дашборд собирают по следующему файлу (первая
-            # редакция 24.09 теряла все отметки — ревью этапа 2). У страниц-
-            # срезов дата задана в самой спецификации и в ключ входит.
-            sp["key"] = _candidate_key(sp)
-            if pin_period:
-                # Закрепляем дату ОДНИМ местом: иначе новый вид однажды забудут
-                # закрепить, и на «срезе за 22.07» появится свежая карточка.
-                sp["config"].setdefault("period", pin_period)
-        # Ключ обязан быть уникальным: одинаковые графы бывают у разных видов
-        # одной меры, а галочка человека должна попадать ровно в свой виджет.
-        seen: Counter = Counter()
-        for sp in ds_specs:
-            seen[sp["key"]] += 1
-            if seen[sp["key"]] > 1:
-                sp["key"] = f"{sp['key']}#{seen[sp['key']]}"
-            sp["build"] = (sp["recommended"] or sp["key"] in include) and sp["key"] not in exclude
-        specs += ds_specs
+        specs += _finalize_specs(ds_specs, code, sel, pin_period)
 
     return {"candidates": specs, "notes": notes, "cards": card_stats}
+
+
+def _finalize_specs(ds_specs: list, code: str, sel: Optional[dict],
+                    pin_period: Optional[str]) -> list:
+    """Ключи, закрепление даты и решение «создавать» — одно место для всех
+    наборов (обычная форма и реестр), иначе отметки человека в одних
+    кандидатах работали бы, а в других нет."""
+    include = set((sel or {}).get("include") or [])
+    exclude = set((sel or {}).get("exclude") or [])
+    for sp in ds_specs:
+        sp["dataset_code"] = code
+        sp.setdefault("cards", 0)
+        # Ключ — ДО закрепления даты: галочка человека не должна пропадать,
+        # когда через неделю дашборд собирают по следующему файлу (первая
+        # редакция 24.09 теряла все отметки — ревью этапа 2). У страниц-
+        # срезов дата задана в самой спецификации и в ключ входит.
+        sp["key"] = _candidate_key(sp)
+        if pin_period:
+            # Закрепляем дату ОДНИМ местом: иначе новый вид однажды забудут
+            # закрепить, и на «срезе за 22.07» появится свежая карточка.
+            sp["config"].setdefault("period", pin_period)
+    # Ключ обязан быть уникальным: одинаковые графы бывают у разных видов
+    # одной меры, а галочка человека должна попадать ровно в свой виджет.
+    seen: Counter = Counter()
+    for sp in ds_specs:
+        seen[sp["key"]] += 1
+        if seen[sp["key"]] > 1:
+            sp["key"] = f"{sp['key']}#{seen[sp['key']]}"
+        sp["build"] = (sp["recommended"] or sp["key"] in include) and sp["key"] not in exclude
+    return ds_specs
+
+
+def _registry_specs(d: dict, blocks: set) -> list:
+    """Кандидаты для формы-реестра: подсчёт строк вместо сумм.
+
+    Те же виды, что и везде (карточка, круговая, столбики, таблица), в режиме
+    `count` (`_tally`): второй копии отрисовки под реестр нет.
+    """
+    code, dsname = d["code"], d["name"]
+    title = form_title(dsname)
+    out: list = []
+    has_dyn = d.get("periods", 0) > 1
+    if "kpi" in blocks:
+        out.append({
+            "page": PAGE_OVERVIEW, "name": f"{title}: всего записей",
+            "widget_type": "kpi", "block": "kpi",
+            "config": {"dataset_code": code, "count": True,
+                       **({"compare_prev": True, "spark": True} if has_dyn else {})},
+            "width": 3, "height": 3, "recommended": True, "reason": "", "cards": 1})
+    if "by_meaning" in blocks or "bar" in blocks:
+        for i, g in enumerate(d.get("registry_groups") or []):
+            pie = g["distinct"] <= 7 and not g["numeric"]
+            rec = i < REGISTRY_GROUPS_RECOMMENDED
+            out.append({
+                "page": PAGE_OVERVIEW, "name": f"{title}: по графе «{g['name']}»",
+                "widget_type": "pie" if pie else "bar", "block": "by_meaning",
+                "config": {"dataset_code": code, "count": True, "group_by": g["code"]},
+                "width": 6, "height": 6, "recommended": rec,
+                "reason": "" if rec else (
+                    f"Разбивок уже {REGISTRY_GROUPS_RECOMMENDED} — остальные по желанию, "
+                    "иначе страница превратится в ряд одинаковых диаграмм.")})
+    if "table" in blocks:
+        out.append({"page": PAGE_RAW, "name": f"{title}: записи", "widget_type": "table",
+                    "block": "table", "config": {"dataset_code": code},
+                    "width": 12, "height": 8, "recommended": True, "reason": ""})
+    return out
 
 
 def plan_auto_build(datasets: list, selection: Optional[dict] = None,
@@ -1525,7 +1634,16 @@ async def auto_build_plan(conn, org_id, object_id: str, selection: Optional[dict
         raise DashboardError("У объекта нет выпущенных датасетов — сначала распознайте документ")
 
     warnings = []
-    if len(datasets) > 1:
+    # Несколько кодов из ОДНОГО файла — это формы одной книги (Минэкономразвития:
+    # показатели, вопросы, итоги, планы), так и задумано. Предупреждаем, только
+    # если коды ни разу не приходили одним файлом — тогда это разорванный ряд.
+    same_book = len(datasets) > 1 and bool(await conn.fetchval(
+        "select 1 from dataset_releases where organization_id=$1 and object_id=$2::uuid "
+        "and status<>'superseded' and source_document_version_id is not null "
+        "and code = any($3::text[]) group by source_document_version_id "
+        "having count(distinct code) = $4 limit 1",
+        org_id, object_id, [d["code"] for d in datasets], len(datasets)))
+    if len(datasets) > 1 and not same_book:
         warnings.append(
             "В объекте несколько наборов данных: "
             + ", ".join(f"«{d['code']}»" for d in datasets)

@@ -227,7 +227,7 @@ async def page_ladder(conn, org_id, page_id: str, user: dict,
         "select object_id from dataset_releases where organization_id=$1 and code=$2 "
         "and status<>'superseded' order by reporting_period_start desc nulls last limit 1",
         org_id, code)
-    conf = await load_confirmed(conn, obj_id) if obj_id else None
+    conf = await load_confirmed(conn, obj_id, code) if obj_id else None
     if not conf:
         return {"available": False, "dataset_code": code,
                 "reason": "Ступени этой формы ещё не подтверждены. Откройте объект и "
@@ -333,7 +333,7 @@ async def _ladder_context(conn, org_id, dashboard_id: str) -> Dict:
         "select object_id from dataset_releases where organization_id=$1 and code=$2 "
         "and status<>'superseded' order by reporting_period_start desc nulls last limit 1",
         org_id, code)
-    conf = await load_confirmed(conn, obj_id) if obj_id else None
+    conf = await load_confirmed(conn, obj_id, code) if obj_id else None
     if not conf:
         raise DashboardError("Ступени этой формы ещё не подтверждены. Откройте объект и "
                              "подтвердите их в блоке «Ступени формы».")

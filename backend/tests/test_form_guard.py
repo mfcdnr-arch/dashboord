@@ -67,7 +67,10 @@ async def test_other_form_is_stopped_and_nothing_is_written(client, admin_header
                           json=_body_for(job, "ztpl_code", "2026-08-12"))
     assert r.status_code == 409, r.text
     d = r.json()["detail"]
-    assert d["kind"] == "other_form" and "не похож" in d["message"], d
+    # Под тем же кодом ведётся форма с другим составом граф — «другая форма
+    # под этим кодом» (с 09.10.2026 правила различают случаи, см.
+    # compare_with_object_form).
+    assert d["kind"] == "other_form" and d["case"] == "same_code" and "другая форма" in d["message"], d
     async with db.acquire() as conn:
         n = await conn.fetchval("select count(*) from dataset_releases where code='ztpl_code' "
                                 "and reporting_period_start='2026-08-12'")

@@ -272,6 +272,13 @@ async def list_documents(
             "j.status as job_status, j.template_match, j.template_note, "
             "(select count(*) from dataset_releases r "
             "   where r.source_document_version_id = v.id and r.status <> 'superseded') as releases, "
+            # Сколько РАЗНЫХ форм из файла уже выпущено и сколько их в нём узнано:
+            # у книги из нескольких форм «данные выпущены» по одному листу из
+            # четырёх прятало бы три невыпущенных.
+            "(select count(distinct r.code) from dataset_releases r "
+            "   where r.source_document_version_id = v.id and r.status <> 'superseded') as forms_released, "
+            "(select count(distinct et.template_code) from extracted_tables et "
+            "   where et.extraction_job_id = j.id and et.template_match = 'exact') as forms_known, "
             # Выпущено человеком или автоматом — разные состояния для того, кто
             # смотрит папку: во втором случае он кнопку не нажимал и должен
             # понять, откуда взялись данные.
@@ -280,7 +287,7 @@ async def list_documents(
             "from documents d "
             "left join lateral (select id, file_size_bytes from document_versions v "
             "  where v.document_id=d.id order by version_no desc limit 1) v on true "
-            "left join lateral (select status, template_match, template_note from extraction_jobs j "
+            "left join lateral (select id, status, template_match, template_note from extraction_jobs j "
             "  where j.document_version_id = v.id order by created_at desc limit 1) j on true "
             # Порядок — по ОТЧЁТНОЙ дате (свежие сверху), а не по времени загрузки:
             # формы загружают вразнобой, и список выглядел вперемешку. Документы без
@@ -302,7 +309,12 @@ def _with_pipeline(row: dict) -> dict:
     «распознан», иначе человек решит, что файл готов.
     """
     job, match = row.get("job_status"), row.get("template_match")
-    if row.get("releases"):
+    done, known = int(row.get("forms_released") or 0), int(row.get("forms_known") or 0)
+    if row.get("releases") and known > done:
+        state = "released_partial"
+        hint = (f"Выпущено форм: {done} из {known} узнанных в файле. Откройте файл, выберите "
+                "лист невыпущенной формы — разметка подставится — и выпустите его.")
+    elif row.get("releases"):
         if row.get("auto_released"):
             state = "released_auto"
             hint = ("Данные выпущены автоматически: форма совпала с прошлым отчётом и замечаний "

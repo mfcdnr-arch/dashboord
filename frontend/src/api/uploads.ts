@@ -68,6 +68,8 @@ export interface KnownForm {
   row_count: number | null
   periods_loaded: number
   updated_at: string | null
+  /** Формы объекта, которые узнаются сами (у книги из нескольких листов — по листу). */
+  forms?: { dataset_code: string; sheet_name: string | null; periods_loaded: number }[]
 }
 
 /** Формы, которые «📥 Загрузка» уже узнаёт сама по структуре — подсказка перед перетаскиванием файла. */

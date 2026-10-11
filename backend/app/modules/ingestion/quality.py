@@ -484,10 +484,40 @@ def _check_almost_empty(current: Dict[Key, float], previous: Dict[Key, float]) -
     }
 
 
+# Форма-реестр: строка — предмет (вопрос, мероприятие), графы в основном текст,
+# а немногие числа — баллы и оценки. Доля числовых граф не выше этой.
+REGISTRY_NUMERIC_SHARE = 0.25
+REGISTRY_MIN_FIELDS = 3
+
+
+def is_registry(types: Sequence[str]) -> bool:
+    """Реестр ли это по типам граф (без графы-названия строки).
+
+    У реестра «строка совпала с прошлым отчётом» — норма, а не перенос цифр:
+    проблемный вопрос висит неделями с той же оценкой риска, и замечание
+    `same_as_previous` срабатывало бы на каждом отчёте — сигнал, который
+    поднимают зря, перестают читать.
+    """
+    types = [t for t in types if t]
+    if len(types) < REGISTRY_MIN_FIELDS:
+        return False
+    return sum(1 for t in types if t == "number") / len(types) <= REGISTRY_NUMERIC_SHARE
+
+
+async def release_is_registry(conn, release_id) -> bool:
+    """`is_registry` для уже выпущенного набора — по объявленным графам выпуска."""
+    rows = await conn.fetch(
+        "select cf.data_type from dataset_release_fields rf "
+        "join dataset_releases r on r.id = rf.dataset_release_id "
+        "join canonical_fields cf on cf.object_id = r.object_id and cf.code = rf.canonical_field_code "
+        "where rf.dataset_release_id = $1 and not rf.is_row_label", release_id)
+    return is_registry([r["data_type"] for r in rows])
+
+
 def check_release(current: Dict[Key, float], names: Dict[str, str],
                   previous: Optional[Dict[Key, float]] = None,
                   previous_period: Optional[str] = None,
-                  partial: bool = False) -> List[dict]:
+                  partial: bool = False, registry: bool = False) -> List[dict]:
     """ВСЕ замечания к готовящемуся выпуску: арифметика внутри + сверка с прошлым.
 
     Единственная точка входа для всех трёх мест, где замечания показываются
@@ -496,7 +526,8 @@ def check_release(current: Dict[Key, float], names: Dict[str, str],
     неизбежным.
     """
     return (check_internal(current, names)
-            + compare_with_previous(current, previous or {}, names, previous_period, partial))
+            + compare_with_previous(current, previous or {}, names, previous_period, partial,
+                                    registry=registry))
 
 
 def compare_with_previous(
@@ -505,6 +536,7 @@ def compare_with_previous(
     names: Dict[str, str],
     previous_period: Optional[str] = None,
     partial: bool = False,
+    registry: bool = False,
 ) -> List[dict]:
     """Сравнение готовящегося выпуска с предыдущим. Чистая функция, без БД.
 
@@ -559,7 +591,7 @@ def compare_with_previous(
             continue
         if set(cells) == set(prev_cells) and all(prev_cells[f] == v for f, v in cells.items()):
             same_rows.append(row)
-    if same_rows:
+    if same_rows and not registry:
         whole = len(same_rows) == len(rows_now)
         all_txt = ("Все доступные вам строки совпадают с прошлым выпуском" if partial
                    else "Все данные совпадают с прошлым выпуском")

@@ -32,7 +32,12 @@ import sys
 import asyncpg
 
 from app.config import settings
+from app.modules.ingestion import form_templates as ft
 from app.modules.ingestion import mapping
+
+
+def _js(v):
+    return json.loads(v) if isinstance(v, str) else (v or {})
 
 APPLY = "--apply" in sys.argv
 
@@ -55,13 +60,11 @@ having count(*) filter (where v.value_number is null and coalesce(trim(v.value_t
 
 
 async def _template_skip_labels(conn) -> dict:
-    """{object_id: (имя объекта, подписи снятых строк)} для шаблонов без подписей."""
+    """{(object_id, код формы): (имя объекта, подписи снятых строк)} для шаблонов без подписей."""
     out: dict = {}
-    rows = await conn.fetch(
-        "select t.object_id, o.name, t.layout, t.fields, t.source_release_id from object_layout_templates t "
-        "join objects o on o.id = t.object_id "
-        "where t.mode = 'table' and not (t.layout ? 'skip_labels') "
-        "  and jsonb_array_length(coalesce(t.layout->'skip_rows', '[]'::jsonb)) > 0")
+    rows = [t for t in await ft.all_templates(conn)
+            if t["mode"] == "table" and "skip_labels" not in _js(t["layout"])
+            and _js(t["layout"]).get("skip_rows")]
     for t in rows:
         # Лист шаблона — тот, чьи распознанные столбцы привязаны к выпуску-источнику.
         table = await conn.fetchrow(
@@ -71,8 +74,8 @@ async def _template_skip_labels(conn) -> dict:
             "where f.dataset_release_id = $1 limit 1", t["source_release_id"])
         if table is None:
             continue
-        lay = json.loads(t["layout"]) if isinstance(t["layout"], str) else t["layout"]
-        fields = json.loads(t["fields"]) if isinstance(t["fields"], str) else t["fields"]
+        lay = _js(t["layout"])
+        fields = _js(t["fields"]) or []
         grid = json.loads(table["data"]) if isinstance(table["data"], str) else table["data"]
         merges = [tuple(m) for m in (json.loads(table["merges"]) if isinstance(table["merges"], str)
                                      else table["merges"] or [])]
@@ -83,7 +86,7 @@ async def _template_skip_labels(conn) -> dict:
             continue
         labels = sorted({str(area[i][col]).strip() for i in lay["skip_rows"]
                          if i < len(area) and col < len(area[i])})
-        out[t["object_id"]] = (t["name"], labels)
+        out[(t["object_id"], t["dataset_code"])] = (t["object_name"], labels)
     return out
 
 
@@ -127,11 +130,8 @@ async def main() -> None:
                 await conn.execute(
                     "update canonical_fields set data_type='number' where object_id=$1 and code=$2",
                     w["object_id"], w["code"])
-            for object_id, (_name, labels) in tpl_labels.items():
-                await conn.execute(
-                    "update object_layout_templates set layout = layout || jsonb_build_object("
-                    "'skip_labels', $2::jsonb) where object_id=$1",
-                    object_id, json.dumps(labels, ensure_ascii=False))
+            for (object_id, code), (_name, labels) in tpl_labels.items():
+                await ft.patch_layout(conn, object_id, code, {"skip_labels": labels})
         print(f"\nГотово: объявлено граф {added} у {len(bare)} выпусков; "
               f"тип «число» проставлен {len(wrong_type)} графам.")
     finally:

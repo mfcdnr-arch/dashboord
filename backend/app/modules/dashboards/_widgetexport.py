@@ -127,7 +127,7 @@ def _dump_widget(wb, summary, sheet_name, wid: str, t: str, name: str, data: dic
         # подписана именами (column_titles, 2026-08-08), и файл обязан
         # совпадать с тем, что человек видел. Код остаётся ключом строки.
         titles = data.get("column_titles") or {}
-        ws.append(["Строка"] + [titles.get(c, c) for c in cols])
+        ws.append([data.get("row_title") or "Строка"] + [titles.get(c, c) for c in cols])
         for r in data.get("rows", []):
             ws.append([r.get("row")] + [r.get(c) for c in cols])
     elif t in ("bar", "line", "pie"):

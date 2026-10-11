@@ -826,7 +826,8 @@ async def match_templates(conn, object_id, table_ids: Sequence[str], period=None
             "fields": _jsonb(t["fields"], []), "cells": _jsonb(t["cells"], []),
             "updated_at": t["updated_at"], "source_release_name": t["release_name"],
             "source_release_period": t["release_period"].isoformat() if t["release_period"] else None,
-            "table_id": None, "table_sheet": None, "layout": lay, "rows_differ": False,
+            "table_id": None, "candidate_table_id": None, "table_sheet": None,
+            "layout": lay, "rows_differ": False,
             "positional_skips": bool(lay.get("skip_rows") or lay.get("skip_labels")), "diff": None,
             # Все листы, совпавшие с формой: экран разметки подставит её разметку
             # на любом из них (у книги «лист = дата» человек выбирает лист сам).
@@ -852,7 +853,9 @@ async def match_templates(conn, object_id, table_ids: Sequence[str], period=None
             diff = describe_structure_change(_jsonb(t["headers"], []), structure_headers(area, hdr),
                                              int(lay["header_rows"] or 0), hdr)
             where = f"Лист «{cand['title']}»: форма" if len(tpls) > 1 else "Форма"
-            out.append({**base, "match": "structure_differs", "table_id": cand["id"],
+            # `table_id` остаётся пустым: применять разметку к этому листу нельзя.
+            # Лист, к которому относится замечание, — в `candidate_table_id`.
+            out.append({**base, "match": "structure_differs", "candidate_table_id": cand["id"],
                         "table_sheet": cand["title"], "diff": diff,
                         "note": (f"{where} отличается от прошлого выпуска: {diff}. "
                                  "Разметьте её вручную — прошлая разметка дала бы неверные цифры.")})
@@ -933,10 +936,11 @@ async def check_job_templates(conn, job_id: str, object_id=None, period=None) ->
         "update extracted_tables set template_code=null, template_match=null, template_note=null "
         "where extraction_job_id=$1::uuid", job_id)
     for e in entries:
-        if e["table_id"]:
+        tid = e["table_id"] or e.get("candidate_table_id")
+        if tid:
             await conn.execute(
                 "update extracted_tables set template_code=$2, template_match=$3, template_note=$4 "
-                "where id=$1::uuid", e["table_id"], e["dataset_code"], e["match"], e["note"])
+                "where id=$1::uuid", tid, e["dataset_code"], e["match"], e["note"])
     match, note = summarize_matches(entries, forms_total)
     await conn.execute(
         "update extraction_jobs set template_match=$2, template_note=$3 where id=$1::uuid",
@@ -1086,7 +1090,9 @@ async def quality_warnings(conn, org_id, *, code: str, period, rows: List[List[s
         return []
     names = {f["field_code"]: f["field_name"] for f in fields}
     try:
-        found = quality.check_release(current, names, previous, prev_period)
+        registry = quality.is_registry(
+            [f.get("data_type") or "text" for f in fields if not f.get("is_row_label")])
+        found = quality.check_release(current, names, previous, prev_period, registry=registry)
         total = _total_row_warning(rows, fields)
         return found + ([total] if total else [])
     except Exception as e:                      # noqa: BLE001
@@ -1300,7 +1306,26 @@ async def declare_release_fields(conn, release_id) -> int:
         "where dataset_release_id=$1::uuid "
         "on conflict (dataset_release_id, canonical_field_code) do nothing",
         release_id)
-    return int(status.split()[-1])
+    added = int(status.split()[-1])
+    # Графа-название строки значений в выпуске не имеет (её значения уходят в
+    # row_label) и по ним не объявится. Берём её из шаблона формы — иначе
+    # таблица подписывала бы строки безликим «Строка».
+    from . import form_templates as ft
+
+    rel = await conn.fetchrow("select object_id, code from dataset_releases where id=$1::uuid", release_id)
+    tpl = await ft.get(conn, rel["object_id"], rel["code"]) if rel and rel["object_id"] else None
+    label = next((f.get("field_code") for f in _jsonb(tpl["fields"], []) if f.get("is_row_label")),
+                 None) if tpl else None
+    if label and not await conn.fetchval(
+            "select 1 from dataset_release_fields where dataset_release_id=$1::uuid and is_row_label",
+            release_id):
+        if await conn.fetchval("select 1 from canonical_fields where object_id=$1 and code=$2",
+                               rel["object_id"], label):
+            await conn.execute(
+                "insert into dataset_release_fields(dataset_release_id, canonical_field_code, is_row_label) "
+                "values($1::uuid, $2, true) on conflict (dataset_release_id, canonical_field_code) "
+                "do update set is_row_label = true", release_id, label)
+    return added
 
 
 def sheet_date(title: str, year: int):
@@ -1599,6 +1624,9 @@ async def build_releases_by_sheet(
             failed.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
                            "error": str(e)[:200]})
 
+    if created and object_id is not None:
+        # Один пересчёт вердиктов на всю книгу, а не на каждый лист.
+        await refresh_template_verdicts(conn, object_id)
     return {"created": created, "skipped": skipped, "failed": failed,
             "sheets": len(tables), "released": len(created),
             "replaced": sum(1 for c in created if c.get("replaced"))}

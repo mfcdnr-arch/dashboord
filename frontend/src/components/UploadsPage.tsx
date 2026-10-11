@@ -204,7 +204,14 @@ export default function UploadsPage(
                 )}
                 {known.map((k) => (
                   <tr key={k.object_id}>
-                    <td style={{ ...td, fontWeight: 600 }}>{k.object_name}</td>
+                    <td style={{ ...td, fontWeight: 600 }}>
+                      {k.object_name}
+                      {(k.forms?.length || 0) > 1 && (
+                        <div style={{ fontWeight: 400, fontSize: 12.5, color: 'var(--text-muted)' }}>
+                          листы книги: {k.forms!.map((f) => f.sheet_name || f.dataset_code).join(', ')}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ ...td, color: 'var(--text-2)' }}>{k.example_filename || '—'}</td>
                     <td style={td}>{k.folder_name ? `${k.object_name} / ${k.folder_name}` : '—'}</td>
                     <td style={td}>{k.periods_loaded}</td>

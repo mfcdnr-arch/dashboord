@@ -653,6 +653,8 @@ function PipelineBadge({ state, hint }: { state?: string; hint?: string }) {
     attention: { t: '⚠ требует внимания', bg: 'var(--warn-bg)', c: 'var(--warn)' },
     needs_markup: { t: 'нужна разметка', bg: 'var(--accent-weak-bg)', c: 'var(--accent-text)' },
     released: { t: 'данные выпущены', bg: 'var(--surface-3)', c: 'var(--text-muted)' },
+    // Книга из нескольких форм выпущена не целиком — молчать об остатке нельзя.
+    released_partial: { t: '◐ выпущено не всё', bg: 'var(--warn-bg)', c: 'var(--warn)' },
     // Выпущено автоматом — отдельное состояние, а не оттенок «выпущено»:
     // человек этой кнопки не нажимал, и он должен понять, откуда данные.
     released_auto: { t: '⚙ выпущено автоматически', bg: 'var(--accent-weak-bg)', c: 'var(--accent-text)' },

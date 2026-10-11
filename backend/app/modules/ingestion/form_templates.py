@@ -71,6 +71,13 @@ async def for_org(conn, org_id) -> List[Any]:
         "where o.organization_id = $1 order by o.name, t.dataset_code", org_id)
 
 
+async def all_templates(conn) -> List[Any]:
+    """Все шаблоны всех организаций — для инструментов обслуживания."""
+    return await conn.fetch(
+        f"select {COLS}, o.name as object_name from object_layout_templates t "
+        "join objects o on o.id = t.object_id order by o.name, t.dataset_code")
+
+
 async def codes_with_template(conn, object_id) -> List[str]:
     rows = await conn.fetch(
         "select dataset_code from object_layout_templates where object_id = $1::uuid", str(object_id))

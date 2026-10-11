@@ -155,8 +155,11 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack, o
   const selectTable = useCallback((j: ExtractionJob, tid: string, useTemplate = true) => {
     const t = j.tables.find((x) => x.id === tid)
     if (!t) return
-    const tplRaw = j.layout_template
+    const tplRaw = templateFor(j, tid)
     const tpl = useTemplate && tplRaw && tplRaw.match === 'exact' && tplRaw.table_id === tid ? tplRaw : null
+    // У книги из нескольких форм у каждого листа свой код набора: выбрал лист
+    // «Итоги недели» — выпуск пойдёт под кодом этой формы, а не соседней.
+    if (tplRaw?.match === 'exact' && tplRaw.table_id === tid && tplRaw.dataset_code) setCode(tplRaw.dataset_code)
 
     trimmed.current = false
     pendingFields.current = null
@@ -204,7 +207,7 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack, o
         // Код датасета подсказывает сервер: от имени объекта либо тот, что
         // объект уже использует. Жёсткое «dataset» сталкивало объекты между собой.
         if (j.suggested_code) setCode(j.suggested_code)
-        if (j.tables?.length && j.job_id) selectTable(j, j.tables[0].id)
+        if (j.tables?.length && j.job_id) selectTable(j, firstTable(j))
       })
       .catch(fail)
       .finally(() => setLoading(false))
@@ -263,7 +266,7 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack, o
       while (j.status === 'queued' || j.status === 'running') { await sleep(1000); j = await getJob(job_id) }
       setJob(j)
       if (j.suggested_code) setCode(j.suggested_code)
-      if (j.tables.length && j.job_id) selectTable(j, j.tables[0].id)
+      if (j.tables.length && j.job_id) selectTable(j, firstTable(j))
     } catch (e) { fail(e) } finally { setStarting(false) }
   }
 
@@ -483,6 +486,7 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack, o
             {job!.tables.length > 1 && job!.tables.map((t) => (
               <button key={t.id} onClick={() => selectTable(job!, t.id)}
                 style={{ ...chip, ...(t.id === tableId ? chipActive : {}) }}>
+                {t.template_match === 'exact' && <span title={`Форма узнана: ${t.template_code}`}>✓ </span>}
                 {t.sheet_or_page || `Таблица ${t.table_index + 1}`} · {t.row_count}×{t.column_count}
               </button>
             ))}
@@ -505,9 +509,9 @@ export default function ExtractionPage({ doc, canManage, isSuperadmin, onBack, o
             )}
           </div>
 
-          {canManage && job?.layout_template && tableId && (
+          {canManage && job && tableId && templateFor(job, tableId) && (
             <TemplateBanner
-              tpl={job.layout_template}
+              tpl={templateFor(job, tableId)!}
               applied={tplApplied}
               onApply={() => selectTable(job!, tableId, true)}
               onDrop={() => selectTable(job!, tableId, false)}
@@ -794,6 +798,22 @@ function QualityPanel({ warnings, checking }: { warnings: ValidationWarning[] | 
  * отказаться одной кнопкой. При изменившейся структуре шаблон не применяется
  * вовсе — чужая разметка дала бы неверные цифры без единого признака ошибки.
  */
+/** Шаблон формы для листа: узнанный на нём, иначе — несовпавший с пометкой.
+ *  У объекта с одной формой это ровно прежний `layout_template`. */
+function templateFor(j: ExtractionJob, tid: string): LayoutTemplate | null {
+  const all = j.layout_templates ?? (j.layout_template ? [j.layout_template] : [])
+  const own = all.find((t) => t.table_id === tid || t.candidate_table_id === tid)
+  if (own) return own
+  // Одна форма, а лист не её — показываем, что форма помнится, но не подходит.
+  return all.length === 1 && all[0].match !== 'exact' ? all[0] : null
+}
+
+/** С какого листа открыть файл: с первого, где узнана форма. */
+function firstTable(j: ExtractionJob): string {
+  const hit = j.tables.find((t) => (j.layout_templates || []).some((x) => x.match === 'exact' && x.table_id === t.id))
+  return (hit || j.tables[0]).id
+}
+
 function TemplateBanner({ tpl, applied, onApply, onDrop }: {
   tpl: LayoutTemplate; applied: boolean; onApply: () => void; onDrop: () => void
 }) {

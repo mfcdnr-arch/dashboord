@@ -1506,7 +1506,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             <SortableTh
               sort={tableSort} col="__row" onSort={(c) => toggleSort(setTableSort, c)}
               style={{ ...th, ...stickyCol, ...stickyHead, ...(virtOn ? { width: VCOL_FIRST_W } : {}) }}
-            >Строка</SortableTh>
+            >{data.row_title || 'Строка'}</SortableTh>
             {virtOn && vcols.range.padBefore > 0 && <th style={{ ...th, width: vcols.range.padBefore, padding: 0 }} aria-hidden />}
             {/* Заголовок — человеческое имя показателя; код остаётся ключом
                 данных и подсказкой, чтобы можно было сверить с формулой. */}
@@ -2650,7 +2650,7 @@ function DrillModal({ drill, onClose }: { drill: any; onClose: () => void }) {
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Датасет «{dc}»</div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
-                <thead><tr><th style={th}>Строка</th>
+                <thead><tr><th style={th}>{t.row_title || 'Строка'}</th>
                   {t.columns.map((c: string) => (
                     <th key={c} style={th} title={c}>{t.column_titles?.[c] || c}</th>
                   ))}

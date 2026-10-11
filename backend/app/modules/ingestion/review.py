@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .quality import check_release, previous_release_values
+from .quality import check_release, previous_release_values, release_is_registry
 
 # Сколько отчётов проверяем по умолчанию и максимум за один раз. Проверка
 # читает значения КАЖДОГО отчёта целиком (у широкой формы это двадцать тысяч
@@ -103,7 +103,9 @@ async def quality_review(conn, org_id, object_id, code: Optional[str] = None,
     clean = 0
     for rel in releases:
         current = await _values(conn, rel["id"])
-        warnings = check_release(current, names, prev, prev_period) if current else []
+        warnings = (check_release(current, names, prev, prev_period,
+                                  registry=await release_is_registry(conn, rel["id"]))
+                    if current else [])
         period = rel["period"].isoformat()
         if warnings:
             items.append({"period": period, "release_id": str(rel["id"]),

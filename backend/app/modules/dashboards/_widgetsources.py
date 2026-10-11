@@ -339,9 +339,18 @@ async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None
         rel, cols,
     )
     names = {t["code"]: t["name"] for t in titles}
+    # Чем подписаны строки ЭТОГО выпуска («Краткая характеристика», «Наименование
+    # отделения»): у выпуска графа-название помечена с миграции 061. Нет —
+    # остаётся нейтральное «Строка».
+    row_title = await conn.fetchval(
+        "select cf.name from dataset_release_fields rf "
+        "join dataset_releases r on r.id = rf.dataset_release_id "
+        "join canonical_fields cf on cf.object_id = r.object_id and cf.code = rf.canonical_field_code "
+        "where rf.dataset_release_id = $1 and rf.is_row_label limit 1", rel)
     # Сколько строк в отчёте ДО отбора: пустая лента «особо значимых» должна
     # говорить «под условия не подошло ни одной из 22», а не «ничего не найдено».
     return {"columns": cols, "column_titles": names, "rows": rows,
+            "row_title": row_title or "Строка",
             **({"rows_total": len(by_row)} if where else {})}
 
 

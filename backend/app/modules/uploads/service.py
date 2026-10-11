@@ -176,6 +176,14 @@ async def journal(conn, org_id, limit: int = JOURNAL_LIMIT, period: Optional[dat
         "   where v2.document_id=d.id order by ej.created_at desc limit 1) as template_match, "
         "  exists(select 1 from dataset_releases r join document_versions v3 on v3.id=r.source_document_version_id "
         "         where v3.document_id=d.id and r.status<>'superseded') as released, "
+        # «Выпущено K из N форм» — у книги из нескольких форм (см. documents._with_pipeline).
+        "  (select count(distinct r.code) from dataset_releases r join document_versions v5 "
+        "     on v5.id=r.source_document_version_id where v5.document_id=d.id and r.status<>'superseded') "
+        "     as forms_released, "
+        "  (select count(distinct et.template_code) from extracted_tables et where et.extraction_job_id = ("
+        "     select ej.id from extraction_jobs ej join document_versions v6 on v6.id=ej.document_version_id "
+        "     where v6.document_id=d.id order by ej.created_at desc limit 1) and et.template_match='exact') "
+        "     as forms_known, "
         # Файл ПРИНЁС форму: с него начался ряд выпусков хотя бы одного кода.
         # Решение заказчика 23.09: предлагать виджеты новой форме, а не каждому
         # недельному файлу той же формы.
@@ -226,6 +234,9 @@ def _state(r) -> str:
     значит ли «extracted» готовность.
     """
     if r["released"]:
+        done, known = int(r["forms_released"] or 0), int(r["forms_known"] or 0)
+        if known > done:
+            return f"выпущено {done} из {known} форм"
         return "данные выпущены"
     if r["is_inbox"]:
         if r["job_status"] in (None, "queued", "running"):

@@ -229,8 +229,8 @@ async def _auto_release(conn, job_id: str) -> None:
                     # Имя выпуска у книги из нескольких форм — имя ЛИСТА: по нему
                     # подпись формы на дашборде читается «Итоги недели», а не
                     # «Отчёт МФЦ» у всех четырёх.
-                    name = (tpl.get("table_sheet") if multi and tpl.get("table_sheet")
-                            else job["original_filename"] or code)
+                    name = str(tpl.get("table_sheet") if multi and tpl.get("table_sheet")
+                               else job["original_filename"] or code)
                     res = await mapping.build_release(
                         conn, job_id=str(job_id), table_id=str(tpl["table_id"]), code=code,
                         name=name, reporting_period_start=period, reporting_period_end=None,
