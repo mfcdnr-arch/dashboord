@@ -113,19 +113,23 @@ async def test_newer_book_replaces_only_changed_sheets(
     fixed["08.07"] = [("ДНР", 222, 20)]          # ведомство переписало цифру
     fixed["22.07"] = [("ДНР", 400, 40)]          # и дописало новый лист
     new = await _load(client, admin_headers, folder["folder_id"], _book(fixed), "2026-07-22", monkeypatch)
-    res = await _by_sheet(client, admin_headers, new)
 
+    # С 11.10.2026 книгу «лист = дата» выпускает сам авто-выпуск — ВСЕ новые и
+    # изменившиеся дни, а не один лист за отчётную дату файла (до этого
+    # 08.07 и неизменившиеся дни ждали кнопки «Выпустить по листам»).
+    act = await _active()
+    assert act["2026-07-08"][1] == 222, "исправленный день перевыпущен автоматически"
+    assert act.get("2026-07-22", (None, None))[1] == 400, \
+        "дописанный лист выпущен — и именно он, а не первый лист книги"
+
+    # Кнопка после авто-выпуска находит, что делать нечего: изменённое уже
+    # выпущено из этого файла, остальное не изменилось.
+    res = await _by_sheet(client, admin_headers, new)
     kept = [s for s in res["skipped"] if "не изменился" in s["reason"]]
     assert len(kept) == 2, res["skipped"]
-    # Дописанный лист 22.07 к этому моменту уже выпустил АВТО-выпуск: после
-    # первой книги у формы есть шаблон, и из книги «лист = дата» он берёт лист
-    # с отчётной датой файла (до 09.10.2026 брался первый совпавший — данные
-    # 01.07 легли бы под датой 22.07). Повторно лист не выпускается.
-    auto = [s for s in res["skipped"] if s["period"] == "2026-07-22"]
-    assert auto and "этого же файла" in auto[0]["reason"], res["skipped"]
-    assert res["released"] == 1 and res["replaced"] == 1, res
-    replaced = [c for c in res["created"] if c.get("replaced")]
-    assert [c["period"] for c in replaced] == ["2026-07-08"], res["created"]
+    same_file = {s["period"] for s in res["skipped"] if "этого же файла" in s["reason"]}
+    assert same_file == {"2026-07-08", "2026-07-22"}, res["skipped"]
+    assert res["released"] == 0, res
 
     act = await _active()
     assert act["2026-07-08"][1] == 222, "на дашборде обязана быть исправленная цифра"

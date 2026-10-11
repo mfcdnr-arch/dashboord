@@ -165,6 +165,17 @@ export function message(n: NotificationItem): string {
     : `Резервная копия НЕ прошла проверку восстановлением${p.set ? ` (набор ${p.set})` : ''}: ${p.message ?? 'причина в отчёте проверки'}. Восстановиться из неё может не получиться — нужен разбор: «Отчёты» → «Бэкап и автоархив».`
   if (n.event_type === 'appeal.created' || n.event_type === 'appeal.message') return `${p.author ?? ''}: ${p.snippet ?? ''}`
   if (n.event_type === 'appeal.replied') return `${p.author ?? 'Администратор'} ответил на ваше обращение: ${p.snippet ?? ''}`
+  // Книга «лист = дата» (ежедневный отчёт, окна): выпущены все новые дни сразу.
+  if (n.event_type === 'data.auto_released' && p.book) {
+    const k = Number(p.days) || 0
+    const held = Number(p.held_total) || 0
+    const span = k ? (p.first === p.last ? `за ${ruDate(p.first)}` : `с ${ruDate(p.first)} по ${ruDate(p.last)}`) : ''
+    return (k
+      ? `Из «${p.document ?? 'файла'}» автоматически выпущено ${k} ${plural(k, 'день', 'дня', 'дней')} ${span}`
+        + `${p.folder ? ` (папка «${p.folder}»)` : ''}: значений ${p.values ?? '—'}, неизменившиеся дни пропущены. `
+      : `Книга «${p.document ?? 'файл'}» разобрана, новых дней без замечаний в ней нет. `)
+      + (held ? `${held} ${plural(held, 'день оставлен', 'дня оставлены', 'дней оставлены')} вам: есть замечания к данным — откройте файл и выпустите их кнопкой «Выпустить по листам», проверив цифры.` : '')
+  }
   if (n.event_type === 'data.auto_released') {
     return `Данные из «${p.document ?? 'файла'}» за ${ruDate(p.period)} выпущены автоматически`
       + `${p.folder ? ` (папка «${p.folder}»)` : ''}: форма совпала с прошлым отчётом, замечаний нет. `

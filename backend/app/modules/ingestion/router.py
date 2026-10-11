@@ -541,7 +541,12 @@ async def create_releases_by_sheet(job_id: str, body: ReleaseBySheetIn,
                 year=body.year, user=user, since=body.since,
                 layout=body.layout.model_dump() if body.layout else None,
                 exclude_row_labels=body.exclude_row_labels,
-                supersede=body.supersede, confirm_other_form=body.confirm_other_form)
+                supersede=body.supersede, confirm_other_form=body.confirm_other_form,
+                # Область, выделенная на ОДНОМ листе, подгоняется под каждый:
+                # листы книги разной длины (по субботам отделений вдвое меньше,
+                # к концу года — больше), и жёсткая нижняя граница молча
+                # отрезала бы строки (11.10.2026).
+                fit_area=bool(body.layout and body.layout.data_rect))
         except mapping.FormMismatch as mismatch:
             raise HTTPException(status.HTTP_409_CONFLICT, detail=mismatch.info) from mismatch
         except ValueError as e:

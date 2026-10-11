@@ -12,11 +12,17 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from ..ingestion.analyze import DURATION_UNIT
 from ._aggregate import aggregate_series
 from ._rowrls import allowed_rows_for_dataset
 
 # Больше трёх имён в строке никто не читает — остальные считаем числом.
 NAMED = 2
+
+
+def _good(m: dict) -> float:
+    """Знак улучшения: рост — хорошо, у «меньше — лучше» (время ожидания) — плохо."""
+    return m["delta"] * (-1 if m["lower_better"] else 1)
 
 
 def _short(name: str) -> str:
@@ -66,10 +72,14 @@ async def page_summary(conn, org_id, page_id: str, user: dict) -> dict:
     if not wanted:
         return {"periods": None, "grew": 0, "fell": 0, "same": 0, "top": [], "worst": []}
 
-    names = {r["code"]: r["name"] for r in await conn.fetch(
-        "select code, name from canonical_fields "
+    meta = await conn.fetch(
+        "select code, name, unit from canonical_fields "
         "where object_id=(select object_id from dataset_releases where id=$1) "
-        "and code = any($2::text[])", rels[0]["id"], wanted)}
+        "and code = any($2::text[])", rels[0]["id"], wanted)
+    names = {r["code"]: r["name"] for r in meta}
+    # Чем МЕНЬШЕ, тем лучше: время ожидания и обслуживания (11.10.2026). Без
+    # этого рост ожидания шёл зелёной стрелкой «сильнее всех выросли» — как успех.
+    lower_better = {r["code"] for r in meta if r["unit"] == DURATION_UNIT}
 
     async def values(rel_id) -> dict:
         params: list = [rel_id, wanted]
@@ -101,8 +111,12 @@ async def page_summary(conn, org_id, page_id: str, user: dict) -> dict:
             fell += 1
         else:
             same += 1
+        sign = -1 if c in lower_better else 1
         moves.append({"field": c, "name": _short(names.get(c, c)), "full_name": names.get(c, c),
-                      "value": v, "delta": delta, "delta_pct": pct})
+                      "value": v, "delta": delta, "delta_pct": pct,
+                      "lower_better": c in lower_better,
+                      # «Улучшение» в процентах: у «меньше — лучше» знак обратный.
+                      "gain": (pct * sign) if pct is not None else None})
 
     # Один показатель — одна строка резюме: без этого «сильнее всех выросли»
     # оказывались два разреза одного и того же показателя («за неделю» и
@@ -114,13 +128,19 @@ async def page_summary(conn, org_id, page_id: str, user: dict) -> dict:
         cur = best.get(m["name"])
         if cur is None or abs(m["delta_pct"]) > abs(cur["delta_pct"]):
             best[m["name"]] = m
-    ranked = sorted(best.values(), key=lambda m: m["delta_pct"], reverse=True)
+    # Порядок — по УЛУЧШЕНИЮ, а не по росту: у времени ожидания рост — худшая новость.
+    ranked = sorted(best.values(), key=lambda m: m["gain"], reverse=True)
     out = {
         "period": rels[0]["reporting_period_start"].isoformat(),
         "prev_period": rels[1]["reporting_period_start"].isoformat(),
         "grew": grew, "fell": fell, "same": same,
-        "top": [m for m in ranked[:NAMED] if m["delta"] > 0],
-        "worst": [m for m in reversed(ranked[-NAMED:]) if m["delta"] < 0],
+        # Есть показатели «меньше — лучше» — экран говорит «лучше / хуже», а
+        # не «выросли / просели»: рост ожидания зелёным был бы неправдой.
+        "lower_better": bool(lower_better & {m["field"] for m in moves}),
+        "better": sum(1 for m in moves if _good(m) > 0),
+        "worse": sum(1 for m in moves if _good(m) < 0),
+        "top": [m for m in ranked[:NAMED] if m["gain"] > 0],
+        "worst": [m for m in reversed(ranked[-NAMED:]) if m["gain"] < 0],
     }
     # План-факты страницы: их процент — отдельный ответ на «как дела».
     plans: List[dict] = []

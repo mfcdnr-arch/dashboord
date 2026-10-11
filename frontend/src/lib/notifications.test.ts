@@ -95,3 +95,18 @@ describe('уведомление о проверке резервной копи
     expect(t).not.toContain('НЕ прошла')
   })
 })
+
+describe('уведомление об авто-выпуске книги «лист = дата»', () => {
+  it('называет число дней, промежуток и оставленные человеку дни', () => {
+    const t = message(item('data.auto_released', { book: true, days: 5, first: '2026-09-09', last: '2026-09-15',
+      values: 1200, held_total: 1, document: 'Окна.xlsx', folder: 'Отчёты' }))
+    expect(t).toContain('автоматически выпущено 5 дней с 09.09.2026 по 15.09.2026')
+    expect(t).toContain('1 день оставлен вам')
+  })
+  it('один день — «за дату»; без новых дней — честно об этом', () => {
+    expect(message(item('data.auto_released', { book: true, days: 1, first: '2026-09-09', last: '2026-09-09',
+      document: 'В.xlsx', held_total: 0 }))).toContain('выпущено 1 день за 09.09.2026')
+    expect(message(item('data.auto_released', { book: true, days: 0, held_total: 2, document: 'В.xlsx' })))
+      .toContain('новых дней без замечаний в ней нет')
+  })
+})

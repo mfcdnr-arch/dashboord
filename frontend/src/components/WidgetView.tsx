@@ -13,7 +13,7 @@ import { alertLook, levelLook } from '../lib/alertColors'
 import { useVirtualCols, VCOL_W, VCOL_FIRST_W, VIRT_FROM_COLS } from '../lib/useVirtualCols'
 import { exportWidgetXlsx } from '../api'
 import PassportDialog from './dashboards/PassportDialog'
-import { fmtCell, fmtNumber as fmt, heatSteps, logScaleAdvice, sparkSeries } from '../lib/format'
+import { DURATION_UNIT, fmtCell, fmtDuration, fmtNumber as fmt, fmtWithUnit, heatSteps, logScaleAdvice, sparkSeries } from '../lib/format'
 import { colorAt, textOn } from '../lib/contrast'
 import { fitChartHeight } from '../lib/fitHeight'
 import { distinctLabels, dropCommonWords, elideMiddle, fitRotatedAxis, plural, textWidth } from '../lib/text'
@@ -879,7 +879,10 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     )
   }
   if (data.type === 'kpi') {
-    const kpiText = fmt(data.value) + (data.unit && data.value != null ? ' ' + data.unit : '')
+    const kpiText = fmtWithUnit(data.value, data.unit)
+    // Длительность печатается целиком («14 мин 22 с»), без отдельной подписи единицы.
+    const dur = data.unit === DURATION_UNIT
+    const fmtD = (v: number) => (dur ? fmtDuration(v) : fmt(v))
     const up = (data.delta ?? 0) > 0
     const flat = !data.delta
     return (
@@ -887,8 +890,8 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         {/* При наличии прироста число чуть мельче: иначе карточка не вмещает
             обе строки и появляется полоса прокрутки. */}
         <FitText size={data.prev_value != null ? 26 : 30} title={kpiText}
-          style={{ fontWeight: 700, color: levelLook(data.alert?.level)?.color || 'var(--accent-text)' }}>{fmt(data.value)}
-          {data.unit && data.value != null && <span style={{ fontSize: '0.5em', color: 'var(--text-muted)', marginLeft: 6 }}>{data.unit}</span>}
+          style={{ fontWeight: 700, color: levelLook(data.alert?.level)?.color || 'var(--accent-text)' }}>{fmtD(data.value)}
+          {data.unit && !dur && data.value != null && <span style={{ fontSize: '0.5em', color: 'var(--text-muted)', marginLeft: 6 }}>{data.unit}</span>}
         </FitText>
         {/* Прирост к прошлому отчёту: голое число не отвечает на вопрос «это
             много или мало» — а «+38 174 (+4,3 %) к 22.07» отвечает. */}
@@ -898,9 +901,9 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
           <div style={{ fontSize: 12, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                         color: flat ? 'var(--text-muted)' : up ? 'var(--success)' : 'var(--danger)' }}
-            title={`Прошлый отчёт за ${fmtAsOf(String(data.prev_period))}: ${fmt(data.prev_value)}`}>
+            title={`Прошлый отчёт за ${fmtAsOf(String(data.prev_period))}: ${fmtD(data.prev_value)}`}>
             {flat ? '= столько же, что и в прошлом отчёте'
-              : `${up ? '▲' : '▼'} ${up ? '+' : ''}${fmt(data.delta)}`}
+              : `${up ? '▲' : '▼'} ${up ? '+' : ''}${fmtD(data.delta)}`}
             {data.delta_pct != null && !flat && ` (${data.delta_pct > 0 ? '+' : ''}${fmt(data.delta_pct)} %)`}
           </div>
         )}
@@ -1203,7 +1206,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     title={r.label}>{r.label}</span>
                   <b style={{ flexShrink: 0, color: r.color || undefined }}>
-                    {byPlan ? (r.pct == null ? '—' : `${fmt(r.pct)}%`) : fmt(r.value)}
+                    {byPlan ? (r.pct == null ? '—' : `${fmt(r.pct)}%`) : (data.unit === DURATION_UNIT ? fmtDuration(r.value) : fmt(r.value))}
                   </b>
                 </div>
                 <div style={{ height: 8, background: 'var(--border-faint)', borderRadius: 5, marginTop: 3, marginLeft: 30 }}>
@@ -1233,7 +1236,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
           <div style={{ ...muted, color: 'var(--warn)', marginTop: 4 }}>
             ⚠ последнее место делят {data.tied_last}{' '}
             {plural(data.tied_last, 'строка', 'строки', 'строк')} с одинаковым значением{' '}
-            {fmt(data.tied_value)}{byPlan ? ' %' : ''} — порядок между ними произволен
+            {data.unit === DURATION_UNIT ? fmtDuration(data.tied_value) : fmt(data.tied_value)}{byPlan ? ' %' : ''} — порядок между ними произволен
           </div>
         )}
         <div style={{ ...muted, marginTop: 4 }}>
@@ -1464,7 +1467,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                   /* В отчёте таблица развёрнута вертикально, но цвет порога —
                      это данные, а не украшение экрана: он остаётся. */
                   <td key={i} style={{ ...td, textAlign: 'right', ...cellStyle(r, c) }}>
-                    {fmtCell(r[c])}
+                    {fmtCell(r[c], data.column_units?.[c])}
                   </td>
                 ))}
               </tr>
@@ -1539,7 +1542,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                     title={cellFmt[c] === 'bar' && typeof r[c] === 'number' && barMax[c]
                       ? `${colName(c)} — ${Math.round((Math.abs(r[c]) / barMax[c]) * 100)} % от наибольшего в столбце`
                       : colName(c)}>
-                    {fmtCell(r[c])}
+                    {fmtCell(r[c], data.column_units?.[c])}
                   </td>
                 ))}
                 {virtOn && vcols.range.padAfter > 0 && <td style={{ padding: 0 }} aria-hidden />}
@@ -1626,15 +1629,15 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             // Само число красим в цвет ряда: на карточке легенды нет, и подсказка
             // остаётся единственным местом, где видно, «где что». Маленькой точки
             // рядом с названием для этого мало.
-            if (v != null) lines.push(`${p.marker} ${p.seriesName}: <b style="color:${p.color}">${fmt(v)}${idxVals ? ' %' : ''}</b>`)
+            if (v != null) lines.push(`${p.marker} ${p.seriesName}: <b style="color:${p.color}">${idxVals ? fmt(v) + ' %' : fmtWithUnit(v, data.unit)}</b>`)
           })
           // При индексе на графике проценты, а «сколько на самом деле» спрашивают
           // тут же — абсолютное значение остаётся в подсказке.
-          if (idxVals && vals[i] != null) lines.push(`<span style="color:#888">значение:</span> ${fmt(vals[i])}`)
+          if (idxVals && vals[i] != null) lines.push(`<span style="color:#888">значение:</span> ${fmtWithUnit(vals[i], data.unit)}`)
           if (i > 0 && vals[i] != null && vals[i - 1] != null) {
             const d = vals[i] - vals[i - 1]
             const pct = vals[i - 1] ? (d / vals[i - 1]) * 100 : null
-            lines.push(`<span style="color:#888">к ${fmtPeriod(periods[i - 1])}:</span> ${d >= 0 ? '+' : ''}${fmt(d)}${pct != null ? ` (${d >= 0 ? '+' : ''}${fmt(pct)}%)` : ''}`)
+            lines.push(`<span style="color:#888">к ${fmtPeriod(periods[i - 1])}:</span> ${d >= 0 ? '+' : ''}${data.unit === DURATION_UNIT ? fmtDuration(d) : fmt(d)}${pct != null ? ` (${d >= 0 ? '+' : ''}${fmt(pct)}%)` : ''}`)
           }
           return lines.join('<br/>')
         },
@@ -1647,7 +1650,8 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
       // делениям не отдают, и раньше при высокой полосе пять делений всё равно
       // назначались на 60px области (замер: подписи оси касались друг друга).
       yAxis: { type: 'value', splitNumber: dynPlotH < 90 ? 2 : dynPlotH < 140 ? 3 : 5,
-        axisLabel: { hideOverlap: true, ...(idxVals ? { formatter: '{value} %' } : {}) } },
+        axisLabel: { hideOverlap: true, ...(idxVals ? { formatter: '{value} %' }
+          : data.unit === DURATION_UNIT ? { formatter: (v: number) => fmtDuration(v) } : {}) } },
       series,
     }
     const ch = data.change
@@ -1740,7 +1744,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         {ch != null ? (
           <div style={{ fontSize: 13, marginTop: 4 }}>
             К {data.previous_year} г. (сопоставимые месяцы: {data.compared_months}): <b style={{ color: ch >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-              {ch >= 0 ? '↑ +' : '↓ '}{fmt(ch)}{data.change_pct != null ? ` (${fmt(data.change_pct)}%)` : ''}{data.unit ? ` ${data.unit}` : ''}</b>
+              {ch >= 0 ? '↑ +' : '↓ '}{data.unit === DURATION_UNIT ? fmtDuration(ch) : fmt(ch)}{data.change_pct != null ? ` (${fmt(data.change_pct)}%)` : ''}{data.unit && data.unit !== DURATION_UNIT ? ` ${data.unit}` : ''}</b>
             {/* Как собран месяц — половина ответа: у нарастающего итога
                 сравнивается последний общий месяц, у доли — среднее. */}
             {data.fold === 'last' && (
@@ -2105,13 +2109,13 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
               <b style={{ fontSize: 17, lineHeight: 1.1, whiteSpace: 'nowrap',
                 color: levelLook(l.alert?.level)?.color || 'var(--text)' }}>
-                {fmt(l.value)}{data.unit ? ` ${data.unit}` : ''}
+                {fmtWithUnit(l.value, data.unit)}
               </b>
               {typeof l.delta === 'number' && l.delta !== 0 && (
                 <span style={{ fontSize: 10.5, whiteSpace: 'nowrap',
                   color: l.delta > 0 ? 'var(--success)' : 'var(--danger)' }}
-                  title={l.prev_period ? `К отчёту за ${fmtAsOf(l.prev_period)}: ${fmt(l.prev_value)}` : undefined}>
-                  {l.delta > 0 ? '▲ +' : '▼ '}{fmt(l.delta)}
+                  title={l.prev_period ? `К отчёту за ${fmtAsOf(l.prev_period)}: ${fmtWithUnit(l.prev_value, data.unit)}` : undefined}>
+                  {l.delta > 0 ? '▲ +' : '▼ '}{data.unit === DURATION_UNIT ? fmtDuration(l.delta) : fmt(l.delta)}
                   {typeof l.delta_pct === 'number' ? ` (${l.delta_pct > 0 ? '+' : ''}${fmt(l.delta_pct)} %)` : ''}
                 </span>
               )}

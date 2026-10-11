@@ -38,18 +38,21 @@ export function SummaryBar({ pageId }: { pageId: string | null }) {
     }}>
       <span style={{ fontWeight: 700, color: 'var(--accent-text)' }}>Как дела</span>
       <span title={`Отчёт за ${ru(s.period)} против ${ru(s.prev_period)}`}>
-        к отчёту за {ru(s.prev_period)}: выросли <b style={{ color: 'var(--success)' }}>{s.grew}</b>,
-        просели <b style={{ color: s.fell ? 'var(--danger)' : 'inherit' }}>{s.fell}</b>
+        {s.lower_better
+          ? <>к отчёту за {ru(s.prev_period)}: лучше стало <b style={{ color: 'var(--success)' }}>{s.better}</b>,
+            хуже <b style={{ color: s.worse ? 'var(--danger)' : 'inherit' }}>{s.worse}</b></>
+          : <>к отчёту за {ru(s.prev_period)}: выросли <b style={{ color: 'var(--success)' }}>{s.grew}</b>,
+            просели <b style={{ color: s.fell ? 'var(--danger)' : 'inherit' }}>{s.fell}</b></>}
         {s.same ? <>, без изменений <b>{s.same}</b></> : null}
       </span>
       {s.top.length > 0 && (
         <span style={{ color: 'var(--success)' }} title={s.top[0].full_name}>
-          ↑ {s.top[0].name}{pct(s.top[0].delta_pct)}
+          {s.top[0].delta > 0 ? '↑' : '↓'} {s.top[0].name}{pct(s.top[0].delta_pct)}
         </span>
       )}
       {s.worst.length > 0 && (
         <span style={{ color: 'var(--danger)' }} title={s.worst[0].full_name}>
-          ↓ {s.worst[0].name}{pct(s.worst[0].delta_pct)}
+          {s.worst[0].delta > 0 ? '↑' : '↓'} {s.worst[0].name}{pct(s.worst[0].delta_pct)}
         </span>
       )}
       {(s.plans || []).slice(0, 2).map((p) => (

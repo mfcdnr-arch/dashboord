@@ -348,6 +348,12 @@ async def layout_preview(
                 # снимает такие столбцы сразу, чтобы «№ п/п» не уезжал на дашборд.
                 "is_counter": analyze.is_counter_column(c.source_header),
                 "confidence": c.confidence,
+                # Длительность «ч:мм:сс» хранится в минутах — единица «мин»
+                # говорит виджетам печатать её «14 мин 22 с», а не «14,37».
+                **({"unit": analyze.DURATION_UNIT}
+                   if c.inferred_type == "number"
+                   and analyze.is_duration_column([r[c.column_index] for r in rows if c.column_index < len(r)])
+                   else {}),
             }
             for c, code, short in zip(columns, codes, names, strict=True)
         ],
@@ -1553,11 +1559,24 @@ def _resupply_skip_reason(existing, incoming_version, incoming_uploaded) -> Opti
     return None
 
 
+async def _sheet_rows(conn, table_id: str, lay: dict) -> List[List[str]]:
+    """Строки данных листа так, как их увидит выпуск, — для проверки качества."""
+    row = await conn.fetchrow("select header_rows, data, merges from extracted_tables where id=$1::uuid", table_id)
+    if row is None:
+        return []
+    grid = _jsonb(row["data"], [])
+    merges = [tuple(m) for m in _jsonb(row["merges"], [])]
+    area = analysis_grid(grid, merges, lay.get("data_rect"), lay.get("orientation") or "columns")
+    hdr = int((row["header_rows"] if lay.get("header_rows") is None else lay["header_rows"]) or 0)
+    return data_rows(area, hdr, lay.get("skip_rows") or [])
+
+
 async def build_releases_by_sheet(
     conn, *, job_id: str, code: str, name: str, year: int, user: dict,
     layout: Optional[dict] = None, since=None,
     exclude_row_labels: Sequence[str] = (), supersede: bool = False,
     confirm_other_form: bool = False,
+    until=None, fit_area: bool = False, hold_on_warnings: bool = False,
 ) -> dict:
     """Выпуск на КАЖДЫЙ лист книги: лист даёт отчётную дату, разметка общая.
 
@@ -1597,6 +1616,21 @@ async def build_releases_by_sheet(
        Отчёт называет судьбу каждого листа своими словами: «не изменился» и
        «перевыпущен» — разные события, и молчаливое «пропущено» скрыло бы, что
        ведомство переписало цифры за март.
+
+    Режим авто-выпуска (11.10.2026, `service._auto_release_dated_book`) —
+    три параметра, которые человеку на экране не нужны:
+
+    * `until` — листы с датой ПОЗЖЕ отчётной даты файла не трогаются: в
+      книге за год, начатой в декабре, «28.12» с годом файла легло бы на
+      будущий декабрь;
+    * `fit_area` — область данных подгоняется под КАЖДЫЙ лист: от начала
+      области шаблона до последней заполненной строки и до правого края
+      листа. Форма за год растёт и вниз (отделения), и вправо (услуги), а
+      область шаблона снята с одного листа и обрезала бы новое молча;
+    * `hold_on_warnings` — лист с замечаниями проверки качества не
+      выпускается, а уходит человеку (`held`): то же правило, что у
+      авто-выпуска одного листа — молча выпустить сомнительное хуже, чем
+      подождать.
     """
     ctx = await resolve_context(conn, job_id)
     if ctx is None:
@@ -1619,7 +1653,7 @@ async def build_releases_by_sheet(
     incoming_uploaded = await conn.fetchval(
         "select created_at from document_versions where id=$1", incoming_version)
 
-    created, skipped, failed = [], [], []
+    created, skipped, failed, held = [], [], [], []
     for t in tables:
         period = sheet_date(t["sheet_or_page"], year)
         if period is None:
@@ -1628,6 +1662,19 @@ async def build_releases_by_sheet(
         if since and period < since:
             skipped.append({"sheet": t["sheet_or_page"], "reason": "раньше выбранной глубины истории"})
             continue
+        if until and period > until:
+            skipped.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
+                            "reason": "дата листа позже отчётной даты файла"})
+            continue
+        sheet_lay = dict(lay)
+        if fit_area:
+            grid_row = await conn.fetchrow("select data from extracted_tables where id=$1::uuid", t["id"])
+            g = _jsonb(grid_row["data"], []) if grid_row else []
+            if g and lay.get("data_rect"):
+                r1, c1 = int(lay["data_rect"][0]), int(lay["data_rect"][1])
+                width = max(len(r) for r in g)
+                sheet_lay["data_rect"] = [min(r1, len(g) - 1), min(c1, width - 1),
+                                          max(r1, _last_filled_row(g)), width - 1]
         existing = await conn.fetchrow(
             "select r.id, r.source_document_version_id, v.created_at as uploaded_at "
             "from dataset_releases r "
@@ -1659,10 +1706,10 @@ async def build_releases_by_sheet(
             # переливать под миллион значений заново.
             async with conn.transaction():
                 prev = await layout_preview(
-                    conn, str(t["id"]), object_id, data_rect=lay.get("data_rect"),
-                    header_rows=lay.get("header_rows"), orientation=lay["orientation"],
-                    skip_rows=lay.get("skip_rows") or (), sample=0)
-                skip = list(lay.get("skip_rows") or ())
+                    conn, str(t["id"]), object_id, data_rect=sheet_lay.get("data_rect"),
+                    header_rows=sheet_lay.get("header_rows"), orientation=sheet_lay["orientation"],
+                    skip_rows=sheet_lay.get("skip_rows") or (), sample=0)
+                skip = list(sheet_lay.get("skip_rows") or ())
                 if drop:
                 # Итоговые блоки исключаем ПО ПОДПИСИ, а не по номеру строки:
                 # в «Ежедневном отчёте» под таблицей три блока итогов («за
@@ -1674,8 +1721,8 @@ async def build_releases_by_sheet(
                     if extra:
                         skip = sorted(set(skip) | set(extra))
                         prev = await layout_preview(
-                            conn, str(t["id"]), object_id, data_rect=lay.get("data_rect"),
-                            header_rows=lay.get("header_rows"), orientation=lay["orientation"],
+                            conn, str(t["id"]), object_id, data_rect=sheet_lay.get("data_rect"),
+                            header_rows=sheet_lay.get("header_rows"), orientation=sheet_lay["orientation"],
                             skip_rows=skip, sample=0)
                 fields = [c for c in prev["columns"] if not c.get("is_counter")]
                 if compare_with is not None:
@@ -1685,7 +1732,7 @@ async def build_releases_by_sheet(
                     table_row = await conn.fetchrow(
                         "select header_rows, data, merges, data_rect "
                         "from extracted_tables where id=$1::uuid", t["id"])
-                    fresh = sheet_values(table_row, layout={**lay, "skip_rows": skip},
+                    fresh = sheet_values(table_row, layout={**sheet_lay, "skip_rows": skip},
                                          fields=fields)
                     if values_digest(fresh["values"]) == await released_values_digest(
                             conn, compare_with):
@@ -1693,13 +1740,24 @@ async def build_releases_by_sheet(
                                         "reason": "лист не изменился — выпуск оставлен как был"})
                         continue
                     replace = True
+                if hold_on_warnings:
+                    rows_now = await _sheet_rows(conn, str(t["id"]), {**sheet_lay, "skip_rows": skip})
+                    label_col = next((f["column_index"] for f in fields if f.get("is_row_label")), None)
+                    warns = (await quality_warnings(conn, org_id, code=code, period=period, rows=rows_now,
+                                                    fields=fields, label_col=label_col)
+                             + await summary_warnings_for_job(conn, job_id, str(t["id"]), rows_now))
+                    if warns:
+                        held.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
+                                     "warnings": [w.get("message") for w in warns][:3]})
+                        continue
                 rel = await build_release(
                     conn, job_id=job_id, table_id=str(t["id"]), code=code, name=name,
                     reporting_period_start=period, reporting_period_end=period,
                     fields=fields, supersede=replace, user=user,
-                    layout={**lay, "skip_rows": skip}, auto=True,
+                    layout={**sheet_lay, "skip_rows": skip}, auto=True,
                     confirm_other_form=confirm_other_form)
                 created.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
+                                "release_id": rel["release_id"], "rows": rel.get("rows"),
                                 "values": rel.get("values_count"), "fields": len(fields),
                                 # «Заместил прежний выпуск» берём у самого
                                 # выпуска, а не у решения выше: при явном
@@ -1717,7 +1775,7 @@ async def build_releases_by_sheet(
     if created and object_id is not None:
         # Один пересчёт вердиктов на всю книгу, а не на каждый лист.
         await refresh_template_verdicts(conn, object_id)
-    return {"created": created, "skipped": skipped, "failed": failed,
+    return {"created": created, "skipped": skipped, "failed": failed, "held": held,
             "sheets": len(tables), "released": len(created),
             "replaced": sum(1 for c in created if c.get("replaced"))}
 

@@ -72,6 +72,15 @@ def _cell_to_str(value) -> str:
         return value.isoformat(sep=" ")
     if isinstance(value, dt.date):
         return value.isoformat()
+    # Время суток и интервал — как длительность «ч:мм:сс» без долей секунды:
+    # так её узнаёт `analyze.parse_duration` (отчёт «Среднее время
+    # обслуживания / ожидания», 11.10.2026). `str(time)` дал бы хвост
+    # «.500000», а `str(timedelta)` — «1 day, 2:00:00».
+    if isinstance(value, dt.time):
+        return f"{value.hour:02d}:{value.minute:02d}:{value.second:02d}"
+    if isinstance(value, dt.timedelta):
+        total = int(round(value.total_seconds()))
+        return f"{total // 3600:02d}:{total % 3600 // 60:02d}:{total % 60:02d}"
     if isinstance(value, float):
         # целочисленные float без хвоста ".0"
         if value.is_integer():

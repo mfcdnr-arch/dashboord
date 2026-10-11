@@ -56,9 +56,36 @@ export interface HeatPiece { lt?: number; gte?: number; color: string }
  *  теперь печатает так же, как всё остальное в системе: 06.10.2026. Сортировка
  *  идёт по исходному значению — ISO сортируется верно.
  */
-export function fmtCell(v: unknown): string {
+/** Единица графы-длительности: сервер хранит «ч:мм:сс» в минутах (11.10.2026). */
+export const DURATION_UNIT = 'мин'
+
+/**
+ * Длительность в минутах → «14 мин 22 с», «1 ч 27 мин», «45 с».
+ *
+ * Отчёт «Среднее время обслуживания / ожидания» пишет время как «00:14:22».
+ * Хранить его приходится числом (иначе ни среднего, ни сравнения), а «14,37
+ * мин» руководитель читать не станет: он ждёт минут и секунд. Секунды при
+ * часе и больше не нужны — «1 ч 27 мин 16 с» шумнее, чем полезнее.
+ */
+export function fmtDuration(min: number | null | undefined): string {
+  if (min == null || !isFinite(min)) return '—'
+  const sign = min < 0 ? '−' : ''
+  const total = Math.round(Math.abs(min) * 60)
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), sec = total % 60
+  if (h) return `${sign}${h} ч${m ? ` ${m} мин` : ''}`
+  if (m) return `${sign}${m} мин${sec ? ` ${sec} с` : ''}`
+  return `${sign}${sec} с`
+}
+
+/** Число с единицей: длительность — минутами и секундами, остальное — «12 345 ед.». */
+export function fmtWithUnit(v: number | null | undefined, unit?: string | null): string {
+  if (unit === DURATION_UNIT) return fmtDuration(v)
+  return fmtNumber(v) + (unit && v != null ? ` ${unit}` : '')
+}
+
+export function fmtCell(v: unknown, unit?: string | null): string {
   if (v == null || v === '') return '—'
-  if (typeof v === 'number') return fmtNumber(v)
+  if (typeof v === 'number') return unit === DURATION_UNIT ? fmtDuration(v) : fmtNumber(v)
   const s = String(v)
   const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T]00:00(?::00)?)?$/.exec(s.trim())
   return m ? `${m[3]}.${m[2]}.${m[1]}` : s

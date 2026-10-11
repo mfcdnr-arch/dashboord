@@ -421,6 +421,10 @@ export interface PageSummary {
   same: number
   top: SummaryMove[]
   worst: SummaryMove[]
+  /** На странице есть показатели «меньше — лучше» (время ожидания): строка говорит «лучше / хуже». */
+  lower_better?: boolean
+  better?: number
+  worse?: number
   plans?: { name: string; pct: number }[]
   single_report?: boolean
 }

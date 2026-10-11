@@ -10,6 +10,7 @@ import statistics
 from typing import Dict, List, Optional
 
 from ...plural import plural
+from ..ingestion.analyze import DURATION_UNIT
 from ..ingestion.hierarchy import pick_separator
 from . import _levels, _tally
 from . import _widgetsources as ws
@@ -1476,7 +1477,7 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
         change = values[-1] - values[-2] if len(values) >= 2 else None
         change_pct = (change / values[-2] * 100.0) if (change is not None and values[-2]) else None
         res = {"type": "dynamics", "title": name, "periods": periods, "values": values,
-               "change": change, "change_pct": change_pct,
+               "change": change, "change_pct": change_pct, "unit": cfg.get("unit"),
                # Та же логика, что у матрицы: свежесть виджета — его последняя
                # показанная точка, а не последний выпуск набора данных.
                "as_of": (periods[-1] if periods else None),
@@ -1985,13 +1986,17 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
                 continue
             items.append({"label": x["category"], "value": x["value"], "plan": plan, "pct": pct})
         items.sort(key=lambda d: (d["pct"] if by_plan else d["value"]), reverse=True)
+        averaged = cfg.get("unit") == DURATION_UNIT or bool(field and is_share(
+            await _field_title(conn, org_id, code, field) or "", cfg.get("unit")))
 
         total = sum(d["value"] for d in items)
         for i, d in enumerate(items):
             d["rank"] = i + 1
             # Доля в общем объёме отвечает на «насколько он весит»: первое
-            # место с 40 % и первое место с 3 % — разные новости.
-            d["share"] = (d["value"] / total * 100.0) if total else None
+            # место с 40 % и первое место с 3 % — разные новости. У средних
+            # (время ожидания, доли) «итога» нет — сумма средних ничего не
+            # значит, и доля от неё была бы неправдой (11.10.2026).
+            d["share"] = (d["value"] / total * 100.0) if total and not averaged else None
             alert = evaluate_alert("kpi", cfg, {"value": d["pct"] if d["pct"] is not None else d["value"]})
             d["level"], d["color"] = (alert or {}).get("level"), (alert or {}).get("color")
 

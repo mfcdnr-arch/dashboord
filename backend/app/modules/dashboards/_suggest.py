@@ -13,6 +13,7 @@ import re
 from collections import Counter
 from typing import Any, Dict, List, Optional
 
+from ..ingestion.analyze import DURATION_UNIT
 from ..ingestion.hierarchy import pick_separator, split_segments
 from ..metrics import resolver as mr
 from ..metrics.data_suggestions import _clean, _is_main_slice, _split_name, _subject_key
@@ -295,7 +296,8 @@ async def _dataset_numeric_fields(conn, org_id, dataset_code: str) -> List[dict]
     # объявленных по значениям (`declare_release_fields`), столбца нет — они в
     # конце, по коду.
     rows = await conn.fetch(
-        "select drf.canonical_field_code as code, coalesce(cf.name, drf.canonical_field_code) as name "
+        "select drf.canonical_field_code as code, coalesce(cf.name, drf.canonical_field_code) as name, "
+        "cf.unit "
         "from dataset_release_fields drf "
         "left join canonical_fields cf on cf.code=drf.canonical_field_code "
         "  and cf.object_id=(select object_id from dataset_releases where id=$1) "
@@ -824,6 +826,13 @@ def by_meaning_specs(fields: list, rows: int, periods: int, first_period: str = 
                 f"Строк в форме {rows} — их видно целиком и без рейтинга: на графике по "
                 "строкам и в таблице."))
 
+    # Длительности (время ожидания, обслуживания): главный вопрос формы —
+    # «где ждут дольше всего». Складывать их нельзя, поэтому в «main» они не
+    # попадают, и рейтинга по ним не было (11.10.2026).
+    for f in [f for f in fields if f.get("unit") == DURATION_UNIT] if rows >= MIN_ROWS_RANKED else []:
+        add("ranked", [f], height=ranked_height(ranked_rows_shown({})),
+            name=f"{f['name']}: где дольше всего")
+
     if main and PIE_ROWS[0] <= rows <= PIE_ROWS[1]:
         add("pie", [main[0]])
     elif main and rows > PIE_ROWS[1]:
@@ -965,7 +974,9 @@ def _group_cards(fields: list, pf_pairs: list, volumes: dict, sep: Optional[str]
     услуга, её строки — меры. Иначе — по предмету имени, как раньше.
     """
     cards: list = []
-    gauges = [f for f in fields if is_share(f["name"])]
+    # Длительность («Среднее время ожидания», мин) — не процент, хоть в имени и
+    # «средн»: спидометр со шкалой 0–100 % для минут бессмыслен (11.10.2026).
+    gauges = [f for f in fields if is_share(f["name"]) and f.get("unit") != DURATION_UNIT]
     for f in gauges:
         cards.append({"kind": "gauge", "fields": [f], "name": f["name"], "owner": None,
                       "total": False, "block": "gauge"})
@@ -1255,7 +1266,8 @@ def plan_candidates(datasets: list, selection: Optional[dict] = None,
             notes.append(f"«{form_title(dsname)}» — реестр (строка формы — запись, графы почти "
                          "все текст): предлагаю считать строки — всего и по значениям граф. "
                          "Складывать баллы и оценки реестра смысла нет.")
-            specs += _finalize_specs(ds_specs, code, sel, pin_period)
+            specs += _finalize_specs(ds_specs, code, sel, pin_period,
+                                 {f["code"]: f.get("unit") for f in d["fields"] if f.get("unit")})
             continue
 
         fields = [f for f in d["fields"] if want_fields is None or f["code"] in want_fields]
@@ -1388,7 +1400,7 @@ def plan_candidates(datasets: list, selection: Optional[dict] = None,
             cfg = apply_default_alerts(kind, cfg)
             meaning_specs.append({
                 "page": BY_MEANING_PAGE[kind],
-                "name": BY_MEANING_TITLE[kind].format(
+                "name": e.get("name") or BY_MEANING_TITLE[kind].format(
                     name=subject_with_measure(fs[0]["name"]) or fs[0]["name"]),
                 "widget_type": kind, "config": cfg, "width": w, "height": h, "block": kind,
                 "recommended": e.get("recommended", True), "reason": e.get("reason", "")})
@@ -1511,13 +1523,30 @@ def plan_candidates(datasets: list, selection: Optional[dict] = None,
                              "config": {"dataset_code": code, "period": period},
                              "width": 12, "height": 6, "recommended": True, "reason": ""})
 
-        specs += _finalize_specs(ds_specs, code, sel, pin_period)
+        specs += _finalize_specs(ds_specs, code, sel, pin_period,
+                                 {f["code"]: f.get("unit") for f in d["fields"] if f.get("unit")})
 
     return {"candidates": specs, "notes": notes, "cards": card_stats}
 
 
+def _inherit_unit(sp: dict, units: dict) -> None:
+    """Единица графы → виджету, если все его графы в одной единице.
+
+    Нужна длительностям (11.10.2026): «Среднее время ожидания» хранится в
+    минутах, и без единицы «мин» карточка показала бы «14,37» вместо
+    «14 мин 22 с». Своя единица виджета (у спидометра «%») не трогается.
+    """
+    cfg = sp["config"]
+    if cfg.get("unit") or cfg.get("count"):
+        return
+    used = [cfg.get("value_field")] + list(cfg.get("value_fields") or [])
+    found = {units.get(f) for f in used if f}
+    if len(found) == 1 and None not in found:
+        cfg["unit"] = found.pop()
+
+
 def _finalize_specs(ds_specs: list, code: str, sel: Optional[dict],
-                    pin_period: Optional[str]) -> list:
+                    pin_period: Optional[str], units: Optional[dict] = None) -> list:
     """Ключи, закрепление даты и решение «создавать» — одно место для всех
     наборов (обычная форма и реестр), иначе отметки человека в одних
     кандидатах работали бы, а в других нет."""
@@ -1531,6 +1560,7 @@ def _finalize_specs(ds_specs: list, code: str, sel: Optional[dict],
         # редакция 24.09 теряла все отметки — ревью этапа 2). У страниц-
         # срезов дата задана в самой спецификации и в ключ входит.
         sp["key"] = _candidate_key(sp)
+        _inherit_unit(sp, units or {})
         if pin_period:
             # Закрепляем дату ОДНИМ местом: иначе новый вид однажды забудут
             # закрепить, и на «срезе за 22.07» появится свежая карточка.

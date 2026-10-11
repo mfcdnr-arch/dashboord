@@ -197,6 +197,11 @@ async def _auto_release(conn, job_id: str) -> None:
         multi = len(entries) > 1
         author = await conn.fetchval(
             "select uploaded_by from document_versions where id=$1", job["document_version_id"])
+        # Книга «лист = дата» (ежедневный отчёт, окна, время обслуживания):
+        # выпускаются ВСЕ новые и изменившиеся дни, а не один лист за отчётную
+        # дату файла. Такие формы дальше по одному листу не выпускаются.
+        dated_codes = await _auto_release_dated_book(conn, job, job_id, ctx["object_id"], period, author)
+        entries = [e for e in entries if e["dataset_code"] not in dated_codes]
         released: list = []
         for tpl in entries:
             if tpl.get("match") != "exact" or not tpl.get("table_id"):
@@ -242,11 +247,107 @@ async def _auto_release(conn, job_id: str) -> None:
                 log.warning("Авто-выпуск формы %s по заданию %s не выполнен: %s", code, job_id, exc)
         if released:
             await _announce_auto_release(conn, job, period, released, author, ctx["object_id"])
+        if released or dated_codes:
             await mapping.refresh_template_verdicts(conn, ctx["object_id"])
             for code, _sheet, _res in released:
                 log.info("Авто-выпуск: задание %s, набор %s, отчёт за %s", job_id, code, period)
     except Exception as exc:  # noqa: BLE001 — выпуск не важнее самого разбора
         log.warning("Авто-выпуск не выполнен для задания %s: %s", job_id, exc)
+
+
+async def _auto_release_dated_book(conn, job, job_id: str, object_id, period, author) -> set:
+    """Авто-выпуск книги «лист = дата» целиком — по каждой датированной форме объекта.
+
+    До 11.10.2026 авто-выпуск брал из книги ОДИН лист — за отчётную дату
+    файла; остальные новые дни человек выпускал кнопкой «Выпустить по
+    листам». А у ежедневного отчёта шаблон и вовсе не совпадал с новыми
+    листами: форма за год растёт (с 01.09 добавились графы), и книга не
+    выпускалась сама никогда.
+
+    Здесь работает тот же `build_releases_by_sheet`, что за кнопкой, с
+    разметкой из шаблона формы: каждый лист разбирается заново (поля
+    пересчитываются, коды закрепляет справочник объекта), неизменившиеся дни
+    пропускаются по отпечатку содержимого, более свежий файл побеждает. Плюс
+    три правила авто-режима: область подгоняется под каждый лист, дни позже
+    отчётной даты файла не трогаются, а день с замечаниями качества
+    остаётся человеку. Чужая форма (`FormMismatch`) останавливает выпуск
+    этой формы целиком — решает человек.
+
+    Срабатывает, только если в файле не меньше двух датированных листов и
+    шаблон формы снят с датированного листа: книга из листов-форм
+    (Минэкономразвития) идёт обычным путём. Возвращает коды обработанных
+    форм — их обычный путь не трогает.
+    """
+    from . import form_templates as ft
+    from . import mapping
+
+    tables = await conn.fetch(
+        "select sheet_or_page from extracted_tables where extraction_job_id=$1::uuid", job_id)
+    dated = [t for t in tables if mapping.sheet_date(t["sheet_or_page"], period.year) is not None]
+    if len(dated) < 2:
+        return set()
+    done: set = set()
+    for tpl in await ft.for_object(conn, object_id):
+        if mapping.sheet_date(tpl["sheet_name"] or "", 2000) is None:
+            continue
+        code = tpl["dataset_code"]
+        done.add(code)
+        lay = {**mapping.DEFAULT_LAYOUT, **mapping._jsonb(tpl["layout"], {})}
+        name = await conn.fetchval(
+            "select name from dataset_releases where object_id=$1 and code=$2 and status<>'superseded' "
+            "order by reporting_period_start desc nulls last limit 1", object_id, code) or job["original_filename"]
+        try:
+            res = await mapping.build_releases_by_sheet(
+                conn, job_id=str(job_id), code=code, name=name, year=period.year,
+                user={"id": author},
+                layout={"data_rect": lay.get("data_rect"), "header_rows": lay.get("header_rows"),
+                        "orientation": lay.get("orientation") or "columns", "skip_rows": []},
+                exclude_row_labels=list(lay.get("skip_labels") or []),
+                until=period, fit_area=True, hold_on_warnings=True)
+        except mapping.FormMismatch as mm:
+            log.warning("Авто-выпуск книги по заданию %s: форма %s не совпала с объектом — %s",
+                        job_id, code, mm.info.get("message"))
+            continue
+        if res["created"] or res["held"]:
+            await _announce_dated_book(conn, job, period, code, res, author, object_id)
+        log.info("Авто-выпуск книги: задание %s, набор %s — выпущено %s, не изменилось %s, "
+                 "оставлено человеку %s, ошибок %s", job_id, code, len(res["created"]),
+                 sum(1 for s in res["skipped"] if "не изменился" in (s.get("reason") or "")),
+                 len(res["held"]), len(res["failed"]))
+    return done
+
+
+async def _announce_dated_book(conn, job, period, code: str, res: dict, author, object_id) -> None:
+    """Журнал на каждый выпущенный день и ОДНО уведомление на книгу: «выпущено
+    N дней, M оставлены вам». Двести уведомлений за одну загрузку никто читать
+    не станет, а день, оставленный человеку, без уведомления потерялся бы."""
+    from ..audit import service as audit_svc
+    from ..notifications import service as notif_svc
+
+    for c in res["created"]:
+        await audit_svc.write_event(
+            conn, job["organization_id"], author, "create", "dataset_release", c["release_id"],
+            new_data={"code": code, "period": c["period"], "auto": True, "values": c.get("values"),
+                      "rows": c.get("rows"), "document": job["original_filename"],
+                      "folder": job["folder_name"], "sheet": c["sheet"],
+                      "object_id": str(object_id) if object_id else None})
+    days = sorted(c["period"] for c in res["created"])
+    payload = {
+        "code": code, "period": str(period), "auto": True, "book": True,
+        "days": len(days), "first": days[0] if days else None, "last": days[-1] if days else None,
+        "values": sum(int(c.get("values") or 0) for c in res["created"]),
+        "held": [{"period": h["period"], "warnings": h["warnings"]} for h in res["held"]][:10],
+        "held_total": len(res["held"]),
+        "document": job["original_filename"], "folder": job["folder_name"],
+        "object_id": str(object_id) if object_id else None,
+    }
+    entity = res["created"][-1]["release_id"] if res["created"] else str(object_id)
+    recipients = set(await notif_svc.management_user_ids(conn, job["organization_id"]))
+    if author:
+        recipients.add(author)
+    await notif_svc.notify(conn, job["organization_id"], "data.auto_released",
+                           "dataset_release" if res["created"] else "object", entity,
+                           payload, list(recipients))
 
 
 async def _announce_auto_release(conn, job, period, released: list, author, object_id) -> None:

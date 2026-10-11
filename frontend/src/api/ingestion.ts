@@ -83,6 +83,8 @@ export interface FieldSuggestion {
   /** «№ п/п» и подобное: счётчик строк бланка, а не показатель. */
   is_counter?: boolean
   confidence: number | null
+  /** «мин» — графа-длительность «ч:мм:сс», хранится в минутах. */
+  unit?: string | null
 }
 export interface MappingSuggestion {
   row_label_column: number | null

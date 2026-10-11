@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fmtCell, fmtFixed, fmtNumber, heatSteps, logScaleAdvice, sparkSeries } from './format'
+import { fmtCell, fmtDuration, fmtFixed, fmtNumber, fmtWithUnit, heatSteps, logScaleAdvice, sparkSeries } from './format'
 
 // Палитра тепловой карты — пять оттенков, как в теме.
 const PAL = ['#faf0e9', '#e0b58f', '#e0885f', '#a5563c', '#e04e39']
@@ -109,5 +109,31 @@ describe('значение ячейки таблицы', () => {
     expect(fmtCell(null)).toBe('—')
     expect(fmtCell('')).toBe('—')
     expect(fmtCell(0)).toBe('0')
+  })
+})
+
+describe('fmtDuration — длительность в минутах как «мин и с»', () => {
+  it('минуты и секунды', () => {
+    expect(fmtDuration(14 + 22 / 60)).toBe('14 мин 22 с')
+    expect(fmtDuration(37 + 10 / 60)).toBe('37 мин 10 с')
+  })
+  it('ровные минуты — без «0 с», меньше минуты — только секунды', () => {
+    expect(fmtDuration(5)).toBe('5 мин')
+    expect(fmtDuration(0.75)).toBe('45 с')
+    expect(fmtDuration(0)).toBe('0 с')
+  })
+  it('час и больше — без секунд', () => {
+    expect(fmtDuration(87 + 16 / 60)).toBe('1 ч 27 мин')
+    expect(fmtDuration(120)).toBe('2 ч')
+  })
+  it('прирост бывает отрицательным; пусто — прочерк', () => {
+    expect(fmtDuration(-1.5)).toBe('−1 мин 30 с')
+    expect(fmtDuration(null)).toBe('—')
+  })
+  it('единица «мин» включает формат длительности, остальные — число с единицей', () => {
+    expect(fmtWithUnit(14 + 22 / 60, 'мин')).toBe('14 мин 22 с')
+    expect(fmtWithUnit(12, '%')).toBe('12 %')
+    expect(fmtCell(14 + 22 / 60, 'мин')).toBe('14 мин 22 с')
+    expect(fmtCell(14.5)).toBe('14,50')
   })
 })

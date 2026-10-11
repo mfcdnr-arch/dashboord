@@ -333,12 +333,14 @@ async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None
     # видеть «Количество обращений … за отчётную неделю», а не машинный код
     # поля. Ключ остаётся кодом — по нему собраны строки и работает экспорт.
     titles = await conn.fetch(
-        "select cf.code, cf.name from canonical_fields cf "
+        "select cf.code, cf.name, cf.unit from canonical_fields cf "
         "join dataset_releases r on r.object_id = cf.object_id "
         "where r.id=$1 and cf.code = any($2::text[])",
         rel, cols,
     )
     names = {t["code"]: t["name"] for t in titles}
+    # Единицы граф: длительность («мин») экран печатает «14 мин 22 с», а не «14,37».
+    units = {t["code"]: t["unit"] for t in titles if t["unit"]}
     # Чем подписаны строки ЭТОГО выпуска («Краткая характеристика», «Наименование
     # отделения»): у выпуска графа-название помечена с миграции 061. Нет —
     # остаётся нейтральное «Строка».
@@ -351,6 +353,7 @@ async def _dataset_table(conn, org_id, dataset_code: str, row=None, allowed=None
     # говорить «под условия не подошло ни одной из 22», а не «ничего не найдено».
     return {"columns": cols, "column_titles": names, "rows": rows,
             "row_title": row_title or "Строка",
+            **({"column_units": units} if units else {}),
             **({"rows_total": len(by_row)} if where else {})}
 
 

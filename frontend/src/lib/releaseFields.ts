@@ -5,6 +5,8 @@ export type PreviewColumn = {
   field_code: string
   field_name: string
   data_type: string
+  /** «мин» у графы-длительности «ч:мм:сс» — виджеты печатают «14 мин 22 с». */
+  unit?: string | null
 }
 
 /**
@@ -39,5 +41,7 @@ export function buildReleaseFields(
     field_name: (names[c.column_index] ?? c.field_name).trim() || c.field_name,
     data_type: types[c.column_index] ?? c.data_type,
     is_row_label: c.column_index === labelColumn,
+    // Единица — только у числа: сменил человек тип на «текст» — минут больше нет.
+    ...(c.unit && (types[c.column_index] ?? c.data_type) === 'number' ? { unit: c.unit } : {}),
   }))
 }
