@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import Dict, List
 
 from ..ingestion.quality import check_release, previous_release_values, release_is_registry
+from ._norms import field_norms, norm_warnings
 from ._rowrls import allowed_rows_for_dataset
 
 # Больше трёх форм на странице — редкость; ограничение защищает от страницы,
@@ -83,6 +84,9 @@ async def page_attention(conn, org_id, page_id: str, user: dict) -> dict:
         # внутри файла это не отменяет, поэтому молчать здесь больше нельзя.
         warnings = check_release(current, names, previous, prev_period, partial=partial,
                                  registry=await release_is_registry(conn, rel["id"]))
+        # Порог показателя: «выше порога у N строк» — тоже то, на что стоит
+        # посмотреть, и считается тем же правилом, что красит виджеты.
+        warnings += norm_warnings(current, await field_norms(conn, org_id, code))
         if warnings:
             period = rel["reporting_period_start"]
             items.append({

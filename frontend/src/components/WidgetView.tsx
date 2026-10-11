@@ -10,6 +10,7 @@ import FitText from './dashboards/FitText'
 import RelatedMenu from './dashboards/RelatedMenu'
 import ReportProblemDialog from './dashboards/ReportProblemDialog'
 import { alertLook, levelLook } from '../lib/alertColors'
+import NormLine from './NormLine'
 import { useVirtualCols, VCOL_W, VCOL_FIRST_W, VIRT_FROM_COLS } from '../lib/useVirtualCols'
 import { exportWidgetXlsx } from '../api'
 import PassportDialog from './dashboards/PassportDialog'
@@ -274,11 +275,13 @@ function ghostOpt(ghost: any, isLine: boolean, C: ReturnType<typeof chartColors>
 
 const ru = (iso?: string | null) => (iso ? iso.split('-').reverse().join('.') : '')
 
-export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf, stripe = true, onNavigate, widgetName, onOpenAppeals, onAddField, print = false, dashboardId, nComments = 0, onCommentsChanged }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string;
+export default function WidgetView({ widgetId, reloadKey, showDrill = true, from, to, row, onPick, batched, injData, injError, pageAsOf, stripe = true, onNavigate, widgetName, onOpenAppeals, onAddField, print = false, dashboardId, nComments = 0, onCommentsChanged, canEditNorm = false }: { widgetId: string; reloadKey?: number; showDrill?: boolean; from?: string; to?: string; row?: string; onPick?: (name: string) => void; batched?: boolean; injData?: any; injError?: string; pageAsOf?: string;
   /** Рисовать ли цветную ленту состояния вокруг тела. На дашборде её рисует
    *  САМА карточка (по всей высоте, включая имя) — там лента здесь была бы
    *  второй полосой внутри первой. */
   stripe?: boolean
+  /** Можно ли править порог показателя (норму графы) прямо из виджета. */
+  canEditNorm?: boolean
   /** Переход к другому виджету из меню «куда дальше» (п. 1). Не передан —
    *  меню показывает связи справочно, без переходов. */
   onNavigate?: (dashboardId: string, pageId: string | null, widgetId: string) => void
@@ -391,6 +394,16 @@ export default function WidgetView({ widgetId, reloadKey, showDrill = true, from
       {data && <div className="w-appear">
         <Body data={data} onPick={onPick} print={print} />
       </div>}
+      {/* Показатель между формами: формула и сколько отделений совпало —
+          посчитанное по части отделений иначе выглядело бы цифрой по всем. */}
+      {data?.cross_note && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>🔗 {data.cross_note}</div>
+      )}
+      {/* Порог показателя — один на графу формы: правка здесь перекрашивает
+          все виджеты по этой графе и блок «На что посмотреть». */}
+      {data?.norm_fields?.length > 0 && (
+        <NormLine fields={data.norm_fields} summary={data.norm_summary} canEdit={canEditNorm && !print} />
+      )}
       {/* Подвал действий («куда дальше», «проблема») в выгрузку не идёт: в PDF
           эти ссылки нажать нельзя, а место у самого числа они отнимают. */}
       <div ref={footRef} data-export-hide style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -1570,6 +1583,18 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     const series: any[] = [{ type: 'line', name: idxVals ? 'Индекс роста, %' : 'Значение', data: plotted, smooth: true,
       color: C.c1, itemStyle: { color: C.c1 },
       lineStyle: { color: C.c1, width: 2 }, areaStyle: { opacity: 0.08 } }]
+    // Порог показателя — горизонтальными линиями (норма графы, миграция 064).
+    // В режиме индекса роста не рисуем: там ось — проценты, а порог — минуты.
+    const norm = data.norm_lines as { warn?: number; danger?: number } | undefined
+    if (norm && !idxVals) {
+      const line = (v: number, name: string, color: string) => ({
+        yAxis: v, name, lineStyle: { color, type: 'dashed', width: 1 },
+        label: { formatter: `${name}: ${fmtWithUnit(v, data.unit)}`, color, fontSize: 10, position: 'insideEndTop' } })
+      series[0].markLine = { silent: true, symbol: 'none', data: [
+        ...(norm.warn != null ? [line(norm.warn, 'внимание', 'var(--alert-warn)')] : []),
+        ...(norm.danger != null ? [line(norm.danger, 'проблема', 'var(--alert-danger)')] : []),
+      ] }
+    }
     // Линейный тренд (наложение): прямая по концам от бэкенда, интерполируем по периодам.
     if (data.trend && periods.length >= 2) {
       const [s, e] = data.trend

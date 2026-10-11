@@ -5,6 +5,7 @@ import re
 from datetime import date
 
 from ...plural import plural as _plural
+from ..ingestion.analyze import DURATION_UNIT, fmt_duration
 from ._base import DashboardError
 from ._rls import _can_view, visible_widget_ids
 from ._sheetnames import LIMIT, clean_title, short_cores
@@ -47,6 +48,36 @@ def _ru_date(v) -> str:
 # (numFmtId=14) тоже рисуется везде, но ПО НАСТРОЙКАМ СИСТЕМЫ, а заказчику
 # нужен русский вид независимо от программы — поэтому свой код.
 DATE_FMT = 'dd"."mm"."yyyy'
+
+
+# Длительность — настоящим временем Excel «ч:мм:сс», а не дробью минут: «87,267»
+# заказчик прочитал как 87 тысяч минут (11.10.2026). Время Excel складывается и
+# усредняется формулами, а «[h]» не обнуляет часы после суток. Отрицательное
+# время Excel рисует «#####», поэтому приросты уходят текстом «−12 мин 5 с».
+DUR_FMT = "[h]:mm:ss"
+DUR_HINT = " (ч:мм:сс)"
+
+
+def _minutes_to_cells(ws, cols, first_row: int, *, as_text: bool = False, last_row=None) -> None:
+    """Числа-минуты в столбцах `cols` (с 1) — во время Excel или в текст."""
+    for r in range(first_row, (last_row or ws.max_row) + 1):
+        for c in cols:
+            cell = ws.cell(row=r, column=c)
+            v = cell.value
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                continue
+            if as_text or v < 0:
+                cell.value = fmt_duration(v, signed=as_text)
+            else:
+                cell.value = round(v * 60) / 86400  # целые секунды: доли Excel округлил бы по-своему
+                cell.number_format = DUR_FMT
+
+
+def _hint(ws, row: int, cols) -> None:
+    for c in cols:
+        cell = ws.cell(row=row, column=c)
+        if isinstance(cell.value, str) and DUR_HINT not in cell.value:
+            cell.value += DUR_HINT
 
 
 def _row(ws, values: list) -> None:
@@ -96,7 +127,73 @@ _LEVEL_RU = {"danger": "ниже 90 % плана", "poor": "заметное о�
              "warn": "план не выполнен", "good": "план выполнен"}
 
 
-def _dump_widget(wb, summary, sheet_name, wid: str, t: str, name: str, data: dict) -> bool:
+def _dump_widget(wb, summary, sheet_name, wid: str, t: str, name: str, data: dict,
+                 unit=None) -> bool:
+    """Раскладывает ОДИН виджет по листам книги и переводит длительности во
+    время Excel (`_durations`); True — писали в «Сводку»."""
+    sheets_before = set(wb.sheetnames)
+    summary_before = summary.max_row
+    wrote = _dump_widget_raw(wb, summary, sheet_name, wid, t, name, data)
+    if (data.get("unit") or unit) == DURATION_UNIT or any(
+            u == DURATION_UNIT for u in (data.get("column_units") or {}).values()):
+        new = [wb[n] for n in wb.sheetnames if n not in sheets_before]
+        _durations(t, data, unit, new[0] if new else None, summary, summary_before)
+    return wrote
+
+
+def _durations(t: str, data: dict, unit, ws, summary, summary_before: int) -> None:
+    """Где у виджета минуты: значения — временем Excel, приросты — текстом."""
+    whole = (data.get("unit") or unit) == DURATION_UNIT
+    if summary.max_row > summary_before and whole:
+        # «Сводка»: kpi / спидометр / план-факт — значение в четвёртом столбце,
+        # но процент выполнения минутами не является.
+        for r in range(summary_before + 1, summary.max_row + 1):
+            label = str(summary.cell(row=r, column=3).value or "")
+            if "%" not in label and "п.п." not in label and "дней" not in label and "прогноз" not in label:
+                _minutes_to_cells(summary, [4], r, last_row=r)
+                if isinstance(summary.cell(row=r, column=3).value, str):
+                    summary.cell(row=r, column=3).value += DUR_HINT
+    if ws is None:
+        return
+    if t == "table":
+        cols = list(data.get("columns", []))
+        units = data.get("column_units") or {}
+        idx = [i + 2 for i, c in enumerate(cols) if units.get(c) == DURATION_UNIT or (whole and not units)]
+        _minutes_to_cells(ws, idx, 2)
+        _hint(ws, 1, idx)
+        return
+    if not whole:
+        return
+    if t == "ranked":
+        n = len(data.get("rows", [])) + 1
+        _minutes_to_cells(ws, [3, 4], 2, last_row=n)
+        _hint(ws, 1, [3, 4])
+    elif t == "dynamics":
+        n = len(data.get("periods", [])) + 1
+        _minutes_to_cells(ws, [2], 2, last_row=n)
+        _minutes_to_cells(ws, [2], n + 1, as_text=True)  # итоги: «за период», «к пред. отчёту»
+        _hint(ws, 1, [2])
+    elif t == "matrix":
+        k = len(data.get("periods", []))
+        n = len(data.get("rows", []))
+        _minutes_to_cells(ws, list(range(2, k + 2)), 3, last_row=n + 2)
+        _minutes_to_cells(ws, [k + 2], 3, last_row=n + 2, as_text=True)
+        _minutes_to_cells(ws, list(range(2, k + 2)), n + 6, last_row=2 * n + 5, as_text=True)
+        _minutes_to_cells(ws, list(range(2, k + 2)), 2 * n + 6)
+        ws.cell(row=1, column=1).value = f"{ws.cell(row=1, column=1).value or ''}{DUR_HINT}"
+    elif t == "spark_table":
+        k = len(data.get("periods") or [])
+        n = len(data.get("rows", [])) + 1
+        _minutes_to_cells(ws, list(range(2, k + 2)), 2, last_row=n)
+        _minutes_to_cells(ws, [k + 2], 2, last_row=n, as_text=True)
+    elif t in ("bar", "line", "pie", "objects_compare", "waterfall", "yoy"):
+        _minutes_to_cells(ws, [2, 3], 2)
+        _hint(ws, 1, [2, 3])
+    elif t in ("compare", "cross_dataset_compare", "heatmap", "pivot"):
+        _minutes_to_cells(ws, list(range(2, ws.max_column + 1)), 2)
+
+
+def _dump_widget_raw(wb, summary, sheet_name, wid: str, t: str, name: str, data: dict) -> bool:
     """Раскладывает ОДИН виджет по листам книги; True — писали в «Сводку».
 
     Вынесено из `export_page_xlsx`, потому что теперь тем же кодом выгружается
@@ -327,7 +424,8 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str,
 
     allowed = await visible_widget_ids(conn, org_id, user, str(p["dashboard_id"]))
     rows = await conn.fetch(
-        "select id, name, widget_type from widgets where page_id=$1::uuid order by position_y, position_x", page_id)
+        "select id, name, widget_type, config->>'unit' as unit from widgets "
+        "where page_id=$1::uuid order by position_y, position_x", page_id)
     if allowed is not None:
         rows = [w for w in rows if str(w["id"]) in allowed]
 
@@ -369,7 +467,7 @@ async def export_page_xlsx(conn, org_id, user: dict, page_id: str,
                                              user=user, skip_acl=True, level_path=level_path)
         except DashboardError:
             continue
-        if _dump_widget(wb, summary, sheet_name, wid, t, name, data):
+        if _dump_widget(wb, summary, sheet_name, wid, t, name, data, w["unit"]):
             has_summary = True
 
     if not has_summary and len(wb.sheetnames) > 1:
@@ -437,7 +535,12 @@ async def export_widget_xlsx(conn, org_id, user: dict, widget_id: str,
         # Заголовок и картинка — оформление страницы, выгружать в таблицу нечего.
         raise DashboardError("У этого виджета нет данных для выгрузки")
 
-    data = await compute_widget_data(conn, org_id, widget_id, from_date, to_date, row, skip_acl=True)
+    # `user` обязателен и здесь: от него зависят ПОСТРОЧНЫЕ права. Без него
+    # выгрузка одного виджета отдавала бы все строки формы тому, кому разрешена
+    # одна (тот же дефект закрыт у выгрузки страницы 14.09, а сюда не доехал).
+    data = await compute_widget_data(conn, org_id, widget_id, from_date, to_date, row,
+                                     user=user, skip_acl=True)
+    unit = await conn.fetchval("select config->>'unit' from widgets where id=$1::uuid", widget_id)
 
     wb = Workbook()
     summary = wb.active
@@ -447,7 +550,7 @@ async def export_widget_xlsx(conn, org_id, user: dict, widget_id: str,
     # полное имя не теряется, оно стоит на листе «Содержание» ниже.
     sheet = clean_title(name)[:LIMIT] or "Данные"
 
-    has_summary = _dump_widget(wb, summary, lambda _wid, _base: sheet, widget_id, t, name, data)
+    has_summary = _dump_widget(wb, summary, lambda _wid, _base: sheet, widget_id, t, name, data, unit)
     if not has_summary and len(wb.sheetnames) > 1:
         wb.remove(summary)
 

@@ -40,6 +40,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
+from ..ingestion.analyze import DURATION_UNIT, fmt_duration
 from ._base import DashboardError
 from ._explain import explain_widgets, widget_configs
 from ._rls import visible_dashboard_ids
@@ -86,7 +87,11 @@ def _snapshot(res: dict) -> str:
     unit = f" {res['unit']}" if res.get("unit") else ""
     parts = []
     if res.get("type") in ("kpi", "gauge") and res.get("value") is not None:
-        parts.append(f"на экране: {_num(res['value'])}{unit}")
+        # Длительность — «1 ч 27 мин 16 с», а не «87,27 мин»: дробь минут
+        # читается как десятки тысяч минут (замечание заказчика 11.10.2026).
+        shown = (fmt_duration(res["value"]) if res.get("unit") == DURATION_UNIT
+                 else f"{_num(res['value'])}{unit}")
+        parts.append(f"на экране: {shown}")
     elif res.get("type") == "plan_fact":
         pct = f", выполнение {_num(res['pct'])} %" if res.get("pct") is not None else ""
         parts.append(f"на экране: план {_num(res.get('plan'))}, факт {_num(res.get('fact'))}{pct}")

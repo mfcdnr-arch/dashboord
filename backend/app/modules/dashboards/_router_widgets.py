@@ -350,3 +350,55 @@ async def widget_drill(widget_id: str, user: dict = Depends(get_current_user)):
             return await service.widget_drill(conn, user["organization_id"], widget_id, user)
         except DashboardError as e:
             raise _bad(e)
+
+
+# --- Порог показателя (норма графы, миграция 064) ---------------------------
+
+class NormIn(BaseModel):
+    # В единице графы; у длительности — в минутах. Оба пусто — порог снят.
+    warn: Optional[float] = Field(default=None, ge=0, le=1e12)
+    danger: Optional[float] = Field(default=None, ge=0, le=1e12)
+    direction: Optional[str] = Field(default=None, pattern="^(lower|higher)$")
+
+
+@router.put("/widgets/norms/{dataset_code}/{field}")
+async def put_field_norm(dataset_code: str, field: str, body: NormIn, user: dict = Depends(manage)):
+    """Порог показателя — один на графу формы: его применяют все виджеты по
+    этой графе и блок «На что посмотреть», правка пересчитывает их сразу."""
+    from ._norms import set_norm
+
+    async with db.get_pool().acquire() as conn:
+        async with conn.transaction():
+            try:
+                return await set_norm(conn, user["organization_id"], user["id"], dataset_code, field,
+                                      body.warn, body.danger, body.direction)
+            except DashboardError as e:
+                raise _bad(e)
+
+
+# --- Показатели между формами (талонов на окно, взвешенное ожидание) --------
+
+@router.get("/dashboards/{dashboard_id}/cross-page/plan")
+async def cross_page_plan(dashboard_id: str, user: dict = Depends(manage)):
+    """Какие показатели между формами система может посчитать — до создания страницы."""
+    from ._crossform import presets
+
+    async with db.acquire(user["id"]) as conn:
+        return {"indicators": await presets(conn, user["organization_id"])}
+
+
+@router.post("/dashboards/{dashboard_id}/cross-page")
+async def cross_page_build(dashboard_id: str, user: dict = Depends(manage)):
+    """Добавить к дашборду страницу «Между формами»."""
+    from ._crossform import build_cross_page
+
+    async with db.acquire(user["id"]) as conn:
+        async with conn.transaction():
+            try:
+                res = await build_cross_page(conn, user["organization_id"], user["id"], dashboard_id)
+                await audit_svc.write_event(conn, user["organization_id"], user["id"], "create",
+                                            "dashboard_page", res["page_id"],
+                                            new_data={"cross_page": True, "widgets": res["widgets"]})
+                return res
+            except DashboardError as e:
+                raise _bad(e)

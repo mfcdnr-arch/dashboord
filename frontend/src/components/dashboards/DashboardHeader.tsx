@@ -154,6 +154,7 @@ export interface HeaderActions {
   /** «Вернуть скрытые графы» — снять отметки «больше не предлагать». */
   resetReviewed: () => void
   ladderPage: () => void
+  crossPage: () => void
   del: () => void
   comments: () => void
   kiosk: () => void
@@ -436,6 +437,12 @@ export function DashboardHeader({
                 <button type="button" style={menuItem} onClick={() => { setMoreOpen(false); a.ladderPage() }}
                   title="Отдельная страница, собранная под лестницу уровней: её виджеты переживают спуск по ветке">
                   🪜 Страница с лестницей
+                </button>
+              )}
+              {canManage && (
+                <button type="button" style={menuItem} onClick={() => { setMoreOpen(false); a.crossPage() }}
+                  title="Отдельная страница с показателями, которые считаются по двум формам сразу: талонов на окно, на окно-час, ожидание, взвешенное по талонам">
+                  🔗 Показатели между формами
                 </button>
               )}
               {canManage && (

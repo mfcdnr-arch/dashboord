@@ -1104,3 +1104,26 @@ export async function directionForObject(
 ): Promise<{ suggestion: { id: string | null; name: string; why: string } | null }> {
   return jsonOrThrow(await fetch(`/dashboard-directions/for-object/${objectId}`, { headers: authH() }))
 }
+
+// --- Порог показателя (норма графы, миграция 064) ---
+export async function putFieldNorm(datasetCode: string, field: string,
+  body: { warn: number | null; danger: number | null; direction?: 'lower' | 'higher' }): Promise<unknown> {
+  const res = await fetch(`/widgets/norms/${encodeURIComponent(datasetCode)}/${encodeURIComponent(field)}`, {
+    method: 'PUT', headers: { ...authH(), 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+// --- Показатели между формами (талонов на окно, взвешенное ожидание) ---
+export interface CrossIndicator { key: string; name: string; unit: string | null; hint: string }
+export async function getCrossPagePlan(dashboardId: string): Promise<{ indicators: CrossIndicator[] }> {
+  const res = await fetch(`/dashboards/${dashboardId}/cross-page/plan`, { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function buildCrossPage(dashboardId: string): Promise<{ page_id: string; page: string; widgets: number }> {
+  const res = await fetch(`/dashboards/${dashboardId}/cross-page`, { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}

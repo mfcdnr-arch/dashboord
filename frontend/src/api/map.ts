@@ -204,3 +204,54 @@ export async function officeLoad(params: { dataset_code?: string; from?: string;
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+
+// --- Эталонные названия отделений в формах ---
+// Разные формы пишут одно отделение по-разному; система запоминает, какой
+// вариант какому отделению соответствует, и при выпуске подменяет его сама.
+
+export interface NameSuggestion { office_id: string; office: string; target: string | null; reason: string }
+export interface NameItem { label: string; suggestion: NameSuggestion | null; forms: string[] }
+export interface NameForm { code: string; object_name: string | null; total: number; known: number; unknown: number; ignored: number }
+export interface NameDecisionRow { id: string; label: string; status: 'confirmed' | 'ignored'; office: string | null; target: string | null; decided_at: string | null }
+export interface OfficeNamesReview {
+  forms: NameForm[]
+  items: NameItem[]
+  with_suggestion: number
+  decisions: NameDecisionRow[]
+  offices: { id: string; name: string; row_label: string | null }[]
+}
+export interface NameConfirmResult {
+  linked: { label: string; office: string }[]
+  aliased: { label: string; office: string; target: string }[]
+  ignored: string[]
+  errors: { label: string; error: string }[]
+  renamed_values: number
+  renamed_releases: number
+  conflicts: { code: string; label: string; period: string | null }[]
+  left_manual?: string[]
+}
+
+export async function getOfficeNames(): Promise<OfficeNamesReview> {
+  const res = await fetch('/map/office-names', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function confirmOfficeNames(items: { label: string; office_id: string | null }[]): Promise<NameConfirmResult> {
+  const res = await fetch('/map/office-names/confirm', {
+    method: 'POST', headers: { ...authH(), 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
+  })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function confirmSuggestedOfficeNames(): Promise<NameConfirmResult> {
+  const res = await fetch('/map/office-names/confirm-suggested', { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+export async function forgetOfficeName(id: string): Promise<void> {
+  const res = await fetch(`/map/office-names/${encodeURIComponent(id)}`, { method: 'DELETE', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+}

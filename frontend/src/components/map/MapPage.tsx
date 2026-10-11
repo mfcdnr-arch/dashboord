@@ -8,6 +8,7 @@ import { plural } from '../../lib/text'
 import { useConfirm } from '../dashboards/ConfirmDialog'
 import MapView from './MapView'
 import OfficeForm from './OfficeForm'
+import OfficeNamesPanel from './OfficeNamesPanel'
 import Notice from '../Notice'
 
 // Раздел «Карта» → справочник отделений.
@@ -17,8 +18,10 @@ import Notice from '../Notice'
 // ПО ЭТОМУ СПРАВОЧНИКУ, поэтому правка здесь сразу меняет то, что видно на
 // точке, — без пересборки и без участия разработчика.
 
-export default function MapPage({ me }: { me: { roles: string[] } }) {
+export default function MapPage({ me, namesSeq }: { me: { roles: string[] }; namesSeq?: number }) {
   const canManage = me.roles.some((r) => ['admin', 'superadmin'].includes(r))
+  // Названия отделений в формах решает и модератор: это его выпуски.
+  const canNames = me.roles.some((r) => ['admin', 'superadmin', 'moderator', 'senior_moderator'].includes(r))
   const { ask, node: confirmNode } = useConfirm()
   const [items, setItems] = useState<Office[]>([])
   const [q, setQ] = useState('')
@@ -36,6 +39,8 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
   const [tab, setTab] = useState<'map' | 'offices'>('map')
   const [linkRes, setLinkRes] = useState<LinkSuggestedResult | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  // Из уведомления «незнакомые названия отделений» — сразу на вкладку с панелью.
+  useEffect(() => { if (namesSeq) setTab('offices') }, [namesSeq])
 
   const fail = (e: unknown) => setError((e as Error).message)
   const reload = () => listOffices({ q: q.trim() || undefined, only_active: onlyActive }).then(setItems).catch(fail)
@@ -123,6 +128,10 @@ export default function MapPage({ me }: { me: { roles: string[] } }) {
 
       {tab === 'map' && (
         <MapView offices={items} canManage={canManage} onEdit={(o) => { setTab('offices'); setEdit(o) }} />
+      )}
+
+      {tab === 'offices' && canNames && (
+        <OfficeNamesPanel openSeq={namesSeq} onChanged={() => { reload(); if (dsCode) refreshReport(dsCode) }} />
       )}
 
       {/* Сверка с отчётом: без неё новое отделение попадает в цифры, но не на карту. */}

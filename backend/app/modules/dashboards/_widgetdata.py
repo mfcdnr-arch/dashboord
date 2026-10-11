@@ -17,6 +17,7 @@ from ..metrics.parser import FormulaError, extract_dependencies, parse
 from . import _pagecalc
 from ._alerts import _cfg
 from ._base import WIDGET_TYPES, DashboardError
+from ._norms import apply_norms
 from ._rls import _can_view, visible_dashboard_ids, visible_widget_ids
 from ._rowrls import allowed_rows_for_dataset, rls_tag
 from ._widgetcalc import _compute_widget
@@ -60,6 +61,8 @@ async def compute_widget_data(conn, org_id, widget_id: str, from_date=None, to_d
                                    from_date, to_date, row, user=user, level_path=level_path)
     # Свежесть данных: дата активного выпуска датасета («данные на X»).
     await _attach_as_of(conn, org_id, _cfg(w), result)
+    # Порог показателя (норма графы) — одна точка для всех видов виджетов.
+    result = await apply_norms(conn, org_id, w["widget_type"], _cfg(w), result)
     try:
         await cache.set(key, json.dumps(result, ensure_ascii=False), cache.WIDGET_DATA_TTL)
     except (TypeError, ValueError):
@@ -112,7 +115,8 @@ async def preview_widget(conn, org_id, widget_type: str, name: Optional[str], co
     if widget_type not in WIDGET_TYPES:
         raise DashboardError(f"Неизвестный тип виджета: {widget_type}")
     result = await _compute_widget(conn, org_id, widget_type, name or "Предпросмотр", config or {})
-    return await _attach_as_of(conn, org_id, config or {}, result)
+    result = await _attach_as_of(conn, org_id, config or {}, result)
+    return await apply_norms(conn, org_id, widget_type, config or {}, result)
 
 
 async def list_org_alerts(conn, org_id, user: dict, limit: int = 30) -> List[dict]:

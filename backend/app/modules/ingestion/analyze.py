@@ -80,6 +80,21 @@ def parse_duration(s: str) -> Optional[float]:
     return h * 60 + mi + se / 60
 
 
+def fmt_duration(minutes, *, signed: bool = False) -> str:
+    """Минуты → «1 ч 27 мин 16 с» / «14 мин 22 с» / «45 с» — для текста,
+    который уходит человеку (обращение, выгрузка). Секунды не отбрасываются:
+    «87,267 мин» заказчик прочитал как 87 тысяч минут (11.10.2026), и в
+    тексте минуты дробью не пишем вовсе."""
+    if minutes is None:
+        return ""
+    v = float(minutes)
+    sign = "−" if v < 0 else ("+" if signed and v > 0 else "")
+    total = round(abs(v) * 60)
+    h, m, sec = total // 3600, (total % 3600) // 60, total % 60
+    parts = ([f"{h} ч"] if h else []) + ([f"{m} мин"] if m else []) + ([f"{sec} с"] if sec or not (h or m) else [])
+    return sign + " ".join(parts)
+
+
 def is_duration_column(values: Sequence[str]) -> bool:
     """Графа — длительности: среди заполненных не меньше 60 % вида «ч:мм:сс»
     (тот же порог, что у определения типа). Прочерк и пустота не мешают."""

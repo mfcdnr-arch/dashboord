@@ -76,7 +76,14 @@ export const rowItem: React.CSSProperties = { display: 'flex', justifyContent: '
 export const tab: React.CSSProperties = { height: 34, padding: '0 14px', border: '1px solid var(--border-strong)', borderRadius: 8, background: 'var(--surface)', cursor: 'pointer', fontSize: 13 }
 export const presetChip: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--accent-weak-bg)', padding: '3px 10px', borderRadius: 12 }
 export const tabActive: React.CSSProperties = { background: 'var(--accent-weak-bg)', border: '1px solid var(--accent)', color: 'var(--accent-text)' }
-export const widgetCard: React.CSSProperties = { border: '1px solid var(--border)', borderRadius: 12, padding: 14, background: 'var(--surface)' }
+// Рамка — по сторонам, а не одним `border`: карточка со сработавшим порогом
+// заменяет ЛЕВУЮ сторону лентой, и смесь `border` + `borderLeft` React при
+// перерисовке гасит то одно, то другое (предупреждение в консоли, рамка мигает).
+const CARD_EDGE = '1px solid var(--border)'
+export const widgetCard: React.CSSProperties = {
+  borderTop: CARD_EDGE, borderRight: CARD_EDGE, borderBottom: CARD_EDGE, borderLeft: CARD_EDGE,
+  borderRadius: 12, padding: 14, background: 'var(--surface)',
+}
 export const editHint: React.CSSProperties = {
   background: 'var(--accent-weak-bg)', color: 'var(--accent-text)', fontSize: 12,
   padding: '8px 12px', borderRadius: 8, marginBottom: 10,

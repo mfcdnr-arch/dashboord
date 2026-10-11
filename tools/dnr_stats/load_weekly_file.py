@@ -56,6 +56,7 @@ sys.path.insert(0, "/app")
 # контейнера api, где `app` доступен. Своя копия правила «те же это данные или
 # другие» разошлась бы со штатным выпуском при первой же правке.
 from app.modules.ingestion import mapping  # noqa: E402
+from app.modules.map import office_names  # noqa: E402
 # Новые графы ведомства объявляет то же правило, что у штатного выпуска:
 # скрипт пишет мимо build_release, и без этого вызова новая услуга ведомства
 # дошла бы до колокольчика только ежедневной страховкой воркера.
@@ -226,6 +227,14 @@ async def _build_release(conn, org_id, object_id, dept_code, dataset_code, name_
     # считает общий код приложения (`mapping.values_digest`) — тот же, которым
     # сверяется штатный «выпуск по листам»: заведи здесь свой, и два загрузчика
     # однажды разошлись бы в том, что считать «тем же самым файлом».
+    # Эталонные названия отделений — тем же правилом, что у штатного выпуска
+    # (`office_names`): иначе подтверждённый вариант вернулся бы с каждой
+    # загрузкой, а сверка содержимого объявила бы неизменившийся файл новым.
+    rename = office_names.rename_map(
+        [r[1] for r in numbers + texts], await office_names.load_alias_map(conn, org_id))
+    if rename:
+        numbers = [(r[0], rename.get(r[1], r[1]), *r[2:]) for r in numbers]
+        texts = [(r[0], rename.get(r[1], r[1]), *r[2:]) for r in texts]
     fresh = [(i, addr, code, None, val, None) for i, addr, code, val in numbers]
     fresh += [(i, addr, code, val, None, None) for i, addr, code, val in texts]
     digest = mapping.values_digest(fresh)

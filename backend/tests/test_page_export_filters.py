@@ -104,6 +104,15 @@ async def test_export_respects_row_level_rls(client, admin_headers, viewer, seed
         assert "Паспорт" in mine, "разрешённая строка пропала из файла"
         assert not ({"ИНН", "СНИЛС"} & mine), "выгрузка обошла построчные права"
 
+        # Выгрузка ОДНОГО виджета — тем же правилом (до 11.10.2026 она считала
+        # данные без пользователя и отдавала все строки формы).
+        async with db.acquire() as conn:
+            wid = str(await conn.fetchval("select id from widgets where page_id=$1::uuid", pid))
+        single = _cells((await client.get(f"/widgets/{wid}/export.xlsx",
+                                          headers=viewer["headers"])).content)
+        assert "Паспорт" in single, "разрешённая строка пропала из файла виджета"
+        assert not ({"ИНН", "СНИЛС"} & single), "выгрузка виджета обошла построчные права"
+
         # Привилегированному по-прежнему видно всё — правило не сломано в другую сторону
         boss = _cells((await client.get(f"/dashboard-pages/{pid}/export.xlsx",
                                         headers=admin_headers)).content)

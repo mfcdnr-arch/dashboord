@@ -575,6 +575,14 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
     """
     cfg = _normalize_cfg(cfg)
 
+    # Показатель МЕЖДУ формами («талонов на окно-час», взвешенное среднее):
+    # своё соединение строк и дней, свой расчёт — см. _crossform.
+    if cfg.get("cross"):
+        from . import _crossform
+        if cfg.get("filter_scope") == "own":  # свой фильтр виджета сильнее фильтра страницы
+            from_date, to_date, row = cfg.get("own_from") or None, cfg.get("own_to") or None, cfg.get("own_row") or None
+        return await _crossform.compute(conn, org_id, t, name, cfg, from_date, to_date, row, user)
+
     # Мера вместо перечня граф. Виджет, настроенный на ОДНУ графу («ИТОГО ·
     # Принято, ед.»), внутри ветки замолкает: свод из ветки исключается, а
     # замены у него нет — то есть, спустившись в «Росреестр», человек терял
@@ -2028,7 +2036,10 @@ async def _compute_widget_inner(conn, org_id, t: str, name: str, cfg: dict,
                 "rows_total": len(items), "total": total, "folded_fields": folded,
                 "scale_max": max(scale_of), "rank_by": "plan_pct" if by_plan else "value",
                 "tied_last": tied if tied > 1 else 0, "tied_value": worst if tied > 1 else None,
-                "unit": cfg.get("unit")}
+                "unit": cfg.get("unit"),
+                # Значения ВСЕХ строк: по ним порог показателя считает «выше
+                # порога у N из M» — по показанным десяти это была бы неправда.
+                "values_all": [d["value"] for d in items]}
 
     if t == "bullet":
         # «Полосы»: несколько пар «план + факт» ОДНОЙ карточкой, строка на пару.

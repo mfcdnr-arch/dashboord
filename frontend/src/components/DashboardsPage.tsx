@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { NORM_CHANGED } from './NormLine'
 import ReportLayout, { REPORT_COLUMNS_WIDE } from './dashboards/ReportLayout'
 import { distinctLabels, plural } from '../lib/text'
 import GridLayout, { type Layout } from 'react-grid-layout'
@@ -34,7 +35,7 @@ import { AboutDashboard, EditDashboardDialog } from './dashboards/AboutDashboard
 import { RenameDialog } from './dashboards/RenameDialog'
 import { useConfirm } from './dashboards/ConfirmDialog'
 import type { LinkState } from '../lib/deeplink'
-import { dashboardFreshness, dashboardMissingFields, reviewMissingFields, resetReviewedFields, buildLadderPage,
+import { dashboardFreshness, dashboardMissingFields, reviewMissingFields, resetReviewedFields, buildLadderPage, buildCrossPage, getCrossPagePlan,
   getLadderPagePlan, type LadderPagePlan } from '../api/dashboards'
 import type { NewFieldsIntent } from '../lib/notifications'
 import { FreshnessBar } from './dashboards/FreshnessBar'
@@ -228,6 +229,13 @@ export default function DashboardsPage({
   const [sources, setSources] = useState<DataSources | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  // Порог показателя поменяли из виджета — он применяется ко всем виджетам
+  // этой графы, поэтому перечитываем страницу целиком.
+  useEffect(() => {
+    const on = () => setReloadKey((k) => k + 1)
+    window.addEventListener(NORM_CHANGED, on)
+    return () => window.removeEventListener(NORM_CHANGED, on)
+  }, [])
   // Свежесть данных под дашбордом. Цифры в виджетах обновляются сами, но
   // ОТКРЫТАЯ страница об этом не знает: руководитель с незакрытой вкладкой
   // смотрит на вчерашние числа и уверен, что они сегодняшние.
@@ -815,7 +823,44 @@ export default function DashboardsPage({
       const fresh = await getDashboard(sel.dashboard.id)
       setSel(fresh)
       const made = (fresh.pages || []).find((p) => p.id === res.page_id)
-      if (made) setPage(made)
+      // openPage, а не setPage: иначе вкладка переключалась, а виджеты
+      // оставались от прежней страницы.
+      if (made) await openPage(made)
+      setReloadKey((k) => k + 1)
+    } catch (e) { fail(e) } finally { setBusy(false) }
+  }
+
+  /** Страница «Между формами»: показатели, которые считаются по двум формам
+   *  сразу (талонов на окно, ожидание, взвешенное по талонам). Как и страница
+   *  лестницы — отдельной страницей, остальные не трогаются. */
+  async function crossPage() {
+    if (!sel) return
+    setBusy(true); setError(null)
+    let plan: { indicators: { name: string; hint: string }[] }
+    try { plan = await getCrossPagePlan(sel.dashboard.id) } catch (e) { fail(e); setBusy(false); return }
+    setBusy(false)
+    if (!plan.indicators.length) {
+      setError('В системе нет форм, между которыми можно посчитать показатели: нужны графы «работающих окон», «талонов» или «ИТОГО · Принято».')
+      return
+    }
+    const exists = (sel.pages || []).some((p) => p.name === 'Между формами')
+    if (!await ask({
+      title: exists ? 'Пересобрать страницу «Между формами»?' : 'Добавить страницу «Между формами»?',
+      message: 'Система нашла графы для показателей:\n'
+        + plan.indicators.map((i) => `• ${i.name} — ${i.hint}`).join('\n')
+        + '\n\nСчитается отношение сумм по отделениям и дням, которые есть в обеих формах, — не среднее частных. '
+        + (exists ? 'Наполнение ЭТОЙ страницы будет заменено. ' : '') + 'Остальные страницы дашборда не тронуты.',
+      confirmLabel: exists ? 'Пересобрать' : 'Добавить', busyLabel: 'Собираем…', tone: 'accent',
+    })) return
+    setBusy(true)
+    try {
+      const res = await buildCrossPage(sel.dashboard.id)
+      const fresh = await getDashboard(sel.dashboard.id)
+      setSel(fresh)
+      const made = (fresh.pages || []).find((p) => p.id === res.page_id)
+      // openPage, а не setPage: иначе вкладка переключалась, а виджеты
+      // оставались от прежней страницы.
+      if (made) await openPage(made)
       setReloadKey((k) => k + 1)
     } catch (e) { fail(e) } finally { setBusy(false) }
   }
@@ -1334,7 +1379,7 @@ export default function DashboardsPage({
                 currentPath: sel.dashboard.folder_name ? `${sel.dashboard.object_name}/${sel.dashboard.folder_name}` : null,
               }),
               saveTemplate: () => setTemplateName(sel.dashboard.name),
-              archive: () => setArchiveOpen(true), toggleAutoArchive, toggleSuggestFields, resetReviewed, ladderPage,
+              archive: () => setArchiveOpen(true), toggleAutoArchive, toggleSuggestFields, resetReviewed, ladderPage, crossPage,
               del: doDeleteDashboard, comments: () => setCommentsOpen(true), kiosk: () => setKiosk(true),
               about: () => setAboutOpen(true),
               rename: () => setEditDash({ name: sel.dashboard.name, description: sel.dashboard.description || '' }),

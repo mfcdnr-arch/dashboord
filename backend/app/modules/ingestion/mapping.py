@@ -15,6 +15,7 @@ import logging
 import re
 from typing import Any, List, Optional, Sequence
 
+from ..map import office_names
 from . import analyze, parsers
 
 
@@ -1206,7 +1207,8 @@ def _validate_grid(rows, value_fields, label_col, field_type) -> list:
 _SHEET_DATE_RE = re.compile(r"^\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})(?:\s*[.\-/]\s*(\d{2,4}))?\s*$")
 
 
-def sheet_values(table_row, *, layout: Optional[dict], fields: List[dict]) -> dict:
+def sheet_values(table_row, *, layout: Optional[dict], fields: List[dict],
+                 aliases: Optional[dict] = None) -> dict:
     """Что именно уехало бы в `dataset_values` с этого листа при этой разметке.
 
     Один источник правды для ДВУХ разных задач, и в этом весь смысл выноса:
@@ -1218,6 +1220,10 @@ def sheet_values(table_row, *, layout: Optional[dict], fields: List[dict]) -> di
     Возвращает и саму сетку разметки (`area`): по ней же считается отпечаток
     структуры для шаблона объекта, и второй разбор той же таблицы был бы
     лишней работой.
+
+    `aliases` — запомненные варианты названий отделений (`office_names`):
+    вариант подменяется эталоном ЗДЕСЬ, а не при вставке, — тогда и сверка
+    «изменился ли лист» видит те же названия, что лежат в базе.
     """
     grid = json.loads(table_row["data"]) if table_row["data"] else []
     merges = [tuple(m) for m in (json.loads(table_row["merges"]) if table_row["merges"] else [])]
@@ -1246,6 +1252,7 @@ def sheet_values(table_row, *, layout: Optional[dict], fields: List[dict]) -> di
             casted = _cast(raw, field_type[f["field_code"]])
             values.append((row_index, row_label, f["field_code"],
                            casted["value_text"], casted["value_number"], casted["value_date"]))
+    values = office_names.canonicalize(values, aliases)
 
     return {"grid": grid, "merges": merges, "area": area, "rect": rect,
             "header_rows": header_rows, "rows_used": rows_used, "values": values,
@@ -1636,6 +1643,7 @@ async def build_releases_by_sheet(
     if ctx is None:
         raise ValueError("Задание извлечения не найдено")
     object_id, org_id = ctx["object_id"], ctx["organization_id"]
+    aliases = await office_names.load_alias_map(conn, org_id)
 
     tables = await conn.fetch(
         "select id, sheet_or_page from extracted_tables where extraction_job_id=$1::uuid "
@@ -1733,7 +1741,7 @@ async def build_releases_by_sheet(
                         "select header_rows, data, merges, data_rect "
                         "from extracted_tables where id=$1::uuid", t["id"])
                     fresh = sheet_values(table_row, layout={**sheet_lay, "skip_rows": skip},
-                                         fields=fields)
+                                         fields=fields, aliases=aliases)
                     if values_digest(fresh["values"]) == await released_values_digest(
                             conn, compare_with):
                         skipped.append({"sheet": t["sheet_or_page"], "period": period.isoformat(),
@@ -1842,7 +1850,8 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
     # разбор тем же кодом гарантирует, что сверка и вставка видят одно и то же.
     # Сетка разметки (`area`) нужна обоим режимам: по ней материализуются
     # значения и по ней же считается отпечаток структуры для шаблона объекта.
-    sv = sheet_values(table, layout=layout, fields=fields)
+    sv = sheet_values(table, layout=layout, fields=fields,
+                      aliases=None if cells else await office_names.load_alias_map(conn, org_id))
     form = None
     if not cells:
         form = await compare_with_object_form(
@@ -1971,6 +1980,14 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
         warnings += await period_warnings_for_job(conn, job_id, table_id, reporting_period_start)
         warnings += await summary_warnings_for_job(conn, job_id, table_id, rows_used)
         n_rows = len(rows_used)
+        # Незнакомые названия отделений — одно уведомление управляющим, по
+        # каждому названию один раз. Сбой здесь не отменяет выпуск: подсказка
+        # не вправе отменять работу (урок 02.09).
+        try:
+            async with conn.transaction():
+                await office_names.after_release(conn, org_id, code, release_id, object_id)
+        except Exception:  # noqa: BLE001
+            log.exception("Проверка названий отделений не удалась: %s", code)
 
     # Запоминаем разметку: следующий файл этой же формы придёт размеченным, и
     # человеку останется проверить и подтвердить, а не размечать заново.

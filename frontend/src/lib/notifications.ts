@@ -22,6 +22,8 @@ export type NotifyTarget = {
   /** Куда идти, если дашборд из уведомления успели удалить: остальные
    *  дашборды формы по порядку, затем объект формы (`objectId`). */
   fallbackDashboardIds?: string[]
+  /** Раздел «Карта» → панель названий отделений в формах. */
+  officeNames?: boolean
 }
 
 /**
@@ -125,6 +127,17 @@ export function message(n: NotificationItem): string {
       + `(форма приходит раз в ${p.cadence_days} дн.). Данные за этот период на дашбордах не учтены.`
   }
   if (n.event_type === 'data.new_fields') return newFieldsText(p)
+  // Незнакомые названия отделений: без сопоставления форма не сравнивается с
+  // остальными и не попадает на карту. Называем, сколько система уже узнала.
+  if (n.event_type === 'data.office_names') {
+    const cnt = Number(p.count) || 0
+    const sure = Number(p.with_suggestion) || 0
+    const ex = list(p.examples).map(String).slice(0, 2)
+    return `В отчёте ${cnt} ${plural(cnt, 'название', 'названия', 'названий')} отделений, которых система не знает`
+      + `${ex.length ? ` (например, «${ex.join('», «')}»)` : ''}. `
+      + (sure ? `Для ${sure} есть однозначная подсказка — подтвердите на вкладке «Отделения» раздела «Карта».`
+        : 'Сопоставьте их с отделениями на вкладке «Отделения» раздела «Карта».')
+  }
   if (n.event_type === 'dashboard.review_requested') {
     return `«${p.dashboard_name}» ждёт проверки${p.author ? ` — отправил ${p.author}` : ''}.`
   }
@@ -217,6 +230,7 @@ export function targetOf(n: NotificationItem, staff: boolean): NotifyTarget | nu
     }
     return { section: 'objects', objectId }
   }
+  if (n.event_type === 'data.office_names') return { section: 'map', officeNames: true }
   if (n.event_type === 'data.stale' || n.event_type === 'data.missing' || n.event_type === 'data.gap') {
     return { section: 'objects', objectId: id }
   }

@@ -197,6 +197,7 @@ export function WidgetCard({
                 dashboardId={dashboardId}
                 nComments={w.comments_count}
                 onCommentsChanged={onCommentsChanged}
+                canEditNorm={canManage}
                 stripe={false} />
             </div>
           )}

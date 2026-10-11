@@ -246,6 +246,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   // (`onNewFieldsConsumed`), иначе окно всплывало бы при каждом следующем
   // заходе на дашборд.
   const [newFieldsIntent, setNewFieldsIntent] = useState<NewFieldsIntent | null>(null)
+  // Уведомление о незнакомых названиях отделений открывает панель на «Карте».
+  const [officeNamesSeq, setOfficeNamesSeq] = useState(0)
   const intentSeq = useRef(0)
   const [openDocument, setOpenDocument] = useState<string | null>(null)
   // Показатель, к которому ведёт быстрый поиск (п. 9): раздел «Метрики»
@@ -466,6 +468,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
                 : { section: 'dashboards', dashboard: did })
               return
             }
+            if (t.officeNames) setOfficeNamesSeq((x) => x + 1)
             setOpenDash(t.dashboardId ?? null)
             setSection(t.section)
           }}
@@ -558,7 +561,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ) : section === 'dnrstats' ? (
             <DnrStatsPage />
           ) : section === 'map' ? (
-            <MapPage me={me} />
+            <MapPage me={me} namesSeq={officeNamesSeq} />
           ) : section === 'users' ? (
             <UsersPage me={me} />
           ) : section === 'reports' ? (

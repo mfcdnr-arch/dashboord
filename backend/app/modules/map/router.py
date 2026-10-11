@@ -18,11 +18,14 @@ from pydantic import BaseModel, Field
 from ... import db
 from ..auth.deps import get_current_user, require_roles
 from ..system import settings_service
-from . import service
+from . import office_names, service
 from .service import MapError
 
 router = APIRouter(prefix="/map", tags=["map"])
 manage = require_roles("admin", "superadmin")
+# Названия отделений в формах решает и модератор: это его выпуски, и
+# уведомление о незнакомых названиях приходит ему же.
+names_manage = require_roles("admin", "superadmin", "moderator", "senior_moderator")
 
 MAX_IMPORT_BYTES = 5 * 1024 * 1024  # перечень отделений — это десятки килобайт
 
@@ -146,6 +149,51 @@ async def link_suggested(dataset_code: Optional[str] = None, user: dict = Depend
         async with conn.transaction():
             try:
                 return await service.link_suggested(conn, user["organization_id"], user["id"], code)
+            except MapError as e:
+                raise _bad(e)
+
+
+class NameDecision(BaseModel):
+    label: str = Field(min_length=1, max_length=500)
+    # Пусто — «это не отделение»: больше не спрашивать.
+    office_id: Optional[str] = None
+
+
+class NameDecisionsIn(BaseModel):
+    items: list[NameDecision] = Field(min_length=1, max_length=2000)
+
+
+@router.get("/office-names")
+async def office_names_review(user: dict = Depends(names_manage)):
+    """Названия отделений во всех формах, которые система не узнала, —
+    с подсказкой, какому отделению справочника они соответствуют."""
+    async with db.get_pool().acquire() as conn:
+        return await office_names.review(conn, user["organization_id"])
+
+
+@router.post("/office-names/confirm")
+async def office_names_confirm(body: NameDecisionsIn, user: dict = Depends(names_manage)):
+    async with db.get_pool().acquire() as conn:
+        async with conn.transaction():
+            return await office_names.confirm(
+                conn, user["organization_id"], user["id"],
+                [i.model_dump() for i in body.items])
+
+
+@router.post("/office-names/confirm-suggested")
+async def office_names_confirm_suggested(user: dict = Depends(names_manage)):
+    """Подтвердить разом все однозначные подсказки."""
+    async with db.get_pool().acquire() as conn:
+        async with conn.transaction():
+            return await office_names.confirm_suggested(conn, user["organization_id"], user["id"])
+
+
+@router.delete("/office-names/{alias_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def office_names_forget(alias_id: str, user: dict = Depends(names_manage)):
+    async with db.get_pool().acquire() as conn:
+        async with conn.transaction():
+            try:
+                await office_names.forget(conn, user["organization_id"], user["id"], alias_id)
             except MapError as e:
                 raise _bad(e)
 
