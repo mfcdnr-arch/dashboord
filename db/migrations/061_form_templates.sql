@@ -43,6 +43,18 @@ end $$;
 alter table object_layout_templates add column if not exists sheet_name text;
 alter table object_layout_template_history add column if not exists sheet_name text;
 
+-- Имя листа у шаблонов, заведённых до этой миграции, — из выпуска-источника:
+-- лист, чьи распознанные столбцы привязаны к его графам. Без него выбор листа
+-- «по имени формы» у старых шаблонов не работает, и в книге из нескольких
+-- форм такой шаблон не нашёл бы «свой» лист.
+update object_layout_templates t set sheet_name = s.sheet
+  from (select distinct on (rf.dataset_release_id) rf.dataset_release_id as rid, et.sheet_or_page as sheet
+          from dataset_release_fields rf
+          join extracted_columns ec on ec.id = rf.extracted_column_id
+          join extracted_tables et on et.id = ec.extracted_table_id
+         order by rf.dataset_release_id) s
+ where t.sheet_name is null and s.rid = t.source_release_id;
+
 create index if not exists ix_layout_template_history_form
     on object_layout_template_history (object_id, dataset_code, replaced_at desc);
 
