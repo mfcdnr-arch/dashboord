@@ -24,6 +24,8 @@ BASE = "http://test"
 @pytest_asyncio.fixture(scope="session")
 async def _seeded():
     """Один раз на сессию: пул БД + гарантированный admin/роли/организация."""
+    from _testdb import recreate_if_asked  # своя база для прогона (см. модуль)
+    await recreate_if_asked()
     await db.connect()
     await ensure_seed()
     # Сид-admin заводится с must_change_password=true (обязательная смена при

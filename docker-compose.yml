@@ -171,11 +171,19 @@ services:
       dockerfile: Dockerfile.test
     image: dashbord-test:py312
     profiles: ["test"]
-    environment: *backend_env
+    # 🔴 Своя база: `dashbord_test` пересоздаётся с нуля на каждый прогон
+    # (tests/_testdb.py) всеми миграциями. Раньше тесты шли по базе стенда:
+    # живую проверку приходилось откладывать на время прогона, а уборка
+    # тестов сносила её временные данные (11.10.2026).
+    environment:
+      <<: *backend_env
+      POSTGRES_DB: dashbord_test
+      TEST_DB_RECREATE: "1"
     working_dir: /app
     volumes:
       - ./backend/app:/app/app:ro
       - ./backend/tests:/app/tests:ro
+      - ./db/migrations:/migrations:ro
       - ./backend/pytest.ini:/app/pytest.ini:ro
       - ./backend/pyproject.toml:/app/pyproject.toml:ro
       - ./frontend:/frontend:ro
