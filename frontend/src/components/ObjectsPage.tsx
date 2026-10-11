@@ -11,6 +11,7 @@ import ExtractionPage from './ExtractionPage'
 import RowAclEditor from './RowAclEditor'
 import FolderAnalytics from './objects/FolderAnalytics'
 import FormLevels from './objects/FormLevels'
+import ReportCadence from './objects/ReportCadence'
 import LayoutTemplates from './objects/LayoutTemplates'
 import QualityReview from './objects/QualityReview'
 import { ConfirmDialog, useConfirm } from './dashboards/ConfirmDialog'
@@ -429,6 +430,7 @@ export default function ObjectsPage(
           подтверждает — один раз на форму. Стоит на экране объекта, а не папки:
           форма принадлежит объекту (объект = одна форма), там же живёт и её
           разметка. */}
+      {obj && !folder && canManage && <ReportCadence objectId={obj.id} />}
       {obj && !folder && canManage && <FormLevels objectId={obj.id} />}
       {obj && !folder && canManage && <LayoutTemplates objectId={obj.id} />}
 

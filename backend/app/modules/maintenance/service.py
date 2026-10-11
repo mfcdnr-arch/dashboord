@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import uuid
 from datetime import date, timedelta
 from typing import Optional
 
@@ -188,6 +189,34 @@ async def notify_worker_restarts() -> int:
         return sent
 
 
+async def notify_restore_check() -> bool:
+    """Сообщить управляющим, что проверка резервной копии восстановлением
+    провалилась или давно не проводилась — один раз на каждое состояние.
+
+    Проверку делает хост раз в месяц (restore-check-watch.sh); без этого
+    сообщения её провал был бы виден только тому, кто сам откроет «Здоровье
+    системы», — то есть, скорее всего, в день аварии.
+    """
+    from . import restore_check_service as rc
+
+    news = rc.to_announce()
+    if news is None:
+        return False
+    last = news.get("last") or {}
+    payload = {"state": news["state"], "message": last.get("message"), "set": last.get("set"),
+               "checked_at": last.get("ts"), "age_days": news.get("age_days")}
+    async with db.get_pool().acquire() as conn:
+        for org in await conn.fetch("select id from organizations"):
+            recipients = await notif.management_user_ids(conn, org["id"])
+            if recipients:
+                # entity_id — UUID: постоянный от состояния, чтобы повтор был тем же событием.
+                await notif.notify(conn, org["id"], "system.restore_check", "system",
+                                   str(uuid.uuid5(uuid.NAMESPACE_URL, "restore-check:" + news["key"])),
+                                   payload, recipients)
+    rc.mark_announced(news["key"])
+    return True
+
+
 async def check_freshness(conn, org_id, stale_days: int | None = None) -> dict:
     """Создаёт уведомления по объектам с устаревшими данными. Возвращает сводку."""
     days = stale_days
@@ -246,6 +275,16 @@ def infer_cadence(periods: list) -> Optional[int]:
     return median if steady * 3 >= len(gaps) * 2 else None
 
 
+def effective_cadence(declared: Optional[int], periods: list) -> Optional[int]:
+    """Ритм формы: заданный человеком на объекте, иначе — выведенный из истории.
+
+    Заданный действует с ПЕРВОГО отчёта: выводу из истории нужно четыре, и у
+    новой недельной формы напоминание молчало бы месяц. Одно правило на
+    напоминания, аналитику папки и календарь — иначе экраны разошлись бы.
+    """
+    return int(declared) if declared else infer_cadence(periods)
+
+
 def missing_periods(periods: list, cadence: int, until=None) -> list:
     """Отчётные даты, которых не хватает: дыры ВНУТРИ ряда и просрочка после
     последнего отчёта.
@@ -297,7 +336,8 @@ async def check_cadence(conn, org_id) -> dict:
     """
     rows = await conn.fetch(
         "select r.code, max(o.name) as object_name, max(r.object_id::text) as object_id, "
-        "array_agg(distinct r.reporting_period_start) as periods "
+        "array_agg(distinct r.reporting_period_start) as periods, "
+        "max(o.report_cadence_days) as declared "
         "from dataset_releases r left join objects o on o.id = r.object_id "
         "where r.organization_id=$1 and r.status <> 'superseded' "
         "  and r.reporting_period_start is not null and r.object_id is not null "
@@ -309,7 +349,7 @@ async def check_cadence(conn, org_id) -> dict:
     gaps_found: list[dict] = []
     for row in rows:
         periods = sorted(p for p in row["periods"] if p is not None)
-        cadence = infer_cadence(list(row["periods"]))
+        cadence = effective_cadence(row["declared"], list(row["periods"]))
         if cadence is None:
             continue
 

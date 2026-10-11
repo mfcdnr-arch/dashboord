@@ -76,6 +76,26 @@ async def backup_run_now(user: dict = Depends(admin)):
     return {"requested": True}
 
 
+@router.get("/restore-check")
+async def restore_check_state(user: dict = Depends(admin)):
+    """Итог последней проверки резервной копии восстановлением (её делает хост)."""
+    from . import restore_check_service as rc
+    return rc.status()
+
+
+@router.post("/restore-check/run-now")
+async def restore_check_run_now(user: dict = Depends(admin)):
+    """«Проверить сейчас»: заявка-файл, которую хостовой наблюдатель подхватит
+    в течение минуты (restore-check-watch.sh). Сама проверка идёт минуты."""
+    from . import restore_check_service as rc
+    st = rc.status()
+    if st["pending"] or st["running"]:
+        raise HTTPException(http_status.HTTP_409_CONFLICT,
+                            "Проверка уже идёт или ожидает запуска хостом.")
+    rc.request_now(user["login"])
+    return {"requested": True}
+
+
 @router.get("/worker-guard")
 async def worker_guard_state(user: dict = Depends(admin)):
     """Состояние хостового сторожа воркера: отмечался ли он вообще, приостановлен

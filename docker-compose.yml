@@ -127,6 +127,8 @@ services:
     # DEV: код монтируется + arq --watch перезапускает воркер при изменениях.
     volumes:
       - ./backend/app:/app/app
+      # Итог проверки бэкапа восстановлением — для уведомления (см. прод-конфиг).
+      - ./ops-triggers:/app/ops-triggers
     depends_on: *backend_deps
     # Та же проверка живости, что в прод-конфигурации: воркер раз в 60 с пишет
     # health-ключ в Redis (health_check_interval в WorkerSettings), `arq --check`
@@ -193,6 +195,9 @@ services:
       # уходящий наружу, и потому единственный, который некому проверить изнутри.
       - ./health-watch.sh:/deploy/health-watch.sh:ro
       - ./http-lib.sh:/deploy/http-lib.sh:ro
+      # restore-check-watch.sh — test_restore_check_watch: ежемесячная проверка
+      # резервной копии восстановлением, запускается хостом.
+      - ./restore-check-watch.sh:/deploy/restore-check-watch.sh:ro
       # Инструменты загрузки — test_declare_release_fields проверяет, что загрузчик
       # недельных файлов ведомств объявляет графы выпуска (находка 23.09.2026).
       - ./tools:/deploy/tools:ro

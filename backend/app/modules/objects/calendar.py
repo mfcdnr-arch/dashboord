@@ -29,7 +29,7 @@ from __future__ import annotations
 from datetime import date
 from typing import List, Optional
 
-from ..maintenance.service import infer_cadence, missing_periods
+from ..maintenance.service import effective_cadence, missing_periods
 
 
 class CalendarError(Exception):
@@ -74,7 +74,10 @@ async def folder_calendar(conn, org_id, folder_id: str, year: Optional[int] = No
         "where d.folder_id=$1::uuid and r.organization_id=$2 and r.status <> 'superseded' "
         "  and r.reporting_period_start is not null", folder_id, org_id)
     periods = sorted(r["period"] for r in release_periods)
-    cadence = infer_cadence(periods)
+    declared = await conn.fetchval(
+        "select o.report_cadence_days from folders f join objects o on o.id=f.object_id "
+        "where f.id=$1::uuid", folder_id)
+    cadence = effective_cadence(declared, periods)
 
     today: date = await conn.fetchval("select current_date")
     gaps = missing_periods(periods, cadence, until=today) if cadence else []

@@ -328,9 +328,11 @@ async def _auto_quality(conn, job, tpl: dict, code: str, period, fields: list) -
         lay.get("orientation") or mapping.DEFAULT_LAYOUT["orientation"])
     rows = mapping.data_rows(area, hdr, lay.get("skip_rows") or [])
     label = next((f["column_index"] for f in fields if f.get("is_row_label")), None)
-    return await mapping.quality_warnings(
+    warnings = await mapping.quality_warnings(
         conn, job["organization_id"], code=code, period=period,
         rows=rows, fields=fields, label_col=label)
+    # Книга противоречит своей же сводке — выпускать молча нельзя, решает человек.
+    return warnings + await mapping.summary_warnings_for_job(conn, job["id"], tpl["table_id"], rows)
 
 
 async def _fail(job_id: str, document_id, message: str) -> None:

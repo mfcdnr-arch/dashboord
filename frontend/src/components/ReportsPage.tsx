@@ -12,6 +12,7 @@ import UserCard from './users/UserCard'
 import AttendanceChart from './reports/AttendanceChart'
 import { fmtNumber as num } from '../lib/format'
 import { getLoginEvents, type LoginEventsReport } from '../api'
+import RestoreCheckLine from './RestoreCheckLine'
 import Notice from './Notice'
 
 
@@ -417,6 +418,7 @@ export default function ReportsPage({ me }: { me: { roles: string[] } }) {
                 <button style={btnGhost} disabled={backupRequesting || backup.pending} onClick={doBackupNow}>
                   {backupRequesting ? '⏳ Отправка…' : backup.pending ? '⏳ Уже в очереди' : '💾 Запустить сейчас'}
                 </button>
+                <RestoreCheckLine />
               </>
             )}
           </div>

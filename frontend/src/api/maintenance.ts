@@ -64,6 +64,27 @@ export async function getBackupStatus(): Promise<BackupStatus> {
   return res.json()
 }
 
+/** Проверка резервной копии восстановлением (restore-check.sh на хосте). */
+export interface RestoreCheckState {
+  /** ok / diff (набор цел, рабочая база ушла вперёд) / fail / never / overdue */
+  state: 'ok' | 'diff' | 'fail' | 'never' | 'overdue'
+  last: { ts: string; ok: boolean; status: string; message: string; set: string } | null
+  age_days: number | null
+  planned_days: number
+  running: boolean
+  pending: boolean
+}
+export async function getRestoreCheck(): Promise<RestoreCheckState> {
+  const res = await fetch('/maintenance/restore-check', { headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+export async function runRestoreCheckNow(): Promise<{ requested: boolean }> {
+  const res = await fetch('/maintenance/restore-check/run-now', { method: 'POST', headers: authH() })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
 export async function runBackupNow(): Promise<{ requested: boolean }> {
   const res = await fetch('/maintenance/backup/run-now', { method: 'POST', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))

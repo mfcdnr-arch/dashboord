@@ -159,6 +159,10 @@ export function message(n: NotificationItem): string {
   if (n.event_type === 'system.worker_restarted') return p.healthy
     ? 'Фоновый воркер не отмечался и был перезапущен автоматически — конвейер данных снова работает. Если это повторяется, стоит разобраться с причиной: «Отчёты» → «Здоровье системы».'
     : 'Фоновый воркер перезапущен автоматически, но так и не отметился: загрузка файлов, выпуск данных и уведомления остановлены. Нужен разбор причины — «Отчёты» → «Здоровье системы».'
+  // Ежемесячная проверка резервной копии восстановлением: провал или просрочка.
+  if (n.event_type === 'system.restore_check') return p.state === 'overdue'
+    ? `Резервную копию давно не проверяли восстановлением (${p.age_days ?? '?'} дн.). Проверьте, установлен ли наблюдатель на сервере, или запустите проверку вручную: «Отчёты» → «Бэкап и автоархив».`
+    : `Резервная копия НЕ прошла проверку восстановлением${p.set ? ` (набор ${p.set})` : ''}: ${p.message ?? 'причина в отчёте проверки'}. Восстановиться из неё может не получиться — нужен разбор: «Отчёты» → «Бэкап и автоархив».`
   if (n.event_type === 'appeal.created' || n.event_type === 'appeal.message') return `${p.author ?? ''}: ${p.snippet ?? ''}`
   if (n.event_type === 'appeal.replied') return `${p.author ?? 'Администратор'} ответил на ваше обращение: ${p.snippet ?? ''}`
   if (n.event_type === 'data.auto_released') {
@@ -215,5 +219,6 @@ export function targetOf(n: NotificationItem, staff: boolean): NotifyTarget | nu
   if (n.event_type === 'data.retention_due') return { section: 'settings' }
   if (n.event_type === 'system.degraded') return { section: 'reports' }
   if (n.event_type === 'system.worker_restarted') return { section: 'reports' }
+  if (n.event_type === 'system.restore_check') return { section: 'reports' }
   return null
 }

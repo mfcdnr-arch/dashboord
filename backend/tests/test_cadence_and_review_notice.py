@@ -231,3 +231,61 @@ async def test_overdue_series_is_not_reported_as_an_inner_gap(weekly_object, ids
         res = await maint.check_cadence(conn, ids["org"])
         assert [m for m in res["missing"] if m["dataset_code"] == "ztest_ritm"], "просрочка обязана быть"
         assert not [g for g in res["gaps"] if g["dataset_code"] == "ztest_ritm"], res["gaps"]
+
+
+# ── Ритм, заданный человеком (миграция 062, 11.10.2026) ───────────────────────
+
+def test_declared_cadence_wins_and_works_from_first_report():
+    one = [date(2026, 10, 6)]
+    assert maint.infer_cadence(one) is None, "из одного отчёта ритм не вывести"
+    assert maint.effective_cadence(None, one) is None
+    assert maint.effective_cadence(7, one) == 7, "заданный ритм действует с первого отчёта"
+    assert maint.effective_cadence(30, _weekly(10)) == 30, "заданный сильнее выведенного"
+
+
+@pytest_asyncio.fixture
+async def new_weekly_form(client, admin_headers, ids):
+    """Новая недельная форма: ОДИН отчёт, и тот — три недели назад."""
+    r = await client.post("/objects", headers=admin_headers, json={"name": "ztest_ritm_new"})
+    oid = r.json()["id"]
+    async with db.acquire() as conn:
+        uid = await conn.fetchval("select id from users where login='admin'")
+        await conn.execute(
+            "insert into dataset_releases(organization_id, object_id, code, name, status, "
+            "reporting_period_start, created_by) values($1,$2::uuid,'ztest_ritm_new','Книга','validated',$3,$4)",
+            ids["org"], oid, date.today() - timedelta(days=21), uid)
+    yield oid
+    async with db.acquire() as conn:
+        await conn.execute("delete from notification_recipients where notification_event_id in "
+                           "(select id from notification_events where entity_id=$1::uuid)", oid)
+        await conn.execute("delete from notification_events where entity_id=$1::uuid", oid)
+        await conn.execute("delete from dataset_releases where object_id=$1::uuid", oid)
+        await conn.execute("delete from objects where id=$1::uuid", oid)
+
+
+async def test_declared_weekly_cadence_reminds_about_new_form(client, admin_headers, new_weekly_form, ids):
+    """Книга Минэкономразвития: один отчёт — по истории молчим, с заданным ритмом напоминаем."""
+    oid = new_weekly_form
+    async with db.acquire() as conn:
+        res = await maint.check_cadence(conn, ids["org"])
+        assert not [m for m in res["missing"] if m["dataset_code"] == "ztest_ritm_new"], \
+            "ритм не задан и по одному отчёту не выводится — напоминать не о чем"
+
+    r = await client.get(f"/objects/{oid}/cadence", headers=admin_headers)
+    assert r.status_code == 200 and r.json() == {
+        "declared": None, "inferred": None, "reports": 1,
+        "last_period": (date.today() - timedelta(days=21)).isoformat(), "next_expected": None}
+    r = await client.patch(f"/objects/{oid}", headers=admin_headers, json={"report_cadence_days": 7})
+    assert r.status_code == 200 and r.json()["report_cadence_days"] == 7, r.text
+    r = await client.get(f"/objects/{oid}/cadence", headers=admin_headers)
+    assert r.json()["next_expected"] == (date.today() - timedelta(days=14)).isoformat()
+
+    async with db.acquire() as conn:
+        res = await maint.check_cadence(conn, ids["org"])
+        mine = [m for m in res["missing"] if m["dataset_code"] == "ztest_ritm_new"]
+        assert mine and mine[0]["cadence_days"] == 7, res
+        assert await conn.fetchval(
+            "select 1 from notification_events where entity_id=$1::uuid and event_type='data.missing'", oid)
+
+    r = await client.patch(f"/objects/{oid}", headers=admin_headers, json={"report_cadence_days": 0})
+    assert r.status_code == 422, "ноль — не ритм"

@@ -122,6 +122,12 @@ async def system_watchdog(ctx) -> None:
         await maint.notify_worker_restarts()
     except Exception:
         log.exception("Не удалось разослать уведомления о перезапусках воркера")
+    # Итог ежемесячной проверки бэкапа восстановлением (её делает хост): провал
+    # или просрочка — уведомление, один раз на состояние.
+    try:
+        await maint.notify_restore_check()
+    except Exception:
+        log.exception("Не удалось сообщить об итоге проверки резервной копии")
 
     async with db.get_pool().acquire() as conn:
         health = await reports_svc.system_health(conn)

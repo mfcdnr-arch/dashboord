@@ -79,3 +79,19 @@ describe('прежние события не сломаны выносом в li
     expect(targetOf(item('unknown.type', {}), true)).toBeNull()
   })
 })
+
+describe('уведомление о проверке резервной копии восстановлением', () => {
+  it('провал называет набор и причину и ведёт в «Отчёты»', () => {
+    const n = item('system.restore_check', { state: 'fail', set: '20261011-141457',
+      message: 'не восстановились таблицы: 1 (users)' }, '00000000-0000-0000-0000-000000000000')
+    const t = message(n)
+    expect(t).toContain('НЕ прошла проверку восстановлением (набор 20261011-141457)')
+    expect(t).toContain('не восстановились таблицы: 1 (users)')
+    expect(targetOf(n, true)).toEqual({ section: 'reports' })
+  })
+  it('просрочка говорит, сколько дней прошло, а не «провал»', () => {
+    const t = message(item('system.restore_check', { state: 'overdue', age_days: 45 }))
+    expect(t).toContain('давно не проверяли восстановлением (45 дн.)')
+    expect(t).not.toContain('НЕ прошла')
+  })
+})

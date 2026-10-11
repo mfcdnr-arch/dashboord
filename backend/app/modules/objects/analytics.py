@@ -30,7 +30,7 @@ from __future__ import annotations
 from datetime import date
 from typing import List
 
-from ..maintenance.service import infer_cadence, missing_periods
+from ..maintenance.service import effective_cadence, missing_periods
 from ..metrics import resolver as mr
 
 # Показателей в своде может быть много (у госформы их полтора десятка), но
@@ -102,7 +102,10 @@ async def _releases(conn, org_id, folder_id: str) -> dict:
         "order by r.reporting_period_start", folder_id, org_id)
     periods = sorted({r["period"] for r in rows if r["period"]})
     codes = sorted({r["code"] for r in rows})
-    cadence = infer_cadence(periods)
+    declared = await conn.fetchval(
+        "select o.report_cadence_days from folders f join objects o on o.id=f.object_id "
+        "where f.id=$1::uuid", folder_id)
+    cadence = effective_cadence(declared, periods)
     issues: List[dict] = []
     missing: List[str] = []
     today = date.today()

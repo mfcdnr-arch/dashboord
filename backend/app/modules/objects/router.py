@@ -38,6 +38,8 @@ class ObjectPatch(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     code: Optional[str] = Field(default=None, max_length=100)
     description: Optional[str] = None
+    # Как часто приходит отчёт, дней; null — определять по истории (миграция 062).
+    report_cadence_days: Optional[int] = Field(default=None, ge=1, le=366)
 
 
 class LevelIn(BaseModel):
@@ -78,7 +80,7 @@ class FolderPatch(BaseModel):
 async def list_objects(user: dict = Depends(get_current_user)):
     async with db.get_pool().acquire() as conn:
         rows = await conn.fetch(
-            "select o.id, o.name, o.code, o.description, o.created_at, "
+            "select o.id, o.name, o.code, o.description, o.created_at, o.report_cadence_days, "
             "(select count(*) from folders f where f.object_id = o.id) as folders_count "
             "from objects o where o.organization_id = $1 order by o.name",
             user["organization_id"],
@@ -116,7 +118,8 @@ async def update_object(object_id: str, data: ObjectPatch, user: dict = Depends(
 
     async with db.get_pool().acquire() as conn:
         old = await conn.fetchrow(
-            "select name, code, description from objects where id=$1::uuid and organization_id=$2",
+            "select name, code, description, report_cadence_days from objects "
+            "where id=$1::uuid and organization_id=$2",
             object_id, user["organization_id"],
         )
         if not old:
@@ -136,7 +139,7 @@ async def update_object(object_id: str, data: ObjectPatch, user: dict = Depends(
         async with conn.transaction():
             row = await conn.fetchrow(
                 f"update objects set {sets}, updated_at=now() where id=${len(cols) + 1}::uuid "
-                "returning id, name, code, description, created_at",
+                "returning id, name, code, description, created_at, report_cadence_days",
                 *[patch[c] for c in cols], object_id,
             )
             await write_event(
@@ -299,6 +302,35 @@ async def forget_layout_template(object_id: str, code: str, user: dict = Depends
                 new_data={"layout_template": "форму перестали узнавать", "dataset_code": code})
             await mapping.refresh_template_verdicts(conn, obj)
         return await ft.history(conn, obj)
+
+
+@router.get("/{object_id}/cadence")
+async def get_cadence(object_id: str, user: dict = Depends(manage)):
+    """Ритм поступления отчётов объекта: заданный человеком и выведенный из истории.
+
+    Оба нужны на экране: человек видит, что система поняла сама («раз в 7 дн.»
+    или «истории пока мало»), и решает, задавать ли ритм руками.
+    """
+    from datetime import timedelta
+
+    from ..maintenance.service import effective_cadence, infer_cadence
+    async with db.get_pool().acquire() as conn:
+        obj = await conn.fetchrow(
+            "select id, report_cadence_days from objects where id=$1::uuid and organization_id=$2",
+            object_id, user["organization_id"])
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Объект не найден")
+        periods = [r["p"] for r in await conn.fetch(
+            "select distinct reporting_period_start p from dataset_releases where object_id=$1 "
+            "and status<>'superseded' and reporting_period_start is not null order by 1", obj["id"])]
+    cadence = effective_cadence(obj["report_cadence_days"], periods)
+    return {
+        "declared": obj["report_cadence_days"],
+        "inferred": infer_cadence(periods),
+        "reports": len(periods),
+        "last_period": periods[-1].isoformat() if periods else None,
+        "next_expected": (periods[-1] + timedelta(days=cadence)).isoformat() if periods and cadence else None,
+    }
 
 
 @router.get("/{object_id}/levels")

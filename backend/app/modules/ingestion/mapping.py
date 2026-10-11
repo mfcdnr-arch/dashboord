@@ -1427,6 +1427,96 @@ def period_warnings(period, file_name: str, sheet: Optional[str], today) -> List
     return out
 
 
+# --------------------------------------------------------------------------- #
+# Сверка с листом-сводкой той же книги
+#
+# Книга «Отчёт МФЦ для Минэкономразвития» сама называет на листе «Сводка»,
+# сколько в ней итогов, планов и вопросов. 06.10.2026 «Сводка» писала «Планов
+# на неделю: 22», а на листе было 21 — расхождение нашли глазами. Теперь его
+# находит система: при выпуске листа сверяет число его строк с числом, которое
+# называет сводка этого же файла.
+# --------------------------------------------------------------------------- #
+
+# Лист-сводка мал: пары «подпись — число». Больших листов не читаем вовсе —
+# у годовой книги РЦО 201 широкий лист, и разбирать их ради сводки незачем.
+_SUMMARY_MAX_ROWS = 60
+_SUMMARY_MAX_COLS = 6
+
+
+def _stems(text: str) -> set:
+    """Основы слов (первые 4 буквы, «ё» = «е»): «Итогов недели» и «Итоги
+    недели» дают одно и то же — падеж подписи сводки не мешает сопоставлению."""
+    words = re.findall(r"[а-яa-z]+", str(text or "").lower().replace("ё", "е"))
+    return {w[:4] for w in words if len(w) >= 3}
+
+
+def summary_counts(grid: List[List[str]]) -> List[tuple]:
+    """Строки вида «подпись | целое число» — кандидаты в счётчики сводки.
+
+    Проценты и дроби не берём: «Среднее достижение плана 87,5 %» — не число
+    строк какого-либо листа.
+    """
+    out = []
+    for row in grid:
+        cells = [str(c).strip() for c in row if str(c).strip()]
+        if len(cells) != 2 or "%" in cells[0]:
+            continue
+        label, value = cells
+        if not re.fullmatch(r"\d{1,5}(?:[.,]0+)?", value) or not _stems(label):
+            continue
+        out.append((label, int(float(value.replace(",", ".")))))
+    return out
+
+
+def summary_sheet_mismatch(sheet: str, rows: int, summaries: List[tuple]) -> Optional[dict]:
+    """Чистое правило: (имя листа, строк на нём, [(лист-сводка, подпись, число)]).
+
+    Подпись сводки относится к листу, если в ней есть ВСЕ основы слов из имени
+    листа: «Планов на неделю» ↔ «Планы на неделю», «Показателей в форме» ↔
+    «Показатели». Лист, чьё имя без слов (книга «лист = дата»: «31.08»), не
+    сверяется — сопоставлять не с чем.
+    """
+    own = _stems(sheet)
+    if not own:
+        return None
+    for src, label, n in summaries:
+        if _norm_name(src) == _norm_name(sheet) or not own <= _stems(label):
+            continue
+        if n == rows:
+            return None
+        return {
+            "code": "summary_sheet_mismatch", "count": 1,
+            "message": (f"Лист «{src}» этого же файла пишет «{label}: {n}», а на листе «{sheet}» "
+                        f"строк {rows}. Одна из цифр в файле неверна — проверьте, не потерялась ли "
+                        "строка на листе и не ошибка ли в сводке."),
+        }
+    return None
+
+
+async def summary_warnings_for_job(conn, job_id, table_id, rows: Sequence[Sequence]) -> List[dict]:
+    """Сверка выпускаемого листа со сводкой той же книги (см. выше).
+
+    Строкой считается строка, где заполнена хоть одна ячейка: пустые строки
+    бланка в выпуск не попадают, и сводка их не считает.
+    """
+    if not job_id or not table_id:
+        return []
+    sheet = await conn.fetchval("select sheet_or_page from extracted_tables where id=$1::uuid", str(table_id))
+    if not sheet or not _stems(sheet):
+        return []
+    small = await conn.fetch(
+        "select sheet_or_page, data from extracted_tables where extraction_job_id=$1::uuid "
+        "and id <> $2::uuid and row_count <= $3 and column_count <= $4 order by table_index",
+        str(job_id), str(table_id), _SUMMARY_MAX_ROWS, _SUMMARY_MAX_COLS)
+    summaries = [(t["sheet_or_page"] or "", label, n)
+                 for t in small for label, n in summary_counts(_jsonb(t["data"], []))]
+    if not summaries:
+        return []
+    filled = sum(1 for r in rows if any(str(c).strip() for c in r))
+    hit = summary_sheet_mismatch(sheet, filled, summaries)
+    return [hit] if hit else []
+
+
 async def period_warnings_for_job(conn, job_id: str, table_id: str, period) -> List[dict]:
     row = await conn.fetchrow(
         "select d.original_filename, et.sheet_or_page from extraction_jobs j "
@@ -1821,6 +1911,7 @@ async def build_release(conn, *, job_id: str, table_id: str, code: str, name: st
             conn, org_id, code=code, period=reporting_period_start,
             rows=rows_used, fields=fields, label_col=label_col)
         warnings += await period_warnings_for_job(conn, job_id, table_id, reporting_period_start)
+        warnings += await summary_warnings_for_job(conn, job_id, table_id, rows_used)
         n_rows = len(rows_used)
 
     # Запоминаем разметку: следующий файл этой же формы придёт размеченным, и

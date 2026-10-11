@@ -7,6 +7,8 @@ export interface Obj {
   description: string | null
   created_at: string
   folders_count?: number
+  /** Как часто приходит отчёт, дней (задано человеком); null — по истории. */
+  report_cadence_days?: number | null
 }
 export interface Folder {
   id: string
@@ -55,13 +57,28 @@ export async function createObject(name: string, description?: string): Promise<
 }
 
 export async function updateObject(
-  objectId: string, patch: { name?: string; code?: string | null; description?: string | null },
+  objectId: string,
+  patch: { name?: string; code?: string | null; description?: string | null; report_cadence_days?: number | null },
 ): Promise<Obj> {
   const res = await fetch(`/objects/${objectId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...authH() },
     body: JSON.stringify(patch),
   })
+  if (!res.ok) throw new Error(await errText(res))
+  return res.json()
+}
+
+/** Ритм поступления отчётов: заданный человеком и выведенный из истории. */
+export interface ObjectCadence {
+  declared: number | null
+  inferred: number | null
+  reports: number
+  last_period: string | null
+  next_expected: string | null
+}
+export async function getObjectCadence(objectId: string): Promise<ObjectCadence> {
+  const res = await fetch(`/objects/${objectId}/cadence`, { headers: authH() })
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }

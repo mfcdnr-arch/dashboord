@@ -44,6 +44,7 @@ TITLES = {
     "plan_changed": "План изменился задним числом",
     "multiplied_by_factor": "Показатели умножены на один коэффициент",
     "quality_checks_failed": "Проверки качества не отработали",
+    "summary_sheet_mismatch": "Лист расходится со сводкой той же книги",
 }
 
 

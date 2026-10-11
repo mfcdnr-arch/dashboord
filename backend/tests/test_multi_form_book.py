@@ -200,3 +200,49 @@ def test_registry_does_not_flag_repeated_rows():
     assert any(w["code"] == "same_as_previous" for w in plain)
     reg = quality.compare_with_previous(cur, dict(cur), names, "29.09.2026", registry=True)
     assert not any(w["code"] == "same_as_previous" for w in reg)
+
+
+# ── Сверка со сводкой той же книги (11.10.2026) ──────────────────────────────
+
+def test_summary_rule_matches_sheet_by_word_stems():
+    """«Планов на неделю: 22» относится к листу «Планы на неделю» — падеж не мешает."""
+    from app.modules.ingestion import mapping
+    grid = [["Минэкономразвития ДНР · панель отчётности", ""], ["", ""],
+            ["Показателей в форме", "0"], ["Среднее достижение плана", "—"],
+            ["Ниже 70 % — зона контроля", "0"], ["Итогов недели", "22"], ["Планов на неделю", "22"]]
+    sums = [("Сводка", label, n) for label, n in mapping.summary_counts(grid)]
+    assert ("Сводка", "Ниже 70 % — зона контроля", 0) not in sums, "процент — не счётчик строк"
+    bad = mapping.summary_sheet_mismatch("Планы на неделю", 21, sums)
+    assert bad and bad["code"] == "summary_sheet_mismatch" and "22" in bad["message"] and "21" in bad["message"]
+    assert mapping.summary_sheet_mismatch("Итоги недели", 22, sums) is None
+    assert mapping.summary_sheet_mismatch("Показатели", 0, sums) is None
+    # Лист без слов в имени (книга «лист = дата») не сверяется: сопоставлять не с чем.
+    assert mapping.summary_sheet_mismatch("31.08", 5, sums) is None
+    # Лист, о котором сводка молчит, не сверяется.
+    assert mapping.summary_sheet_mismatch("Классификатор рисков", 30, sums) is None
+
+
+async def test_summary_mismatch_stops_auto_release(client, admin_headers, obj, monkeypatch):  # noqa: F811
+    """Книга противоречит своей сводке — форма уходит человеку, остальные выпускаются."""
+    from openpyxl import load_workbook
+
+    await _first_book(client, admin_headers, obj, monkeypatch)
+    wb = load_workbook(io.BytesIO(_book(2)))
+    ws = wb.create_sheet("Сводка", 0)
+    ws.append(["Итогов недели", 5])          # на листе 4 строки
+    ws.append(["Обращений всего", 1002])     # о листах книги не говорит — не сверяется
+    buf = io.BytesIO()
+    wb.save(buf)
+    job = await _upload_and_extract(client, admin_headers, obj["folder_id"], buf.getvalue(),
+                                    "2026-10-13", monkeypatch)
+    assert await _active(POK) == ["2026-10-06", "2026-10-13"], "соседняя форма выпущена"
+    assert await _active(ITOGI) == ["2026-10-06"], "форма, расходящаяся со сводкой, ждёт человека"
+
+    # Перед кнопкой «Выпустить» модератор видит, в чём дело.
+    tpl = next(e for e in job["layout_templates"] if e["dataset_code"] == ITOGI)
+    r = await client.post(f"/extraction-jobs/{job['job_id']}/quality-check", headers=admin_headers,
+                          json=_body(_table(job, "Итоги недели"), ITOGI, "2026-10-13", ITOGI_COLS)
+                          | {"layout": tpl["layout"]})
+    assert r.status_code == 200, r.text
+    hit = [w for w in r.json()["warnings"] if w["code"] == "summary_sheet_mismatch"]
+    assert hit and "Итогов недели: 5" in hit[0]["message"] and "строк 4" in hit[0]["message"], r.json()
