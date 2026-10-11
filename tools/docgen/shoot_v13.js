@@ -68,6 +68,22 @@ const clickText = (page, text) => page.evaluate((t) => {
     await page.waitForTimeout(400)
     const row = await chip.locator('xpath=..').boundingBox()
     await shot(page, 'v13_sheets', { clip: { x: row.x - 8, y: row.y - 8, width: row.width + 16, height: 140 } })
+    // Форма «Время обслуживания / ожидания»: время в минутах и секундах,
+    // рейтинг «где дольше всего», «Как дела» с «лучше / хуже».
+    const did = await page.evaluate(async () => {
+      const tok = localStorage.getItem('dashbord_token')
+      const r = await (await fetch('/dashboards?limit=200', { headers: { Authorization: 'Bearer ' + tok } })).json()
+      return (r.items || r).find((d) => d.name === 'РЦО: время обслуживания и ожидания')?.id
+    })
+    if (did) {
+      await page.goto(BASE + '/?s=dashboards&d=' + did, { waitUntil: 'networkidle' })
+      await page.waitForTimeout(4500)
+      const summary = page.locator('main').getByText('Как дела', { exact: true }).first()
+      const sb = await summary.boundingBox()
+      const rank = page.locator('[data-widget-id]', { hasText: 'где дольше всего' }).first()
+      const rb = await rank.boundingBox()
+      await shot(page, 'v13_wait', { clip: { x: sb.x - 20, y: sb.y - 14, width: rb.x + rb.width - sb.x + 28, height: Math.min(rb.y + rb.height - sb.y + 24, 560) } })
+    }
     console.log('ALL DONE')
   } finally {
     await browser.close()
