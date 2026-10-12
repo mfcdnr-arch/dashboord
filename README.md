@@ -3,7 +3,7 @@
 Система дашбордов с административной панелью для ГБУ «МФЦ ДНР»: загрузка
 первичных документов (Excel/CSV/PDF/Word) → распознавание таблиц и разметка
 листа «как в Excel» → выпуск датасетов → метрики с прозрачными формулами
-(готовые рецепты и предложения из анализа самого файла) → дашборды с 17 типами
+(готовые рецепты и предложения из анализа самого файла) → дашборды с 27 типами
 виджетов → модерация публикации → экспорт (Excel/PDF/PNG), архив и витрины.
 
 Целевая среда: **Astra Linux SE / ВМ / LAN, часто офлайн**. Всё разворачивается
@@ -50,7 +50,7 @@ cd frontend && npx tsc --noEmit && npm test && npm run build
 |---|---|
 | Frontend | React 18 + TypeScript + Vite, ECharts, react-grid-layout; отдаётся nginx, он же прокси API |
 | Backend | Python 3.12, FastAPI, asyncpg (без ORM — явный SQL), JWT (bcrypt) |
-| Данные | PostgreSQL 16 (32 миграции), Redis (кэш + очередь arq), MinIO (файлы документов) |
+| Данные | PostgreSQL 16 (64 миграции), Redis (кэш + очередь arq), MinIO (файлы документов) |
 | Фон | arq-воркер: распознавание документов, cron — свежесть данных, ретенция, автоархив, сторожевой health-watchdog |
 | Наблюдаемость | Prometheus + Grafana + Loki (опциональный оверлей `--monitoring`), `/internal/metrics` |
 
@@ -61,14 +61,14 @@ cd frontend && npx tsc --noEmit && npm test && npm run build
 
 | Путь | Что внутри |
 |---|---|
-| `backend/app/modules/<домен>/` | модули API: `auth`, `objects`, `documents`, `ingestion`, `metrics`, `dashboards`, `moderation`, `reports`, `users`, `audit`, `appeals`, `showcases`, `catalog`, `maintenance`, `system`, `notifications`, `home` |
+| `backend/app/modules/<домен>/` | модули API: `auth`, `objects`, `documents`, `ingestion`, `metrics`, `dashboards`, `moderation`, `reports`, `users`, `audit`, `appeals`, `showcases`, `catalog`, `maintenance`, `system`, `notifications`, `home`, `uploads`, `map`, `dnr_stats`, `portal`, `quicklinks`, `search` |
 | `backend/tests/` | интеграционные тесты (pytest + httpx против ASGI, реальная БД) |
 | `frontend/src/` | SPA: `components/` (экраны), `api/` (клиент), `theme.css` (3 темы) |
 | `db/migrations/` | SQL-миграции `NNN_*.sql`, применяются раннером с трекингом |
 | `docs/` | документация (см. ниже) |
 | `monitoring/` | конфиги Prometheus/Grafana/Loki/promtail |
 | `tools/docgen/` | генератор .docx-руководств со скриншотами |
-| `*.sh` в корне | `install.sh`, `deploy.sh`, `smoke.sh`, `backup.sh`, `restore.sh`, `gen-secrets.sh`, `gen-tls.sh`, `diag.sh` |
+| `*.sh` в корне | `install.sh`, `deploy.sh`, `smoke.sh`, `backup.sh`, `backup-schedule.sh`, `restore.sh`, `restore-check.sh`, `reset-superadmin.sh`, `gen-secrets.sh`, `gen-tls.sh`, `diag.sh`, `bundle-images.sh`; сторожа, которых зовёт хостовой таймер: `ops-trigger-watch.sh`, `worker-guard.sh`, `health-watch.sh`, `restore-check-watch.sh` |
 
 ## Документация
 
