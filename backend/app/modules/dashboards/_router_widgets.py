@@ -361,6 +361,16 @@ class NormIn(BaseModel):
     direction: Optional[str] = Field(default=None, pattern="^(lower|higher)$")
 
 
+@router.get("/widgets/norms")
+async def get_field_norms(user: dict = Depends(manage)):
+    """Все пороги показателей организации одним списком (и графы времени без
+    порога) — для «Настроек»."""
+    from ._norms import list_norms
+
+    async with db.acquire(user["id"]) as conn:
+        return {"items": await list_norms(conn, user["organization_id"])}
+
+
 @router.put("/widgets/norms/{dataset_code}/{field}")
 async def put_field_norm(dataset_code: str, field: str, body: NormIn, user: dict = Depends(manage)):
     """Порог показателя — один на графу формы: его применяют все виджеты по
@@ -377,6 +387,15 @@ async def put_field_norm(dataset_code: str, field: str, body: NormIn, user: dict
 
 
 # --- Показатели между формами (талонов на окно, взвешенное ожидание) --------
+
+@router.get("/widgets/cross-presets")
+async def cross_presets(user: dict = Depends(manage)):
+    """Готовые показатели между формами — для конструктора в форме виджета."""
+    from ._crossform import presets
+
+    async with db.acquire(user["id"]) as conn:
+        return {"indicators": await presets(conn, user["organization_id"])}
+
 
 @router.get("/dashboards/{dashboard_id}/cross-page/plan")
 async def cross_page_plan(dashboard_id: str, user: dict = Depends(manage)):

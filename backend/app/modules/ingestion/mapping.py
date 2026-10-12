@@ -1099,7 +1099,9 @@ async def quality_warnings(conn, org_id, *, code: str, period, rows: List[List[s
     try:
         registry = quality.is_registry(
             [f.get("data_type") or "text" for f in fields if not f.get("is_row_label")])
-        found = quality.check_release(current, names, previous, prev_period, registry=registry)
+        units, limit_h = await quality.duration_context(conn, org_id, code, fields)
+        found = quality.check_release(current, names, previous, prev_period, registry=registry,
+                                      units=units, duration_limit_hours=limit_h)
         total = _total_row_warning(rows, fields)
         return found + ([total] if total else [])
     except Exception as e:                      # noqa: BLE001

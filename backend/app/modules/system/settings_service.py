@@ -32,7 +32,8 @@ SYSTEM_DEFAULTS = {
     "disk_warn": 80.0, "disk_crit": 92.0,
     "worker_restart_max_per_hour": 3,
 }
-ORG_KEYS = ("stale_days", "retention_months", "appeal_response_hours", "map_dataset_code")
+ORG_KEYS = ("stale_days", "retention_months", "appeal_response_hours", "map_dataset_code",
+            "duration_limit_hours")
 ORG_DEFAULTS = {
     "stale_days": env_settings.stale_days,
     "retention_months": env_settings.retention_months,
@@ -45,6 +46,9 @@ ORG_DEFAULTS = {
     # ли в отчёте отделение, которого нет в справочнике. Пусто — сверка не
     # ведётся (на новой установке отчётов ещё нет).
     "map_dataset_code": "",
+    # Проверка качества «время больше N часов» (ожидание, обслуживание): день
+    # с таким значением авто-выпуск оставляет человеку. 0 — проверка выключена.
+    "duration_limit_hours": 3,
 }
 
 _PAIRS = (("cpu_warn", "cpu_crit"), ("ram_warn", "ram_crit"), ("disk_warn", "disk_crit"))

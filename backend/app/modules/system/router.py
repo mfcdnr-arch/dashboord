@@ -90,6 +90,8 @@ class OrgSettingsIn(BaseModel):
     stale_days: Optional[int] = Field(None, ge=1, le=3650)
     retention_months: Optional[int] = Field(None, ge=0, le=120)
     appeal_response_hours: Optional[int] = Field(None, ge=1, le=720)
+    # 0 — проверка «время больше N часов» выключена; дробное — «1,5 часа».
+    duration_limit_hours: Optional[float] = Field(None, ge=0, le=72)
 
 
 @router.get("/settings")

@@ -1681,6 +1681,11 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     }
     const ch = data.change
     const tot = data.total_change
+    // У длительности «меньше — лучше»: рост ожидания — плохая новость, и
+    // зелёная стрелка на нём читалась бы успехом (найдено 12.10.2026 на
+    // взвешенном ожидании: «↑ +9,25» зелёным и дробью вместо минут).
+    const upGood = (d: number) => (data.unit === DURATION_UNIT ? d <= 0 : d >= 0)
+    const fmtD = (d: number) => (data.unit === DURATION_UNIT ? fmtDuration(d) : fmt(d))
     // Когда точек всего две, «за весь период» и «к пред. периоду» — одно и то же число:
     // вторую строку в этом случае не показываем, чтобы не дублировать.
     const showTotal = tot != null && (data.periods_count ?? 0) > 2
@@ -1719,7 +1724,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             К пред.
             {data.change_to_period && (
               <span style={{ color: 'var(--text-muted)' }}> ({fmtPeriod(data.change_from_period)}→{fmtPeriod(data.change_to_period)})</span>
-            )}: <b style={{ color: ch >= 0 ? 'var(--success)' : 'var(--danger)' }}>{ch >= 0 ? '↑ +' : '↓ '}{fmt(ch)}{data.change_pct != null ? ` (${fmt(data.change_pct)}%)` : ''}</b>
+            )}: <b style={{ color: upGood(ch) ? 'var(--success)' : 'var(--danger)' }}>{ch >= 0 ? '↑ +' : '↓ '}{fmtD(ch)}{data.change_pct != null ? ` (${fmt(data.change_pct)}%)` : ''}</b>
             {data.trend_slope != null && <span style={{ marginLeft: 10, color: 'var(--warn)' }}>тренд: <b>{data.trend_slope >= 0 ? '↗ рост' : '↘ спад'}</b> ({fmt(data.trend_slope)}/период)</span>}
           </div>
         )}
@@ -1728,7 +1733,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             title={`${fmt(data.first_value)} на ${fmtPeriod(data.first_period)} → ${fmt(data.last_value)} на ${fmtPeriod(data.last_period)}`}>
             Всего
             <span style={{ color: 'var(--text-muted)' }}> ({fmtPeriod(data.first_period)}→{fmtPeriod(data.last_period)}, точек: {data.periods_count})</span>
-            : <b style={{ color: tot >= 0 ? 'var(--success)' : 'var(--danger)' }}>{tot >= 0 ? '↑ +' : '↓ '}{fmt(tot)}{data.total_change_pct != null ? ` (${fmt(data.total_change_pct)}%)` : ''}</b>
+            : <b style={{ color: upGood(tot) ? 'var(--success)' : 'var(--danger)' }}>{tot >= 0 ? '↑ +' : '↓ '}{fmtD(tot)}{data.total_change_pct != null ? ` (${fmt(data.total_change_pct)}%)` : ''}</b>
           </div>
         )}
         {data.anomaly_threshold != null && (
@@ -1768,7 +1773,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
         <EChart option={P(opt)} height={196} />
         {ch != null ? (
           <div style={{ fontSize: 13, marginTop: 4 }}>
-            К {data.previous_year} г. (сопоставимые месяцы: {data.compared_months}): <b style={{ color: ch >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+            К {data.previous_year} г. (сопоставимые месяцы: {data.compared_months}): <b style={{ color: (data.unit === DURATION_UNIT ? ch <= 0 : ch >= 0) ? 'var(--success)' : 'var(--danger)' }}>
               {ch >= 0 ? '↑ +' : '↓ '}{data.unit === DURATION_UNIT ? fmtDuration(ch) : fmt(ch)}{data.change_pct != null ? ` (${fmt(data.change_pct)}%)` : ''}{data.unit && data.unit !== DURATION_UNIT ? ` ${data.unit}` : ''}</b>
             {/* Как собран месяц — половина ответа: у нарастающего итога
                 сравнивается последний общий месяц, у доли — среднее. */}
@@ -2151,6 +2156,76 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     )
   }
 
+  if (data.type === 'scatter') {
+    // Два показателя по отделениям: по горизонтали нагрузка, по вертикали
+    // ожидание. Черты — медианы: справа вверху «не хватает окон», слева вверху
+    // «долго при малой нагрузке». Цвет — по четверти, а не по отделению: на
+    // шести десятках точек различить шестьдесят цветов нельзя, а четыре
+    // смысла — можно. Подписаны только верхние по ожиданию точки, остальные —
+    // в подсказке: подписи шести десятков отделений слиплись бы в пятно.
+    const pts: { label: string; x: number; y: number; days: number; quadrant: string }[] = data.points || []
+    if (pts.length === 0) return <Empty why={data.no_data || 'За выбранный период отделений, где есть оба показателя, нет.'} />
+    const Q: Record<string, { color: string; name: string }> = {
+      'hi-hi': { color: 'var(--alert-danger)', name: 'нагрузка и ожидание выше медианы' },
+      'lo-hi': { color: 'var(--alert-warn)', name: 'ожидание выше при нагрузке ниже медианы' },
+      'hi-lo': { color: 'var(--alert-good)', name: 'нагрузка выше, ожидание ниже медианы' },
+      'lo-lo': { color: C.prev, name: 'обе ниже медианы' },
+    }
+    const LABELED = 8
+    const labeled = new Set(pts.slice().sort((a, b) => b.y - a.y).slice(0, LABELED).map((p) => p.label))
+    const fx = (v: number) => fmtWithUnit(v, data.x_unit)
+    const fy = (v: number) => fmtWithUnit(v, data.y_unit)
+    const norm = data.norm_lines as { warn?: number; danger?: number } | null
+    const hLine = (v: number, name: string, color: string) => ({
+      yAxis: v, name, lineStyle: { color, type: 'dashed', width: 1 },
+      label: { formatter: `${name}: ${fy(v)}`, color, fontSize: 10, position: 'insideEndTop' } })
+    const medLine = { color: 'var(--text-faint)', type: 'dotted', width: 1 }
+    const series: any[] = Object.entries(Q).map(([key, q]) => ({
+      type: 'scatter', name: q.name, color: q.color, symbolSize: 9,
+      itemStyle: { color: q.color, opacity: 0.85 },
+      data: pts.filter((p) => p.quadrant === key).map((p) => ({ value: [p.x, p.y], name: p.label, days: p.days })),
+      label: { show: true, position: 'right', fontSize: 10, color: 'var(--text-muted)',
+        formatter: (p: any) => (labeled.has(p.name) ? elideMiddle(String(p.name), 26) : '') },
+      labelLayout: { hideOverlap: true },
+    }))
+    series[0].markLine = { silent: true, symbol: 'none', data: [
+      { xAxis: data.x_median, lineStyle: medLine, label: { formatter: 'медиана', fontSize: 10, color: 'var(--text-faint)' } },
+      { yAxis: data.y_median, lineStyle: medLine, label: { formatter: 'медиана', fontSize: 10, color: 'var(--text-faint)', position: 'insideStartTop' } },
+      ...(norm?.warn != null ? [hLine(norm.warn, 'внимание', 'var(--alert-warn)')] : []),
+      ...(norm?.danger != null ? [hLine(norm.danger, 'проблема', 'var(--alert-danger)')] : []),
+    ] }
+    const opt: EChartsOption = {
+      grid: { left: 64, right: 24, top: 14, bottom: 40 },
+      tooltip: {
+        trigger: 'item',
+        formatter: (p: any) => `<b>${p.name}</b><br/>${data.x_name}: <b>${fx(p.value[0])}</b><br/>`
+          + `${data.y_name}: <b>${fy(p.value[1])}</b><br/><span style="color:#888">дней с данными: ${p.data.days}</span>`,
+      },
+      xAxis: { type: 'value', name: elideMiddle(String(data.x_name || ''), 70), nameLocation: 'middle', nameGap: 26, nameTextStyle: { fontSize: 11 },
+        scale: true, axisLabel: { hideOverlap: true, fontSize: 11 } },
+      yAxis: { type: 'value', name: elideMiddle(String(data.y_name || ''), 40), nameLocation: 'middle', nameGap: 52, nameTextStyle: { fontSize: 11 },
+        scale: true, axisLabel: { hideOverlap: true, fontSize: 11,
+          ...(data.y_unit === DURATION_UNIT ? { formatter: (v: number) => fmtDuration(v) } : {}) } },
+      series,
+    }
+    const quads: { key: string; count: number; text: string }[] = data.quadrants || []
+    return (
+      <div ref={fit.box} style={{ height: '100%' }}>
+        <EChart option={P(opt)} height={Math.max(fit.h, 300)}
+          onPick={onPick && !print ? (name: string) => onPick(name) : undefined} />
+        <div ref={fit.labels} style={{ fontSize: 11.5, lineHeight: 1.5, marginTop: 4 }}>
+          {quads.filter((q) => q.count > 0).map((q) => (
+            <div key={q.key}>
+              <span aria-hidden style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4,
+                background: Q[q.key]?.color, marginRight: 6 }} />
+              <b>{q.count}</b> {plural(q.count, 'отделение', 'отделения', 'отделений')} — {q.text}
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   if (data.type === 'matrix') {
     // Матрица «строка × отчётная дата». Значение крупно, прирост к прошлому
     // отчёту — мелким шрифтом ПОД ним: в одной ячейке помещаются оба ответа
@@ -2195,6 +2270,8 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
     const mVal = (r: any, col: string) => (col === '__row' ? r.row : col === '__chg' ? r.total_change : r.values[Number(col)])
     rows = sortRows(rows, matrixSort, mVal)
     const totCell: React.CSSProperties = { ...td, fontWeight: 700, background: 'var(--surface-accent)' }
+    const lowerBetter = data.unit === DURATION_UNIT
+    const fmtDelta = (d: number) => (data.unit === DURATION_UNIT ? fmtDuration(d) : fmt(d))
     return (
       <div>
         <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 4 }}>
@@ -2250,14 +2327,23 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                   const v = r.values[ci]
                   const d = r.deltas?.[ci]
                   const dp = r.delta_pcts?.[ci]
+                  // Порог показателя (норма графы): клетка выше порога
+                  // окрашена так же, как строка рейтинга и ячейка таблицы.
+                  // «В норме» не красим — иначе вся матрица стала бы зелёной,
+                  // и глаз не нашёл бы то, ради чего порог задан.
+                  const lvl: string | null = r.norm_levels?.[ci] ?? null
+                  const nlook = lvl === 'danger' ? { color: 'var(--alert-danger)', background: 'var(--alert-danger-bg)' }
+                    : lvl === 'warn' ? { color: 'var(--alert-warn)', background: 'var(--alert-warn-bg)' } : null
+                  // У длительности «меньше — лучше»: рост ожидания — плохая новость.
+                  const good = typeof d === 'number' && (lowerBetter ? d < 0 : d > 0)
                   return (
-                    <td key={ci} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}
-                      title={fmtPeriod(periods[ci])}>
-                      <div>{typeof v === 'number' ? fmt(v) : '—'}</div>
+                    <td key={ci} style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', ...(nlook || {}) }}
+                      title={fmtPeriod(periods[ci]) + (lvl && lvl !== 'good' ? ` · ${lvl === 'danger' ? 'проблема' : 'внимание'} по порогу` : '')}>
+                      <div style={nlook ? { fontWeight: 600 } : undefined}>{typeof v === 'number' ? fmtWithUnit(v, data.unit) : '—'}</div>
                       {typeof d === 'number' && d !== 0 && (
-                        <div style={{ fontSize: 10.5, color: d > 0 ? 'var(--success)' : 'var(--danger)' }}
-                          title={`Изменение к прошлому отчёту: ${d > 0 ? '+' : ''}${fmt(d)}`}>
-                          {d > 0 ? '▲ +' : '▼ '}{fmt(d)}{typeof dp === 'number' ? ` (${dp > 0 ? '+' : ''}${fmt(dp)} %)` : ''}
+                        <div style={{ fontSize: 10.5, color: good ? 'var(--success)' : 'var(--danger)' }}
+                          title={`Изменение к прошлому отчёту: ${d > 0 ? '+' : ''}${fmtDelta(d)}`}>
+                          {d > 0 ? '▲ +' : '▼ '}{fmtDelta(d)}{typeof dp === 'number' ? ` (${dp > 0 ? '+' : ''}${fmt(dp)} %)` : ''}
                         </div>
                       )}
                     </td>

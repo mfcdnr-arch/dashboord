@@ -34,8 +34,10 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from ...plural import plural
 from ..dashboards._aggregate import TOTAL_LABEL_RE, head_tail
 from ..metrics.data_suggestions import _clean, _is_main_slice, _split_name, _subject_key
+from .analyze import DURATION_UNIT, fmt_duration
 
 # Ключ значения: (название строки, код показателя)
 Key = Tuple[str, str]
@@ -59,6 +61,15 @@ def classify_slice(field_name: str) -> str:
     slc = _clean(_split_name(field_name)["slice"]).lower()
     if "недел" in slc:
         return "weekly"
+    if not slc:
+        # 🔴 Разреза в имени нет — накопительным итог считаем, только если это
+        # сказано в самом имени. Раньше пустой разрез означал «нарастающим
+        # итогом» (так устроено сопоставление с планом), и в ежедневной форме
+        # «Время» графа «Всего выдано талонов» объявлялась уменьшившимся
+        # накопительным итогом в 17 днях из 20 (12.10.2026) — а такое замечание
+        # останавливает авто-выпуск.
+        low = _clean(field_name).lower()
+        return "cumulative" if any(w in low for w in ("нараст", "накоп", "с начала")) else "other"
     if _is_main_slice(slc):
         return "cumulative"
     return "other"
@@ -133,6 +144,44 @@ MULTIPLIED_BAND = 0.001
 # клетки), где одна ячейка меняет долю на целые проценты.
 NONZERO_SHARE_MIN = 0.006
 NONZERO_MIN_CELLS = 200
+
+
+# «Время больше N часов» — у графы длительности (единица «мин»).
+#
+# Реальный случай заказчика (форма «Время», 08.09.2026): Сартана — 6 ч 4 мин
+# среднего ожидания, Енакиево — 4 ч 19 мин при обычных 15–25 минутах. Такое
+# число почти наверняка сбой учёта (талон не закрыли вечером), а не очередь;
+# но и правдой оно быть может — поэтому замечание, а не запрет. Главное, что
+# оно останавливает АВТО-выпуск: день с подозрительным временем уходит
+# человеку, а не прямо на дашборд, где одно такое отделение поднимает
+# взвешенное ожидание по республике с 21 до 27 минут.
+#
+# Порог задаёт администратор («Настройки» → `duration_limit_hours`), 0 — проверка
+# выключена. Умолчание 3 часа: выше любого настоящего дня на стенде (самое
+# большое обычное ожидание — 1 ч 27 мин) и ниже обоих сбоев.
+DURATION_LIMIT_HOURS_DEFAULT = 3
+
+
+def _check_duration_too_long(current: Dict[Key, float], names: Dict[str, str],
+                             units: Dict[str, Optional[str]], limit_hours: Optional[float]) -> Optional[dict]:
+    if not limit_hours or limit_hours <= 0 or not units:
+        return None
+    limit = float(limit_hours) * 60
+    dur = {c for c, u in units.items() if u == DURATION_UNIT}
+    bad = sorted(((lab, c, v) for (lab, c), v in current.items()
+                  if c in dur and lab and v is not None and v > limit), key=lambda x: -x[2])
+    if not bad:
+        return None
+    hours = _fmt(float(limit_hours)).replace(".", ",")
+    examples = ", ".join(f"{lab} — {fmt_duration(v)} («{names.get(c, c)}»)" for lab, c, v in bad[:3])
+    more = f" и ещё {len(bad) - 3}" if len(bad) > 3 else ""
+    return {
+        "code": "duration_too_long", "count": len(bad),
+        "message": (f"Время больше {hours} ч у {len(bad)} "
+                    f"{plural(len(bad), 'строки', 'строк', 'строк')}: "
+                    f"{examples}{more}. Похоже на сбой учёта (талон не закрыт) — проверьте у источника. "
+                    "Такой день авто-выпуск оставляет человеку."),
+    }
 
 
 def check_internal(current: Dict[Key, float], names: Dict[str, str]) -> List[dict]:
@@ -524,7 +573,9 @@ async def release_is_registry(conn, release_id) -> bool:
 def check_release(current: Dict[Key, float], names: Dict[str, str],
                   previous: Optional[Dict[Key, float]] = None,
                   previous_period: Optional[str] = None,
-                  partial: bool = False, registry: bool = False) -> List[dict]:
+                  partial: bool = False, registry: bool = False,
+                  units: Optional[Dict[str, Optional[str]]] = None,
+                  duration_limit_hours: Optional[float] = None) -> List[dict]:
     """ВСЕ замечания к готовящемуся выпуску: арифметика внутри + сверка с прошлым.
 
     Единственная точка входа для всех трёх мест, где замечания показываются
@@ -532,9 +583,36 @@ def check_release(current: Dict[Key, float], names: Dict[str, str],
     иначе «перед выпуском замечаний не было, а после появились» стало бы
     неизбежным.
     """
+    long_ = _check_duration_too_long(current, names, units or {}, duration_limit_hours)
     return (check_internal(current, names)
+            + ([long_] if long_ else [])
             + compare_with_previous(current, previous or {}, names, previous_period, partial,
                                     registry=registry))
+
+
+async def duration_context(conn, org_id, code: str, fields: Optional[Sequence[dict]] = None) -> tuple:
+    """(единицы граф, порог в часах) для `check_release` — одно место для всех
+    трёх вызывающих, иначе проверка однажды молчала бы в одном из них.
+
+    Единица берётся из полей выпуска (готовящегося файла), а если её там нет —
+    из справочника граф объекта, которому принадлежит код.
+    """
+    from ..system.settings_service import get_org_settings
+
+    units: Dict[str, Optional[str]] = {}
+    for f in fields or []:
+        key = f.get("field_code") or f.get("code")
+        if key and f.get("unit"):
+            units[key] = f["unit"]
+    rows = await conn.fetch(
+        "select cf.code, cf.unit from canonical_fields cf where cf.unit is not null and cf.object_id = "
+        "(select object_id from dataset_releases where organization_id=$1 and code=$2 "
+        " and object_id is not null order by reporting_period_start desc nulls last limit 1)",
+        org_id, code)
+    for r in rows:
+        units.setdefault(r["code"], r["unit"])
+    limit = (await get_org_settings(conn, org_id)).get("duration_limit_hours")
+    return units, limit
 
 
 def compare_with_previous(

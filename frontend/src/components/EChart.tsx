@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 // компоненты — так чанк echarts заметно меньше (важно для слабого железа/LAN МФЦ).
 import * as echarts from 'echarts/core'
 import { BarChart, LineChart, PieChart, GaugeChart, HeatmapChart, ScatterChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, TitleComponent, VisualMapComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, LegendComponent, TitleComponent, VisualMapComponent, MarkLineComponent } from 'echarts/components'
 import { SVGRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts' // только тип (стирается при сборке)
 // Русская запись чисел — та же, что во всей системе (см. lib/format).
@@ -12,9 +12,14 @@ import { describeChart } from '../lib/chartAlt'
 
 // SVG-рендерер (а не Canvas): графики — векторные. Причины для гос-он-прем (Astra):
 // не зависим от canvas, чётко при печати/PDF, работает в любом браузере с SVG.
-// ScatterChart — маркеры аномалий (волна F) поверх линии «Динамика».
+// ScatterChart — маркеры аномалий (волна F) и точечная диаграмма.
+// 🔴 MarkLineComponent — линии порога («внимание»/«проблема») и черты медиан.
+// Без регистрации ECharts МОЛЧА пропускает `markLine`: линии порога на
+// «Динамике» с 12.10.2026 не рисовались ни разу, и заметили это только на
+// точечной диаграмме (12.10, вторая сессия). Страж — тест EChart.test.tsx.
 echarts.use([BarChart, LineChart, PieChart, GaugeChart, HeatmapChart, ScatterChart,
-  GridComponent, TooltipComponent, LegendComponent, TitleComponent, VisualMapComponent, SVGRenderer])
+  GridComponent, TooltipComponent, LegendComponent, TitleComponent, VisualMapComponent, MarkLineComponent,
+  SVGRenderer])
 
 // ECharts рисует на canvas и НЕ понимает CSS-переменные, поэтому значения тем
 // (цвет текста/осей) читаем из токенов через getComputedStyle и подставляем

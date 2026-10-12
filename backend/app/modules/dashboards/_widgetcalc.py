@@ -577,10 +577,12 @@ async def _compute_widget(conn, org_id, t: str, name: str, cfg: dict,
 
     # Показатель МЕЖДУ формами («талонов на окно-час», взвешенное среднее):
     # своё соединение строк и дней, свой расчёт — см. _crossform.
-    if cfg.get("cross"):
+    if cfg.get("cross") or t == "scatter":
         from . import _crossform
         if cfg.get("filter_scope") == "own":  # свой фильтр виджета сильнее фильтра страницы
             from_date, to_date, row = cfg.get("own_from") or None, cfg.get("own_to") or None, cfg.get("own_row") or None
+        if t == "scatter":
+            return await _crossform.compute_scatter(conn, org_id, name, cfg, from_date, to_date, row, user)
         return await _crossform.compute(conn, org_id, t, name, cfg, from_date, to_date, row, user)
 
     # Мера вместо перечня граф. Виджет, настроенный на ОДНУ графу («ИТОГО ·

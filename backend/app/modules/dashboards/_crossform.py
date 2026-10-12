@@ -36,8 +36,20 @@ RANKED_TOP = 5
 SPARK_POINTS = 30
 
 
+# Окно рейтинга и точечной диаграммы, когда период страницы не задан: сколько
+# последних ДНЕЙ С ДАННЫМИ взять. «Последний день» — прежнее поведение (до
+# 12.10.2026 другого не было): один день отделения — это шум (отпуск, сбой
+# талонного аппарата), и разбирать по нему, где очередь, рискованно.
+SPANS = {"last": 1, "7": 7, "30": 30, "all": None}
+SPAN_WORDS = {"last": "последний день", "7": "последние 7 дней с данными",
+              "30": "последние 30 дней с данными", "all": "вся история"}
+
+
 def _parts(cfg: dict) -> tuple[list, list]:
-    c = cfg.get("cross") or {}
+    return _parts_of(cfg.get("cross") or {})
+
+
+def _parts_of(c: dict) -> tuple[list, list]:
     num, den = c.get("num") or [], c.get("den") or []
     if not num or not den:
         raise DashboardError("Показатель между формами: укажите числитель и знаменатель")
@@ -184,8 +196,9 @@ async def compute(conn, org_id, t: str, name: str, cfg: dict,
         return res
 
     if t == "ranked":
-        # Без периода — последний общий день; с периодом — все дни периода.
-        use = days if (from_date or to_date) else [last]
+        # С периодом страницы — все дни периода; без него — окно виджета
+        # (`cross.span`: последний день, 7 или 30 дней с данными, вся история).
+        use = _span_days(days, cfg.get("cross") or {}, from_date, to_date)
         per_row: dict = defaultdict(list)
         for d in use:
             for r, p in by_day[d]:
@@ -200,8 +213,7 @@ async def compute(conn, org_id, t: str, name: str, cfg: dict,
         else:
             shown, skipped = items[:top] + items[-top:], len(items) - top * 2
         scale = [it["value"] or 0 for it in items] or [0]
-        span = (f"за {last:%d.%m.%Y}" if use == [last]
-                else f"с {use[0]:%d.%m.%Y} по {use[-1]:%d.%m.%Y}")
+        span = _span_text(use)
         on_days = set(use)
         missing = len({r for (d, r) in data if d in on_days} - set(per_row))
         return {**base, "type": "ranked", "rows": shown, "skipped": skipped, "rows_total": len(items),
@@ -213,6 +225,92 @@ async def compute(conn, org_id, t: str, name: str, cfg: dict,
                                   if missing > 0 else ""))}
 
     raise DashboardError("Показатель между формами поддерживает карточку, спидометр, динамику и рейтинг")
+
+
+def _span_days(days: list, c: dict, from_date, to_date) -> list:
+    if from_date or to_date:
+        return days
+    n = SPANS.get(str(c.get("span") or "last"), 1)
+    return days if n is None else days[-n:]
+
+
+def _span_text(use: list) -> str:
+    return (f"за {use[0]:%d.%m.%Y}" if len(use) == 1
+            else f"с {use[0]:%d.%m.%Y} по {use[-1]:%d.%m.%Y} ({len(use)} дн. с данными)")
+
+
+# --- Точечная диаграмма: два показателя по отделениям ----------------------
+#
+# «Нагрузка на окно-час ↔ ожидание»: по горизонтали — сколько посетителей
+# приходится на окно в час, по вертикали — сколько они ждут. Отделение справа
+# вверху ждёт из-за нагрузки (окон мало), слева вверху — при малой нагрузке
+# (медленно обслуживают или окна простаивают). Делим по МЕДИАНАМ, а не по
+# среднему: одно отделение с шестичасовым «ожиданием» (сбой учёта) иначе
+# сдвинуло бы черту и перетасовало всех остальных.
+
+QUADRANTS = {
+    ("hi", "hi"): "много посетителей на окно и долгое ожидание — не хватает окон",
+    ("lo", "hi"): "ожидание долгое при небольшой нагрузке — смотреть скорость обслуживания",
+    ("hi", "lo"): "нагрузка высокая, а ждут мало — справляются",
+    ("lo", "lo"): "нагрузка и ожидание ниже обычного",
+}
+
+
+def _median(xs: list) -> Optional[float]:
+    xs = sorted(x for x in xs if x is not None)
+    if not xs:
+        return None
+    m = len(xs) // 2
+    return xs[m] if len(xs) % 2 else (xs[m - 1] + xs[m]) / 2
+
+
+async def compute_scatter(conn, org_id, name: str, cfg: dict,
+                          from_date=None, to_date=None, row=None, user=None) -> dict:
+    sc = cfg.get("scatter") or {}
+    ax, ay = sc.get("x") or {}, sc.get("y") or {}
+    nx, dx = _parts_of(ax)
+    ny, dy = _parts_of(ay)
+    data = await _load(conn, org_id, nx + dx + ny + dy, user, from_date, to_date)
+    px, py = _pairs(data, nx, dx, row), _pairs(data, ny, dy, row)
+    names = await _names(conn, org_id, nx + dx + ny + dy)
+    days = sorted({d for (d, _r) in px} & {d for (d, _r) in py})
+    base = {"title": name, "type": "scatter",
+            "x_name": ax.get("name") or _formula(names, nx, dx), "x_unit": ax.get("unit"),
+            "y_name": ay.get("name") or _formula(names, ny, dy), "y_unit": ay.get("unit"),
+            "cross_formula": f"по горизонтали {_formula(names, nx, dx)}; по вертикали {_formula(names, ny, dy)}"}
+    if not days:
+        return {**base, "points": [], "no_data": "Формы не совпали ни по одному отделению и дню — сравнить нечего."}
+    use = set(_span_days(days, sc, from_date, to_date))
+    xs: dict = defaultdict(list)
+    ys: dict = defaultdict(list)
+    for (d, r), p in px.items():
+        if d in use and (d, r) in py:  # точка — только где есть ОБА показателя за тот же день
+            xs[r].append(p)
+            ys[r].append(py[(d, r)])
+    pts = [{"label": r, "x": _ratio(xs[r]), "y": _ratio(ys[r]), "days": len(xs[r])} for r in xs]
+    pts = [p for p in pts if p["x"] is not None and p["y"] is not None]
+    mx, my = _median([p["x"] for p in pts]), _median([p["y"] for p in pts])
+    counts: dict = defaultdict(int)
+    for p in pts:
+        q = ("hi" if p["x"] > mx else "lo", "hi" if p["y"] > my else "lo")
+        p["quadrant"] = "-".join(q)
+        counts[q] += 1
+    norm_line = None
+    nf = ay.get("norm_field")
+    if nf:
+        from ._norms import field_norms
+        code = next((x["dataset_code"] for x in ny if x["field"] == nf), None)
+        if code:
+            f = (await field_norms(conn, org_id, code)).get(nf) or {}
+            n = f.get("norm") or {}
+            norm_line = {k: n.get(k) for k in ("warn", "danger") if n.get(k) is not None} or None
+    span = sorted(use)
+    return {**base, "points": sorted(pts, key=lambda p: -p["y"]), "x_median": mx, "y_median": my,
+            "norm_lines": norm_line, "as_of": span[-1].isoformat(),
+            "quadrants": [{"key": "-".join(q), "count": counts[q], "text": QUADRANTS[q]}
+                          for q in (("hi", "hi"), ("lo", "hi"), ("hi", "lo"), ("lo", "lo"))],
+            "cross_note": (f"{_span_text(span)} · {len(pts)} {_pl(len(pts))}; черты — медианы: "
+                           "половина отделений по каждую сторону")}
 
 
 def _pl(n: int) -> str:
@@ -272,7 +370,8 @@ async def presets(conn, org_id) -> list:
         if all(x in f for x in num + den):
             out.append({"key": key, "name": name, "unit": unit, "hint": hint,
                         "cross": {"num": [_p(f[x]) for x in num], "den": [_p(f[x]) for x in den],
-                                  "unit": unit},
+                                  "unit": unit,
+                                  **({"norm_field": f[bind]["field"]} if bind and bind in f else {})},
                         # К какой графе привязан виджет: по ней применяется порог
                         # показателя (у взвешенного ожидания — порог ожидания).
                         "bind": _p(f[bind]) if bind and bind in f else _p(f[num[0]])})
@@ -314,7 +413,18 @@ def cross_page_specs(found: list) -> list:
     # совпадает с его обычным средним, и рейтинг повторил бы соседний виджет.
     if "tickets_per_window_hour" in by:
         p = by["tickets_per_window_hour"]
-        w(f"{p['name']}: по отделениям", "ranked", p, {"top_n": 10})
+        # За неделю, а не за один день: день отделения — шум (отпуск, сбой).
+        w(f"{p['name']}: по отделениям за неделю", "ranked", p,
+          {"top_n": 10, "cross": {**p["cross"], "span": "7"}})
+    if "tickets_per_window_hour" in by and "wait_weighted" in by:
+        lx, ly = by["tickets_per_window_hour"], by["wait_weighted"]
+        specs.append({"name": "Нагрузка на окно-час и ожидание: где очередь от нехватки окон",
+                      "widget_type": "scatter", "position_x": 0, "position_y": y, "width": 12, "height": 9,
+                      "config": {"scatter": {
+                          "x": {**lx["cross"], "name": lx["name"]},
+                          "y": {**ly["cross"], "name": ly["name"]},
+                          "span": "7"}}})
+        y += 1
     for key in ("tickets_per_window_hour", "wait_weighted"):
         if key in by:
             w(f"Динамика: {by[key]['name'].lower()}", "dynamics", by[key])

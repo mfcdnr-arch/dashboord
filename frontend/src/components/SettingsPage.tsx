@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import {
-  checkFreshness, getRetentionPreview, getSettings, runRetention, updateOrgSettings, updateSystemSettings,
-  type AllSettings, type OrgThresholds, type RetentionPreview, type SystemThresholds,
+  checkFreshness, getFieldNorms, getRetentionPreview, getSettings, runRetention, updateOrgSettings, updateSystemSettings,
+  type AllSettings, type NormListItem, type OrgThresholds, type RetentionPreview, type SystemThresholds,
 } from '../api'
 import Notice from './Notice'
 import Field from './Field'
+import { NormDialog } from './NormLine'
 
 // Раздел «Настройки» (admin/superadmin): пороги, которые раньше менялись только
 // правкой .env + рестарт контейнера — теперь через UI, без доступа к серверу.
@@ -23,7 +24,7 @@ function sysToForm(v: SystemThresholds): SysForm {
 }
 function orgToForm(v: OrgThresholds): OrgForm {
   return { stale_days: String(v.stale_days), retention_months: String(v.retention_months),
-    appeal_response_hours: String(v.appeal_response_hours) }
+    appeal_response_hours: String(v.appeal_response_hours), duration_limit_hours: String(v.duration_limit_hours ?? 3) }
 }
 
 export default function SettingsPage({ me }: { me: { roles: string[] } }) {
@@ -96,6 +97,11 @@ export default function SettingsPage({ me }: { me: { roles: string[] } }) {
             <input style={inp} type="number" min={1} max={720} value={orgForm.appeal_response_hours}
               onChange={(e) => setOrgForm({ ...orgForm, appeal_response_hours: e.target.value })} />
           </Field>
+          <Field strong label="Время больше — сбой учёта, часов"
+            hint="проверка качества: ожидание или обслуживание дольше этого — замечание к отчёту, и авто-выпуск оставляет такой день человеку. 0 — проверка выключена">
+            <input style={inp} type="number" min={0} max={72} step={0.5} value={orgForm.duration_limit_hours}
+              onChange={(e) => setOrgForm({ ...orgForm, duration_limit_hours: e.target.value })} />
+          </Field>
         </div>
         <button style={btn} disabled={savingOrg} onClick={saveOrg}>{savingOrg ? 'Сохранение…' : 'Сохранить'}</button>
         <button style={{ ...btnGhost, marginLeft: 8 }} disabled={freshBusy} onClick={doFreshness}
@@ -104,6 +110,8 @@ export default function SettingsPage({ me }: { me: { roles: string[] } }) {
         </button>
         {freshResult && <span style={{ ...muted, marginLeft: 8 }}>{freshResult}</span>}
       </Section>
+
+      <NormsSection />
 
       <RetentionSection savedMonths={data.org.retention_months} />
 
@@ -155,6 +163,55 @@ export default function SettingsPage({ me }: { me: { roles: string[] } }) {
         <button style={btn} disabled={savingSys} onClick={saveSys}>{savingSys ? 'Сохранение…' : 'Сохранить'}</button>
       </Section>
     </div>
+  )
+}
+
+// Пороги показателей одним списком. Порог один на графу формы и правится из
+// любого виджета, но администратору нужен ОДИН экран, где видно, какие пороги
+// вообще действуют, — иначе пришлось бы обходить все дашборды. Правка здесь
+// та же, что из виджета: все виджеты по графе пересчитываются сразу.
+function NormsSection() {
+  const [items, setItems] = useState<NormListItem[] | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [edit, setEdit] = useState<NormListItem | null>(null)
+  const load = () => getFieldNorms().then((r) => setItems(r.items)).catch((e) => setErr((e as Error).message))
+  useEffect(() => { load() }, [])
+  return (
+    <Section title="Пороги показателей" hint="«внимание» и «проблема» — по ним окрашиваются все виджеты с этой графой">
+      {err && <Notice>{err}</Notice>}
+      {!items && !err && <span style={muted}>Загрузка…</span>}
+      {items && items.length === 0 && (
+        <div style={muted}>Порогов пока нет. Задать его можно здесь, когда в формах появятся графы времени, или из любого виджета — строкой «Порог: … ✎» под ним.</div>
+      )}
+      {items && items.length > 0 && (
+        <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr>
+              {['Показатель', 'Форма', 'Порог', ''].map((h, i) => <th key={i} style={th}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {items.map((it) => (
+                <tr key={it.dataset_code + it.field}>
+                  <td style={td}>{it.name}</td>
+                  <td style={{ ...td, color: 'var(--text-muted)' }}>{it.object_name}</td>
+                  <td style={td}>{it.text || <span style={{ color: 'var(--text-faint)' }}>не задан</span>}</td>
+                  <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <button style={btnGhost} onClick={() => setEdit(it)} aria-label={`${it.norm ? 'Изменить' : 'Задать'} порог «${it.name}» (${it.object_name})`}>
+                      {it.norm ? '✎ Изменить' : '＋ Задать'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={{ ...muted, marginTop: 6 }}>
+        Порог один на показатель: после сохранения пересчитываются все виджеты с этой графой — карточки, рейтинги,
+        матрицы, таблицы, динамика, — и превышения появляются в блоке «На что посмотреть». У времени «меньше — лучше».
+      </div>
+      {edit && <NormDialog f={edit} onClose={() => setEdit(null)} onSaved={load} />}
+    </Section>
   )
 }
 

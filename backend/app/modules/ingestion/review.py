@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .quality import check_release, previous_release_values, release_is_registry
+from .quality import check_release, duration_context, previous_release_values, release_is_registry
 
 # Сколько отчётов проверяем по умолчанию и максимум за один раз. Проверка
 # читает значения КАЖДОГО отчёта целиком (у широкой формы это двадцать тысяч
@@ -43,6 +43,7 @@ TITLES = {
     "same_as_previous": "Данные совпадают с прошлым отчётом",
     "plan_changed": "План изменился задним числом",
     "multiplied_by_factor": "Показатели умножены на один коэффициент",
+    "duration_too_long": "Время больше допустимого — похоже на сбой учёта",
     "quality_checks_failed": "Проверки качества не отработали",
     "summary_sheet_mismatch": "Лист расходится со сводкой той же книги",
 }
@@ -98,6 +99,7 @@ async def quality_review(conn, org_id, object_id, code: Optional[str] = None,
 
     prev, prev_period = await previous_release_values(
         conn, org_id, code, releases[0]["period"])
+    units, limit_h = await duration_context(conn, org_id, code)
 
     items: list[dict] = []
     issues: dict[str, dict] = {}
@@ -105,7 +107,8 @@ async def quality_review(conn, org_id, object_id, code: Optional[str] = None,
     for rel in releases:
         current = await _values(conn, rel["id"])
         warnings = (check_release(current, names, prev, prev_period,
-                                  registry=await release_is_registry(conn, rel["id"]))
+                                  registry=await release_is_registry(conn, rel["id"]),
+                                  units=units, duration_limit_hours=limit_h)
                     if current else [])
         period = rel["period"].isoformat()
         if warnings:

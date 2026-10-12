@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from ..ingestion.quality import check_release, previous_release_values, release_is_registry
+from ..ingestion.quality import check_release, duration_context, previous_release_values, release_is_registry
 from ._norms import field_norms, norm_warnings
 from ._rowrls import allowed_rows_for_dataset
 
@@ -82,8 +82,10 @@ async def page_attention(conn, org_id, page_id: str, user: dict) -> dict:
             "select code, name from canonical_fields where object_id=$1", rel["object_id"])}
         # Прошлого выпуска может не быть (первый файл формы) — арифметику
         # внутри файла это не отменяет, поэтому молчать здесь больше нельзя.
+        units, limit_h = await duration_context(conn, org_id, code)
         warnings = check_release(current, names, previous, prev_period, partial=partial,
-                                 registry=await release_is_registry(conn, rel["id"]))
+                                 registry=await release_is_registry(conn, rel["id"]),
+                                 units=units, duration_limit_hours=limit_h)
         # Порог показателя: «выше порога у N строк» — тоже то, на что стоит
         # посмотреть, и считается тем же правилом, что красит виджеты.
         warnings += norm_warnings(current, await field_norms(conn, org_id, code))

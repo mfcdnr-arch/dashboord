@@ -67,7 +67,7 @@ function parseInput(s: string, duration: boolean): number | null | 'bad' {
   return isFinite(n) && n >= 0 ? n : 'bad'
 }
 
-function NormDialog({ f, onClose }: { f: NormField; onClose: () => void }) {
+export function NormDialog({ f, onClose, onSaved }: { f: NormField; onClose: () => void; onSaved?: () => void }) {
   const duration = f.unit === DURATION_UNIT
   const lower = (f.norm?.direction || f.direction) === 'lower'
   const [warn, setWarn] = useState(f.norm?.warn != null ? String(f.norm.warn) : '')
@@ -86,6 +86,7 @@ function NormDialog({ f, onClose }: { f: NormField; onClose: () => void }) {
       await putFieldNorm(f.dataset_code, f.field, clear ? { warn: null, danger: null }
         : { warn: w as number | null, danger: d as number | null })
       window.dispatchEvent(new CustomEvent(NORM_CHANGED))
+      onSaved?.()
       onClose()
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }

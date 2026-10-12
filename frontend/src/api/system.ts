@@ -46,6 +46,9 @@ export interface OrgThresholds {
    *  в очереди администратора (сам по себе ничего не запрещает). */
   appeal_response_hours: number
   retention_months: number
+  /** Проверка качества «время больше N часов» (ожидание, обслуживание): день
+   *  с таким значением авто-выпуск оставляет человеку. 0 — выключена. */
+  duration_limit_hours: number
 }
 export interface AllSettings {
   system: SystemThresholds

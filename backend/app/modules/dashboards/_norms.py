@@ -113,11 +113,25 @@ def _widget_fields(wtype: str, cfg: dict, res: dict) -> list:
     """Графы, которые показывает виджет (без сводов нескольких граф)."""
     if cfg.get("measure"):
         return []  # рейтинг по мере — свод нескольких граф
+    cross = cfg.get("cross")
+    if cross is not None and not _cross_bound(cross, cfg):
+        # «Талонов на окно» — не «талоны»: порог графы-талонов к отношению
+        # не относится. Порог получает только показатель, ЯВНО привязанный к
+        # графе того же смысла (взвешенное ожидание ↔ ожидание).
+        return []
     if wtype == "table":
         return list(res.get("columns") or [])
     one = cfg.get("value_field")
     many = cfg.get("value_fields") or []
     return [one] if one else list(many)
+
+
+def _cross_bound(cross: dict, cfg: dict) -> bool:
+    if cross.get("norm_field"):
+        return cross["norm_field"] == cfg.get("value_field")
+    # Виджеты, собранные до 12.10.2026 (без явной привязки): взвешенное
+    # время — в минутах, как и его графа; у отношений единицы нет.
+    return bool(cross.get("unit")) and cross.get("unit") == DURATION_UNIT
 
 
 async def apply_norms(conn, org_id, wtype: str, cfg: dict, res: dict) -> dict:
@@ -133,6 +147,12 @@ async def apply_norms(conn, org_id, wtype: str, cfg: dict, res: dict) -> dict:
         return res
     norms = await field_norms(conn, org_id, code)
     fields = [f for f in _widget_fields(wtype, cfg, res) if f in norms]
+    # Виджет по ОДНОЙ графе времени печатает её «ч мин с», даже если единицу в
+    # настройке виджета не указали (собран руками, а не мастером): иначе
+    # матрица ожидания показывала «14,05» вместо «14 мин 3 с» (12.10.2026).
+    if (len(fields) == 1 and wtype != "table" and not cfg.get("unit") and not res.get("unit")
+            and norms[fields[0]]["unit"] == DURATION_UNIT):
+        res["unit"] = DURATION_UNIT
     shown = [f for f in fields if norms[f]["norm"] or norms[f]["unit"] == DURATION_UNIT]
     if not shown:
         return res
@@ -197,8 +217,25 @@ async def apply_norms(conn, org_id, wtype: str, cfg: dict, res: dict) -> dict:
 
     if wtype == "matrix" and res.get("by") != "fields" and len(fields) == 1 and fields[0] in active:
         f = active[fields[0]]
-        res["norm_cells"] = [[level(v, f["norm"]) for v in (r.get("values") or [])] for r in res.get("rows") or []]
+        # Уровень кладётся В САМУ строку: матрицу сортируют кликом по
+        # заголовку, и отдельный список по индексам после сортировки красил
+        # бы чужие клетки.
+        cells = []
+        for r in res.get("rows") or []:
+            r["norm_levels"] = [level(v, f["norm"]) for v in (r.get("values") or [])]
+            cells.append(r["norm_levels"])
+        res["norm_cells"] = cells
+        res["norm_summary"] = _matrix_summary(cells, f)
     return res
+
+
+def _matrix_summary(cells: list, f: dict) -> Optional[str]:
+    """По последнему столбцу матрицы: сколько строк выше порога сейчас."""
+    last = [row[-1] for row in cells if row]
+    if not any(last):
+        return None
+    counts = {k: sum(1 for x in last if x == k) for k in ("danger", "warn", "good")}
+    return "в последнем отчёте — " + _summary(counts, f)
 
 
 def _summary(counts: dict, f: dict) -> str:
@@ -251,6 +288,42 @@ async def set_norm(conn, org_id, user_id, dataset_code: str, field: str,
     await cache.delete_prefix("wd:")
     return {"field": field, "name": row["name"], "unit": row["unit"], "norm": norm,
             "text": describe(norm, row["unit"]) if norm else None}
+
+
+async def list_norms(conn, org_id) -> list:
+    """Все графы, у которых порог задан или напрашивается (длительность), —
+    для общего списка «Пороги показателей» в «Настройках».
+
+    Поправить порог можно и из любого виджета, но администратору нужен ОДИН
+    экран, где видно всё сразу: иначе, чтобы узнать, какие пороги вообще
+    действуют, пришлось бы обойти все дашборды.
+    """
+    rows = await conn.fetch(
+        "select cf.code, cf.name, cf.unit, cf.norm, o.name as object_name, "
+        " coalesce((select dr.code from dataset_release_fields rf "
+        "    join dataset_releases dr on dr.id = rf.dataset_release_id "
+        "   where dr.object_id = cf.object_id and rf.canonical_field_code = cf.code "
+        "   order by dr.reporting_period_start desc nulls last limit 1), "
+        # Выпуски, у которых графы не объявлены (загружены до 23.09.2026 или
+        # строками), — по самим значениям; дороже, поэтому только запасным путём.
+        "  (select dr.code from dataset_releases dr where dr.object_id = cf.object_id "
+        "     and exists(select 1 from dataset_values dv where dv.dataset_release_id = dr.id "
+        "                and dv.canonical_field_code = cf.code) "
+        "   order by dr.reporting_period_start desc nulls last limit 1)) as dataset_code "
+        "from canonical_fields cf join objects o on o.id = cf.object_id "
+        "where o.organization_id = $1 and (cf.norm is not null or cf.unit = $2) "
+        "order by o.name, cf.name", org_id, DURATION_UNIT)
+    out = []
+    for r in rows:
+        if not r["dataset_code"]:
+            continue  # графа без выпусков — порог применить не к чему
+        norm = _jsonb(r["norm"])
+        out.append({"dataset_code": r["dataset_code"], "field": r["code"], "name": r["name"],
+                    "unit": r["unit"], "object_name": r["object_name"], "norm": norm,
+                    "direction": (norm or {}).get("direction") or default_direction(r["unit"]),
+                    "text": describe(norm, r["unit"]) if norm else None,
+                    "updated_at": (norm or {}).get("updated_at")})
+    return out
 
 
 # --- «На что посмотреть» ----------------------------------------------------

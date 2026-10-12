@@ -24,7 +24,7 @@ from app.modules.dashboards._suggest import WIDGET_SIZE
 
 FRONTEND_FILE = Path(__file__).resolve().parents[2] / "frontend/src/lib/flowLayout.ts"
 FULL_WIDTH = {"table", "pivot", "matrix", "text", "spark_table", "field_list", "heatmap",
-              "compare", "cross_dataset_compare"}
+              "compare", "cross_dataset_compare", "scatter"}
 
 
 def _frontend_sizes() -> dict[str, tuple[int, int]]:

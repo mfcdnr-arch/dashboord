@@ -114,3 +114,23 @@ async def test_norm_reaches_attention_and_validates(client, admin_headers, viewe
         assert r.json()["norm"] is None
     finally:
         await purge_dashboard(did)
+
+
+async def test_matrix_cells_carry_their_own_norm_level(client, admin_headers, wait_field):
+    """Уровень порога лежит в САМОЙ строке матрицы: её сортируют кликом, и
+    список по индексам красил бы чужие клетки."""
+    await client.put("/widgets/norms/t_ds/fact", headers=admin_headers, json={"warn": 30, "danger": 50})
+    r = await client.post("/widgets/preview", headers=admin_headers, json={
+        "widget_type": "matrix", "name": "x", "config": {"dataset_code": "t_ds", "value_field": "fact", "unit": "мин"}})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    levels = {row["row"]: row["norm_levels"][-1] for row in d["rows"]}
+    assert levels == {"Паспорт": "danger", "ИНН": "danger", "СНИЛС": "good"}  # 90, 55, 28 мин
+    assert d["norm_summary"].startswith("в последнем отчёте — выше порога 50 мин: 2")
+
+
+async def test_single_duration_field_widget_gets_its_unit(client, admin_headers, wait_field):
+    """Виджет по одной графе времени, собранный без единицы, печатает минуты как время."""
+    r = await client.post("/widgets/preview", headers=admin_headers, json={
+        "widget_type": "matrix", "name": "x", "config": {"dataset_code": "t_ds", "value_field": "fact"}})
+    assert r.json()["unit"] == "мин"

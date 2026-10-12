@@ -1122,6 +1122,24 @@ export async function getCrossPagePlan(dashboardId: string): Promise<{ indicator
   if (!res.ok) throw new Error(await errText(res))
   return res.json()
 }
+export interface CrossPart { dataset_code: string; field: string }
+export interface CrossSpec {
+  num: CrossPart[]; den: CrossPart[]; unit?: string | null
+  /** Графа, чей порог применяется к показателю (взвешенное ожидание ↔ ожидание). */
+  norm_field?: string; name?: string; span?: string
+}
+export interface CrossPreset extends CrossIndicator { cross: CrossSpec; bind: CrossPart }
+export async function getCrossPresets(): Promise<{ indicators: CrossPreset[] }> {
+  return jsonOrThrow(await fetch('/widgets/cross-presets', { headers: authH() }))
+}
+export interface NormListItem {
+  dataset_code: string; field: string; name: string; unit: string | null; object_name: string
+  norm: { warn: number | null; danger: number | null; direction: 'lower' | 'higher' } | null
+  direction: 'lower' | 'higher'; text: string | null; updated_at: string | null
+}
+export async function getFieldNorms(): Promise<{ items: NormListItem[] }> {
+  return jsonOrThrow(await fetch('/widgets/norms', { headers: authH() }))
+}
 export async function buildCrossPage(dashboardId: string): Promise<{ page_id: string; page: string; widgets: number }> {
   const res = await fetch(`/dashboards/${dashboardId}/cross-page`, { method: 'POST', headers: authH() })
   if (!res.ok) throw new Error(await errText(res))

@@ -113,3 +113,60 @@ async def test_cross_page_needs_matching_fields(client, admin_headers):
             assert r.status_code == 400 and "нет форм" in r.json()["detail"]
     finally:
         await purge_dashboard(did)
+
+
+async def test_ranked_span_without_page_period(client, admin_headers, two_forms):
+    """Окно рейтинга (12.10.2026): без периода страницы — «последний день»
+    по умолчанию (как было), «7 дней с данными» складывает оба дня."""
+    base = _cross([(A, "tickets")], [(B, "windows")])
+    last = await _preview(client, admin_headers, "ranked", base)
+    assert {x["label"]: x["value"] for x in last["rows"]} == {"Большое": pytest.approx(10.0), "Малое": pytest.approx(10.0)}
+    week = await _preview(client, admin_headers, "ranked", {**base, "cross": {**base["cross"], "span": "7"}})
+    # (300 + 150) / (15 + 15) = 15; (30 + 10) / (1 + 1) = 20 — отношение сумм за окно.
+    assert {x["label"]: x["value"] for x in week["rows"]} == {"Большое": pytest.approx(15.0), "Малое": pytest.approx(20.0)}
+    assert "с 01.03.2026 по 02.03.2026 (2 дн. с данными)" in week["cross_note"]
+
+
+async def test_scatter_splits_offices_by_medians(client, admin_headers, two_forms):
+    """Нагрузка на окно ↔ взвешенное ожидание: точка только там, где есть оба
+    показателя за ТОТ ЖЕ день; четверти — по медианам."""
+    x = {"num": [{"dataset_code": A, "field": "tickets"}], "den": [{"dataset_code": B, "field": "windows"}],
+         "name": "Талонов на окно"}
+    y = {"num": [{"dataset_code": A, "field": "wait"}, {"dataset_code": A, "field": "tickets"}],
+         "den": [{"dataset_code": A, "field": "tickets"}], "unit": "мин", "name": "Ожидание"}
+    r = await _preview(client, admin_headers, "scatter", {"scatter": {"x": x, "y": y, "span": "all"}})
+    pts = {p["label"]: p for p in r["points"]}
+    # Ожидание есть только за 01.03 — значит и нагрузка берётся только за 01.03.
+    assert pts["Большое"]["x"] == pytest.approx(20.0) and pts["Большое"]["y"] == pytest.approx(10.0)
+    assert pts["Малое"]["x"] == pytest.approx(30.0) and pts["Малое"]["y"] == pytest.approx(40.0)
+    assert "Только в талонах" not in pts
+    assert r["x_median"] == pytest.approx(25.0) and r["y_median"] == pytest.approx(25.0)
+    assert pts["Малое"]["quadrant"] == "hi-hi" and pts["Большое"]["quadrant"] == "lo-lo"
+    q = {it["key"]: it["count"] for it in r["quadrants"]}
+    assert q == {"hi-hi": 1, "lo-hi": 0, "hi-lo": 0, "lo-lo": 1}
+    assert r["x_name"] == "Талонов на окно" and r["y_unit"] == "мин"
+
+
+async def test_ratio_does_not_borrow_the_norm_of_its_field(client, admin_headers, two_forms):
+    """Порог графы «талоны» к «талонам на окно» не относится; взвешенное
+    ожидание, явно привязанное к «ожиданию», получает его порог."""
+    async with db.acquire() as conn:
+        obj = await conn.fetchval("select id from objects where name='t_obj'")
+        for code, unit, norm in (("tickets", None, '{"warn": null, "danger": 5, "direction": "higher"}'),
+                                 ("wait", "мин", '{"warn": 15, "danger": 30, "direction": "lower"}')):
+            await conn.execute(
+                "insert into canonical_fields(object_id, code, name, data_type, unit, norm) "
+                "values($1,$2,$2,'number',$3,$4::jsonb) on conflict (object_id, code) "
+                "do update set unit=excluded.unit, norm=excluded.norm", obj, code, unit, norm)
+    try:
+        ratio = await _preview(client, admin_headers, "ranked", _cross([(A, "tickets")], [(B, "windows")]))
+        assert "norm_fields" not in ratio and "norm_summary" not in ratio
+        w = _cross([(A, "wait"), (A, "tickets")], [(A, "tickets")], unit="мин")
+        w["value_field"] = "wait"
+        w["cross"]["norm_field"] = "wait"
+        k = await _preview(client, admin_headers, "kpi", w)
+        assert k["norm_fields"][0]["field"] == "wait"
+    finally:
+        async with db.acquire() as conn:
+            await conn.execute("delete from canonical_fields where object_id=$1 and code = any($2::text[])",
+                               obj, ["tickets", "wait"])

@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import {
   createMetric, createVersion, metricSuggestions, previewWidget,
-  type DataSources, type MetricSource, type MetricSuggestion, type Widget,
+  type CrossSpec, type DataSources, type MetricSource, type MetricSuggestion, type Widget,
 } from '../../api'
 import { WidgetPreviewBody } from '../WidgetView'
 import FormulaBuilder from '../FormulaBuilder'
@@ -9,6 +9,7 @@ import { dataUriBytes, fileToEmbeddableDataUri } from '../../lib/image'
 import { DEFAULT_SIZE, WT, btn, btnAuto, btnGhost, resizeOnTypeChange, sel, tab, tabActive, wtBadge } from './shared'
 import { WidgetPicker, WIDGET_META } from './WidgetPicker'
 import Field from '../Field'
+import CrossBuilder, { SPAN_OPTIONS, crossValid, emptyCross } from './CrossBuilder'
 import { WhereEditor, whereFromConfig, whereToConfig, type WhereCond } from './WhereEditor'
 
 /** Датасет — это НЕ один файл, а ряд отчётов одной формы: пятнадцать недель
@@ -201,7 +202,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   // Оба стоят по одному дополнительному запросу, поэтому включаются осознанно.
   const [cmpPrev, setCmpPrev] = useState(Boolean((initial?.config as Record<string, unknown> | undefined)?.compare_prev))
   const [spark, setSpark] = useState(Boolean((initial?.config as Record<string, unknown> | undefined)?.spark))
-  const [source, setSource] = useState<'metric' | 'dataset' | 'formula'>(cfg0.formula ? 'formula' : (cfg0.metric_code || cfg0.plan_metric) ? 'metric' : (cfg0.dataset_code ? 'dataset' : 'metric'))
+  const [source, setSource] = useState<'metric' | 'dataset' | 'formula' | 'cross'>(cfg0.cross ? 'cross' : cfg0.formula ? 'formula' : (cfg0.metric_code || cfg0.plan_metric) ? 'metric' : (cfg0.dataset_code ? 'dataset' : 'metric'))
   const [formulaDsl, setFormulaDsl] = useState<string>(cfg0.formula || '')
   const [formulaUnit, setFormulaUnit] = useState<string>(cfg0.unit || '')
   // Режим ввода формулы: визуальный сборщик (по умолчанию) или ручной текст DSL.
@@ -310,6 +311,17 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const [deadline, setDeadline] = useState<string>((cfg0.deadline as string) || '')
   const [thermStart, setThermStart] = useState<string>((cfg0.start as string) || '')
 
+  // Показатель МЕЖДУ формами (талонов на окно-час, взвешенное ожидание): у
+  // карточки и спидометра — как ещё один «Источник», у динамики и рейтинга —
+  // галочкой; у точечной диаграммы — две оси, каждая такой показатель.
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const [crossOn, setCrossOn] = useState<boolean>(Boolean(cfg0.cross))
+  const [crossSpec, setCrossSpec] = useState<CrossSpec>((cfg0.cross as CrossSpec) || emptyCross(sources))
+  const [crossSpan, setCrossSpan] = useState<string>(String((cfg0.cross as any)?.span || (cfg0.scatter as any)?.span || (initial ? 'last' : '7')))
+  const [scX, setScX] = useState<CrossSpec>((cfg0.scatter as any)?.x || emptyCross(sources))
+  const [scY, setScY] = useState<CrossSpec>((cfg0.scatter as any)?.y || emptyCross(sources))
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+
   const [pickerOpen, setPickerOpen] = useState(false)
   // Разрез матрицы: строки формы (районы) или её показатели. У сводной формы
   // строка одна, и осмыслен только второй разрез.
@@ -320,11 +332,14 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   const isCrossCompare = type === 'cross_dataset_compare'
   const isText = type === 'text'
   const isImage = type === 'image'
+  const isScatter = type === 'scatter'
+  const isCross = (['kpi', 'gauge'].includes(type) && source === 'cross')
+    || (['dynamics', 'ranked'].includes(type) && crossOn)
   const usesSource = type === 'kpi' || type === 'gauge' || type === 'plan_fact'
-  const usesDataset = (usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall', 'matrix', 'bullet', 'thermometer', 'ranked', 'spark_table', 'field_list'].includes(type)
+  const usesDataset = !isCross && !isScatter && ((usesSource && source === 'dataset') || type === 'table' || ['bar', 'line', 'pie', 'dynamics', 'yoy', 'compare', 'heatmap', 'pivot', 'waterfall', 'matrix', 'bullet', 'thermometer', 'ranked', 'spark_table', 'field_list'].includes(type))
   const canCount = (type === 'kpi' && source === 'dataset') || ['bar', 'pie', 'heatmap'].includes(type)
   const counting = canCount && countMode
-  const usesValueField = !counting && ((['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall', 'spark_table'].includes(type)
+  const usesValueField = !isCross && !counting && ((['bar', 'line', 'pie', 'dynamics', 'yoy', 'waterfall', 'spark_table'].includes(type)
     || (type === 'ranked' && !rankMeasure))
     || (type === 'matrix' && matrixBy !== 'fields')
     || (['kpi', 'gauge'].includes(type) && source === 'dataset'))
@@ -385,6 +400,19 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
   function baseConfig(): Record<string, unknown> | null {
     if (type === 'text') return { heading: heading.trim() || undefined, body: bodyText.trim() || undefined, align }
     if (type === 'image') return imgUrl.trim() ? { url: imgUrl.trim(), caption: caption.trim() || undefined, fit: 'contain' } : null
+    if (isScatter) {
+      if (!crossValid(scX) || !crossValid(scY)) return null
+      return { scatter: { x: scX, y: scY, span: crossSpan } }
+    }
+    if (isCross) {
+      if (!crossValid(crossSpec)) return null
+      const bind = crossSpec.num.find((p) => p.field === crossSpec.norm_field) || crossSpec.num[0]
+      const c: Record<string, unknown> = { ...crossSpec, ...(type === 'ranked' ? { span: crossSpan } : {}) }
+      if (type !== 'ranked') delete c.span
+      return { cross: c, dataset_code: bind.dataset_code, value_field: bind.field,
+        ...(crossSpec.unit ? { unit: crossSpec.unit } : {}),
+        ...(type === 'ranked' ? { top_n: Number(topN) || 5 } : {}) }
+    }
     if (counting) {
       if (!dataset) return null
       const where = whereToConfig(conds)
@@ -545,7 +573,7 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
     }
     if (help.trim()) config.help = help.trim()  // авторская подсказка → тултип на виджете
     const body: { name: string; widget_type: string; config: Record<string, unknown>; width?: number; height?: number } = {
-      name: name.trim() || WT.find((x) => x.v === type)?.t || type, widget_type: type, config,
+      name: name.trim() || WIDGET_META[type]?.t || WT.find((x) => x.v === type)?.t || type, widget_type: type, config,
     }
     if (!initial) {
       const sz = DEFAULT_SIZE[type] || { w: 4, h: 4 }
@@ -614,7 +642,33 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
         <Field size="sm" label="Источник"><select style={sel} value={source} onChange={(e) => setSource(e.target.value as 'metric' | 'dataset' | 'formula')}>
           <option value="metric">Метрика</option><option value="dataset">Датасет</option>
           {['kpi', 'gauge'].includes(type) && <option value="formula">Формула</option>}
+          {['kpi', 'gauge'].includes(type) && <option value="cross">Между формами 🔗</option>}
         </select></Field>
+      )}
+      {['dynamics', 'ranked'].includes(type) && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 34 }}
+          title="Показатель из нескольких форм: например, талонов на окно-час или ожидание, взвешенное по талонам">
+          <input type="checkbox" checked={crossOn} onChange={(e) => setCrossOn(e.target.checked)} />Показатель между формами 🔗
+        </label>
+      )}
+      {isCross && <CrossBuilder sources={sources} value={crossSpec} onChange={setCrossSpec} />}
+      {(isScatter || (isCross && type === 'ranked')) && (
+        <Field size="sm" label={isScatter ? 'Точки — за' : 'Рейтинг — за'}
+          hint="Если на странице выбран период, берётся он. Один день отделения — шум (отпуск, сбой талонного аппарата), поэтому для разбора лучше неделя.">
+          <select style={sel} value={crossSpan} onChange={(e) => setCrossSpan(e.target.value)}>
+            {SPAN_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
+          </select>
+        </Field>
+      )}
+      {isScatter && (
+        <>
+          <div style={{ flexBasis: '100%', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+            Точка — отделение. Черты делят отделения по медиане: справа вверху много посетителей на окно и долгое
+            ожидание (не хватает окон), слева вверху ожидание долгое при малой нагрузке (смотреть скорость обслуживания).
+          </div>
+          <CrossBuilder sources={sources} value={scX} onChange={setScX} label="По горизонтали (например, нагрузка на окно-час)" />
+          <CrossBuilder sources={sources} value={scY} onChange={setScY} label="По вертикали (например, ожидание, взвешенное по талонам)" />
+        </>
       )}
       {['kpi', 'gauge'].includes(type) && source === 'formula' && (
         <>
@@ -804,7 +858,11 @@ export function WidgetForm({ sources, onCreate, initial, submitLabel }: {
           </Field>
         </>
       )}
-      {type === 'ranked' && (
+      {type === 'ranked' && isCross && (
+        <Field size="sm" label="Строк с каждого конца"><input style={{ ...sel, width: 100 }} type="number" min={1} max={15}
+          value={topN} onChange={(e) => setTopN(e.target.value)} /></Field>
+      )}
+      {type === 'ranked' && !isCross && (
         <>
           {/* Мера сворачивает графы ветки лестницы в одно число на строку.
               Показываем переключатель только там, где форма называет своё
