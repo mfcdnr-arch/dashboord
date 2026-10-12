@@ -2351,9 +2351,9 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
                 })}
                 {periods.length > 1 && (
                 <td style={{ ...totCell, textAlign: 'right', whiteSpace: 'nowrap',
-                  color: typeof r.total_change === 'number' ? (r.total_change >= 0 ? 'var(--success)' : 'var(--danger)') : undefined }}
+                  color: typeof r.total_change === 'number' ? ((lowerBetter ? r.total_change <= 0 : r.total_change >= 0) ? 'var(--success)' : 'var(--danger)') : undefined }}
                   title="Изменение от первого показанного отчёта к последнему">
-                  {typeof r.total_change === 'number' ? `${r.total_change > 0 ? '+' : ''}${fmt(r.total_change)}` : '—'}
+                  {typeof r.total_change === 'number' ? `${r.total_change > 0 ? '+' : ''}${fmtDelta(r.total_change)}` : '—'}
                   {typeof r.total_change_pct === 'number' && (
                     <div style={{ fontSize: 10.5 }}>{r.total_change_pct > 0 ? '+' : ''}{fmt(r.total_change_pct)} %</div>
                   )}
@@ -2369,7 +2369,7 @@ function Body({ data, onPick, print = false }: { data: any; onPick?: (name: stri
             <tfoot><tr>
               <td style={{ ...totCell, ...stickyCol, background: 'var(--surface-2)' }}>Итого</td>
               {(data.col_totals || []).map((v: number | null, i: number) => (
-                <td key={i} style={{ ...totCell, textAlign: 'right' }}>{typeof v === 'number' ? fmt(v) : '—'}</td>
+                <td key={i} style={{ ...totCell, textAlign: 'right' }}>{typeof v === 'number' ? fmtWithUnit(v, data.unit) : '—'}</td>
               ))}
               {periods.length > 1 && <td style={totCell} />}
             </tr></tfoot>
